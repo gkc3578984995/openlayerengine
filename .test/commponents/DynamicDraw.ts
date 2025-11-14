@@ -22,7 +22,7 @@ export const testDynamicDraw = () => {
   const dynamicDraw = useEarth().useDrawTool();
   dynamicDraw.drawwCurvePolyline({
     callback: (e) => {
-      console.log(e);
+      // console.log(e);
       if (e.type === DrawType.Drawend) {
         // setTimeout(() => {
         //   useEarth()
