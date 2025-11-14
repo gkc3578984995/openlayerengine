@@ -18,7 +18,7 @@ import { Layer } from 'ol/layer';
 import { Source } from 'ol/source';
 import LayerRenderer from 'ol/renderer/Layer';
 import { Stroke } from 'ol/style';
-import {ScaleLine} from 'ol/control';
+import { ScaleLine } from 'ol/control';
 /**
  * 地图基类
  */
@@ -428,8 +428,8 @@ export default class Earth {
       }),
       showLabels: true,
       wrapX: true,
-      lonLabelPosition: 0.98,
-      latLabelPosition: 0.03,
+      lonLabelPosition: 0.985,
+      latLabelPosition: 0.985,
       properties: {
         layerType: 'graticule'
       }
