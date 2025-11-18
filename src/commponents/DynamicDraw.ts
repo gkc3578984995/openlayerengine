@@ -531,31 +531,33 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new Circle([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const CircleParam = {
-          positions: coords,
-          plotType: EPlotType.Circle,
-          plotPoints: e.points,
-          center: e.center ? e.center : null,
-          radius: e.radius ? e.radius : null,
-        };
-        f?.set('param', CircleParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new Circle([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const CircleParam = {
+            positions: coords,
+            plotType: EPlotType.Circle,
+            plotPoints: e.points,
+            center: e.center ? e.center : null,
+            radius: e.radius ? e.radius : null,
+          };
+          f?.set('param', CircleParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -598,29 +600,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new Ellipse([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const ellipseParam = {
-          positions: coords,
-          plotType: EPlotType.Ellipse,
-          plotPoints: e.points,
-        };
-        f?.set('param', ellipseParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new Ellipse([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const ellipseParam = {
+            positions: coords,
+            plotType: EPlotType.Ellipse,
+            plotPoints: e.points,
+          };
+          f?.set('param', ellipseParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -731,29 +735,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new TailedAttackArrow([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const tailedattackArrowParam = {
-          positions: coords,
-          plotType: EPlotType.TailedAttackArrow,
-          plotPoints: e.points
-        };
-        f?.set('param', tailedattackArrowParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new TailedAttackArrow([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const tailedattackArrowParam = {
+            positions: coords,
+            plotType: EPlotType.TailedAttackArrow,
+            plotPoints: e.points
+          };
+          f?.set('param', tailedattackArrowParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -796,29 +802,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new FineArrow([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const fineArrowParam = {
-          positions: coords,
-          plotType: EPlotType.FineArrow,
-          plotPoints: e.points
-        };
-        f?.set('param', fineArrowParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new FineArrow([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const fineArrowParam = {
+            positions: coords,
+            plotType: EPlotType.FineArrow,
+            plotPoints: e.points
+          };
+          f?.set('param', fineArrowParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -861,29 +869,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new TailedSquadCombat([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const tailedSquadCombatParam = {
-          positions: coords,
-          plotType: EPlotType.TailedSquadCombatArrow,
-          plotPoints: e.points
-        };
-        f?.set('param', tailedSquadCombatParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
-        const featurePosition = [];
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new TailedSquadCombat([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const tailedSquadCombatParam = {
+            positions: coords,
+            plotType: EPlotType.TailedSquadCombatArrow,
+            plotPoints: e.points
+          };
+          f?.set('param', tailedSquadCombatParam);
+          response.feature = f;
+        }
+        const featurePosition = [] as any[];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -926,29 +936,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new AssaultDirectionArrow([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const assaultDirectionArrowParam = {
-          positions: coords,
-          plotType: EPlotType.AssaultDirectionArrow,
-          plotPoints: e.points
-        };
-        f?.set('param', assaultDirectionArrowParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
-        const featurePosition = [];
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new AssaultDirectionArrow([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const assaultDirectionArrowParam = {
+            positions: coords,
+            plotType: EPlotType.AssaultDirectionArrow,
+            plotPoints: e.points
+          };
+          f?.set('param', assaultDirectionArrowParam);
+          response.feature = f;
+        }
+        const featurePosition = [] as any[];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -991,29 +1003,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 5) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new DoubleArrow([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const doubleArrowParam = {
-          positions: coords,
-          plotType: EPlotType.DoubleArrow,
-          plotPoints: e.points
-        };
-        f?.set('param', doubleArrowParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
-        const featurePosition = [];
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new DoubleArrow([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const doubleArrowParam = {
+            positions: coords,
+            plotType: EPlotType.DoubleArrow,
+            plotPoints: e.points
+          };
+          f?.set('param', doubleArrowParam);
+          response.feature = f;
+        }
+        const featurePosition = [] as any[];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -1056,29 +1070,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new AssemblePolygon([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const assemblePolygonParam = {
-          positions: coords,
-          plotType: EPlotType.AssemblePolygon,
-          plotPoints: e.points
-        };
-        f?.set('param', assemblePolygonParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new AssemblePolygon([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const assemblePolygonParam = {
+            positions: coords,
+            plotType: EPlotType.AssemblePolygon,
+            plotPoints: e.points
+          };
+          f?.set('param', assemblePolygonParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -1121,29 +1137,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new ClosedCurvePolygon([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const closedCurvePolygonParam = {
-          positions: coords,
-          plotType: EPlotType.ClosedCurvePolygon,
-          plotPoints: e.points
-        };
-        f?.set('param', closedCurvePolygonParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new ClosedCurvePolygon([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const closedCurvePolygonParam = {
+            positions: coords,
+            plotType: EPlotType.ClosedCurvePolygon,
+            plotPoints: e.points
+          };
+          f?.set('param', closedCurvePolygonParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -1186,29 +1204,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new SectorPolygon([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const sectorPolygonParam = {
-          positions: coords,
-          plotType: EPlotType.SectorPolygon,
-          plotPoints: e.points
-        };
-        f?.set('param', sectorPolygonParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new SectorPolygon([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const sectorPolygonParam = {
+            positions: coords,
+            plotType: EPlotType.SectorPolygon,
+            plotPoints: e.points
+          };
+          f?.set('param', sectorPolygonParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -1251,29 +1271,31 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
-        const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-        const geom = new LunePolygon([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-        });
-        const lunePolygonParam = {
-          positions: coords,
-          plotType: EPlotType.LunePolygon,
-          plotPoints: e.points
-        };
-        f?.set('param', lunePolygonParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
+          const geom = new LunePolygon([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
+          });
+          const lunePolygonParam = {
+            positions: coords,
+            plotType: EPlotType.LunePolygon,
+            plotPoints: e.points
+          };
+          f?.set('param', lunePolygonParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -1316,28 +1338,30 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
-        const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
-        const geom = new LunePolyline([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-        });
-        const lunePolylineParam = {
-          positions: coords,
-          plotType: EPlotType.LuneLine,
-          plotPoints: e.points
-        };
-        f?.set('param', lunePolylineParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
+          const geom = new LunePolyline([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+          });
+          const lunePolylineParam = {
+            positions: coords,
+            plotType: EPlotType.LuneLine,
+            plotPoints: e.points
+          };
+          f?.set('param', lunePolylineParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -1380,28 +1404,30 @@ export default class DynamicDraw {
     });
     plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 1) {
-        const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
-        const geom = new CurvePolyline([], e.points, {});
-        const coords = geom.getCoordinates();
-        const f = baseLayer?.add({
-          positions: coords,
-          stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-        });
-        const curvePolylineParam = {
-          positions: coords,
-          plotType: EPlotType.CurvePolyline,
-          plotPoints: e.points
-        };
-        f?.set('param', curvePolylineParam);
         const response: IDrawEvent = {
           type: DrawType.Drawend,
           eventPosition: toLonLat(e.points[e.points.length - 1])
         };
+        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+          const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
+          const geom = new CurvePolyline([], e.points, {});
+          const coords = geom.getCoordinates();
+          const f = baseLayer?.add({
+            positions: coords,
+            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
+          });
+          const curvePolylineParam = {
+            positions: coords,
+            plotType: EPlotType.CurvePolyline,
+            plotPoints: e.points
+          };
+          f?.set('param', curvePolylineParam);
+          response.feature = f;
+        }
         const featurePosition = [];
         for (const item of e.coordinates![0]) {
           featurePosition.push(toLonLat(item));
         }
-        response.feature = f;
         response.featurePosition = featurePosition;
         param?.callback?.call(this, response);
       } else {
@@ -1992,6 +2018,132 @@ export default class DynamicDraw {
       }
       // 仅清空临时绘制层，不移除基础图层结果
       this.tempSource.clear();
+    }
+  }
+
+  /**
+   * 销毁绘制工具（统一清理）
+   * - 解除并移除当前/历史由本工具创建的交互（标记 dynamicDraw=true）
+   * - 关闭并移除提示覆盖物与 DOM
+   * - 清空并移除临时绘制图层
+   * - 解除内部键盘监听与全局鼠标事件
+   * - 可选：移除本工具创建的图形或销毁内部基础图层
+   * @param options 配置项
+   *  - removeGraphics: 仅移除由本工具创建的成果要素（默认 false）
+   *  - removeLayers: 同时销毁内部懒创建的基础图层（默认 false）
+   */
+  public destroy(options?: { removeGraphics?: boolean; removeLayers?: boolean }): void {
+    const { removeGraphics = false, removeLayers = false } = options || {};
+
+    // 1) 移除由本工具添加的交互（draw/modify 等），它们都被标记了 dynamicDraw=true
+    try {
+      const interactions = this.map.getInteractions().getArray();
+      interactions
+        .filter((it: any) => typeof it.get === 'function' && it.get('dynamicDraw'))
+        .forEach((it) => this.map.removeInteraction(it));
+    } catch {
+      /* ignore */
+    }
+    // 同时移除当前 draw 引用
+    if (this.draw) {
+      try {
+        this.map.removeInteraction(this.draw);
+      } catch {
+        /* ignore */
+      }
+      this.draw = undefined;
+    }
+
+    // 2) 关闭与移除提示覆盖物与 DOM
+    if (this.overlayKey) {
+      try {
+        this.overlay.remove('draw_help_tooltip');
+        unByKey(this.overlayKey);
+      } catch {
+        /* ignore */
+      }
+      this.overlayKey = undefined;
+    }
+    if (this.helpTooltipElement) {
+      try {
+        const el = this.helpTooltipElement;
+        if (el.parentElement) el.parentElement.removeChild(el);
+      } catch {
+        /* ignore */
+      }
+      this.helpTooltipElement = null;
+    }
+
+    // 3) 解除键盘监听 & 清理撤销/重做栈
+    if (this.keydownHandler) {
+      try {
+        window.removeEventListener('keydown', this.keydownHandler);
+      } catch {
+        /* ignore */
+      }
+      this.keydownHandler = null;
+    }
+    this.undoStack = [];
+    this.redoStack = [];
+
+    // 4) 关闭全局鼠标事件（若仍处于开启状态）
+    try {
+      const ge = useEarth().useGlobalEvent();
+      if (ge.hasGlobalMouseRightClickEvent()) ge.disableGlobalMouseRightClickEvent();
+      if (ge.hasGlobalMouseMoveEvent()) ge.disableGlobalMouseMoveEvent();
+      if (ge.hasGlobalMouseLeftDownEvent()) ge.disableGlobalMouseLeftDownEvent();
+    } catch {
+      /* ignore */
+    }
+    // 恢复鼠标样式
+    try {
+      useEarth().setMouseStyleToDefault();
+    } catch {
+      /* ignore */
+    }
+
+    // 5) 清空并移除临时绘制图层
+    try {
+      this.tempSource.clear();
+      this.map.removeLayer(this.tempLayer);
+    } catch {
+      /* ignore */
+    }
+
+    // 6) 可选：移除由本工具创建的成果要素
+    if (removeGraphics) {
+      const tryRemoveFrom = (layer?: { getLayer: () => VectorLayer<VectorSource<Geometry>>; remove: (id: string) => void }) => {
+        if (!layer) return;
+        try {
+          const feats = layer.getLayer().getSource()?.getFeatures() || [];
+          feats.filter((f) => f.get('dynamicDraw')).forEach((f) => f.getId() && layer.remove(f.getId() as string));
+        } catch {
+          /* ignore */
+        }
+      };
+      tryRemoveFrom(this.pointLayer);
+      tryRemoveFrom(this.polylineLayer);
+      tryRemoveFrom(this.polygonLayer);
+      tryRemoveFrom(this.circleLayer);
+    }
+
+    // 7) 可选：销毁内部懒创建的基础图层（会移除层上所有要素）
+    if (removeLayers) {
+      const tryDestroy = (layer?: { destroy: () => boolean }) => {
+        try {
+          layer?.destroy();
+        } catch {
+          /* ignore */
+        }
+      };
+      tryDestroy(this.pointLayer);
+      tryDestroy(this.polylineLayer);
+      tryDestroy(this.polygonLayer);
+      tryDestroy(this.circleLayer);
+      this.pointLayer = undefined;
+      this.polylineLayer = undefined;
+      this.polygonLayer = undefined;
+      this.circleLayer = undefined;
     }
   }
 }
