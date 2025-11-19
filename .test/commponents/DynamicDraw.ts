@@ -20,7 +20,7 @@ export const testDynamicDraw = () => {
   useEarth().enableGraticule();
   useEarth().enableScaleLine();
   const dynamicDraw = useEarth().useDrawTool();
-  dynamicDraw.drawwAssaultDirectionArrow({
+  dynamicDraw.drawwCurvePolyline({
     callback: (e) => {
       // console.log(e);
       if (e.type === DrawType.Drawend) {
@@ -37,4 +37,7 @@ export const testDynamicDraw = () => {
       }
     }
   });
+  setTimeout(() => {
+    dynamicDraw.destroy()
+  }, 3000);
 };

@@ -87,6 +87,7 @@ export default class DynamicDraw {
   private polylineLayer?: PolylineLayer;
   private polygonLayer?: PolygonLayer;
   private circleLayer?: CircleLayer;
+  private plot: PlotDraw | undefined; // 绘制工具
   /**
    * 构造器
    * @param earth 地图实例
@@ -506,30 +507,30 @@ export default class DynamicDraw {
    */
   drawCircle(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.Circle);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.Circle);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -567,7 +568,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -575,30 +576,30 @@ export default class DynamicDraw {
  */
   drawEllipse(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.Ellipse);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.Ellipse);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -634,7 +635,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -642,30 +643,30 @@ export default class DynamicDraw {
    */
   drawwAttackArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.AttackArrow);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.AttackArrow);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -702,7 +703,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -710,30 +711,30 @@ export default class DynamicDraw {
    */
   drawwTailedAttackArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.TailedAttackArrow);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.TailedAttackArrow);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -769,7 +770,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -777,30 +778,30 @@ export default class DynamicDraw {
    */
   drawwFineArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.FineArrow);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.FineArrow);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -836,7 +837,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -844,30 +845,30 @@ export default class DynamicDraw {
    */
   drawwTailedSquadCombatArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.TailedSquadCombatArrow);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.TailedSquadCombatArrow);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -903,7 +904,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -911,30 +912,30 @@ export default class DynamicDraw {
    */
   drawwAssaultDirectionArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.AssaultDirectionArrow);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.AssaultDirectionArrow);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -970,7 +971,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -978,30 +979,30 @@ export default class DynamicDraw {
    */
   drawwDoubleArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.DoubleArrow);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.DoubleArrow);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 5) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -1037,7 +1038,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -1045,30 +1046,30 @@ export default class DynamicDraw {
    */
   drawwAssemblePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.AssemblePolygon);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.AssemblePolygon);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -1104,7 +1105,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -1112,30 +1113,30 @@ export default class DynamicDraw {
    */
   drawwClosedCurvePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.ClosedCurvePolygon);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.ClosedCurvePolygon);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -1171,7 +1172,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -1179,30 +1180,30 @@ export default class DynamicDraw {
  */
   drawwSectorPolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.SectorPolygon);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.SectorPolygon);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -1238,7 +1239,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -1246,30 +1247,30 @@ export default class DynamicDraw {
   */
   drawwLunePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.LunePolygon);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.LunePolygon);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -1305,7 +1306,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -1313,30 +1314,30 @@ export default class DynamicDraw {
   */
   drawwLunePolyline(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.LuneLine);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.LuneLine);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -1371,7 +1372,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
   /**
@@ -1379,30 +1380,30 @@ export default class DynamicDraw {
 */
   drawwCurvePolyline(param?: IDrawPolygon) {
     // 初始化绘制工具
-    const plot = new PlotDraw();
-    plot.init(EPlotType.CurvePolyline);
-    plot.on<IPlotAttackArrow>('start', (e) => {
+    this.plot = new PlotDraw();
+    this.plot.init(EPlotType.CurvePolyline);
+    this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('add-point', (e) => {
+    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
         eventPosition: toLonLat(e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('moving', (e) => {
+    this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
         eventPosition: toLonLat(e.tempPoint || e.point)
       });
     });
-    plot.on<IPlotAttackArrow>('end', (e) => {
+    this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 1) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
@@ -1437,7 +1438,7 @@ export default class DynamicDraw {
         };
         param?.callback?.call(this, response);
       }
-      plot.destroy();
+      this.plot?.destroy();
     });
   }
 
@@ -2034,7 +2035,6 @@ export default class DynamicDraw {
    */
   public destroy(options?: { removeGraphics?: boolean; removeLayers?: boolean }): void {
     const { removeGraphics = false, removeLayers = false } = options || {};
-
     // 1) 移除由本工具添加的交互（draw/modify 等），它们都被标记了 dynamicDraw=true
     try {
       const interactions = this.map.getInteractions().getArray();
@@ -2144,6 +2144,20 @@ export default class DynamicDraw {
       this.polylineLayer = undefined;
       this.polygonLayer = undefined;
       this.circleLayer = undefined;
+
     }
+    // 8) 销毁 plot 相关（如果有未完成的 plot 绘制实例）
+    try {
+      if (this.plot && typeof (this.plot as any).destroy === 'function') {
+        try {
+          (this.plot as any).destroy();
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    this.plot = undefined;
   }
 }
