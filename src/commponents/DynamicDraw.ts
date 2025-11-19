@@ -2035,6 +2035,8 @@ export default class DynamicDraw {
    */
   public destroy(options?: { removeGraphics?: boolean; removeLayers?: boolean }): void {
     const { removeGraphics = false, removeLayers = false } = options || {};
+    this.plot?.destroy()
+    this.plot = undefined;
     // 1) 移除由本工具添加的交互（draw/modify 等），它们都被标记了 dynamicDraw=true
     try {
       const interactions = this.map.getInteractions().getArray();
@@ -2146,18 +2148,6 @@ export default class DynamicDraw {
       this.circleLayer = undefined;
 
     }
-    // 8) 销毁 plot 相关（如果有未完成的 plot 绘制实例）
-    try {
-      if (this.plot && typeof (this.plot as any).destroy === 'function') {
-        try {
-          (this.plot as any).destroy();
-        } catch {
-          /* ignore */
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    this.plot = undefined;
+
   }
 }

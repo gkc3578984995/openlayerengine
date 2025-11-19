@@ -250,7 +250,13 @@ class PlotDraw {
    */
   private exitDraw() {
     // 移除图层
-    if (this.layer) useEarth().map.removeLayer(this.layer);
+    if (this.layer) {
+      const src = this.layer.getSource();
+      src?.clear(); // 主动清空要素
+      this.map.removeLayer(this.layer);
+      this.map.render(); // 可选：强制一次刷新
+      console.log('[PlotDraw] removed dynamic draw layer');
+    }
     // 清空状态
     this.points = [];
     this.layer = undefined;
