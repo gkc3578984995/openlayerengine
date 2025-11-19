@@ -641,7 +641,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制进攻箭头
    */
-  drawwAttackArrow(param?: IDrawPolygon) {
+  drawAttackArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.AttackArrow);
@@ -709,7 +709,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制进攻箭头(燕尾)
    */
-  drawwTailedAttackArrow(param?: IDrawPolygon) {
+  drawTailedAttackArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.TailedAttackArrow);
@@ -776,7 +776,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制单箭头(2控制点)
    */
-  drawwFineArrow(param?: IDrawPolygon) {
+  drawFineArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.FineArrow);
@@ -843,7 +843,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制单箭头(燕尾-2控制点)
    */
-  drawwTailedSquadCombatArrow(param?: IDrawPolygon) {
+  drawTailedSquadCombatArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.TailedSquadCombatArrow);
@@ -910,7 +910,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制单直箭头(平尾-2控制点)
    */
-  drawwAssaultDirectionArrow(param?: IDrawPolygon) {
+  drawAssaultDirectionArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.AssaultDirectionArrow);
@@ -977,7 +977,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制双箭头(平尾-4控制点)
    */
-  drawwDoubleArrow(param?: IDrawPolygon) {
+  drawDoubleArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.DoubleArrow);
@@ -1044,7 +1044,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制集结地(区域-3控制点)
    */
-  drawwAssemblePolygon(param?: IDrawPolygon) {
+  drawAssemblePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.AssemblePolygon);
@@ -1111,7 +1111,7 @@ export default class DynamicDraw {
   /**
    * 动态绘制闭合曲面(区域-控制点无上限)
    */
-  drawwClosedCurvePolygon(param?: IDrawPolygon) {
+  drawClosedCurvePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.ClosedCurvePolygon);
@@ -1178,7 +1178,7 @@ export default class DynamicDraw {
   /**
  * 动态绘制扇面(区域-3控制点)
  */
-  drawwSectorPolygon(param?: IDrawPolygon) {
+  drawSectorPolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.SectorPolygon);
@@ -1245,7 +1245,7 @@ export default class DynamicDraw {
   /**
   * 动态绘制弓形(区域-3控制点)
   */
-  drawwLunePolygon(param?: IDrawPolygon) {
+  drawLunePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.LunePolygon);
@@ -1312,7 +1312,7 @@ export default class DynamicDraw {
   /**
   * 动态绘制弓形(线-3控制点)
   */
-  drawwLunePolyline(param?: IDrawPolygon) {
+  drawLunePolyline(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.LuneLine);
@@ -1378,7 +1378,7 @@ export default class DynamicDraw {
   /**
 * 动态绘制曲线(线-控制点无上限)
 */
-  drawwCurvePolyline(param?: IDrawPolygon) {
+  drawCurvePolyline(param?: IDrawPolygon) {
     // 初始化绘制工具
     this.plot = new PlotDraw();
     this.plot.init(EPlotType.CurvePolyline);
