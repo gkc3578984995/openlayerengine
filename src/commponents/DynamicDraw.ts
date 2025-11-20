@@ -87,6 +87,8 @@ export default class DynamicDraw {
   private polylineLayer?: PolylineLayer;
   private polygonLayer?: PolygonLayer;
   private circleLayer?: CircleLayer;
+  /** 标记当前一次绘制是否已经通过 drawend 正常完成 */
+  private lastDrawCompleted = false;
   private plot: PlotDraw | undefined; // 绘制工具
   /**
    * 构造器
@@ -266,10 +268,13 @@ export default class DynamicDraw {
       this.overlayKey = undefined;
     }
     useEarth().setMouseStyleToDefault();
-    callback?.call(this, {
-      type: DrawType.Drawexit,
-      eventPosition: event.position
-    });
+    // 如果本次会话已经通过 drawend 正常结束（回调了 DrawType.Drawend），则不再触发 Drawexit 回调
+    if (!this.lastDrawCompleted) {
+      callback?.call(this, {
+        type: DrawType.Drawexit,
+        eventPosition: event.position
+      });
+    }
   }
   /**
    * 绘制事件监听
@@ -277,6 +282,8 @@ export default class DynamicDraw {
    * @param param 参数
    */
   private drawChange(callback: (e: IDrawEvent) => void, type: string, param?: IDrawPoint | IDrawLine | IDrawPolygon) {
+    // 标记当前绘制是否已经通过 drawend 正常完成
+    this.lastDrawCompleted = false;
     // 绘制计次
     let drawNum = 0;
     if (!useEarth().useGlobalEvent().hasGlobalMouseRightClickEvent()) {
@@ -312,6 +319,8 @@ export default class DynamicDraw {
     });
     // 绘制完成回调函数
     this.draw?.on('drawend', (event: DrawEvent) => {
+      // 标记为已正常完成，后续若再触发 exitDraw 则不再回调 Drawexit
+      this.lastDrawCompleted = true;
       if (useEarth().useGlobalEvent().hasGlobalMouseMoveEvent()) {
         useEarth().useGlobalEvent().disableGlobalMouseMoveEvent();
       }

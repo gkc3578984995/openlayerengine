@@ -265,6 +265,7 @@ class PlotDraw {
     // 移除监听
     this.removeHelpTooltip();
     this.offEvents.forEach((off: any) => off());
+    useEarth().setMouseStyle('default');
   }
   /** 初始化帮助提示 */
   private initHelpTooltip(str: string) {
@@ -368,6 +369,7 @@ class PlotDraw {
    * 开始绘制
    */
   public init(type: EPlotType) {
+    useEarth().setMouseStyle('pointer')
     this.geom = this.createGeom(type);
     this.feature = new Feature(this.geom);
     this.feature.set('dynamicDraw', true);
