@@ -320,7 +320,6 @@ export default class DynamicDraw {
     // 绘制完成回调函数
     this.draw?.on('drawend', (event: DrawEvent) => {
       // 标记为已正常完成，后续若再触发 exitDraw 则不再回调 Drawexit
-      this.lastDrawCompleted = true;
       if (useEarth().useGlobalEvent().hasGlobalMouseMoveEvent()) {
         useEarth().useGlobalEvent().disableGlobalMouseMoveEvent();
       }
@@ -366,6 +365,7 @@ export default class DynamicDraw {
           response.feature = f;
           response.featurePosition = featurePosition;
           callback.call(this, response);
+          this.lastDrawCompleted = true;
         } else if (geometryType === 'Polygon') {
           if (featurePosition && featurePosition.length > 3 && baseLayer instanceof PolygonLayer) {
             const geom = event.feature.getGeometry() as Polygon;
@@ -380,6 +380,7 @@ export default class DynamicDraw {
             response.feature = f;
             response.featurePosition = featurePosition;
             callback.call(this, response);
+            this.lastDrawCompleted = true;
           }
         } else if (geometryType === 'Point' && featurePosition && baseLayer instanceof PointLayer) {
           drawNum++;
@@ -393,9 +394,11 @@ export default class DynamicDraw {
             stroke: pointParam?.strokeColor ? { color: pointParam.strokeColor, width: pointParam.strokeWidth } : undefined
           });
           f.set('dynamicDraw', true);
+          response.type = DrawType.Drawend;
           response.feature = f;
           response.featurePosition = featurePosition;
           callback.call(this, response);
+          this.lastDrawCompleted = true;
           if (this.draw && pointParam.limit) {
             if (drawNum == pointParam.limit) {
               this.exitDraw({ position: toLonLat(coordinate) }, callback);
@@ -416,6 +419,7 @@ export default class DynamicDraw {
           response.feature = f;
           response.featurePosition = toLonLat(center);
           callback.call(this, response);
+          this.lastDrawCompleted = true;
         }
       } finally {
         // 无论是否成功添加，都移除临时要素
