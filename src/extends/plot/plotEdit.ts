@@ -27,6 +27,7 @@ import LunePolygon from './polygon/LunePolygon';
 import LunePolyline from './polyline/LunePolyline';
 import { PolylineLayer } from '@/base';
 import CurvePolyline from './polyline/CurvePolyline';
+import RectAnglePolygon from './polygon/RectAnglePolygon';
 
 // 事件类型定义（新增 undo / redo）
 export type PlotEditEventType = 'modifyStart' | 'modifying' | 'modifyEnd' | 'modifyExit' | 'undo' | 'redo';
@@ -139,7 +140,7 @@ class plotEdit {
   /** 线标绘类型数组 */
   private plotLineTypes = [EPlotType.LuneLine, EPlotType.CurvePolyline];
   /** 需要排除创建中点的类型 */
-  private exclude = [EPlotType.FineArrow, EPlotType.TailedSquadCombatArrow, EPlotType.AssaultDirectionArrow, EPlotType.DoubleArrow, EPlotType.AssemblePolygon, EPlotType.Circle, EPlotType.SectorPolygon, EPlotType.LunePolygon, EPlotType.LuneLine];
+  private exclude = [EPlotType.FineArrow, EPlotType.TailedSquadCombatArrow, EPlotType.AssaultDirectionArrow, EPlotType.DoubleArrow, EPlotType.AssemblePolygon, EPlotType.Circle, EPlotType.SectorPolygon, EPlotType.LunePolygon, EPlotType.LuneLine, EPlotType.RectAnglePolygon];
 
   constructor() {
     this.map = useEarth().map;
@@ -527,6 +528,9 @@ class plotEdit {
       coords = geom.getCoordinates();
     } else if (plotType === EPlotType.CurvePolyline) {
       const geom = new CurvePolyline([], plotPoints, {});
+      coords = geom.getCoordinates();
+    } else if (plotType === EPlotType.RectAnglePolygon) {
+      const geom = new RectAnglePolygon([], plotPoints, {});
       coords = geom.getCoordinates();
     }
     return coords;

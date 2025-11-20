@@ -27,6 +27,7 @@ import SectorPolygon from './polygon/SectorPolygon';
 import LunePolygon from './polygon/LunePolygon';
 import LunePolyline from './polyline/LunePolyline';
 import CurvePolyline from './polyline/CurvePolyline';
+import RectAnglePolygon from './polygon/RectAnglePolygon';
 
 // 事件类型与监听器类型定义（放在类外部避免语法错误）
 export type PlotDrawEventName = 'start' | 'add-point' | 'moving' | 'end' | 'cancel' | string;
@@ -44,7 +45,7 @@ class PlotDraw {
   /**
    * 元素geometry
    */
-  private geom: AttackArrow | FineArrow | DoubleArrow | AssemblePolygon | Circle | Ellipse | ClosedCurvePolygon | SectorPolygon | LunePolygon | LunePolyline | CurvePolyline | undefined;
+  private geom: AttackArrow | FineArrow | DoubleArrow | AssemblePolygon | Circle | Ellipse | ClosedCurvePolygon | SectorPolygon | LunePolygon | LunePolyline | CurvePolyline | RectAnglePolygon | undefined;
   /**
    * 元素feature
    */
@@ -154,6 +155,8 @@ class PlotDraw {
       return new LunePolyline([], [], {});
     } else if (type === EPlotType.CurvePolyline) {
       return new CurvePolyline([], [], {});
+    } else if (type === EPlotType.RectAnglePolygon) {
+      return new RectAnglePolygon([], [], {});
     }
   }
   /**
