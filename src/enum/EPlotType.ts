@@ -66,4 +66,8 @@ export enum EPlotType {
    * 三角形
    */
   TrianglePolygon = 'trianglePolygon',
+  /**
+   * 正三角形（两点基边自动生成第三点）
+   */
+  EquilateralTrianglePolygon = 'equilateralTrianglePolygon',
 }
