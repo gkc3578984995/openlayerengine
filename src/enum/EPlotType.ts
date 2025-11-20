@@ -62,4 +62,8 @@ export enum EPlotType {
    * 曲线
    */
   CurvePolyline = 'curvePolyline',
+  /**
+   * 三角形
+   */
+  TrianglePolygon = 'trianglePolygon',
 }
