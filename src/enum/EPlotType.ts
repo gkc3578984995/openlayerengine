@@ -3,6 +3,14 @@
  */
 export enum EPlotType {
   /**
+   * 线
+   */
+  Polyline = 'polyline',
+  /**
+   * 多边形
+   */
+  Polygon = 'polygon',
+  /**
    * 进攻箭头（平尾-多点）
    */
   AttackArrow = 'attackArrow',
