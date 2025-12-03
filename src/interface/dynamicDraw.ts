@@ -66,6 +66,14 @@ export interface IDrawEvent {
    * 元素控制点
    */
   ctlPoints?: Coordinate[];
+  /**
+   * 点中心 仅circle有效
+   */
+  center?: Coordinate;
+  /**
+   * 点半径 仅circle有效
+   */
+  radius?: number;
 }
 export interface IModifyEvent {
   /**

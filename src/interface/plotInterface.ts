@@ -26,7 +26,7 @@ export interface IPlotAttackArrow {
   /**
    * 标绘绘制坐标数据
    */
-  coordinates?: Coordinate[][];
+  coordinates?: Coordinate[] | Coordinate[][];
   /**
    * 标绘要素
    */

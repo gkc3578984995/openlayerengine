@@ -37,6 +37,7 @@ import CurvePolyline from '@/extends/plot/polyline/CurvePolyline';
 import RectAnglePolygon from '@/extends/plot/polygon/RectAnglePolygon';
 import TrianglePolygon from '@/extends/plot/polygon/TrianglePolygon';
 import EquilateralTrianglePolygon from '@/extends/plot/polygon/EquilateralTrianglePolygon';
+import { cloneDeep } from 'lodash';
 
 // 编辑历史记录类型定义（用于当前会话内 Ctrl+Z / Ctrl+Y）
 type HistoryLineRecord = { type: 'LineString'; before: Coordinate[]; after: Coordinate[]; apply: (coords: Coordinate[]) => void };
@@ -297,7 +298,7 @@ export default class DynamicDraw {
       const coordinate = this.map.getCoordinateFromPixel(event.target.downPx_);
       callback.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(coordinate)
+        eventPosition: coordinate
       });
       // 绘制中移动回调函数
       useEarth().useGlobalEvent().enableGlobalMouseMoveEvent();
@@ -334,22 +335,22 @@ export default class DynamicDraw {
       let featurePosition;
       const response: IDrawEvent = {
         type: DrawType.Drawend,
-        eventPosition: toLonLat(coordinate)
+        eventPosition: coordinate
       };
       if (type == 'LineString') {
         geometry = <LineString>event.feature.getGeometry();
         featurePosition = [];
         for (const item of geometry.getCoordinates()) {
-          featurePosition.push(toLonLat(item));
+          featurePosition.push(item);
         }
       } else if (type == 'Point') {
         geometry = <Point>event.feature.getGeometry();
-        featurePosition = toLonLat(geometry.getCoordinates());
+        featurePosition = geometry.getCoordinates();
       } else if (type == 'Polygon') {
         geometry = <Polygon>event.feature.getGeometry();
         featurePosition = [];
         for (const item of geometry.getCoordinates()[0]) {
-          featurePosition.push(toLonLat(item));
+          featurePosition.push(item);
         }
       }
       // ==== 新增：将结果写入对应基础图层 ====
@@ -357,30 +358,34 @@ export default class DynamicDraw {
       const baseLayer = this.getBaseLayer(geometryType === 'Circle' ? 'Circle' : (geometryType as 'Point' | 'LineString' | 'Polygon'));
       try {
         if (geometryType === 'LineString' && featurePosition && featurePosition.length > 1 && baseLayer instanceof PolylineLayer) {
-          const lineParam = param as IDrawLine;
-          const geom = event.feature.getGeometry() as LineString;
-          const coords = geom.getCoordinates();
-          const f = baseLayer.add({
-            positions: coords,
-            stroke: { color: lineParam?.strokeColor || '#ffcc33', width: lineParam?.strokeWidth || 2 }
-          });
-          f.set('dynamicDraw', true);
-          response.feature = f;
+          if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+            const lineParam = param as IDrawLine;
+            const geom = event.feature.getGeometry() as LineString;
+            const coords = geom.getCoordinates();
+            const f = baseLayer.add({
+              positions: coords,
+              stroke: { color: lineParam?.strokeColor || '#ffcc33', width: lineParam?.strokeWidth || 2 }
+            });
+            f.set('dynamicDraw', true);
+            response.feature = f;
+          }
           response.featurePosition = featurePosition;
           callback.call(this, response);
           this.lastDrawCompleted = true;
         } else if (geometryType === 'Polygon') {
           if (featurePosition && featurePosition.length > 3 && baseLayer instanceof PolygonLayer) {
-            const geom = event.feature.getGeometry() as Polygon;
-            const coords = geom.getCoordinates();
-            const polygonParam = param as IDrawPolygon;
-            const f = baseLayer.add({
-              positions: coords,
-              stroke: { color: polygonParam?.strokeColor || '#ffcc33', width: polygonParam?.strokeWidth || 2 },
-              fill: { color: polygonParam?.fillColor || 'rgba(255,255,255,0.2)' }
-            });
-            f.set('dynamicDraw', true);
-            response.feature = f;
+            if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+              const geom = event.feature.getGeometry() as Polygon;
+              const coords = geom.getCoordinates();
+              const polygonParam = param as IDrawPolygon;
+              const f = baseLayer.add({
+                positions: coords,
+                stroke: { color: polygonParam?.strokeColor || '#ffcc33', width: polygonParam?.strokeWidth || 2 },
+                fill: { color: polygonParam?.fillColor || 'rgba(255,255,255,0.2)' }
+              });
+              f.set('dynamicDraw', true);
+              response.feature = f;
+            }
             response.featurePosition = featurePosition;
             callback.call(this, response);
             this.lastDrawCompleted = true;
@@ -388,17 +393,19 @@ export default class DynamicDraw {
         } else if (geometryType === 'Point' && featurePosition && baseLayer instanceof PointLayer) {
           drawNum++;
           const pointParam = param as IDrawPoint & { strokeColor?: string; strokeWidth?: number; fillColor?: string };
-          const geom = event.feature.getGeometry() as Point;
-          const coord = geom.getCoordinates();
-          const f = baseLayer.add({
-            center: coord,
-            size: pointParam?.size || 2,
-            fill: { color: pointParam?.fillColor || '#ffcc33' },
-            stroke: pointParam?.strokeColor ? { color: pointParam.strokeColor, width: pointParam.strokeWidth } : undefined
-          });
-          f.set('dynamicDraw', true);
+          if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
+            const geom = event.feature.getGeometry() as Point;
+            const coord = geom.getCoordinates();
+            const f = baseLayer.add({
+              center: coord,
+              size: pointParam?.size || 2,
+              fill: { color: pointParam?.fillColor || '#ffcc33' },
+              stroke: pointParam?.strokeColor ? { color: pointParam.strokeColor, width: pointParam.strokeWidth } : undefined
+            });
+            f.set('dynamicDraw', true);
+            response.feature = f;
+          }
           response.type = DrawType.Drawend;
-          response.feature = f;
           response.featurePosition = featurePosition;
           callback.call(this, response);
           this.lastDrawCompleted = true;
@@ -433,6 +440,7 @@ export default class DynamicDraw {
           // 如果用户要求不保留结果，则从基础图层移除
           try {
             const feat = response.feature as Feature<Geometry>;
+            debugger
             const l = useEarth().getLayerAtFeature(feat) as VectorLayer<VectorSource<Geometry>> | undefined;
             l?.getSource()?.removeFeature(feat);
           } catch {
@@ -529,28 +537,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -571,17 +579,15 @@ export default class DynamicDraw {
           f?.set('param', CircleParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
+        response.center = e.center;
+        response.radius = e.radius;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -599,28 +605,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -639,17 +645,13 @@ export default class DynamicDraw {
           f?.set('param', ellipseParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -667,28 +669,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const geom = new AttackArrow([], e.points, {});
@@ -707,17 +709,13 @@ export default class DynamicDraw {
           f?.set('param', attackArrowParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -735,28 +733,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -775,17 +773,13 @@ export default class DynamicDraw {
           f?.set('param', tailedattackArrowParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -803,28 +797,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -843,17 +837,13 @@ export default class DynamicDraw {
           f?.set('param', fineArrowParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -871,28 +861,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -911,17 +901,13 @@ export default class DynamicDraw {
           f?.set('param', tailedSquadCombatParam);
           response.feature = f;
         }
-        const featurePosition = [] as any[];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -939,28 +925,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -979,17 +965,13 @@ export default class DynamicDraw {
           f?.set('param', assaultDirectionArrowParam);
           response.feature = f;
         }
-        const featurePosition = [] as any[];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1007,28 +989,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length == 5) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1047,17 +1029,13 @@ export default class DynamicDraw {
           f?.set('param', doubleArrowParam);
           response.feature = f;
         }
-        const featurePosition = [] as any[];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1075,28 +1053,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1115,17 +1093,13 @@ export default class DynamicDraw {
           f?.set('param', rectAnglePolygonParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1143,28 +1117,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1183,17 +1157,13 @@ export default class DynamicDraw {
           f?.set('param', trianglePolygonParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1211,28 +1181,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1251,17 +1221,13 @@ export default class DynamicDraw {
           f?.set('param', equilateralTrianglePolygonParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1279,28 +1245,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1319,17 +1285,13 @@ export default class DynamicDraw {
           f?.set('param', assemblePolygonParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1347,28 +1309,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 2) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1387,17 +1349,13 @@ export default class DynamicDraw {
           f?.set('param', closedCurvePolygonParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1415,28 +1373,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1455,17 +1413,13 @@ export default class DynamicDraw {
           f?.set('param', sectorPolygonParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1483,28 +1437,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
@@ -1523,17 +1477,13 @@ export default class DynamicDraw {
           f?.set('param', lunePolygonParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1551,28 +1501,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length === 3) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
@@ -1590,17 +1540,13 @@ export default class DynamicDraw {
           f?.set('param', lunePolylineParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates! as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
@@ -1618,28 +1564,28 @@ export default class DynamicDraw {
       // 回调：绘制开始
       param?.callback?.call(this, {
         type: DrawType.Drawstart,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('add-point', (e) => {
       // 回调：绘制中点击（新增控制点）
       param?.callback?.call(this, {
         type: DrawType.DrawingClick,
-        eventPosition: toLonLat(e.point)
+        eventPosition: e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('moving', (e) => {
       // 回调：绘制移动（实时移动位置，优先使用临时点）
       param?.callback?.call(this, {
         type: DrawType.Drawing,
-        eventPosition: toLonLat(e.tempPoint || e.point)
+        eventPosition: e.tempPoint || e.point
       });
     });
     this.plot.on<IPlotAttackArrow>('end', (e) => {
       if (e.points && e.points.length > 1) {
         const response: IDrawEvent = {
           type: DrawType.Drawend,
-          eventPosition: toLonLat(e.points[e.points.length - 1])
+          eventPosition: e.points[e.points.length - 1]
         };
         if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
           const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
@@ -1657,17 +1603,13 @@ export default class DynamicDraw {
           f?.set('param', curvePolylineParam);
           response.feature = f;
         }
-        const featurePosition = [];
-        for (const item of e.coordinates![0]) {
-          featurePosition.push(toLonLat(item));
-        }
-        response.featurePosition = featurePosition;
+        response.featurePosition = cloneDeep(e.coordinates as Coordinate[]);
         response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
           type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? toLonLat(e.points[e.points.length - 1]) : []
+          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
         };
         param?.callback?.call(this, response);
       }
