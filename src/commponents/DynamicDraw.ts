@@ -778,6 +778,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -845,6 +846,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -912,6 +914,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -979,6 +982,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1046,6 +1050,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1113,6 +1118,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1180,6 +1186,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1247,6 +1254,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1314,6 +1322,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1381,6 +1390,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1448,6 +1458,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1515,6 +1526,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1581,6 +1593,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
@@ -1647,6 +1660,7 @@ export default class DynamicDraw {
           featurePosition.push(toLonLat(item));
         }
         response.featurePosition = featurePosition;
+        response.ctlPoints = e.points;
         param?.callback?.call(this, response);
       } else {
         const response: IDrawEvent = {
