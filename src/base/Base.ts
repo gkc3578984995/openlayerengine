@@ -129,7 +129,8 @@ export default class Base {
         color: param?.backgroundStroke?.color || style.getText()?.getBackgroundStroke().getColor() || '#0000',
         width: param?.backgroundStroke?.width || style.getText()?.getBackgroundStroke().getWidth() || 0
       }),
-      padding: param?.padding || style.getText()?.getPadding() || undefined
+      padding: param?.padding || style.getText()?.getPadding() || undefined,
+      overflow: true
     });
     style.setText(text);
     return style;
@@ -237,9 +238,9 @@ export default class Base {
           stroke:
             text.getStroke() && typeof text.getStroke().getColor === 'function'
               ? {
-                  color: text.getStroke().getColor() as string,
-                  width: (typeof text.getStroke().getWidth === 'function' ? text.getStroke().getWidth() : undefined) || param.label?.stroke?.width
-                }
+                color: text.getStroke().getColor() as string,
+                width: (typeof text.getStroke().getWidth === 'function' ? text.getStroke().getWidth() : undefined) || param.label?.stroke?.width
+              }
               : param.label?.stroke,
           backgroundFill:
             text.getBackgroundFill() && typeof text.getBackgroundFill().getColor === 'function'
@@ -248,11 +249,11 @@ export default class Base {
           backgroundStroke:
             text.getBackgroundStroke() && typeof text.getBackgroundStroke().getColor === 'function'
               ? {
-                  color: text.getBackgroundStroke().getColor() as string,
-                  width:
-                    (typeof text.getBackgroundStroke().getWidth === 'function' ? text.getBackgroundStroke().getWidth() : undefined) ||
-                    param.label?.backgroundStroke?.width
-                }
+                color: text.getBackgroundStroke().getColor() as string,
+                width:
+                  (typeof text.getBackgroundStroke().getWidth === 'function' ? text.getBackgroundStroke().getWidth() : undefined) ||
+                  param.label?.backgroundStroke?.width
+              }
               : param.label?.backgroundStroke,
           padding: text.getPadding() || param.label?.padding
         };
