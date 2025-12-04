@@ -734,6 +734,7 @@ export default class Transfrom {
                   }
                 }
               })
+              break;
             case 'doubleArrow':
               draw.editDoubleArrow({
                 feature: checkSelect!,
