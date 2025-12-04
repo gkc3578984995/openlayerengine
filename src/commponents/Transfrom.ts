@@ -1024,6 +1024,123 @@ export default class Transfrom {
     }
   }
   /**
+   * 外部替换当前正在编辑（已选中）的 feature
+   * 使用场景：外部在某个事件（如 TranslateEnd）中删除原要素并重绘一个新要素，
+   * 需让交互继续作用到新要素，避免后续旋转/缩放/编辑失效。
+   *
+   * 参数：
+   * - newFeature: 新的要素实例（应当已添加到对应图层的 source 中）
+   * - options.retainHistory: 是否保留当前历史栈（默认 true）。
+   *   若为 false，将重置历史，只以 newFeature 的当前状态为初始快照。
+   *
+   * 返回：成功替换返回 true，失败返回 false。
+   */
+  public replaceEditingFeature(newFeature: Feature, options?: { retainHistory?: boolean }): boolean {
+    if (this.disposed) return false;
+    const retainHistory = options?.retainHistory !== false; // 默认保留历史
+    if (!newFeature) return false;
+    // 计算并更新内部选中引用
+    const layer = this.getLayerByFeature(newFeature);
+    if (!layer) return false;
+    // 若配置了 transformFeatures，确保新要素在列表中，并移除旧要素引用
+    try {
+      if (Array.isArray(this.options.transformFeatures)) {
+        const list = this.options.transformFeatures as Feature[];
+        const newId = newFeature.getId?.();
+        // 移除与当前选中 id 相同的旧项
+        if (this.checkSelect?.getId && this.checkSelect.getId()) {
+          const oldId = this.checkSelect.getId();
+          this.options.transformFeatures = list.filter((ft) => ft && ft.getId?.() !== oldId);
+        }
+        // 若列表中没有新要素则追加
+        const exists = list.some((ft) => ft && ft.getId?.() === newId);
+        if (!exists) {
+          this.options.transformFeatures = [...(this.options.transformFeatures || []), newFeature];
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    this.checkSelect = newFeature;
+    this.checkLayer = layer;
+
+    // 尝试通知交互实例使用新的 feature
+    // 兼容不同实现：优先公开方法，其次私有属性兜底，并强制刷新草图
+    try {
+      if (this.transforms) {
+        // 使用交互的公开 API：直接设置当前选择集合为新要素
+        if (typeof this.transforms.setSelection === 'function') {
+          this.transforms.setSelection([newFeature]);
+        } else if (typeof this.transforms.select === 'function') {
+          this.transforms.select(newFeature, false);
+        } else {
+          // 兜底：强制重绘（不如 setSelection 可靠）
+          if (typeof this.transforms.drawSketch_ === 'function') this.transforms.drawSketch_();
+          else if (typeof this.transforms.drawSketch === 'function') this.transforms.drawSketch();
+        }
+      }
+    } catch (_) {
+      // 忽略交互刷新异常
+    }
+
+    // 根据选择保留或重置历史
+    if (!retainHistory) {
+      this.resetHistory();
+      this.recordSnapshot(newFeature);
+    } else {
+      // 保留已有历史，但追加一次当前要素的快照，保证撤销点正确对齐新要素
+      this.recordSnapshot(newFeature);
+    }
+
+    // 刷新工具条位置与类型
+    try {
+      const geom = newFeature.getGeometry?.();
+      const rawType = geom?.getType?.();
+      const type: 'Point' | 'LineString' | 'Polygon' | 'Circle' | undefined =
+        rawType === 'Point' || rawType === 'LineString' || rawType === 'Polygon' || rawType === 'Circle' ? (rawType as any) : undefined;
+      let anchor: Coordinate | undefined;
+      if (geom && typeof geom.getExtent === 'function') {
+        const extent = geom.getExtent();
+        if (extent && extent.length === 4) {
+          anchor = [extent[2], extent[3]] as Coordinate; // 使用右上角近似位置
+        }
+      }
+      // 优先使用交互的 bbox 信息
+      let point: any = undefined;
+      try {
+        const bboxExtent = this.transforms?.bbox_?.getGeometry().getCoordinates?.();
+        point = bboxExtent?.[0]?.[2] ?? bboxExtent?.[0]?.[0];
+      } catch (_) {
+        /* ignore */
+      }
+      // 重建或更新工具条
+      const tbPoint = point ?? anchor;
+      if (!this.toolbar) {
+        const opts: any = { point: tbPoint };
+        if (type) opts.type = type;
+        this.toolbar = new Toolbar(opts);
+      } else {
+        const opts: any = { point: tbPoint };
+        if (type) opts.type = type;
+        this.toolbar.updateOptions(opts);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+
+    // 刷新提示牌（仍处于编辑模式）
+    try {
+      this.updateHelpTooltipByCursorType({ type: ETransfrom.Select, eventPixel: this.lastPointerPixel } as any);
+      this.refreshBaseTransformTooltipIfNeeded();
+    } catch (_) {
+      /* ignore */
+    }
+
+    // 无需手动派发 Select：setSelection/select 已在交互内部派发
+
+    return true;
+  }
+  /**
    * 处理删除事件
    */
   private handleRemoveEvent(pixel: number[]) {

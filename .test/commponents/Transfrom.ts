@@ -3,9 +3,21 @@ import AttackArrow from '../../src/extends/plot/geom/AttackArrow';
 
 export const testTransfrom = () => {
   const transfrom = new Transfrom({});
-  const eventNname = [ETransfrom.Select, ETransfrom.SelectEnd, ETransfrom.Translating, ETransfrom.ModifyStart, ETransfrom.Modifying, ETransfrom.ModifyEnd, ETransfrom.Copy];
+  const eventNname = [ETransfrom.Select, ETransfrom.SelectEnd, ETransfrom.Translating, ETransfrom.TranslateEnd, ETransfrom.ModifyStart, ETransfrom.Modifying, ETransfrom.ModifyEnd, ETransfrom.Copy];
   transfrom.on(eventNname, (e) => {
     console.log(e.type, e);
+    if (e.type === ETransfrom.TranslateEnd) {
+
+      const a = e.feature?.clone();
+      a?.setId(e.featureId);
+      const b = useEarth().getLayer(e.feature!.get('layerId'));
+      b?.remove(e.feature!.getId() as string);
+      setTimeout(() => {
+        b?.getLayer().getSource()?.addFeature(a!);
+        transfrom.replaceEditingFeature(a!)
+      }, 1000);
+
+    }
     // if (e.type === ETransfrom.Copy) {
     //   const a = new AttackArrow({}, e.feature?.get('param').plotPoints, {});
     //   const b = useEarth().map.getAllLayers();
