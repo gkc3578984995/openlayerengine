@@ -199,21 +199,39 @@ export default class Earth {
   }
   /**
    * 创建瓦片地图图层
-   * @param url 瓦片地址
+   * 
+   * - 传入字符串 `url` 时，使用默认的切片路径拼接逻辑：`${url}/L{z}/R{y}/C{x}.jpg`
+   * @example
+   * ```
+   * earth.createXyzLayer('http://your-tile-server/tiles');
+   * ```
+   * - 传入自定义 `tileUrlFunction` 时，直接透传给 `ol/source/XYZ` 使用
+   * @example
+   * ```
+   * earth.createXyzLayer((coord) => {
+   *  const [z, x, y] = coord;
+   *  return `https://example.com/tiles/${z}/${x}/${y}.png`;
+   * });
+   * ```  
+   * @param urlOrTileFn 瓦片地址或自定义 `tileUrlFunction`
    * @returns `TileLayer<XYZ>`实例
    */
-  createXyzLayer(url: string): TileLayer<XYZ> {
+  createXyzLayer(urlOrTileFn: string | ((coordinate: TileCoord) => string)): TileLayer<XYZ> {
+    const tileUrlFunction =
+      typeof urlOrTileFn === 'function'
+        ? urlOrTileFn
+        : (coordinate: TileCoord) => {
+          const x = 'C' + this.zeroFill(coordinate[1], 8, 16).toUpperCase();
+          const y = 'R' + this.zeroFill(coordinate[2], 8, 16).toUpperCase();
+          const z = 'L' + this.zeroFill(coordinate[0], 2, 10).toUpperCase();
+          return `${urlOrTileFn}/` + z + '/' + y + '/' + x + '.jpg';
+        };
     return new TileLayer({
       properties: {
         id: 'imageProvider'
       },
       source: new XYZ({
-        tileUrlFunction: (coordinate: TileCoord) => {
-          const x = 'C' + this.zeroFill(coordinate[1], 8, 16).toUpperCase();
-          const y = 'R' + this.zeroFill(coordinate[2], 8, 16).toUpperCase();
-          const z = 'L' + this.zeroFill(coordinate[0], 2, 10).toUpperCase();
-          return `${url}/` + z + '/' + y + '/' + x + '.jpg';
-        },
+        tileUrlFunction,
         projection: 'EPSG:3857'
       })
     });

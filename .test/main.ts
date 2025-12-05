@@ -17,6 +17,7 @@ import { testTransfrom } from './commponents/Transfrom';
 window.onload = () => {
   const earth = useEarth();
   // earth.addLayer(earth.createXyzLayer('http://192.168.50.200:8080/_alllayers'));
+  earth.createXyzLayer
   earth.addLayer(earth.createOsmLayer());
   testBillboardLayer();
 
