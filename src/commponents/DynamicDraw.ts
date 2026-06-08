@@ -440,7 +440,6 @@ export default class DynamicDraw {
           // 如果用户要求不保留结果，则从基础图层移除
           try {
             const feat = response.feature as Feature<Geometry>;
-            debugger
             const l = useEarth().getLayerAtFeature(feat) as VectorLayer<VectorSource<Geometry>> | undefined;
             l?.getSource()?.removeFeature(feat);
           } catch {
