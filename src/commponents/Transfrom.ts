@@ -579,6 +579,63 @@ export default class Transfrom {
       return [nx, ny] as Coordinate;
     });
   }
+
+  /**
+   * 计算复制场景下坐标平移结果（与拖拽平移一致，处理 world wrap 最短距离）
+   * - Point/Billboard/Circle: Coordinate
+   * - Polyline: Coordinate[]
+   * - Polygon: Coordinate[][]
+   */
+  private translateGeometryByCenter(baseCoords: any, baseCenter: Coordinate, newCenter: Coordinate): any {
+    if (!baseCoords) return baseCoords;
+    const map = useEarth().map;
+    let worldWidth: number | undefined;
+    try {
+      const extent = map.getView().getProjection().getExtent?.();
+      if (extent) {
+        worldWidth = extent[2] - extent[0];
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    const shortestDeltaX = (from: number, to: number): number => {
+      if (!worldWidth || !isFinite(worldWidth)) return to - from;
+      let dx = to - from;
+      if (dx > worldWidth / 2) dx -= worldWidth;
+      else if (dx < -worldWidth / 2) dx += worldWidth;
+      return dx;
+    };
+    const dx = shortestDeltaX(baseCenter[0], newCenter[0]);
+    const dy = newCenter[1] - baseCenter[1];
+    const targetWorld = worldWidth ? Utils.getWorldIndex(newCenter[0]) : undefined;
+
+    const normalizeXToTargetWorld = (x: number): number => {
+      if (!worldWidth || targetWorld === undefined) return x;
+      const curWorld = Utils.getWorldIndex(x);
+      if (curWorld === undefined || curWorld === targetWorld) return x;
+      return x + (targetWorld - curWorld) * worldWidth;
+    };
+
+    const shiftPoint = (p: Coordinate): Coordinate => {
+      const nx = normalizeXToTargetWorld(p[0] + dx);
+      const ny = p[1] + dy;
+      return [nx, ny] as Coordinate;
+    };
+
+    // Coordinate
+    if (Array.isArray(baseCoords) && baseCoords.length >= 2 && typeof baseCoords[0] === 'number') {
+      return shiftPoint(baseCoords as Coordinate);
+    }
+    // Coordinate[]
+    if (Array.isArray(baseCoords) && Array.isArray(baseCoords[0]) && typeof baseCoords[0][0] === 'number') {
+      return (baseCoords as Coordinate[]).map((p) => shiftPoint(p));
+    }
+    // Coordinate[][]
+    if (Array.isArray(baseCoords) && Array.isArray(baseCoords[0]) && Array.isArray(baseCoords[0][0])) {
+      return (baseCoords as Coordinate[][]).map((ring) => ring.map((p) => shiftPoint(p as Coordinate)));
+    }
+    return baseCoords;
+  }
   /**
    * 根据几何类型与坐标数组计算中心（复制时用于 plotPoints 平移）
    * 支持: Point / BillBoard 使用单点, Polygon/Polyline 使用包围盒中心, Circle 使用 center
@@ -939,11 +996,16 @@ export default class Transfrom {
       (evt: { pixel: number[] }) => {
         this.updateHelpTooltip('点击地图完成复制,右键地图退出复制');
         let newValue: any = null;
+        const pixelCenter = useEarth().map.getCoordinateFromPixel(evt.pixel);
         if (type === 'Point' || type === 'Billboard') {
           newValue = Utils.getFeatureToPixel(evt.pixel, baseCoords);
           originParam.center = newValue;
         } else if (type === 'Polygon' || type === 'Polyline') {
-          newValue = Utils.getFeatureToPixel(evt.pixel, baseCoords);
+          if (baseCenter && pixelCenter) {
+            newValue = this.translateGeometryByCenter(baseCoords, baseCenter, pixelCenter as Coordinate);
+          } else {
+            newValue = Utils.getFeatureToPixel(evt.pixel, baseCoords);
+          }
           originParam.positions = newValue;
         } else if (type === 'Circle') {
           newValue = Utils.getFeatureToPixel(evt.pixel, baseCoords);
@@ -1001,10 +1063,14 @@ export default class Transfrom {
           }
         });
     } else {
-      const newValue = Utils.getFeatureToPixel(pixel, baseCoords);
+      let newValue: any = Utils.getFeatureToPixel(pixel, baseCoords);
+      const pixelCenter = useEarth().map.getCoordinateFromPixel(pixel);
       if (type === 'Point' || type === 'Billboard') {
         originParam.center = newValue;
       } else if (type === 'Polygon' || type === 'Polyline') {
+        if (baseCenter && pixelCenter) {
+          newValue = this.translateGeometryByCenter(baseCoords, baseCenter, pixelCenter as Coordinate);
+        }
         originParam.positions = newValue;
       } else if (type === 'Circle') {
         originParam.center = newValue; // center
