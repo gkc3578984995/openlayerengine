@@ -275,7 +275,6 @@ class plotEdit {
   /** 注册键盘撤销/重做 */
   private setupKeyDown() {
     try {
-      useEarth().useGlobalEvent().enableGlobalKeyDownEvent && useEarth().useGlobalEvent().enableGlobalKeyDownEvent();
       this.keyDownDispose = useEarth()
         .useGlobalEvent()
         .addKeyDownEventByGlobal((ev: KeyboardEvent) => {

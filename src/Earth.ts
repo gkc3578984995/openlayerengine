@@ -24,6 +24,10 @@ import { ScaleLine } from 'ol/control';
  */
 export default class Earth {
   /**
+   * 当前实例是否已被销毁
+   */
+  public isDestroyed = false;
+  /**
    * `map`实例
    */
   public map: Map;
@@ -71,6 +75,10 @@ export default class Earth {
    * 网格图层
    */
   public graticule: Graticule | undefined;
+  /**
+   * 比例尺控件
+   */
+  public scaleLine: ScaleLine | undefined;
   /**
    * 内部方法：供 Base 构造器在提供 registryKey 时自动注册
    * @param key 注册名称
@@ -469,17 +477,84 @@ export default class Earth {
    * 启用比例尺
    */
   enableScaleLine() {
-    const scaleLine = new ScaleLine({
+    if (this.scaleLine) return;
+    this.scaleLine = new ScaleLine({
       bar: true,
       text: true,
       minWidth: 100
     });
-    this.map.addControl(scaleLine);
+    this.map.addControl(this.scaleLine);
   }
   /**
    * 禁用比例尺
    */
   disableScaleLine() {
+    if (this.scaleLine) {
+      this.map.removeControl(this.scaleLine);
+      this.scaleLine = undefined;
+    }
+  }
+  /**
+   * 销毁地图实例及地图上所有元素
+   *
+   * - 清理动态绘制、测量、默认图层与自定义图层
+   * - 清理网格线、比例尺、覆盖物、交互、控件、图层
+   * - 解除全局事件和右键菜单监听
+   * - 解除地图挂载目标，释放引用
+   */
+  destroy(): void {
+    if (this.isDestroyed) return;
+    // 1) 清理工具与图层封装对象
+    this.draw?.destroy({ removeGraphics: true, removeLayers: true });
+    this.draw = undefined;
 
+    this.measure?.clear();
+    this.measure = undefined;
+
+    this.entities?.reset();
+    this.entities = undefined;
+
+    Object.keys(this.customLayers).forEach((key) => {
+      try {
+        this.customLayers[key]?.destroy();
+      } catch {
+        // ignore
+      }
+    });
+    this.customLayers = {};
+
+    // 2) 清理事件监听
+    if (this.globalEvent) {
+      try {
+        if (this.globalEvent.hasGlobalMouseMoveEvent()) this.globalEvent.disableGlobalMouseMoveEvent();
+        if (this.globalEvent.hasGlobalMouseClickEvent()) this.globalEvent.disableGlobalMouseClickEvent();
+        if (this.globalEvent.hasGlobalMouseLeftDownEvent()) this.globalEvent.disableGlobalMouseLeftDownEvent();
+        if (this.globalEvent.hasGlobalMouseLeftUpEvent()) this.globalEvent.disableGlobalMouseLeftUpEvent();
+        if (this.globalEvent.hasGlobalMouseDblClickEvent()) this.globalEvent.disableGlobalMouseDblClickEvent();
+        if (this.globalEvent.hasGlobalMouseRightClickEvent()) this.globalEvent.disableGlobalMouseRightClickEvent();
+        if (this.globalEvent.hasGlobalKeyDownEvent()) this.globalEvent.disableGlobalKeyDownEvent();
+      } catch {
+        // ignore
+      }
+      this.globalEvent = undefined;
+    }
+    document.removeEventListener('contextmenu', this.closeRightMenu);
+
+    // 3) 清理地图可视元素与容器绑定
+    this.disableGraticule();
+    this.disableScaleLine();
+
+    this.map.getOverlays().clear();
+    this.map.getLayers().clear();
+    this.map.getInteractions().clear();
+    this.map.getControls().clear();
+    this.map.setTarget(undefined);
+    // 进一步释放 OpenLayers 内部资源
+    try {
+      this.map.dispose();
+    } catch {
+      // ignore
+    }
+    this.isDestroyed = true;
   }
 }

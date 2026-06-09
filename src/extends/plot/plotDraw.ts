@@ -169,6 +169,17 @@ class PlotDraw {
    * 创建监听事件
    */
   private createEvent() {
+    // 防止重复 init 导致旧监听残留
+    if (this.offEvents.length) {
+      this.offEvents.forEach((off: any) => {
+        try {
+          off && off();
+        } catch {
+          /* ignore */
+        }
+      });
+      this.offEvents = [];
+    }
     const event = useEarth().useGlobalEvent();
     const off = event.addMouseClickEventByGlobal(this.mouseClickEvent.bind(this));
     const offRightClick = event.addMouseRightClickEventByGlobal(this.mouseRightClickEvent.bind(this));
@@ -273,7 +284,14 @@ class PlotDraw {
     this.feature = undefined;
     // 移除监听
     this.removeHelpTooltip();
-    this.offEvents.forEach((off: any) => off());
+    this.offEvents.forEach((off: any) => {
+      try {
+        off && off();
+      } catch {
+        /* ignore */
+      }
+    });
+    this.offEvents = [];
     useEarth().setMouseStyle('default');
   }
   /** 初始化帮助提示 */
@@ -395,6 +413,14 @@ class PlotDraw {
     try {
       // 先关闭地图事件监听，避免 exitDraw 二次 remove 报错
       this.off();
+      this.offEvents.forEach((off: any) => {
+        try {
+          off && off();
+        } catch {
+          /* ignore */
+        }
+      });
+      this.offEvents = [];
       this.exitDraw();
     } catch (e) {
       console.error('[PlotDraw][destroy] error', e);
