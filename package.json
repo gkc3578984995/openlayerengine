@@ -14,18 +14,24 @@
     "prepack": "npm run build",
     "copy": "copyfiles -u 1 src/**/*.glsl earth-engine",
     "tsc": "yarn clean && tsc && yarn copy",
-    "doc": "npx typedoc --options ./typedoc.json"
+    "doc": "npx typedoc --options ./typedoc.json",
+    "pack:offline": "npm pack"
   },
   "author": "gkc",
-  "peerDependencies": {
-    "heatmap.js": "^2.0.5",
-    "mitt": "^3.0.0"
-  },
   "dependencies": {
+    "heatmap.js": "^2.0.5",
     "lodash": "^4.17.21",
     "lodash.clonedeep": "^4.5.0",
+    "mitt": "^3.0.0",
     "ol-wind": "^1.1.2"
   },
+  "bundledDependencies": [
+    "heatmap.js",
+    "lodash",
+    "lodash.clonedeep",
+    "mitt",
+    "ol-wind"
+  ],
   "devDependencies": {
     "@rollup/plugin-commonjs": "^24.0.1",
     "@rollup/plugin-node-resolve": "^15.0.1",
