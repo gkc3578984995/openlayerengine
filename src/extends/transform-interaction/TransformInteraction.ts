@@ -684,6 +684,30 @@ class TransformInteraction extends PointerInteraction {
     }
   }
 
+  /**
+   * 计算宽 w、高 h 的矩形在旋转 rot（弧度）后的轴对齐外接矩形半宽 / 半高。
+   * 单位与传入的 w / h 一致（像素或地图单位）。旋转后外接矩形大于矩形本身，
+   * 必须用 |w·cos|+|h·sin| 计算，否则 bbox 会偏小、包不住旋转后的图标。
+   */
+  private _rotatedBBoxHalf(w: number, h: number, rot: number): [number, number] {
+    const c = Math.abs(Math.cos(rot));
+    const s = Math.abs(Math.sin(rot));
+    return [(w * c + h * s) / 2, (w * s + h * c) / 2];
+  }
+
+  /**
+   * 点图标在屏幕空间的轴对齐外接矩形半宽 / 半高（兼顾 scale 与 rotation）。
+   * 返回 undefined 时表示无法推导图标尺寸。
+   */
+  private _pointGetRotatedHalfSizePixel_(feature: Feature<any>): [number, number] | undefined {
+    const size = this._pointGetVisualSizePixel_(feature); // [w*sx, h*sy] 未旋转满尺寸
+    if (!size) return undefined;
+    const style: any = feature.getStyle?.();
+    const img: any = style?.getImage?.();
+    const rot = img?.getRotation ? img.getRotation() || 0 : 0;
+    return this._rotatedBBoxHalf(size[0], size[1], rot);
+  }
+
   /** 判断像素是否在点图标视觉 bbox 内 */
   private _isPixelInsidePointBBox_(feature: Feature<any>, pixel: number[], overrideCenter?: Coordinate): boolean {
     const map = this.getMap();
@@ -774,8 +798,13 @@ class TransformInteraction extends PointerInteraction {
         ?.addFeature(new Feature({ geometry: new PointGeom([this.center_[0] + wrapOffset, this.center_[1]]), handle: 'rotate0' }) as any);
       let centerExtent = extWrap;
       if (this.mode_ === 'rotate' && this.ispt_ && this._ptRotateBBoxSize) {
-        const halfW = this._ptRotateBBoxSize[0] / 2;
-        const halfH = this._ptRotateBBoxSize[1] / 2;
+        // _ptRotateBBoxSize 为旋转开始时记录的"未旋转"地图尺寸；旋转过程中按当前角度
+        // 重新计算外接矩形，保证 bbox 始终包住旋转中的图标（而非固定为起始小矩形）
+        const pf = this.selection_.item(0) as Feature<any>;
+        const style: any = pf?.getStyle?.();
+        const img: any = style?.getImage?.();
+        const rot = img?.getRotation ? img.getRotation() || 0 : 0;
+        const [halfW, halfH] = this._rotatedBBoxHalf(this._ptRotateBBoxSize[0], this._ptRotateBBoxSize[1], rot);
         const cx = this.center_[0] + wrapOffset;
         const cy = this.center_[1];
         centerExtent = [cx - halfW, cy - halfH, cx + halfW, cy + halfH];
@@ -793,8 +822,14 @@ class TransformInteraction extends PointerInteraction {
       const ec = extentGetCenter(ext2);
       const p = map.getPixelFromCoordinate([ec[0], ec[1]]);
       if (p) {
-        const dx = ptRadius ? (ptRadius as number[])[0] || 10 : 10;
-        const dy = ptRadius ? (ptRadius as number[])[1] || 10 : 10;
+        // 取旋转后外接矩形半宽/半高（兼顾 scale 与 rotation）；取不到则回退 ptRadius
+        const half =
+          (this.selection_.getLength() === 1
+            ? this._pointGetRotatedHalfSizePixel_(this.selection_.item(0) as Feature<any>)
+            : undefined) ||
+          (ptRadius ? (ptRadius as number[]) : [10, 10]);
+        const dx = half[0] || 10;
+        const dy = half[1] || 10;
         const c1 = map.getCoordinateFromPixel([p[0] - dx, p[1] - dy]);
         const c2 = map.getCoordinateFromPixel([p[0] + dx, p[1] + dy]);
         if (c1 && c2) ext2 = extentBoundingExtent([c1, c2]);
