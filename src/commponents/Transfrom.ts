@@ -105,6 +105,8 @@ export default class Transfrom {
   private lastPointerPixel: number[] | null = null;
   /** pointermove 监听 key，用于销毁解绑 */
   private pointerMoveKey: EventsKey | undefined;
+  /** 工具栏位置随地图缩放 / 平移 / 旋转同步的监听 key */
+  private toolbarSyncKeys: EventsKey[] = [];
   /** 平移开始时针对 plotPoints 的快照（用于在平移过程中同步控制点） */
   private translatePlotSnapshot: { featureId: string; basePlotPoints: Coordinate[]; baseCenter: Coordinate } | null = null;
 
@@ -118,6 +120,8 @@ export default class Transfrom {
     this.setupKeyDownEvent();
     // 跟踪鼠标位置，供键盘触发操作使用
     this.setupPointerTrack();
+    // 工具栏位置随地图缩放 / 平移 / 旋转同步
+    this.setupToolbarSync();
   }
   /**
    * 创建变换实例
@@ -294,6 +298,39 @@ export default class Transfrom {
     } catch (_) {
       /* ignore */
     }
+  }
+
+  /**
+   * 工具栏位置同步：缩放 / 平移 / 旋转地图时，依据当前 bbox 重新定位工具栏。
+   *
+   * 点要素（如 Billboard 图标）的 bbox 角点由像素偏移换算而来、随分辨率变化；
+   * 工具栏 Overlay 锚定在该角点，若仅在变换事件中更新，缩放时角点坐标已变而 Overlay 仍停在旧坐标，
+   * 表现为"工具栏不跟随"。这里在 moveend / resolution / rotation 变化时按最新 bbox 重新定位。
+   *
+   * 依赖 TransformInteraction 在 resolution / rotation 变化时已先行重绘 bbox（其监听先注册、先触发）。
+   */
+  private setupToolbarSync() {
+    const map = useEarth().map;
+    const view = map.getView();
+    const sync = () => this.syncToolbarPosition();
+    this.toolbarSyncKeys.push(map.on('moveend', sync) as EventsKey);
+    this.toolbarSyncKeys.push(view.on('change:resolution', sync) as EventsKey);
+    this.toolbarSyncKeys.push(view.on('change:rotation', sync) as EventsKey);
+  }
+
+  /**
+   * 按当前 bbox 角点重新定位工具栏（无工具栏或无 bbox 时跳过）
+   */
+  private syncToolbarPosition() {
+    if (!this.toolbar) return;
+    const bbox = this.transforms?.bbox_;
+    if (!bbox) return;
+    const geom = bbox.getGeometry?.();
+    if (!geom) return;
+    const coords = geom.getCoordinates?.();
+    const point = coords && coords[0] && coords[0][2];
+    if (!point) return;
+    this.toolbar.updateOptions({ point });
   }
 
   /**
@@ -1866,6 +1903,10 @@ export default class Transfrom {
     if (this.pointerMoveKey) {
       unByKey(this.pointerMoveKey);
       this.pointerMoveKey = undefined;
+    }
+    if (this.toolbarSyncKeys.length) {
+      this.toolbarSyncKeys.forEach((k) => unByKey(k));
+      this.toolbarSyncKeys = [];
     }
   }
 }
