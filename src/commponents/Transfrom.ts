@@ -125,6 +125,14 @@ export default class Transfrom {
   private createTransform() {
     // 初始化参数
     const { params, translate, translateFeature } = this.initParams();
+    const mergedFilter = (feature: Feature): boolean => {
+      // 平行叠加线不可被 Transform 选中
+      if (feature?.get?.('isParallelOverlay')) return false;
+      if (typeof params.beforeTransform === 'function') {
+        return params.beforeTransform(feature);
+      }
+      return true;
+    };
     // 添加 Transform 交互
     const transforms = new TransformInteraction({
       hitTolerance: params.hitTolerance,
@@ -133,7 +141,7 @@ export default class Transfrom {
       stretch: params.stretch,
       scale: params.scale,
       rotate: params.rotate,
-      filter: params.beforeTransform,
+      filter: mergedFilter,
       layers: params.transformLayers,
       features: params.transformFeatures
     });
@@ -410,6 +418,18 @@ export default class Transfrom {
         feature: e.feature,
         plotParam: e.plotParam
       };
+      // 线编辑过程中，同步更新平行叠加线
+      const feature = e.feature as Feature | undefined;
+      const layerType = feature?.get?.('layerType');
+      if (feature && layerType === 'Polyline' && (eventName === ETransfrom.Modifying || eventName === ETransfrom.ModifyEnd)) {
+        const layer = this.getLayerByFeature(feature) as PolylineLayer | null;
+        const id = feature.getId?.();
+        const geom = feature.getGeometry?.() as unknown as { getCoordinates?: () => Coordinate[] };
+        const coords = (e.position || geom?.getCoordinates?.()) as Coordinate[] | undefined;
+        if (layer && id && Array.isArray(coords) && coords.length) {
+          layer.setPosition(String(id), coords);
+        }
+      }
     } else if (otherEvents.has(eventName)) {
       this.checkSelect = e.feature;
       callbackParam = {
@@ -513,6 +533,13 @@ export default class Transfrom {
         }
       }
     }
+    // 变换进行中：同步 Polyline（及其平行叠加线）
+    if (
+      (eventName === ETransfrom.Translating || eventName === ETransfrom.Rotating || eventName === ETransfrom.Scaling) &&
+      e.feature
+    ) {
+      this.syncPolylineFeaturePosition(e.feature);
+    }
   }
   /**
    * 处理变换事件结束的逻辑
@@ -535,6 +562,28 @@ export default class Transfrom {
         }
       }
     }
+    if (
+      (eventName === ETransfrom.TranslateEnd || eventName === ETransfrom.RotateEnd || eventName === ETransfrom.ScaleEnd) &&
+      e.feature
+    ) {
+      this.syncPolylineFeaturePosition(e.feature);
+    }
+  }
+
+  /**
+   * 将 Transform 中的 Polyline 几何变更同步回图层（触发叠加线同步）
+   */
+  private syncPolylineFeaturePosition(feature?: Feature): void {
+    if (!feature) return;
+    if (feature.get?.('isParallelOverlay')) return;
+    if (feature.get?.('layerType') !== 'Polyline') return;
+    const layer = this.getLayerByFeature(feature) as PolylineLayer | null;
+    const id = feature.getId?.();
+    if (!layer || !id) return;
+    const geom = feature.getGeometry?.() as unknown as { getCoordinates?: () => Coordinate[] };
+    const coords = geom?.getCoordinates?.();
+    if (!Array.isArray(coords) || !coords.length) return;
+    layer.setPosition(String(id), coords);
   }
   /**
    * 根据起始中心与当前中心计算偏移并将 basePlotPoints 平移（处理 world wrap 最短距离）

@@ -32,6 +32,14 @@ export default class Polyline<T = LineString> extends Base {
    * 流动线事件key集合
    */
   private flashKey: Map<string, EventsKey> = new Map();
+  /**
+   * 主线id -> 平行叠加线id
+   */
+  private parallelOverlayMap: Map<string, string> = new Map();
+  /**
+   * 平行叠加线重算监听key
+   */
+  private parallelOverlaySyncKeys: EventsKey[] = [];
   // 旧的箭头 geometry 监听方案已被动态 style function 替换
 
   /**
@@ -315,6 +323,193 @@ export default class Polyline<T = LineString> extends Base {
     this.flashKey.set(param.id, key);
     return <Feature<LineString>>super.save(feature);
   }
+
+  /**
+   * 根据线宽自动计算平行偏移后的坐标
+   * @param positions 原始坐标
+   * @param onTop true=上方，false=下方
+   * @param lineWidth 原始线宽（像素）
+   */
+  private buildParallelOffsetPositions(positions: Coordinate[], onTop: boolean, lineWidth: number): Coordinate[] {
+    if (!positions || positions.length < 2) return positions;
+    const resolution = this.earth.map.getView().getResolution() || 1;
+    const offsetPx = Math.max(1, lineWidth) + 1;
+    const offsetMapUnit = offsetPx * resolution;
+    const sign = onTop ? 1 : -1;
+
+    const segmentNormals: Coordinate[] = [];
+    for (let i = 1; i < positions.length; i++) {
+      const p0 = positions[i - 1];
+      const p1 = positions[i];
+      const dx = p1[0] - p0[0];
+      const dy = p1[1] - p0[1];
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len === 0) {
+        segmentNormals.push([0, 0]);
+      } else {
+        segmentNormals.push([(-dy / len) * sign, (dx / len) * sign]);
+      }
+    }
+
+    const avgNormal = (index: number): Coordinate => {
+      if (index <= 0) return segmentNormals[0] || [0, 0];
+      if (index >= positions.length - 1) return segmentNormals[segmentNormals.length - 1] || [0, 0];
+      const n0 = segmentNormals[index - 1] || [0, 0];
+      const n1 = segmentNormals[index] || [0, 0];
+      const nx = n0[0] + n1[0];
+      const ny = n0[1] + n1[1];
+      const nLen = Math.sqrt(nx * nx + ny * ny);
+      if (nLen === 0) return n1;
+      return [nx / nLen, ny / nLen];
+    };
+
+    return positions.map((p, idx) => {
+      const [nx, ny] = avgNormal(idx);
+      return [p[0] + nx * offsetMapUnit, p[1] + ny * offsetMapUnit];
+    });
+  }
+
+  /**
+   * 添加平行叠加线（与主线样式一致）
+   */
+  private addParallelOverlay(param: IPolylineParam<T>): void {
+    if (param.parallelOverlayOnTop === undefined || !param.id) return;
+    const strokeWidth = param.stroke?.width ?? param.width ?? 2;
+    const overlayPositions = this.buildParallelOffsetPositions(
+      param.positions as Coordinate[],
+      param.parallelOverlayOnTop,
+      strokeWidth
+    );
+    const overlayId = `${param.id}__parallel`;
+    const overlayStroke = param.parallelOverlayStroke || param.stroke;
+    const overlayWidth = param.parallelOverlayStroke?.width ?? param.width;
+    const overlayParam: IPolylineParam<T> = {
+      ...param,
+      id: overlayId,
+      positions: overlayPositions as number[][],
+      stroke: overlayStroke,
+      width: overlayWidth,
+      label: undefined,
+      isArrow: false,
+      isFlowingDash: false
+    };
+    const overlayFeature = this.createFeature(overlayParam);
+    overlayFeature.set('isParallelOverlay', true);
+    overlayFeature.set('parentId', param.id);
+
+    if (param.parallelOverlayOnTop) {
+      super.save(overlayFeature);
+    } else {
+      // 下方叠加：先插入叠加线，再让主线后插入（主线会覆盖在上层）
+      const source = this.layer.getSource();
+      if (source) source.addFeature(overlayFeature);
+    }
+    this.parallelOverlayMap.set(param.id, overlayId);
+    this.ensureParallelOverlaySync();
+  }
+
+  /**
+   * 确保已注册平行线重算监听（缩放/拖拽过程中实时重算）
+   */
+  private ensureParallelOverlaySync(): void {
+    if (this.parallelOverlaySyncKeys.length > 0) return;
+    const sync = () => this.syncAllParallelOverlays();
+    const view = this.earth.map.getView();
+    this.parallelOverlaySyncKeys.push(view.on('change:resolution', sync));
+    this.parallelOverlaySyncKeys.push(view.on('change:center', sync));
+  }
+
+  /**
+   * 当不存在平行叠加线时，移除重算监听
+   */
+  private clearParallelOverlaySyncIfNeeded(): void {
+    if (this.parallelOverlayMap.size > 0) return;
+    if (this.parallelOverlaySyncKeys.length) {
+      this.parallelOverlaySyncKeys.forEach((key) => unByKey(key));
+      this.parallelOverlaySyncKeys = [];
+    }
+  }
+
+  /**
+   * 根据主线 id 查找叠加线要素（用于映射丢失时恢复）
+   */
+  private findParallelOverlayFeatureByParentId(id: string): Feature<LineString> | undefined {
+    const source = this.layer.getSource();
+    const features = source?.getFeatures() || [];
+    return features.find((item) => item.get('isParallelOverlay') && item.get('parentId') === id) as
+      | Feature<LineString>
+      | undefined;
+  }
+
+  /**
+   * 确保主线对应的叠加线存在（缺失时自动重建）
+   */
+  private ensureParallelOverlayForMain(id: string, param: IPolylineParam<T>, mainFeature: Feature<LineString>): Feature<LineString> | null {
+    let overlayId = this.parallelOverlayMap.get(id);
+    let overlayFeature: Feature<LineString> | undefined;
+    if (overlayId) {
+      overlayFeature = <Feature<LineString> | undefined>super.get(overlayId)[0];
+    }
+    if (!overlayFeature) {
+      const byParent = this.findParallelOverlayFeatureByParentId(id);
+      if (byParent) {
+        overlayFeature = byParent;
+        overlayId = String(byParent.getId?.() || `${id}__parallel`);
+        this.parallelOverlayMap.set(id, overlayId);
+      }
+    }
+    if (!overlayFeature && param.parallelOverlayOnTop !== undefined) {
+      // 尝试重建叠加线
+      const rebuildParam: IPolylineParam<T> = {
+        ...param,
+        id
+      };
+      this.addParallelOverlay(rebuildParam);
+      const newOverlayId = this.parallelOverlayMap.get(id);
+      if (newOverlayId) {
+        overlayFeature = <Feature<LineString> | undefined>super.get(newOverlayId)[0];
+        // 下方叠加时，确保主线层级在上方
+        if (overlayFeature && param.parallelOverlayOnTop === false) {
+          const source = this.layer.getSource();
+          if (source) {
+            source.removeFeature(mainFeature);
+            source.addFeature(mainFeature);
+          }
+        }
+      }
+    }
+    return overlayFeature || null;
+  }
+
+  /**
+   * 同步指定主线对应的平行叠加线坐标
+   */
+  private syncParallelOverlayById(id: string): void {
+    const features = <Feature<LineString>[]>super.get(id);
+    const feature = features[0];
+    if (!feature) return;
+    const param = <IPolylineParam<T>>feature.get('param');
+    if (!param || param.parallelOverlayOnTop === undefined) return;
+    const overlayFeature = this.ensureParallelOverlayForMain(id, param, feature);
+    if (!overlayFeature) return;
+    const geom = feature.getGeometry();
+    const mainPositions = (geom?.getCoordinates() || param.positions) as Coordinate[];
+    const strokeWidth = param.stroke?.width ?? param.width ?? 2;
+    const overlayPositions = this.buildParallelOffsetPositions(mainPositions, param.parallelOverlayOnTop, strokeWidth);
+    const overlayParam = <IPolylineParam<T>>overlayFeature.get('param');
+    overlayParam.positions = overlayPositions as number[][];
+    overlayFeature.set('param', overlayParam);
+    overlayFeature.getGeometry()?.setCoordinates(overlayPositions);
+  }
+
+  /**
+   * 同步所有平行叠加线坐标
+   */
+  private syncAllParallelOverlays(): void {
+    this.parallelOverlayMap.forEach((_overlayId, id) => {
+      this.syncParallelOverlayById(id);
+    });
+  }
   /**
    * 添加线段
    * @param param 详细参数，详见{@link IPolylineParam}
@@ -329,14 +524,28 @@ export default class Polyline<T = LineString> extends Base {
    */
   add(param: IPolylineParam<T>): Feature<LineString> {
     param.id = param.id || Utils.GetGUID();
-    const feature = this.createFeature(param);
+    let mainFeature: Feature<LineString>;
     if (param.isArrow) {
-      return this.addLineArrows(param);
+      mainFeature = this.addLineArrows(param);
     } else if (param.isFlowingDash) {
-      return this.addFlowingDash(param);
+      mainFeature = this.addFlowingDash(param);
     } else {
-      return <Feature<LineString>>super.save(feature);
+      const feature = this.createFeature(param);
+      mainFeature = <Feature<LineString>>super.save(feature);
     }
+
+    if (param.parallelOverlayOnTop !== undefined) {
+      this.addParallelOverlay(param);
+      if (param.parallelOverlayOnTop === false) {
+        const source = this.layer.getSource();
+        if (source) {
+          source.removeFeature(mainFeature);
+          source.addFeature(mainFeature);
+        }
+      }
+    }
+
+    return mainFeature;
   }
   /**
    * 添加飞行线
@@ -384,6 +593,7 @@ export default class Polyline<T = LineString> extends Base {
     // }
     features[0].set('param', param);
     features[0].getGeometry()?.setCoordinates(position);
+    this.syncParallelOverlayById(id);
     return features;
   }
   /**
@@ -397,6 +607,12 @@ export default class Polyline<T = LineString> extends Base {
   remove(id: string): void;
   remove(id?: string | undefined): void {
     if (id) {
+      const overlayId = this.parallelOverlayMap.get(id);
+      if (overlayId) {
+        super.remove(overlayId);
+        this.parallelOverlayMap.delete(id);
+        this.clearParallelOverlaySyncIfNeeded();
+      }
       if (this.flashKey.has(id)) {
         // 流动线
         const key = <EventsKey>this.flashKey.get(id);
@@ -413,6 +629,8 @@ export default class Polyline<T = LineString> extends Base {
       });
       this.flashKey.clear();
       this.lineDash.clear();
+      this.parallelOverlayMap.clear();
+      this.clearParallelOverlaySyncIfNeeded();
     }
   }
   /**

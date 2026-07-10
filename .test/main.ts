@@ -15,7 +15,7 @@ import '../src/assets/style/index.scss';
 import { testTransfrom } from './commponents/Transfrom';
 
 window.onload = () => {
-  const earth = useEarth();
+  const earth = useEarth({maxZoom: 18},{});
   // earth.addLayer(earth.createXyzLayer('http://192.168.50.200:8080/_alllayers'));
   earth.createXyzLayer
   earth.addLayer(earth.createOsmLayer());
@@ -28,7 +28,7 @@ window.onload = () => {
   testTransfrom();
   // testOverlayLayer();
   // testGlobalEvent();
-  testDynamicDraw();
+  // testDynamicDraw();
   // testMeasure();
   // testWindLayer();
   // testDescriptor();

@@ -12,7 +12,7 @@ import { ViewOptions } from 'ol/View';
 import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, WindLayer } from './base';
 import Base from './base/Base';
 import { DynamicDraw, GlobalEvent, Measure } from './commponents';
-import { DoubleClickZoom, DragPan } from 'ol/interaction';
+import { DoubleClickZoom, DragPan, MouseWheelZoom } from 'ol/interaction';
 import { Geometry } from 'ol/geom';
 import { Layer } from 'ol/layer';
 import { Source } from 'ol/source';
@@ -141,6 +141,22 @@ export default class Earth {
         return interaction instanceof DoubleClickZoom;
       });
     if (dblClickInteraction) this.map.removeInteraction(dblClickInteraction);
+    // 替换默认滚轮缩放：取消 timeout/duration，确保缩放反馈更实时
+    const wheelZoomInteraction = this.map
+      .getInteractions()
+      .getArray()
+      .find((interaction) => interaction instanceof MouseWheelZoom);
+    if (wheelZoomInteraction) {
+      this.map.removeInteraction(wheelZoomInteraction);
+      this.map.addInteraction(
+        new MouseWheelZoom({
+          duration: 0,
+          timeout: 0,
+          useAnchor: true,
+          constrainResolution: false
+        })
+      );
+    }
     // 关闭浏览器右键菜单
     document.addEventListener('contextmenu', this.closeRightMenu);
   }

@@ -8,14 +8,14 @@ export const testTransfrom = () => {
     console.log(e.type, e);
     if (e.type === ETransfrom.TranslateEnd) {
 
-      const a = e.feature?.clone();
-      a?.setId(e.featureId);
-      const b = useEarth().getLayer(e.feature!.get('layerId'));
-      b?.remove(e.feature!.getId() as string);
-      setTimeout(() => {
-        b?.getLayer().getSource()?.addFeature(a!);
-        transfrom.replaceEditingFeature(a!)
-      }, 1000);
+      // const a = e.feature?.clone();
+      // a?.setId(e.featureId);
+      // const b = useEarth().getLayer(e.feature!.get('layerId'));
+      // b?.remove(e.feature!.getId() as string);
+      // setTimeout(() => {
+      //   b?.getLayer().getSource()?.addFeature(a!);
+      //   transfrom.replaceEditingFeature(a!)
+      // }, 1000);
 
     }
     // if (e.type === ETransfrom.Copy) {

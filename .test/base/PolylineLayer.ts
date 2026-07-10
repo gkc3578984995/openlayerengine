@@ -11,7 +11,15 @@ export const testPolylineLayer = () => {
     positions: [fromLonLat([100, 30]), fromLonLat([100, 50])],
     stroke: {
       color: 'red',
+      width: 5,
       lineDash: [30, 20, 30, 20]
+    },
+    parallelOverlayOnTop: true,
+    parallelOverlayStroke: {
+      color: '#00e5ff',
+      width: 3,
+      lineDash: [40,10,40,10],
+      lineDashOffset: 0
     },
     width: 5
   });
