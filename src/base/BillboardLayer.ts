@@ -45,7 +45,7 @@ export default class BillboardLayer<T = Point> extends Base {
       src: param.src,
       size: param.size,
       color: param.color,
-      displacement: param.displacement,
+      displacement: this.compensateDisplacement(param.displacement, param.rotation),
       scale: param.scale,
       rotation: Utils.deg2rad(param.rotation || 0),
       anchor: param.anchor,
@@ -54,7 +54,7 @@ export default class BillboardLayer<T = Point> extends Base {
       anchorYUnits: param.anchorYUnits
     });
     let style = new Style();
-    style = super.setText(style, param.label);
+    style = this.applyText(style, param.label, feature);
     style.setImage(icon);
     feature.setStyle(style);
     feature.setId(param.id);
@@ -63,7 +63,23 @@ export default class BillboardLayer<T = Point> extends Base {
     feature.set('layerId', this.layer.get('id'));
     feature.set('layerType', 'Billboard');
     feature.set('param', param);
+    // 记录屏幕空间偏移（未补偿），供 set() 只传 rotation 时重新补偿使用
+    feature.set('screenDisplacement', param.displacement ? param.displacement.slice() : [0, 0]);
     return feature;
+  }
+  /**
+   * 将屏幕空间偏移补偿为 OL Icon 本地坐标系的 displacement，
+   * 使图标位移方向不受 rotation 影响（始终满足"正值向右、向上"的契约）。
+   *
+   * @param screenDisp 屏幕空间偏移，默认 [0, 0]（dx 向右、dy 向上为正）
+   * @param rotationDeg 旋转角度（度，顺时针为正）
+   * @returns 传入 OL Icon 的本地坐标系 displacement
+   */
+  private compensateDisplacement(screenDisp: number[] | undefined, rotationDeg: number | undefined): number[] {
+    const sx = screenDisp ? screenDisp[0] : 0;
+    const sy = screenDisp ? screenDisp[1] : 0;
+    if (!sx && !sy) return [0, 0];
+    return this.compensateOffset(sx, sy, Utils.deg2rad(rotationDeg || 0));
   }
   /**
    * 创建广告牌`Billboard`
@@ -108,6 +124,12 @@ export default class BillboardLayer<T = Point> extends Base {
     // rotation: 允许 0；只有 undefined / null 才回退旧值
     const nextRotationDeg = param.rotation !== undefined && param.rotation !== null ? param.rotation : undefined;
     const resolvedRotation = nextRotationDeg !== undefined ? Utils.deg2rad(nextRotationDeg) : oldIcon.getRotation();
+    const resolvedRotationDeg = nextRotationDeg !== undefined ? nextRotationDeg : Utils.rad2deg(oldIcon.getRotation());
+    // 屏幕空间偏移：优先用传入值，否则回退已存储的屏幕空间偏移（不能用 oldIcon.getDisplacement()，那是已补偿过的本地值）
+    const oldScreenDisp = <number[] | undefined>features[0].get('screenDisplacement');
+    const screenDisp = param.displacement !== undefined && param.displacement !== null
+      ? param.displacement
+      : (oldScreenDisp || [0, 0]);
     // size 必须是数组（宽高），否则使用旧值
     const nextSize: [number, number] | undefined = Array.isArray(param.size)
       ? (param.size as [number, number])
@@ -131,7 +153,7 @@ export default class BillboardLayer<T = Point> extends Base {
       src: param.src || oldIcon.getSrc(),
       size: nextSize,
       color: param.color || oldIcon.getColor(),
-      displacement: param.displacement || oldIcon.getDisplacement(),
+      displacement: this.compensateDisplacement(screenDisp, resolvedRotationDeg),
       scale: param.scale || oldIcon.getScale(),
       rotation: resolvedRotation,
       anchor: anchorProvided ? param.anchor : [0.5, 0.5]
@@ -148,9 +170,12 @@ export default class BillboardLayer<T = Point> extends Base {
     if (iconOptions.anchorXUnits == null) delete iconOptions.anchorXUnits;
     if (iconOptions.anchorYUnits == null) delete iconOptions.anchorYUnits;
     const newIcon = new Icon(iconOptions);
-    const newStyle = super.setText(style, param.label);
+    // 文本偏移旋转补偿（屏幕方向为准），公共偏移存于 feature 的 labelOffset
+    this.applyText(style, param.label, features[0]);
     style.setImage(newIcon);
-    features[0].setStyle(newStyle);
+    features[0].setStyle(style);
+    // 同步屏幕空间偏移，供下一次 set() 重新补偿使用
+    features[0].set('screenDisplacement', screenDisp.slice());
     return features;
   }
   /**

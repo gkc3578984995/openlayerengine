@@ -9,6 +9,10 @@ export const testBillboardLayer = () => {
     src: '../../src/assets/image/fly.svg',
     color: 'red',
     scale: 1,
+    anchor: [0.5, 0.5],
+    // 旋转 90°（顺时针）。补偿后 displacement 仍应向右；不补偿则会向下。
+    rotation: 90,
+    displacement: [0, 0],
     label: {
       text: 'billboard',
       font: 'bold 24px serif',
@@ -19,7 +23,11 @@ export const testBillboardLayer = () => {
       fill: {
         color: '#fff'
       },
-      offsetY: -80
+      
+      textAlign: 'center',
+      rotation: 0,
+      offsetX: 100,
+      offsetY: 100,
     }
   });
   /**

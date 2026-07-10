@@ -63,7 +63,7 @@ export default class PointLayer<T = Point> extends Base {
         )
       })
     );
-    style = super.setText(style, param.label, -15);
+    style = this.applyText(style, param.label, feature, -15);
     feature.setStyle(style);
     feature.setId(param.id);
     feature.set('data', param.data);
@@ -213,7 +213,7 @@ export default class PointLayer<T = Point> extends Base {
       })
     );
     const radius = param.size || image.getRadius();
-    super.setText(style, param.label, -(radius + 15));
+    this.applyText(style, param.label, features[0], -(radius + 15));
     features[0].changed();
     return features;
   }

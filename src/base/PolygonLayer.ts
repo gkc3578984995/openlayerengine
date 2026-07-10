@@ -44,7 +44,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
     let style = new Style();
     style = super.setStroke(style, param.stroke);
     style = super.setFill(style, param.fill);
-    style = super.setText(style, param.label);
+    style = this.applyText(style, param.label, feature);
     feature.setStyle(style);
     feature.setId(param.id);
     feature.set('data', param.data);
@@ -100,7 +100,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
       super.setFill(style, param.fill);
     }
     if (param.label) {
-      super.setText(style, param.label);
+      this.applyText(style, param.label, features[0]);
     }
     return features;
   }

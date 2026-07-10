@@ -565,11 +565,11 @@ export interface ILabel {
    */
   font?: string;
   /**
-   * 水平偏移，单位是像素
+   * 水平偏移，单位是像素，正值向右
    */
   offsetX?: number;
   /**
-   * 垂直偏移，单位是像素
+   * 垂直偏移，单位是像素，正值向上（与 OL 原生相反）
    */
   offsetY?: number;
   /**
@@ -605,7 +605,7 @@ export interface ILabel {
    */
   padding?: number[];
   /**
-   * 顺时针旋转，默认为0
+   * 顺时针旋转，默认为0，单位度（范围0-360），内部自动换算为弧度
    */
   rotation?: number;
 }

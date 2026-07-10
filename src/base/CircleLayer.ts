@@ -43,7 +43,7 @@ export default class CircleLayer<T = Circle> extends Base {
     let style = new Style();
     style = super.setStroke(style, param.stroke);
     style = super.setFill(style, param.fill);
-    style = super.setText(style, param.label);
+    style = this.applyText(style, param.label, feature);
     feature.setStyle(style);
     feature.setId(param.id);
     feature.set('data', param.data);
@@ -92,7 +92,7 @@ export default class CircleLayer<T = Circle> extends Base {
     let style = <Style>feature.getStyle();
     style = super.setStroke(style, param.stroke);
     style = super.setFill(style, param.fill);
-    style = super.setText(style, param.label);
+    style = this.applyText(style, param.label, feature);
     feature.setStyle(style);
     if (param.center) {
       this.setPosition(param.id, param.center);

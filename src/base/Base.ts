@@ -110,11 +110,12 @@ export default class Base {
       text: param?.text || style.getText()?.getText(),
       font: param?.font || style.getText()?.getFont(),
       offsetX: param?.offsetX || style.getText()?.getOffsetX(),
-      offsetY: param?.offsetY || offsetY || style.getText()?.getOffsetY(),
+      // offsetY 公共约定为"正值向上"（与 OL 原生"正值向下"相反），写入 OL 时取反
+      offsetY: param?.offsetY ? -param.offsetY : (offsetY || style.getText()?.getOffsetY()),
       scale: param?.scale || style.getText()?.getScale(),
       textAlign: param?.textAlign || style.getText()?.getTextAlign(),
       textBaseline: param?.textBaseline || style.getText()?.getTextBaseline(),
-      rotation: param?.rotation || style.getText()?.getRotation(),
+      rotation: param?.rotation != null ? Utils.deg2rad(param.rotation) : style.getText()?.getRotation(),
       fill: new Fill({
         color: param?.fill?.color || style.getText()?.getFill().getColor()
       }),
@@ -133,6 +134,81 @@ export default class Base {
       overflow: true
     });
     style.setText(text);
+    return style;
+  }
+  /**
+   * 屏幕空间偏移反向旋转为本地坐标系偏移：`local = R(-rotation) · screen`。
+   *
+   * OL 会把 displacement / 文本 offset 折叠进 anchor 并随 rotation 绕几何点旋转，
+   * 预先反向旋转偏移向量后，偏移方向便始终以屏幕为准（正值向右、向上）。
+   *
+   * @param sx 屏幕X（向右为正）
+   * @param sy 屏幕Y（向上为正）
+   * @param rotationRad 旋转弧度（顺时针为正）
+   * @returns 本地坐标系偏移 [dx, dy]（同为右/上为正）
+   */
+  protected compensateOffset(sx: number, sy: number, rotationRad: number): [number, number] {
+    const cos = Math.cos(rotationRad);
+    const sin = Math.sin(rotationRad);
+    return [sx * cos - sy * sin, sx * sin + sy * cos];
+  }
+  /**
+   * 将屏幕空间文本偏移按 label rotation 补偿后写入 Text（OL 本地坐标系）。
+   *
+   * 文本 offset 公共约定"向上为正"，OL 文本 offsetY"向下为正"，故写入时 Y 取反。
+   *
+   * @param text 目标 Text 样式
+   * @param sx 屏幕X偏移（向右为正）
+   * @param sy 屏幕Y偏移（向上为正）
+   * @param rotationRad 文本旋转弧度（顺时针为正）
+   */
+  protected applyCompensatedLabelOffset(text: Text, sx: number, sy: number, rotationRad: number): void {
+    const [compX, compY] = this.compensateOffset(sx, sy, rotationRad);
+    text.setOffsetX(compX);
+    text.setOffsetY(-compY); // OL offsetY 向下为正，公共约定向上为正 → 取反
+  }
+  /**
+   * 读取 feature 上存储的屏幕空间文本偏移（未补偿的公共值）。
+   * 文本 offset 已按 rotation 补偿为 OL 本地值，公共值需从此处回读。
+   */
+  protected getStoredLabelOffset(feature: Feature<Geometry>): { offsetX: number; offsetY: number } | undefined {
+    return feature.get('labelOffset') as { offsetX: number; offsetY: number } | undefined;
+  }
+  /**
+   * 设置文本样式并按 label rotation 补偿 offset（屏幕方向为准）。
+   *
+   * 在 {@link setText} 基础上：解析有效公共偏移与有效旋转，重算补偿后的本地偏移并写入 Text，
+   * 同时把公共偏移存到 feature 的 `labelOffset`，供下次 set 与快照回读。
+   *
+   * @param style style 实例
+   * @param param 文本参数，`可选的`。详见{@link ILabel}
+   * @param feature 所属要素（用于存取屏幕空间偏移）
+   * @param internalOffsetY 内部默认纵向偏移（OL 约定，向下为正），仅当用户未提供且无存储时使用
+   * @returns 返回 style 实例
+   */
+  protected applyText(style: Style, param: ILabel | undefined, feature: Feature<Geometry>, internalOffsetY?: number): Style {
+    style = this.setText(style, param, internalOffsetY);
+    const text = style.getText();
+    if (!text) return style;
+    const stored = this.getStoredLabelOffset(feature);
+    const hasX = param?.offsetX !== undefined && param?.offsetX !== null;
+    const hasY = param?.offsetY !== undefined && param?.offsetY !== null;
+    const effX = hasX ? (param!.offsetX as number) : (stored?.offsetX ?? 0);
+    let effY: number;
+    if (hasY) {
+      effY = param!.offsetY as number;
+    } else if (internalOffsetY !== undefined) {
+      // 内部默认偏移（如 Point 的 -(radius+15)）每次按当前几何重算，优先于缓存值
+      effY = -internalOffsetY; // OL 向下为正 → 公共向上为正
+    } else if (stored) {
+      effY = stored.offsetY;
+    } else {
+      effY = 0;
+    }
+    // setText 已将 param.rotation（度）转为弧度写入 text，这里直接读回弧度用于补偿
+    const effRot = text.getRotation() ?? 0;
+    this.applyCompensatedLabelOffset(text, effX, effY, effRot);
+    feature.set('labelOffset', { offsetX: effX, offsetY: effY });
     return style;
   }
   /**
@@ -201,8 +277,8 @@ export default class Base {
         if (size) param.size = size;
         const color = icon.getColor();
         if (typeof color === 'string') param.color = color;
-        const displacement = icon.getDisplacement();
-        if (Array.isArray(displacement)) param.displacement = displacement as number[];
+        const displacement = <number[] | undefined>feature.get('screenDisplacement');
+        if (Array.isArray(displacement)) param.displacement = displacement.slice();
         const scaleVal = icon.getScale();
         if (scaleVal) {
           param.scale = scaleVal;
@@ -214,6 +290,8 @@ export default class Base {
       }
       // 同步文本标签
       const text = style?.getText();
+      // 文本 offset 已按 rotation 补偿为 OL 本地值，公共约定值需从 feature 存储回读
+      const storedLabelOffset = <{ offsetX: number; offsetY: number } | undefined>feature.get('labelOffset');
       if (text) {
         const plainText = (() => {
           const t = text.getText();
@@ -223,8 +301,8 @@ export default class Base {
         param.label = {
           text: plainText || param.label?.text || '',
           font: text.getFont() || param.label?.font,
-          offsetX: text.getOffsetX() || param.label?.offsetX,
-          offsetY: text.getOffsetY() || param.label?.offsetY,
+          offsetX: storedLabelOffset?.offsetX ?? param.label?.offsetX,
+          offsetY: storedLabelOffset?.offsetY ?? param.label?.offsetY,
           scale:
             (typeof text.getScale === 'function'
               ? Array.isArray(text.getScale())
@@ -233,7 +311,7 @@ export default class Base {
               : undefined) || param.label?.scale,
           textAlign: text.getTextAlign() || param.label?.textAlign,
           textBaseline: text.getTextBaseline() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' ? text.getRotation() : undefined) || param.label?.rotation,
+          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
           fill: text.getFill() && typeof text.getFill().getColor === 'function' ? { color: text.getFill().getColor() as string } : param.label?.fill,
           stroke:
             text.getStroke() && typeof text.getStroke().getColor === 'function'
@@ -317,8 +395,8 @@ export default class Base {
         param.label = {
           text: plainText || param.label?.text || '',
           font: text.getFont?.() || param.label?.font,
-          offsetX: text.getOffsetX?.() || param.label?.offsetX,
-          offsetY: text.getOffsetY?.() || param.label?.offsetY,
+          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
+          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
           scale:
             (typeof text.getScale === 'function'
               ? Array.isArray(text.getScale())
@@ -327,7 +405,7 @@ export default class Base {
               : undefined) || param.label?.scale,
           textAlign: text.getTextAlign?.() || param.label?.textAlign,
           textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' ? text.getRotation() : undefined) || param.label?.rotation,
+          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
           fill: (() => {
             const f = text.getFill && text.getFill();
             if (f && typeof f.getColor === 'function') {
@@ -426,8 +504,8 @@ export default class Base {
         param.label = {
           text: plainText || param.label?.text || '',
           font: text.getFont?.() || param.label?.font,
-          offsetX: text.getOffsetX?.() || param.label?.offsetX,
-          offsetY: text.getOffsetY?.() || param.label?.offsetY,
+          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
+          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
           scale:
             (typeof text.getScale === 'function'
               ? Array.isArray(text.getScale())
@@ -436,7 +514,7 @@ export default class Base {
               : undefined) || param.label?.scale,
           textAlign: text.getTextAlign?.() || param.label?.textAlign,
           textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' ? text.getRotation() : undefined) || param.label?.rotation,
+          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
           fill: (() => {
             const f = text.getFill && text.getFill();
             if (f && typeof f.getColor === 'function') {
@@ -524,8 +602,8 @@ export default class Base {
         param.label = {
           text: plainText || param.label?.text || '',
           font: text.getFont?.() || param.label?.font,
-          offsetX: text.getOffsetX?.() || param.label?.offsetX,
-          offsetY: text.getOffsetY?.() || param.label?.offsetY,
+          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
+          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
           scale:
             (typeof text.getScale === 'function'
               ? Array.isArray(text.getScale())
@@ -534,7 +612,7 @@ export default class Base {
               : undefined) || param.label?.scale,
           textAlign: text.getTextAlign?.() || param.label?.textAlign,
           textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' ? text.getRotation() : undefined) || param.label?.rotation,
+          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
           fill: (() => {
             const f = text.getFill && text.getFill();
             if (f && typeof f.getColor === 'function') {
@@ -621,8 +699,8 @@ export default class Base {
         param.label = {
           text: plainText || param.label?.text || '',
           font: text.getFont?.() || param.label?.font,
-          offsetX: text.getOffsetX?.() || param.label?.offsetX,
-          offsetY: text.getOffsetY?.() || param.label?.offsetY,
+          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
+          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
           scale:
             (typeof text.getScale === 'function'
               ? Array.isArray(text.getScale())
@@ -631,7 +709,7 @@ export default class Base {
               : undefined) || param.label?.scale,
           textAlign: text.getTextAlign?.() || param.label?.textAlign,
           textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' ? text.getRotation() : undefined) || param.label?.rotation,
+          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
           fill: (() => {
             const f = text.getFill && text.getFill();
             if (f && typeof f.getColor === 'function') {
@@ -707,8 +785,8 @@ export default class Base {
       param.label = {
         text: plainText || param.label?.text || '',
         font: text.getFont?.() || param.label?.font,
-        offsetX: text.getOffsetX?.() || param.label?.offsetX,
-        offsetY: text.getOffsetY?.() || param.label?.offsetY,
+        offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
+        offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
         scale:
           (typeof text.getScale === 'function'
             ? Array.isArray(text.getScale())
@@ -717,7 +795,7 @@ export default class Base {
             : undefined) || param.label?.scale,
         textAlign: text.getTextAlign?.() || param.label?.textAlign,
         textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-        rotation: (typeof text.getRotation === 'function' ? text.getRotation() : undefined) || param.label?.rotation,
+        rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
         fill: (() => {
           const f = text.getFill && text.getFill();
           if (f && typeof f.getColor === 'function') {

@@ -72,7 +72,7 @@ export default class Polyline<T = LineString> extends Base {
     // 初始 style（当不需要动态适配时使用）
     const baseStyle = new Style();
     super.setFill(baseStyle, param.fill);
-    super.setText(baseStyle, param.label);
+    this.applyText(baseStyle, param.label, feature);
     // 如果未设置 stroke 或未提供 lineDash 或未启用 fitPatternOnce，直接常规处理
     const strokeCfg = param.stroke;
     const needFit = !!(strokeCfg && strokeCfg.lineDash && strokeCfg.lineDash.length > 0 && strokeCfg.fitPatternOnce);
@@ -155,7 +155,7 @@ export default class Polyline<T = LineString> extends Base {
     const styleFn = typeof originalStyle === 'function' ? originalStyle : undefined;
     const staticBase = typeof originalStyle === 'function' ? undefined : (originalStyle as Style | Style[] | undefined);
     // 文本样式单独重建，避免引用被覆盖
-    const textStyle = super.setText(new Style(), param.label);
+    const textStyle = this.applyText(new Style(), param.label, feature);
     const color = param.stroke?.color;
     // 性能优化：缓存箭头 Style，只有在几何真正变化时重建
     let lastRevision = -1;
@@ -230,7 +230,7 @@ export default class Polyline<T = LineString> extends Base {
     param.id = param.id || Utils.GetGUID();
     const feature = this.createFeature(param);
     let textStyle = new Style();
-    textStyle = super.setText(textStyle, param.label);
+    textStyle = this.applyText(textStyle, param.label, feature);
     const fullLineStyle = new Style({
       stroke: new Stroke({
         color: param.fullLineColor || 'rgba(30,144,255, 1)',
