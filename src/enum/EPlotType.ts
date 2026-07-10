@@ -3,6 +3,10 @@
  */
 export enum EPlotType {
   /**
+   * 点
+   */
+  Point = 'point',
+  /**
    * 线
    */
   Polyline = 'polyline',
@@ -35,8 +39,8 @@ export enum EPlotType {
    */
   DoubleArrow = 'doubleArrow',
   /**
- * 闭合曲面
- */
+   * 闭合曲面
+   */
   RectAnglePolygon = 'rectAnglePolygon',
   /**
    * 集结地
@@ -77,5 +81,5 @@ export enum EPlotType {
   /**
    * 正三角形（两点基边自动生成第三点）
    */
-  EquilateralTrianglePolygon = 'equilateralTrianglePolygon',
+  EquilateralTrianglePolygon = 'equilateralTrianglePolygon'
 }

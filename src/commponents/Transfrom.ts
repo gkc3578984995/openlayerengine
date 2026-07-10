@@ -319,13 +319,13 @@ export default class Transfrom {
     });
     if (eventName === ETransfrom.Select) {
       if (this.checkSelect) {
-        // 已选中状态再次触发 select 则触发一次selectend
+        // 已选中状态再次触发 select 则向 SelectEnd 通道派发一次上一要素的退出事件
         callbackParam = {
           type: ETransfrom.SelectEnd,
           eventPosition: toLonLat(useEarth().map.getCoordinateFromPixel(e.pixel)),
           eventPixel: e.pixel
         };
-        this.dispatchTransformEvent(eventName, callbackParam);
+        this.dispatchTransformEvent(ETransfrom.SelectEnd, callbackParam);
       }
       this.checkSelect = e.feature;
       this.checkLayer = this.getLayerByFeature(e.feature);
@@ -362,7 +362,7 @@ export default class Transfrom {
         callbackParam = {
           type: eventName,
           cursor: e.cursor,
-          eventPixel: e.eventPixel
+          eventPixel: e.pixel
         };
         this.checkEnterHandle = true;
       }
@@ -373,7 +373,7 @@ export default class Transfrom {
         callbackParam = {
           type: eventName,
           cursor: e.cursor,
-          eventPixel: e.eventPixel
+          eventPixel: e.pixel
         };
         this.checkEnterHandle = false;
       }
@@ -762,9 +762,9 @@ export default class Transfrom {
     } else if (key === 'remove') {
       this.handleRemoveEvent(pixel);
     } else if (key === 'copy') {
-      // 注意：不能对 OpenLayers Feature 使用 lodash.cloneDeep，否则其原型方法(get/getGeometry等)会丢失，
-      // 导致复制过程中无法获取几何与属性，出现“复制后元素不显示 / 不创建”的问题（尤其在跨屏或快速移动时更明显）。
-      // 这里直接传入原始 Feature（方法内只读使用），避免破坏。
+      // 对选中要素做一次深拷贝作为“复制源快照”，避免后续对原图的编辑影响复制源。
+      // 说明：lodash.cloneDeep 对 OL Feature 通过 Object.create(prototype) 保留原型，
+      // get/getGeometry/getId 等方法及几何类型均可正常使用（实测安全），可放心读取几何与属性。
       this.copyFeature = cloneDeep(this.checkSelect);
       this.handleCopyEvent(this.copyFeature);
       this.transforms.exitEdit(pixel);
@@ -1103,11 +1103,16 @@ export default class Transfrom {
       useEarth()
         .useGlobalEvent()
         .addMouseOnceRightClickEventByGlobal((event) => {
-          // 取消复制要输
+          // 取消复制
           if (useEarth().useGlobalEvent().hasGlobalMouseMoveEvent()) {
             useEarth().useGlobalEvent().disableGlobalMouseMoveEvent();
             moveHandler.cancel?.();
-            layer.remove(this.copyStatus?.id);
+            // 仅在已创建副本（copyStatus 非 null）时才移除该副本；
+            // 若用户未移动鼠标即右键取消，moveHandler 尚未执行、copyStatus 为 null，
+            // 此时不可调用 layer.remove(undefined) —— 否则会触发 Base.remove 的清空整层逻辑，导致数据丢失。
+            if (this.copyStatus?.id) {
+              layer.remove(this.copyStatus.id);
+            }
             this.copyStatus = null;
           }
         });
@@ -1377,7 +1382,14 @@ export default class Transfrom {
     if (currentFeature) {
       const currentClone = currentFeature.clone();
       currentClone.setId(snapshot.id);
+      // 深拷贝 param，避免与当前要素共享引用而被后续修改污染撤销点
+      currentClone.set('param', cloneDeep(currentFeature.get('param')));
       this.historyStack.push({ id: snapshot.id, feature: currentClone });
+      // 同 recordSnapshot 一样受 historyLimit 限制，防止 redo 反复操作导致栈无限增长
+      const limit = this.options.historyLimit ?? this.defaultParams.historyLimit ?? 10;
+      if (this.historyStack.length > limit) {
+        this.historyStack.shift();
+      }
     }
     const feature = this.applySnapshot(snapshot);
     if (feature) {
@@ -1682,7 +1694,7 @@ export default class Transfrom {
     }
     if (type == 'Point' || type == 'MultiPoint') {
       coordinates = toLonLat(coordinates as Coordinate);
-    } else if (type == 'Polygon' || type == 'MultiPolygon') {
+    } else if (type == 'Polygon') {
       coordinates = (coordinates as Coordinate[][]).map((item: Coordinate[]) => {
         item = item.map((items: Coordinate) => {
           items = toLonLat(items);
@@ -1690,6 +1702,13 @@ export default class Transfrom {
         });
         return item;
       });
+    } else if (type == 'MultiPolygon') {
+      // MultiPolygon 坐标为 Coordinate[][][]（多面 -> 环 -> 点），需三层遍历
+      coordinates = (coordinates as Coordinate[][][]).map((polygon: Coordinate[][]) =>
+        polygon.map((ring: Coordinate[]) =>
+          ring.map((pt: Coordinate) => toLonLat(pt))
+        )
+      );
     } else if (type == 'LineString' || type == 'MultiLineString') {
       coordinates = (coordinates as Coordinate[]).map((item: Coordinate) => {
         item = toLonLat(item);
@@ -1741,10 +1760,12 @@ export default class Transfrom {
     if (typeof window === 'undefined') return;
     const mapElement = useEarth().map.getTargetElement();
     if (!mapElement) return;
+    // 兼容两种来源：对外回调 ITransformCallback 用 eventPixel；TransformInteraction 原始事件用 pixel
+    const pixel: number[] | undefined = e.eventPixel ?? (e as any).pixel;
     const cursor = window.getComputedStyle(mapElement).cursor as ECursor;
     switch (cursor) {
       case ECursor.Move:
-        this.updateHelpTooltip('鼠标左键按下平移', e.eventPixel);
+        this.updateHelpTooltip('鼠标左键按下平移', pixel);
         break;
       case ECursor.Pointer:
         if (this.options.translateType == ETranslateType.Feature || this.defaultParams.translateType == ETranslateType.Feature) {
@@ -1754,14 +1775,14 @@ export default class Transfrom {
         }
         break;
       case ECursor.Grab:
-        this.updateHelpTooltip('鼠标左键按下旋转', e.eventPixel);
+        this.updateHelpTooltip('鼠标左键按下旋转', pixel);
         break;
       case ECursor.NsResize:
       case ECursor.EwResize: {
         const type = this.checkSelect?.getGeometry()?.getType();
         let str = '鼠标左键按下拉伸，Ctrl键以基准点拉伸';
         if (type == 'Point' || type == 'MultiPoint' || type == 'Circle') str = '鼠标左键按下拉伸';
-        this.updateHelpTooltip(str, e.eventPixel);
+        this.updateHelpTooltip(str, pixel);
         break;
       }
       case ECursor.NeswResize:
@@ -1773,7 +1794,7 @@ export default class Transfrom {
           const image = style?.getImage?.();
           if (style && image && !(image instanceof Icon)) str = '鼠标左键按下缩放';
         }
-        this.updateHelpTooltip(str, e.eventPixel);
+        this.updateHelpTooltip(str, pixel);
         break;
       }
       default:

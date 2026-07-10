@@ -71,7 +71,6 @@ class Toolbar {
    * 根据 geometry type 初始化可用按钮
    */
   private initItems() {
-    console.log(this.options.type);
     // 基础按钮集合
     const base: IToolbarItem[] = [
       { key: 'exit', title: '确认', iconClass: 'ol-toolbar-exit', icon: saveSvg, visible: true, disabled: false, active: false },
