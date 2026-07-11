@@ -11,3 +11,4 @@ dist-ssr
 *.tgz
 .claude/
 .worktrees/
+.superpowers/
