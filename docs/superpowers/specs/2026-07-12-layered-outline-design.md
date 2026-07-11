@@ -61,6 +61,18 @@ Use one conversion path for legacy drawing options (`strokeColor` and `strokeWid
 
 The existing blue geometry and control-point layers used by DynamicDraw and plot editing remain editing aids. They do not need to mirror the finished feature's outline; after an edit exits, the original feature and its layered styles are shown again.
 
+## Local demo harness
+
+Refactor the `.test` browser entry point into a small demo registry and a persistent control panel instead of directly invoking a hard-coded list of test functions in `main.ts`.
+
+Each browser demo is registered with a stable id, group, display label, and `mount` function. `mount` returns a cleanup function that removes every layer, interaction, listener, and DOM element the demo created. The panel groups the existing base-layer and component demos, offers individual enable/disable controls plus enable-all and clear-all actions, and invokes the cleanup function immediately when a demo is disabled.
+
+The map base layer is created once and is not controlled by the panel. No demo starts automatically; the panel is the single place that controls which local examples run.
+
+Add a dedicated layered-outline demo containing a polygon and a polyline with `outerStroke` and `innerStroke`, so visual verification includes the two example styles and Transform/DynamicDraw interaction paths.
+
+The browser demo harness is separate from Vitest unit tests. It provides interactive verification and clean repeatable local setup; automated regression coverage remains in `test/`.
+
 ## Tests
 
 Add focused unit coverage for both layers:
@@ -72,6 +84,7 @@ Add focused unit coverage for both layers:
 - Polyline parameter interfaces and behavior no longer expose or use parallel-overlay state.
 - Transform translate, rotate/scale where supported, and undo/redo retain layered styles for polygons and polylines.
 - DynamicDraw's temporary preview and the resulting polygon/polyline feature use the requested layered styles.
+- The demo registry mounts and unmounts the layered-outline example without leaving its layers, interactions, listeners, or DOM controls behind.
 
 ## Scope
 
