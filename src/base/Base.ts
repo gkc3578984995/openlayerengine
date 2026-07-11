@@ -12,6 +12,7 @@ import { FEATURE_KEYS, LAYER_TYPE } from '../common/featureKeys';
 import { EventsKey } from 'ol/events';
 import { unByKey } from 'ol/Observable';
 import cloneDeep from 'lodash/cloneDeep';
+import { isPolygonPatternFill } from './PolygonPatternFill';
 // import BaseEvent from 'ol/events/Event';
 /** 所有图层参数的联合类型（用于 {@link Base.getUpdatedParam} 的返回） */
 export type AnyParam =
@@ -518,7 +519,7 @@ export default class Base {
     // 样式同步
     const style = this.resolveStaticStyle(feature);
     if (style) {
-      this.syncStrokeFillFromStyle(style, param);
+      if (!isPolygonPatternFill(param.fill)) this.syncStrokeFillFromStyle(style, param);
       param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
     feature.set(FEATURE_KEYS.param, param);
@@ -618,7 +619,7 @@ export default class Base {
         }
       }
       if (style) {
-        this.syncStrokeFillFromStyle(style, param);
+      this.syncStrokeFillFromStyle(style, param);
         param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     } else if (layerType === 'Polygon') {
@@ -631,7 +632,7 @@ export default class Base {
         }
       }
       if (style) {
-        this.syncStrokeFillFromStyle(style, param);
+        if (!isPolygonPatternFill(param.fill)) this.syncStrokeFillFromStyle(style, param);
         param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     }

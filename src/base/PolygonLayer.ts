@@ -1,14 +1,15 @@
-import { Utils } from '../common';
+import { FEATURE_KEYS, Utils } from '../common';
 import type Earth from '../Earth';
-import { IPolygonParam, ISetPolygonParam } from '../interface';
+import type { IPolygonParam, ISetPolygonParam } from '../interface';
 import { Feature } from 'ol';
 import { Polygon } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
-import { Style } from 'ol/style';
+import { Fill, Style } from 'ol/style';
 import Base from './Base';
 import { Coordinate } from 'ol/coordinate';
 import { getDefaultEarth } from '../earthContext';
+import { createPolygonPattern, isPolygonPatternFill } from './PolygonPatternFill';
 
 /**
  * 创建区域`Polygon`
@@ -41,13 +42,22 @@ export default class PolygonLayer<T = Polygon> extends Base {
     const feature = new Feature({
       geometry: new Polygon(param.positions)
     });
-    let style = new Style();
-    style = super.setStroke(style, param.stroke);
-    style = super.setFill(style, param.fill);
-    style = this.applyText(style, param.label, feature);
-    feature.setStyle(style);
+    this.applyPolygonStyle(feature, param);
     this.bindFeature(feature, param, 'Polygon');
     return feature;
+  }
+
+  /** 根据声明式参数完整重建 Polygon 样式 */
+  private applyPolygonStyle(feature: Feature<Polygon>, param: IPolygonParam<T>): void {
+    let style = new Style();
+    style = super.setStroke(style, param.stroke);
+    if (isPolygonPatternFill(param.fill)) {
+      style.setFill(new Fill({ color: createPolygonPattern(param.fill, param.stroke?.color) }));
+    } else {
+      style = super.setFill(style, param.fill);
+    }
+    style = this.applyText(style, param.label, feature);
+    feature.setStyle(style);
   }
   /**
    * 添加多边形
@@ -87,16 +97,20 @@ export default class PolygonLayer<T = Polygon> extends Base {
     if (param.positions) {
       features[0].getGeometry()?.setCoordinates(param.positions);
     }
-    const style = <Style>features[0].getStyle();
-    if (param.stroke) {
-      super.setStroke(style, param.stroke);
-    }
-    if (param.fill) {
-      super.setFill(style, param.fill);
-    }
-    if (param.label) {
-      this.applyText(style, param.label, features[0]);
-    }
+    const feature = features[0];
+    const stored = feature.get(FEATURE_KEYS.param) as IPolygonParam<T>;
+    const nextFill = isPolygonPatternFill(param.fill)
+      ? { ...(isPolygonPatternFill(stored.fill) ? stored.fill : {}), ...param.fill }
+      : param.fill ?? stored.fill;
+    const next: IPolygonParam<T> = {
+      ...stored,
+      positions: param.positions ?? stored.positions,
+      stroke: param.stroke ? { ...stored.stroke, ...param.stroke } : stored.stroke,
+      fill: nextFill,
+      label: param.label ? { ...stored.label, ...param.label } : stored.label
+    };
+    feature.set(FEATURE_KEYS.param, next);
+    this.applyPolygonStyle(feature, next);
     return features;
   }
   /**
