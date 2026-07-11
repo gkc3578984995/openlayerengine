@@ -1,5 +1,6 @@
 import { IPlotEditEventPayload } from '@/extends/plot/plotEdit';
-import { ECursor, EPlotType, ETransfrom, ETranslateType } from '../enum';
+import type Earth from '../Earth';
+import { ECursor, EPlotType, ETransform, ETranslateType } from '../enum';
 import { Feature } from 'ol';
 import { Coordinate } from 'ol/coordinate';
 import { Geometry, Point } from 'ol/geom';
@@ -745,7 +746,7 @@ export interface ITransformCallback {
   /**
    * 绘制类型
    */
-  type: ETransfrom;
+  type: ETransform;
   /**
    * 像素位置
    */
@@ -776,7 +777,11 @@ export interface ITransformCallback {
   plotParam?: IPlotEditEventPayload;
 }
 
-export interface ITransfromParams {
+export interface ITransformParams {
+  /**
+   * 所属地图实例。多地图场景下应显式传入；不传时回退到全局单例 `useEarth()`
+   */
+  earth?: Earth;
   /**
    * 点选容差，默认值2，即将鼠标所在位置扩大2px进行选择
    */

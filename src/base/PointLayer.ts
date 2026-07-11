@@ -90,7 +90,7 @@ export default class PointLayer<T = Point> extends Base {
     const feature = this.createFeature(param);
     if (param.isFlash) {
       feature.set('param', param);
-      new Utils().flash(feature, param, this.layer);
+      Utils.flash(this.earth.map, feature, param, this.layer);
       // this.flash(feature, param)
     }
     return <Feature<Point>>super.save(feature);
@@ -157,8 +157,15 @@ export default class PointLayer<T = Point> extends Base {
     }
     for (const item of features) {
       const param = item.get('param');
-      if (param) new Utils().flash(item, param, this.layer);
+      if (param) Utils.flash(this.earth.map, item, param, this.layer);
     }
+  }
+  /**
+   * 隐藏元素时停止其闪烁，避免元素移出数据源后 postrender 仍持续绘制
+   */
+  protected onFeatureHide(feature: Feature<Point>): void {
+    const id = feature.getId() as string;
+    if (id) this.stopFlash(id);
   }
   /**
    * 修改点属性
@@ -187,7 +194,7 @@ export default class PointLayer<T = Point> extends Base {
     features[0].set('param', newParam);
     if (listenerKey) {
       unByKey(listenerKey);
-      new Utils().flash(features[0], newParam, this.layer);
+      Utils.flash(this.earth.map, features[0], newParam, this.layer);
     }
     const style = <Style>features[0].getStyle();
     const image = <Circle>style.getImage();
@@ -239,7 +246,7 @@ export default class PointLayer<T = Point> extends Base {
     const param = features[0].get('param');
     if (listenerKey) {
       unByKey(listenerKey);
-      new Utils().flash(features[0], param, this.layer);
+      Utils.flash(this.earth.map, features[0], param, this.layer);
     }
     return features;
   }

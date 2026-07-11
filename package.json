@@ -1,6 +1,6 @@
 {
   "name": "@vrsim/earth-engine-ol",
-  "version": "0.0.2",
+  "version": "1.0.0",
   "main": "dist/index.cjs.js",
   "module": "dist/index.es.js",
   "types": "dist/types/index.d.ts",
@@ -9,12 +9,12 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "pnpm clean && rollup --bundleConfigAsCjs -c rollup.config.mjs --environment MODE:prod && tsc --emitDeclarationOnly --declaration --declarationDir dist/types",
+    "build": "npm run clean && rollup --bundleConfigAsCjs -c rollup.config.mjs --environment MODE:prod && tsc --emitDeclarationOnly --declaration --declarationDir dist/types",
     "clean": "rimraf -rf dist/",
     "prepack": "npm run build",
     "copy": "copyfiles -u 1 src/**/*.glsl earth-engine",
-    "tsc": "yarn clean && tsc && yarn copy",
-    "doc": "npx typedoc --options ./typedoc.json",
+    "tsc": "npm run clean && tsc && npm run copy",
+    "doc": "typedoc --options ./typedoc.json",
     "pack:offline": "npm pack"
   },
   "author": "gkc",
@@ -25,20 +25,15 @@
     "mitt": "^3.0.0",
     "ol-wind": "^1.1.2"
   },
-  "bundledDependencies": [
-    "heatmap.js",
-    "lodash",
-    "lodash.clonedeep",
-    "mitt",
-    "ol-wind"
-  ],
+  "peerDependencies": {
+    "ol": "^7.5.2"
+  },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^24.0.1",
     "@rollup/plugin-node-resolve": "^15.0.1",
     "@rollup/plugin-terser": "^0.4.0",
     "@rollup/plugin-typescript": "^11.0.0",
     "@rollup/plugin-url": "^8.0.2",
-    "@turf/turf": "^6.5.0",
     "@types/heatmap.js": "^2.0.37",
     "@types/lodash": "^4.17.20",
     "@types/minimatch": "^6.0.0",

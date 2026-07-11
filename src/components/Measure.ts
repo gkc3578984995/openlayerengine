@@ -10,7 +10,7 @@ import { Coordinate } from 'ol/coordinate';
 import { FeatureLike } from 'ol/Feature';
 import RenderFeature from 'ol/render/Feature';
 import VectorLayer from 'ol/layer/Vector';
-import { IMeasure, IMeasureEvent } from 'interface';
+import { IMeasure, IMeasureEvent } from '../interface';
 import { PointLayer } from '../base';
 import { useEarth } from '../useEarth';
 import { fromLonLat, toLonLat } from 'ol/proj';

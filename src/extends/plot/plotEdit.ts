@@ -600,9 +600,9 @@ class plotEdit {
         const mouseMove = event.addMouseMoveEventByGlobal((move) => {
           if (this.modifyPointIndex === undefined) return;
           this.pointLayer?.setPosition(newPointId!, fromLonLat(move.position));
-          let normalizedProjected = Utils.normalizeToViewWorld(fromLonLat(move.position));
+          let normalizedProjected = Utils.normalizeToViewWorld(this.map, fromLonLat(move.position));
           if (this.baseWorldIndex !== undefined) {
-            normalizedProjected = Utils.restoreToWorldIndex(normalizedProjected, this.baseWorldIndex);
+            normalizedProjected = Utils.restoreToWorldIndex(this.map, normalizedProjected, this.baseWorldIndex);
           }
           this.plotPoints[this.modifyPointIndex] = normalizedProjected as Coordinate;
           this.updateEditPlot();
@@ -615,9 +615,9 @@ class plotEdit {
           mouseMove();
           mouseUp();
           this.pointLayer?.set({ id: newPointId!, size: 4, center: fromLonLat(up.position) });
-          let normalizedProjected = Utils.normalizeToViewWorld(fromLonLat(up.position));
+          let normalizedProjected = Utils.normalizeToViewWorld(this.map, fromLonLat(up.position));
           if (this.baseWorldIndex !== undefined) {
-            normalizedProjected = Utils.restoreToWorldIndex(normalizedProjected, this.baseWorldIndex);
+            normalizedProjected = Utils.restoreToWorldIndex(this.map, normalizedProjected, this.baseWorldIndex);
           }
           this.plotPoints[this.modifyPointIndex] = normalizedProjected as Coordinate;
           this.updateEditPlot();
@@ -644,9 +644,9 @@ class plotEdit {
         const mouseMove = event.addMouseMoveEventByGlobal((move) => {
           if (this.modifyPointIndex === undefined) return;
           this.pointLayer?.setPosition(e.id, fromLonLat(move.position));
-          let normalizedProjected = Utils.normalizeToViewWorld(fromLonLat(move.position));
+          let normalizedProjected = Utils.normalizeToViewWorld(this.map, fromLonLat(move.position));
           if (this.baseWorldIndex !== undefined) {
-            normalizedProjected = Utils.restoreToWorldIndex(normalizedProjected, this.baseWorldIndex);
+            normalizedProjected = Utils.restoreToWorldIndex(this.map, normalizedProjected, this.baseWorldIndex);
           }
           this.plotPoints[this.modifyPointIndex] = normalizedProjected as Coordinate;
           this.updateEditPlot();
@@ -659,9 +659,9 @@ class plotEdit {
           mouseMove();
           mouseUp();
           this.pointLayer?.set({ id: e.id, size: 4, center: fromLonLat(up.position) });
-          let normalizedProjected = Utils.normalizeToViewWorld(fromLonLat(up.position));
+          let normalizedProjected = Utils.normalizeToViewWorld(this.map, fromLonLat(up.position));
           if (this.baseWorldIndex !== undefined) {
-            normalizedProjected = Utils.restoreToWorldIndex(normalizedProjected, this.baseWorldIndex);
+            normalizedProjected = Utils.restoreToWorldIndex(this.map, normalizedProjected, this.baseWorldIndex);
           }
           this.plotPoints[this.modifyPointIndex] = normalizedProjected as Coordinate;
           this.updateEditPlot();
@@ -698,7 +698,7 @@ class plotEdit {
     this.plotPoints = param.plotPoints;
     // 记录基准 world（取首点）
     if (this.plotPoints.length) {
-      this.baseWorldIndex = Utils.getWorldIndex(this.plotPoints[0][0]);
+      this.baseWorldIndex = Utils.getWorldIndex(this.map, this.plotPoints[0][0]);
     }
     // 记录标绘类型
     this.plotType = param.plotType;

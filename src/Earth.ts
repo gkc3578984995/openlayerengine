@@ -1,9 +1,10 @@
 import { DefaultEntities, IEarthConstructorOptions, IFeatureAtPixel } from './interface';
-import { Feature, Graticule, Map, View } from 'ol';
+import { Feature, Map, View } from 'ol';
 import { defaults } from 'ol/control/defaults';
 import { Coordinate } from 'ol/coordinate';
 import BaseLayer from 'ol/layer/Base';
 import TileLayer from 'ol/layer/Tile';
+import Graticule from 'ol/layer/Graticule';
 import { fromLonLat } from 'ol/proj';
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
@@ -11,14 +12,19 @@ import { TileCoord } from 'ol/tilecoord';
 import { ViewOptions } from 'ol/View';
 import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, WindLayer } from './base';
 import Base from './base/Base';
-import { DynamicDraw, GlobalEvent, Measure } from './commponents';
+import { DynamicDraw, GlobalEvent, Measure } from './components';
 import { DoubleClickZoom, DragPan, MouseWheelZoom } from 'ol/interaction';
 import { Geometry } from 'ol/geom';
 import { Layer } from 'ol/layer';
 import { Source } from 'ol/source';
 import LayerRenderer from 'ol/renderer/Layer';
-import { Stroke } from 'ol/style';
-import { ScaleLine } from 'ol/control';
+import ScaleLine from 'ol/control/ScaleLine';
+import { Camera, Controls } from './modules';
+
+/**
+ * 底图图层的固定标识（{@link Earth.createXyzLayer} 写入、{@link Earth.removeLayer} 无参时识别）
+ */
+const IMAGE_PROVIDER_ID = 'imageProvider';
 /**
  * 地图基类
  */
@@ -72,13 +78,25 @@ export default class Earth {
     event.preventDefault();
   }
   /**
-   * 网格图层
+   * 相机模块（视图动画 / 定位）
    */
-  public graticule: Graticule | undefined;
+  public camera: Camera;
   /**
-   * 比例尺控件
+   * 控件模块（网格线 / 比例尺）
    */
-  public scaleLine: ScaleLine | undefined;
+  public controls: Controls;
+  /**
+   * 网格图层（透传至 {@link Controls.graticule}）
+   */
+  get graticule(): Graticule | undefined {
+    return this.controls?.graticule;
+  }
+  /**
+   * 比例尺控件（透传至 {@link Controls.scaleLine}）
+   */
+  get scaleLine(): ScaleLine | undefined {
+    return this.controls?.scaleLine;
+  }
   /**
    * 内部方法：供 Base 构造器在提供 registryKey 时自动注册
    * @param key 注册名称
@@ -192,6 +210,9 @@ export default class Earth {
     this.map = map;
     this.view = map.getView();
     this.containerId = el;
+    // 相机与控件模块
+    this.camera = new Camera(this.view, () => this.center);
+    this.controls = new Controls(this.map);
     // 关闭默认事件
     this.closeDefaultEvent();
   }
@@ -252,7 +273,7 @@ export default class Earth {
         };
     return new TileLayer({
       properties: {
-        id: 'imageProvider'
+        id: IMAGE_PROVIDER_ID
       },
       source: new XYZ({
         tileUrlFunction,
@@ -269,32 +290,33 @@ export default class Earth {
   }
   /**
    * 移除图层
-   * @param layer `layer`图层
-   * @returns BaseLayer | undefined
+   *
+   * - 传入 `layer` 时移除该图层
+   * - 不传时移除所有底图标识为 `imageProvider` 的图层，返回最后一个被移除的图层
+   * @param layer `layer`图层，`可选的`
+   * @returns 被移除的图层；无匹配时为 undefined
    */
   removeLayer(layer?: BaseLayer): BaseLayer | undefined {
-    let removeLayer;
     if (layer) {
-      removeLayer = this.map.removeLayer(layer);
-    } else {
-      const layers = this.map.getAllLayers();
-      layers.map((item) => {
-        if (item.get('id') == 'imageProvider') {
-          removeLayer = this.map.removeLayer(item);
-        }
-      });
+      return this.map.removeLayer(layer);
     }
-    return removeLayer;
+    // getAllLayers() 返回快照，遍历快照移除是安全的；反向遍历避免潜在的索引错位
+    const layers = this.map.getAllLayers();
+    let removed: BaseLayer | undefined;
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const item = layers[i];
+      if (item.get('id') === IMAGE_PROVIDER_ID) {
+        const r = this.map.removeLayer(item);
+        if (r) removed = r;
+      }
+    }
+    return removed;
   }
   /**
    * 移动相机到默认位置
    */
   flyHome(): void {
-    this.view.animate({
-      center: this.center,
-      zoom: 4,
-      duration: 2000
-    });
+    this.camera.flyHome();
   }
   /**
    * 移动相机到指定位置(动画)
@@ -303,11 +325,7 @@ export default class Earth {
    * @param duration 动画时间(毫秒)
    */
   animateFlyTo(position: Coordinate, zoom?: number, duration?: number): void {
-    this.view.animate({
-      center: position,
-      zoom: zoom || this.view.getZoom(),
-      duration: duration || 2000
-    });
+    this.camera.animateFlyTo(position, zoom, duration);
   }
   /**
    * 移动相机到指定位置(无动画)
@@ -315,8 +333,7 @@ export default class Earth {
    * @param zoom 缩放
    */
   flyTo(position: Coordinate, zoom?: number): void {
-    this.view.setCenter(position);
-    if (zoom) this.view.setZoom(zoom);
+    this.camera.flyTo(position, zoom);
   }
   /**
    * 设置鼠标样式
@@ -463,52 +480,25 @@ export default class Earth {
    * 启用网格线
    */
   enableGraticule() {
-    const graticule = new Graticule({
-      strokeStyle: new Stroke({
-        color: 'rgba(0, 0, 0, 0.3)',
-        width: 1
-      }),
-      showLabels: true,
-      wrapX: true,
-      lonLabelPosition: 0.985,
-      latLabelPosition: 0.985,
-      properties: {
-        layerType: 'graticule'
-      }
-    });
-    graticule.setZIndex(9999);
-    this.graticule = graticule;
-    this.map.addLayer(graticule);
+    this.controls.enableGraticule();
   }
   /**
    * 禁用网格线
    */
   disableGraticule() {
-    if (this.graticule) {
-      this.map.removeLayer(this.graticule);
-      this.graticule = undefined;
-    }
+    this.controls.disableGraticule();
   }
   /**
    * 启用比例尺
    */
   enableScaleLine() {
-    if (this.scaleLine) return;
-    this.scaleLine = new ScaleLine({
-      bar: true,
-      text: true,
-      minWidth: 100
-    });
-    this.map.addControl(this.scaleLine);
+    this.controls.enableScaleLine();
   }
   /**
    * 禁用比例尺
    */
   disableScaleLine() {
-    if (this.scaleLine) {
-      this.map.removeControl(this.scaleLine);
-      this.scaleLine = undefined;
-    }
+    this.controls.disableScaleLine();
   }
   /**
    * 销毁地图实例及地图上所有元素

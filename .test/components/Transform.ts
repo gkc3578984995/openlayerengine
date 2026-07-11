@@ -1,12 +1,12 @@
-import { BillboardLayer, CircleLayer, EPlotType, ETransfrom, PointLayer, PolygonLayer, PolylineLayer, Transfrom, useEarth, Utils } from '../../src';
+import { BillboardLayer, CircleLayer, EPlotType, ETransform, PointLayer, PolygonLayer, PolylineLayer, Transform, useEarth, Utils } from '../../src';
 import AttackArrow from '../../src/extends/plot/geom/AttackArrow';
 
-export const testTransfrom = () => {
-  const transfrom = new Transfrom({});
-  const eventNname = [ETransfrom.Select, ETransfrom.SelectEnd, ETransfrom.Translating, ETransfrom.TranslateEnd, ETransfrom.ModifyStart, ETransfrom.Modifying, ETransfrom.ModifyEnd, ETransfrom.Copy];
-  transfrom.on(eventNname, (e) => {
+export const testTransform = () => {
+  const transform = new Transform({});
+  const eventNname = [ETransform.Select, ETransform.SelectEnd, ETransform.Translating, ETransform.TranslateEnd, ETransform.ModifyStart, ETransform.Modifying, ETransform.ModifyEnd, ETransform.Copy];
+  transform.on(eventNname, (e) => {
     console.log(e.type, e);
-    if (e.type === ETransfrom.TranslateEnd) {
+    if (e.type === ETransform.TranslateEnd) {
 
       // const a = e.feature?.clone();
       // a?.setId(e.featureId);
@@ -14,11 +14,11 @@ export const testTransfrom = () => {
       // b?.remove(e.feature!.getId() as string);
       // setTimeout(() => {
       //   b?.getLayer().getSource()?.addFeature(a!);
-      //   transfrom.replaceEditingFeature(a!)
+      //   transform.replaceEditingFeature(a!)
       // }, 1000);
 
     }
-    // if (e.type === ETransfrom.Copy) {
+    // if (e.type === ETransform.Copy) {
     //   const a = new AttackArrow({}, e.feature?.get('param').plotPoints, {});
     //   const b = useEarth().map.getAllLayers();
     //   // for (const item of b) {
@@ -47,17 +47,17 @@ export const testTransfrom = () => {
   //   console.log(event.key, event.ctrlKey);
   //   if (event.key === 'z' && event.ctrlKey) {
   //     // 执行你的代码
-  //     transfrom.undo();
+  //     transform.undo();
   //     console.log('undo');
   //     event.preventDefault();
   //   }
   //   if (event.key === 'y' && event.ctrlKey) {
   //     // 执行你的代码
-  //     transfrom.redo();
+  //     transform.redo();
   //     // 阻止默认行为，例如防止浏览器保存页面
   //     event.preventDefault();
   //   }
   // });
 
-  // ETransfrom.TranslateStart, ETransfrom.Translating,
+  // ETransform.TranslateStart, ETransform.Translating,
 };

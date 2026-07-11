@@ -1,4 +1,4 @@
-export enum ETransfrom {
+export enum ETransform {
   /**
    * 选中元素
    */

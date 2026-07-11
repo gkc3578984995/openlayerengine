@@ -5,7 +5,8 @@ import './assets/style/index.scss';
 
 
 export { default as Earth } from './Earth';
-export * from './commponents';
+export * from './modules';
+export * from './components';
 export * from './useEarth';
 export * from './ast';
 export * from './common';

@@ -1,16 +1,26 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import Earth from '../Earth';
-import { IFill, ILabel, IStroke, IBillboardParam, IPolylineParam, IPolylineFlyParam } from '../interface';
+import { IFill, ILabel, IStroke, IBillboardParam, IPolylineParam, IPolylineFlyParam, IPointParam, ICircleParam, IPolygonParam } from '../interface';
 import { Feature } from 'ol';
 import { Geometry } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import { Style, Stroke, Fill, Text } from 'ol/style';
 import Icon from 'ol/style/Icon';
+import CircleStyle from 'ol/style/Circle';
 import { Utils } from '../common';
 import { EventsKey } from 'ol/events';
 import { unByKey } from 'ol/Observable';
+import cloneDeep from 'lodash/cloneDeep';
 // import BaseEvent from 'ol/events/Event';
+/** 所有图层参数的联合类型（用于 {@link Base.getUpdatedParam} 的返回） */
+export type AnyParam =
+  | IBillboardParam<unknown>
+  | IPolylineParam<unknown>
+  | IPolylineFlyParam<unknown>
+  | IPointParam<unknown>
+  | ICircleParam<unknown>
+  | IPolygonParam<unknown>;
+
 /**
  * 基类，提供图层常见的获取，删除及更新方法
  */
@@ -32,9 +42,9 @@ export default class Base {
    */
   public hideFeatureMap: Map<string, Feature<Geometry>> = new Map();
   /**
-   * 元素监听器
+   * 元素监听器（key -> change 监听 key 与节流取消函数）
    */
-  private featureListenerMap: Map<string, EventsKey> = new Map();
+  private featureListenerMap: Map<string, { key: EventsKey; cancel: () => void }> = new Map();
   /**
    * 图层构造类
    * @param earth 地图实例
@@ -47,17 +57,8 @@ export default class Base {
     layer.set('id', layerId);
     this.layer = layer;
     earth.map.addLayer(layer);
-    // 可选自动注册封装层实例
-    if (this.registryKey) {
-      // 定义一个临时接口描述内部注册方法（不对外暴露）
-      interface IRegisterableEarth {
-        _autoRegisterLayer?: (key: string, layer: Base) => void;
-      }
-      const e = earth as unknown as IRegisterableEarth;
-      if (typeof e._autoRegisterLayer === 'function') {
-        e._autoRegisterLayer(this.registryKey, this);
-      }
-    }
+    // 自动注册封装层实例到 Earth（key 为 registryKey，便于通过 earth.getLayer 反查）
+    this.earth._autoRegisterLayer(this.registryKey, this);
   }
   /**
    * 设置描边样式
@@ -212,6 +213,115 @@ export default class Base {
     return style;
   }
   /**
+   * 从 feature.getStyle() 中解析出静态 `Style` 实例。
+   * - style 为单个 Style → 直接返回
+   * - style 为数组且首元素是 Style → 返回首元素
+   * - style 为函数或空 → 返回 undefined（函数样式无法在无 resolution 下安全求值）
+   */
+  protected resolveStaticStyle(feature: Feature<Geometry>): Style | undefined {
+    const styleLike = feature.getStyle();
+    if (styleLike instanceof Style) return styleLike;
+    if (Array.isArray(styleLike) && styleLike.length && styleLike[0] instanceof Style) return styleLike[0];
+    return undefined;
+  }
+  /**
+   * 从一个具备 `getStroke`/`getFill` 的样式对象（Style 或 CircleStyle 等）同步 stroke/fill 到 param。
+   * 仅在能取到 color 时覆盖，保留 param 上既有字段作为回退。
+   * @param target 具有 getStroke()/getFill() 的对象（如 Style、CircleStyle）
+   * @param param 待同步的参数对象（会被原地修改）
+   */
+  protected syncStrokeFillFromStyle<P extends { stroke?: IStroke; fill?: IFill }>(
+    target: { getStroke?: () => Stroke | null; getFill?: () => Fill | null } | undefined,
+    param: P
+  ): void {
+    if (!target) return;
+    const stroke = target.getStroke && target.getStroke();
+    if (stroke && typeof stroke.getColor === 'function') {
+      param.stroke = Object.assign({}, param.stroke, {
+        color: stroke.getColor?.() || param.stroke?.color,
+        width: stroke.getWidth?.() || param.stroke?.width,
+        lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
+        lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
+      });
+    }
+    const fill = target.getFill && target.getFill();
+    if (fill && typeof fill.getColor === 'function') {
+      const fillColor = fill.getColor();
+      if (fillColor) param.fill = { color: fillColor as string };
+    }
+  }
+  /**
+   * 从 `Text` 样式构建公共 label 对象（同步到 {@link ILabel}）。
+   * 文本 offset 公共值从 feature 的 `labelOffset` 存储回读（已按 rotation 补偿前的屏幕值）。
+   * @param text 文本样式，为空时原样返回 prev
+   * @param prev 既有 label（作为各字段的回退）
+   * @param feature 所属要素（用于读取存储的屏幕空间偏移）
+   */
+  protected buildLabelFromText(text: Text | undefined, prev: ILabel | undefined, feature: Feature<Geometry>): ILabel | undefined {
+    if (!text) return prev;
+    const plainText = (() => {
+      const t = text.getText?.();
+      if (Array.isArray(t)) return t.join('');
+      return t || '';
+    })();
+    const stored = this.getStoredLabelOffset(feature);
+    const scale =
+      (typeof text.getScale === 'function'
+        ? Array.isArray(text.getScale())
+          ? (text.getScale() as number[])[0]
+          : (text.getScale() as number)
+        : undefined) || prev?.scale;
+    const fillFrom = (() => {
+      const f = text.getFill && text.getFill();
+      if (f && typeof f.getColor === 'function') {
+        const c = f.getColor();
+        if (c) return { color: c as string };
+      }
+      return prev?.fill;
+    })();
+    const strokeFrom = (() => {
+      const s = text.getStroke && text.getStroke();
+      if (s && typeof s.getColor === 'function') {
+        const c = s.getColor();
+        const w = typeof s.getWidth === 'function' ? s.getWidth() : undefined;
+        return { color: c as string, width: w || prev?.stroke?.width };
+      }
+      return prev?.stroke;
+    })();
+    const backgroundFillFrom = (() => {
+      const bf = text.getBackgroundFill && text.getBackgroundFill();
+      if (bf && typeof bf.getColor === 'function') {
+        const c = bf.getColor();
+        if (c) return { color: c as string };
+      }
+      return prev?.backgroundFill;
+    })();
+    const backgroundStrokeFrom = (() => {
+      const bs = text.getBackgroundStroke && text.getBackgroundStroke();
+      if (bs && typeof bs.getColor === 'function') {
+        const c = bs.getColor();
+        const w = typeof bs.getWidth === 'function' ? bs.getWidth() : undefined;
+        return { color: c as string, width: w || prev?.backgroundStroke?.width };
+      }
+      return prev?.backgroundStroke;
+    })();
+    return {
+      text: plainText || prev?.text || '',
+      font: text.getFont?.() || prev?.font,
+      offsetX: stored?.offsetX ?? prev?.offsetX,
+      offsetY: stored?.offsetY ?? prev?.offsetY,
+      scale,
+      textAlign: text.getTextAlign?.() || prev?.textAlign,
+      textBaseline: text.getTextBaseline?.() || prev?.textBaseline,
+      rotation: typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : prev?.rotation,
+      fill: fillFrom,
+      stroke: strokeFrom,
+      backgroundFill: backgroundFillFrom,
+      backgroundStroke: backgroundStrokeFrom,
+      padding: text.getPadding?.() || prev?.padding
+    };
+  }
+  /**
    * 往图层添加一个矢量元素
    * @param feature 矢量元素实例
    * @returns 返回矢量元素实例
@@ -224,10 +334,13 @@ export default class Base {
   }
   /**
    * 添加元素事件监听
+   *
+   * `change` 事件在拖拽过程中高频触发，对 param 的全量样式同步开销较大，
+   * 故对回调做节流（约 30fps）。trailing 保证最终位置一定会同步一次。
    * @param feature 矢量元素实例
    */
   protected addFeaturelistener(feature: Feature<Geometry>): void {
-    const featureChangeListener = feature.on('change', () => {
+    const handler = () => {
       if (feature.get('layerType') === 'Billboard') {
         // 如果是BillboardLayer，则根据{@link IBillboardParam}同步param参数
         this.updateBillboardParam(feature);
@@ -244,101 +357,51 @@ export default class Base {
         // 如果是PolygonLayer，则根据{@link IPolygonParam}同步param参数
         this.updatePolygonParam(feature);
       }
+    };
+    const throttled = Utils.throttle(handler, 33);
+    const featureChangeListener = feature.on('change', throttled);
+    this.featureListenerMap.set(feature.getId() as string, {
+      key: featureChangeListener,
+      cancel: throttled.cancel
     });
-    this.featureListenerMap.set(feature.getId() as string, featureChangeListener);
   }
   /**
    * 更新Billboard图标参数
    */
   protected updateBillboardParam(feature: Feature<Geometry>): void {
     const param = feature.get('param') as IBillboardParam<unknown> | undefined;
-    // 同步最新的几何与样式信息到 param
-    if (param) {
-      // 更新中心点
-      const geometry = feature.getGeometry();
-      // 仅在 Point 几何时同步中心
-      if (geometry && geometry.getType && geometry.getType() === 'Point') {
-        try {
-          // 使用 (geometry as any) 以避免类型不兼容，但不直接访问未声明方法
-          const pointGeom = geometry as import('ol/geom').Point;
-          param.center = pointGeom.getCoordinates();
-        } catch (_) {
-          /* ignore */
-        }
+    if (!param) return;
+    // 更新中心点（仅 Point 几何）
+    const geometry = feature.getGeometry();
+    if (geometry && geometry.getType && geometry.getType() === 'Point') {
+      try {
+        param.center = (geometry as import('ol/geom').Point).getCoordinates();
+      } catch {
+        /* ignore */
       }
-      // 更新样式与图标属性
-      const style = feature.getStyle() as Style | undefined;
-      const icon = style?.getImage() as Icon | undefined;
-      if (icon) {
-        // 仅当有值时才覆盖，避免把 undefined 写回
-        const src = icon.getSrc();
-        if (src) param.src = src;
-        const size = icon.getSize();
-        if (size) param.size = size;
-        const color = icon.getColor();
-        if (typeof color === 'string') param.color = color;
-        const displacement = <number[] | undefined>feature.get('screenDisplacement');
-        if (Array.isArray(displacement)) param.displacement = displacement.slice();
-        const scaleVal = icon.getScale();
-        if (scaleVal) {
-          param.scale = scaleVal;
-        }
-        const rotation = icon.getRotation();
-        if (rotation != null) param.rotation = Utils.rad2deg(rotation);
-        const anchor = (icon as any).anchor_; // 原始 anchor 数组;
-        if (anchor && Array.isArray(anchor)) param.anchor = anchor as number[];
-      }
-      // 同步文本标签
-      const text = style?.getText();
-      // 文本 offset 已按 rotation 补偿为 OL 本地值，公共约定值需从 feature 存储回读
-      const storedLabelOffset = <{ offsetX: number; offsetY: number } | undefined>feature.get('labelOffset');
-      if (text) {
-        const plainText = (() => {
-          const t = text.getText();
-          if (Array.isArray(t)) return t.join('');
-          return t || '';
-        })();
-        param.label = {
-          text: plainText || param.label?.text || '',
-          font: text.getFont() || param.label?.font,
-          offsetX: storedLabelOffset?.offsetX ?? param.label?.offsetX,
-          offsetY: storedLabelOffset?.offsetY ?? param.label?.offsetY,
-          scale:
-            (typeof text.getScale === 'function'
-              ? Array.isArray(text.getScale())
-                ? (text.getScale() as number[])[0]
-                : (text.getScale() as number)
-              : undefined) || param.label?.scale,
-          textAlign: text.getTextAlign() || param.label?.textAlign,
-          textBaseline: text.getTextBaseline() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
-          fill: text.getFill() && typeof text.getFill().getColor === 'function' ? { color: text.getFill().getColor() as string } : param.label?.fill,
-          stroke:
-            text.getStroke() && typeof text.getStroke().getColor === 'function'
-              ? {
-                color: text.getStroke().getColor() as string,
-                width: (typeof text.getStroke().getWidth === 'function' ? text.getStroke().getWidth() : undefined) || param.label?.stroke?.width
-              }
-              : param.label?.stroke,
-          backgroundFill:
-            text.getBackgroundFill() && typeof text.getBackgroundFill().getColor === 'function'
-              ? { color: text.getBackgroundFill().getColor() as string }
-              : param.label?.backgroundFill,
-          backgroundStroke:
-            text.getBackgroundStroke() && typeof text.getBackgroundStroke().getColor === 'function'
-              ? {
-                color: text.getBackgroundStroke().getColor() as string,
-                width:
-                  (typeof text.getBackgroundStroke().getWidth === 'function' ? text.getBackgroundStroke().getWidth() : undefined) ||
-                  param.label?.backgroundStroke?.width
-              }
-              : param.label?.backgroundStroke,
-          padding: text.getPadding() || param.label?.padding
-        };
-      }
-      // 回写最新 param
-      feature.set('param', param);
     }
+    // 更新图标属性
+    const style = this.resolveStaticStyle(feature);
+    const icon = style?.getImage() as Icon | undefined;
+    if (icon) {
+      const src = icon.getSrc();
+      if (src) param.src = src;
+      const size = icon.getSize();
+      if (size) param.size = size;
+      const color = icon.getColor();
+      if (typeof color === 'string') param.color = color;
+      const displacement = <number[] | undefined>feature.get('screenDisplacement');
+      if (Array.isArray(displacement)) param.displacement = displacement.slice();
+      const scaleVal = icon.getScale();
+      if (scaleVal) param.scale = scaleVal;
+      const rotation = icon.getRotation();
+      if (rotation != null) param.rotation = Utils.rad2deg(rotation);
+      const anchor = (icon as unknown as { anchor_?: number[] }).anchor_; // 原始 anchor 数组
+      if (anchor && Array.isArray(anchor)) param.anchor = anchor as number[];
+    }
+    // 同步文本标签
+    param.label = this.buildLabelFromText(style?.getText(), param.label, feature);
+    feature.set('param', param);
   }
   /**
    * 更新Polyline参数(仅同步可推导的几何/样式字段)
@@ -348,101 +411,24 @@ export default class Base {
     // 兼容普通 Polyline 与 飞行线 Polyline（IPolylineFlyParam 不继承 IPolylineParam，字段名称也不同: position vs positions）
     const param = feature.get('param') as (IPolylineParam<unknown> | IPolylineFlyParam<unknown>) | undefined;
     if (!param) return;
-    const isNormalPolyline = (p: any): p is IPolylineParam<unknown> => 'positions' in p;
-    const isFlyPolyline = (p: any): p is IPolylineFlyParam<unknown> => 'position' in p && !('positions' in p);
+    const isNormalPolyline = (p: IPolylineParam<unknown> | IPolylineFlyParam<unknown>): p is IPolylineParam<unknown> => 'positions' in p;
+    const isFlyPolyline = (p: IPolylineParam<unknown> | IPolylineFlyParam<unknown>): p is IPolylineFlyParam<unknown> => 'position' in p && !('positions' in p);
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'LineString') {
       try {
-        const line = geometry as import('ol/geom').LineString;
-        const coords = line.getCoordinates();
+        const coords = (geometry as import('ol/geom').LineString).getCoordinates();
         if (isNormalPolyline(param)) param.positions = coords;
         if (isFlyPolyline(param)) param.position = coords as number[][];
-      } catch (_) {
+      } catch {
         /* ignore */
       }
     }
-    // 同步样式: 仅在静态 Style 情况下（当 style 是函数时跳过，因为箭头/动态样式内部已同步 positions）
-    const styleLike = feature.getStyle();
-    let style: Style | undefined;
-    if (styleLike instanceof Style) style = styleLike;
-    else if (Array.isArray(styleLike) && styleLike.length && styleLike[0] instanceof Style) style = styleLike[0];
-    // style 为函数 (StyleFunction) 时不处理，避免调用导致副作用或无法提供 resolution
+    // 样式同步：仅静态 Style，且仅普通折线（飞行线样式为函数，内部已同步 positions）
+    const style = this.resolveStaticStyle(feature);
     if (style && isNormalPolyline(param)) {
-      const stroke = style.getStroke && style.getStroke();
-      if (stroke && typeof stroke.getColor === 'function') {
-        param.stroke = Object.assign({}, param.stroke, {
-          color: stroke.getColor?.() || param.stroke?.color,
-          width: stroke.getWidth?.() || param.stroke?.width,
-          lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-          lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-        });
-        if (param.stroke?.width && !param.width) {
-          param.width = param.stroke.width;
-        }
-      }
-      const fill = style.getFill && style.getFill();
-      if (fill && typeof fill.getColor === 'function') {
-        const fillColor = fill.getColor();
-        if (fillColor) param.fill = { color: fillColor as string };
-      }
-      const text = style.getText && style.getText();
-      if (text) {
-        const plainText = (() => {
-          const t = text.getText?.();
-          if (Array.isArray(t)) return t.join('');
-          return t || '';
-        })();
-        param.label = {
-          text: plainText || param.label?.text || '',
-          font: text.getFont?.() || param.label?.font,
-          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
-          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
-          scale:
-            (typeof text.getScale === 'function'
-              ? Array.isArray(text.getScale())
-                ? (text.getScale() as number[])[0]
-                : (text.getScale() as number)
-              : undefined) || param.label?.scale,
-          textAlign: text.getTextAlign?.() || param.label?.textAlign,
-          textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
-          fill: (() => {
-            const f = text.getFill && text.getFill();
-            if (f && typeof f.getColor === 'function') {
-              const c = f.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.fill;
-          })(),
-          stroke: (() => {
-            const s = text.getStroke && text.getStroke();
-            if (s && typeof s.getColor === 'function') {
-              const c = s.getColor();
-              const w = typeof s.getWidth === 'function' ? s.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.stroke?.width };
-            }
-            return param.label?.stroke;
-          })(),
-          backgroundFill: (() => {
-            const bf = text.getBackgroundFill && text.getBackgroundFill();
-            if (bf && typeof bf.getColor === 'function') {
-              const c = bf.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.backgroundFill;
-          })(),
-          backgroundStroke: (() => {
-            const bs = text.getBackgroundStroke && text.getBackgroundStroke();
-            if (bs && typeof bs.getColor === 'function') {
-              const c = bs.getColor();
-              const w = typeof bs.getWidth === 'function' ? bs.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.backgroundStroke?.width };
-            }
-            return param.label?.backgroundStroke;
-          })(),
-          padding: text.getPadding?.() || param.label?.padding
-        };
-      }
+      this.syncStrokeFillFromStyle(style, param);
+      if (param.stroke?.width && !param.width) param.width = param.stroke.width;
+      param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
     feature.set('param', param);
   }
@@ -451,107 +437,30 @@ export default class Base {
    * @param feature Point要素
    */
   protected updatePointParam(feature: Feature<Geometry>): void {
-    const param = feature.get('param') as any; // IPointParam<unknown> | undefined
+    const param = feature.get('param') as IPointParam<unknown> | undefined;
     if (!param) return;
     // 同步几何中心
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Point') {
       try {
-        const point = geometry as import('ol/geom').Point;
-        param.center = point.getCoordinates();
-      } catch (_) {
+        param.center = (geometry as import('ol/geom').Point).getCoordinates();
+      } catch {
         /* ignore */
       }
     }
     // 样式同步（仅静态 style）
-    const styleLike = feature.getStyle();
-    let style: Style | undefined;
-    if (styleLike instanceof Style) style = styleLike;
-    else if (Array.isArray(styleLike) && styleLike.length && styleLike[0] instanceof Style) style = styleLike[0];
+    const style = this.resolveStaticStyle(feature);
     if (style) {
-      const image: any = style.getImage && style.getImage();
+      const image = (style.getImage && style.getImage()) as CircleStyle | undefined;
       if (image) {
         // 半径 -> size
-        if (typeof image.getRadius === 'function') {
-          const r = image.getRadius();
-          if (r != null) param.size = r;
-        }
-        // stroke
-        const stroke = image.getStroke && image.getStroke();
-        if (stroke && typeof stroke.getColor === 'function') {
-          param.stroke = Object.assign({}, param.stroke, {
-            color: stroke.getColor?.() || param.stroke?.color,
-            width: stroke.getWidth?.() || param.stroke?.width,
-            lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-            lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-          });
-        }
-        // fill
-        const fill = image.getFill && image.getFill();
-        if (fill && typeof fill.getColor === 'function') {
-          const fillColor = fill.getColor();
-          if (fillColor) param.fill = { color: fillColor as string };
-        }
+        const r = image.getRadius();
+        if (r != null) param.size = r;
+        // stroke / fill 同步自 image（CircleStyle）
+        this.syncStrokeFillFromStyle(image, param);
       }
       // label 同步
-      const text = style.getText && style.getText();
-      if (text) {
-        const plainText = (() => {
-          const t = text.getText?.();
-          if (Array.isArray(t)) return t.join('');
-          return t || '';
-        })();
-        param.label = {
-          text: plainText || param.label?.text || '',
-          font: text.getFont?.() || param.label?.font,
-          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
-          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
-          scale:
-            (typeof text.getScale === 'function'
-              ? Array.isArray(text.getScale())
-                ? (text.getScale() as number[])[0]
-                : (text.getScale() as number)
-              : undefined) || param.label?.scale,
-          textAlign: text.getTextAlign?.() || param.label?.textAlign,
-          textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
-          fill: (() => {
-            const f = text.getFill && text.getFill();
-            if (f && typeof f.getColor === 'function') {
-              const c = f.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.fill;
-          })(),
-          stroke: (() => {
-            const s = text.getStroke && text.getStroke();
-            if (s && typeof s.getColor === 'function') {
-              const c = s.getColor();
-              const w = typeof s.getWidth === 'function' ? s.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.stroke?.width };
-            }
-            return param.label?.stroke;
-          })(),
-          backgroundFill: (() => {
-            const bf = text.getBackgroundFill && text.getBackgroundFill();
-            if (bf && typeof bf.getColor === 'function') {
-              const c = bf.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.backgroundFill;
-          })(),
-          backgroundStroke: (() => {
-            const bs = text.getBackgroundStroke && text.getBackgroundStroke();
-            if (bs && typeof bs.getColor === 'function') {
-              const c = bs.getColor();
-              const w = typeof bs.getWidth === 'function' ? bs.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.backgroundStroke?.width };
-            }
-            return param.label?.backgroundStroke;
-          })(),
-          padding: text.getPadding?.() || param.label?.padding
-        };
-      }
+      param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
     feature.set('param', param);
   }
@@ -560,7 +469,7 @@ export default class Base {
    * @param feature Circle要素
    */
   protected updateCircleParam(feature: Feature<Geometry>): void {
-    const param = feature.get('param') as any; // ICircleParam<unknown> | undefined
+    const param = feature.get('param') as ICircleParam<unknown> | undefined;
     if (!param) return;
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Circle') {
@@ -568,88 +477,15 @@ export default class Base {
         const circle = geometry as import('ol/geom').Circle;
         param.center = circle.getCenter();
         param.radius = circle.getRadius();
-      } catch (_) {
+      } catch {
         /* ignore */
       }
     }
     // 样式同步（静态样式）
-    const styleLike = feature.getStyle();
-    let style: Style | undefined;
-    if (styleLike instanceof Style) style = styleLike;
-    else if (Array.isArray(styleLike) && styleLike.length && styleLike[0] instanceof Style) style = styleLike[0];
+    const style = this.resolveStaticStyle(feature);
     if (style) {
-      const stroke = style.getStroke && style.getStroke();
-      if (stroke && typeof stroke.getColor === 'function') {
-        param.stroke = Object.assign({}, param.stroke, {
-          color: stroke.getColor?.() || param.stroke?.color,
-          width: stroke.getWidth?.() || param.stroke?.width,
-          lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-          lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-        });
-      }
-      const fill = style.getFill && style.getFill();
-      if (fill && typeof fill.getColor === 'function') {
-        const fillColor = fill.getColor();
-        if (fillColor) param.fill = { color: fillColor as string };
-      }
-      const text = style.getText && style.getText();
-      if (text) {
-        const plainText = (() => {
-          const t = text.getText?.();
-          if (Array.isArray(t)) return t.join('');
-          return t || '';
-        })();
-        param.label = {
-          text: plainText || param.label?.text || '',
-          font: text.getFont?.() || param.label?.font,
-          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
-          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
-          scale:
-            (typeof text.getScale === 'function'
-              ? Array.isArray(text.getScale())
-                ? (text.getScale() as number[])[0]
-                : (text.getScale() as number)
-              : undefined) || param.label?.scale,
-          textAlign: text.getTextAlign?.() || param.label?.textAlign,
-          textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
-          fill: (() => {
-            const f = text.getFill && text.getFill();
-            if (f && typeof f.getColor === 'function') {
-              const c = f.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.fill;
-          })(),
-          stroke: (() => {
-            const s = text.getStroke && text.getStroke();
-            if (s && typeof s.getColor === 'function') {
-              const c = s.getColor();
-              const w = typeof s.getWidth === 'function' ? s.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.stroke?.width };
-            }
-            return param.label?.stroke;
-          })(),
-          backgroundFill: (() => {
-            const bf = text.getBackgroundFill && text.getBackgroundFill();
-            if (bf && typeof bf.getColor === 'function') {
-              const c = bf.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.backgroundFill;
-          })(),
-          backgroundStroke: (() => {
-            const bs = text.getBackgroundStroke && text.getBackgroundStroke();
-            if (bs && typeof bs.getColor === 'function') {
-              const c = bs.getColor();
-              const w = typeof bs.getWidth === 'function' ? bs.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.backgroundStroke?.width };
-            }
-            return param.label?.backgroundStroke;
-          })(),
-          padding: text.getPadding?.() || param.label?.padding
-        };
-      }
+      this.syncStrokeFillFromStyle(style, param);
+      param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
     feature.set('param', param);
   }
@@ -658,95 +494,21 @@ export default class Base {
    * @param feature Polygon要素
    */
   protected updatePolygonParam(feature: Feature<Geometry>): void {
-    const param = feature.get('param') as any; // IPolygonParam<unknown> | undefined
+    const param = feature.get('param') as IPolygonParam<unknown> | undefined;
     if (!param) return;
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Polygon') {
       try {
-        const polygon = geometry as import('ol/geom').Polygon;
-        param.positions = polygon.getCoordinates();
-      } catch (_) {
+        param.positions = (geometry as import('ol/geom').Polygon).getCoordinates();
+      } catch {
         /* ignore */
       }
     }
     // 样式同步
-    const styleLike = feature.getStyle();
-    let style: Style | undefined;
-    if (styleLike instanceof Style) style = styleLike;
-    else if (Array.isArray(styleLike) && styleLike.length && styleLike[0] instanceof Style) style = styleLike[0];
+    const style = this.resolveStaticStyle(feature);
     if (style) {
-      const stroke = style.getStroke && style.getStroke();
-      if (stroke && typeof stroke.getColor === 'function') {
-        param.stroke = Object.assign({}, param.stroke, {
-          color: stroke.getColor?.() || param.stroke?.color,
-          width: stroke.getWidth?.() || param.stroke?.width,
-          lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-          lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-        });
-      }
-      const fill = style.getFill && style.getFill();
-      if (fill && typeof fill.getColor === 'function') {
-        const fillColor = fill.getColor();
-        if (fillColor) param.fill = { color: fillColor as string };
-      }
-      const text = style.getText && style.getText();
-      if (text) {
-        const plainText = (() => {
-          const t = text.getText?.();
-          if (Array.isArray(t)) return t.join('');
-          return t || '';
-        })();
-        param.label = {
-          text: plainText || param.label?.text || '',
-          font: text.getFont?.() || param.label?.font,
-          offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
-          offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
-          scale:
-            (typeof text.getScale === 'function'
-              ? Array.isArray(text.getScale())
-                ? (text.getScale() as number[])[0]
-                : (text.getScale() as number)
-              : undefined) || param.label?.scale,
-          textAlign: text.getTextAlign?.() || param.label?.textAlign,
-          textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-          rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
-          fill: (() => {
-            const f = text.getFill && text.getFill();
-            if (f && typeof f.getColor === 'function') {
-              const c = f.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.fill;
-          })(),
-          stroke: (() => {
-            const s = text.getStroke && text.getStroke();
-            if (s && typeof s.getColor === 'function') {
-              const c = s.getColor();
-              const w = typeof s.getWidth === 'function' ? s.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.stroke?.width };
-            }
-            return param.label?.stroke;
-          })(),
-          backgroundFill: (() => {
-            const bf = text.getBackgroundFill && text.getBackgroundFill();
-            if (bf && typeof bf.getColor === 'function') {
-              const c = bf.getColor();
-              if (c) return { color: c as string };
-            }
-            return param.label?.backgroundFill;
-          })(),
-          backgroundStroke: (() => {
-            const bs = text.getBackgroundStroke && text.getBackgroundStroke();
-            if (bs && typeof bs.getColor === 'function') {
-              const c = bs.getColor();
-              const w = typeof bs.getWidth === 'function' ? bs.getWidth() : undefined;
-              return { color: c as string, width: w || param.label?.backgroundStroke?.width };
-            }
-            return param.label?.backgroundStroke;
-          })(),
-          padding: text.getPadding?.() || param.label?.padding
-        };
-      }
+      this.syncStrokeFillFromStyle(style, param);
+      param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
     feature.set('param', param);
   }
@@ -756,83 +518,16 @@ export default class Base {
    * @param feature 目标要素
    * @returns 复制并更新后的 param；若不存在 param 返回 undefined
    */
-  public getUpdatedParam(feature: Feature<Geometry>): any | undefined {
+  public getUpdatedParam(feature: Feature<Geometry>): AnyParam | undefined {
     if (!feature) return undefined;
     const layerType = feature.get('layerType');
     const originParam = feature.get('param');
     if (!originParam) return undefined;
-    // 深拷贝，避免修改绑定在 feature 上的原对象
-    let param: any;
-    try {
-      param = JSON.parse(JSON.stringify(originParam));
-    } catch (_) {
-      // 兜底浅拷贝
-      param = { ...originParam };
-    }
+    // 深拷贝，避免修改绑定在 feature 上的原对象；param 为跨类型的动态对象，内部按 any 处理
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const param: any = cloneDeep(originParam);
     const geometry = feature.getGeometry();
-    const styleLike = feature.getStyle();
-    let style: Style | undefined;
-    if (styleLike instanceof Style) style = styleLike;
-    else if (Array.isArray(styleLike) && styleLike.length && styleLike[0] instanceof Style) style = styleLike[0];
-
-    const syncLabelCommon = (text: Text | undefined) => {
-      if (!text) return;
-      const plainText = (() => {
-        const t = text.getText?.();
-        if (Array.isArray(t)) return t.join('');
-        return t || '';
-      })();
-      param.label = {
-        text: plainText || param.label?.text || '',
-        font: text.getFont?.() || param.label?.font,
-        offsetX: this.getStoredLabelOffset(feature)?.offsetX ?? param.label?.offsetX,
-        offsetY: this.getStoredLabelOffset(feature)?.offsetY ?? param.label?.offsetY,
-        scale:
-          (typeof text.getScale === 'function'
-            ? Array.isArray(text.getScale())
-              ? (text.getScale() as number[])[0]
-              : (text.getScale() as number)
-            : undefined) || param.label?.scale,
-        textAlign: text.getTextAlign?.() || param.label?.textAlign,
-        textBaseline: text.getTextBaseline?.() || param.label?.textBaseline,
-        rotation: (typeof text.getRotation === 'function' && text.getRotation() ? Utils.rad2deg(text.getRotation() ?? 0) : param.label?.rotation),
-        fill: (() => {
-          const f = text.getFill && text.getFill();
-          if (f && typeof f.getColor === 'function') {
-            const c = f.getColor();
-            if (c) return { color: c as string };
-          }
-          return param.label?.fill;
-        })(),
-        stroke: (() => {
-          const s = text.getStroke && text.getStroke();
-          if (s && typeof s.getColor === 'function') {
-            const c = s.getColor();
-            const w = typeof s.getWidth === 'function' ? s.getWidth() : undefined;
-            return { color: c as string, width: w || param.label?.stroke?.width };
-          }
-          return param.label?.stroke;
-        })(),
-        backgroundFill: (() => {
-          const bf = text.getBackgroundFill && text.getBackgroundFill();
-          if (bf && typeof bf.getColor === 'function') {
-            const c = bf.getColor();
-            if (c) return { color: c as string };
-          }
-          return param.label?.backgroundFill;
-        })(),
-        backgroundStroke: (() => {
-          const bs = text.getBackgroundStroke && text.getBackgroundStroke();
-          if (bs && typeof bs.getColor === 'function') {
-            const c = bs.getColor();
-            const w = typeof bs.getWidth === 'function' ? bs.getWidth() : undefined;
-            return { color: c as string, width: w || param.label?.backgroundStroke?.width };
-          }
-          return param.label?.backgroundStroke;
-        })(),
-        padding: text.getPadding?.() || param.label?.padding
-      };
-    };
+    const style = this.resolveStaticStyle(feature);
 
     // 分类型同步
     if (layerType === 'Billboard') {
@@ -859,10 +554,10 @@ export default class Base {
           if (scaleVal) param.scale = scaleVal;
           const rotation = icon.getRotation?.();
           if (rotation != null) param.rotation = Utils.rad2deg(rotation);
-          const anchor = (icon as any).anchor_;
+          const anchor = (icon as unknown as { anchor_?: number[] }).anchor_;
           if (anchor && Array.isArray(anchor)) param.anchor = anchor as number[];
         }
-        syncLabelCommon(style.getText?.());
+        param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     } else if (layerType === 'Polyline') {
       if (geometry && geometry.getType && geometry.getType() === 'LineString') {
@@ -878,22 +573,9 @@ export default class Base {
       }
       if (style && 'positions' in param) {
         // 仅普通折线做样式同步
-        const stroke = style.getStroke && style.getStroke();
-        if (stroke && typeof stroke.getColor === 'function') {
-          param.stroke = Object.assign({}, param.stroke, {
-            color: stroke.getColor?.() || param.stroke?.color,
-            width: stroke.getWidth?.() || param.stroke?.width,
-            lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-            lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-          });
-          if (param.stroke?.width && !param.width) param.width = param.stroke.width;
-        }
-        const fill = style.getFill && style.getFill();
-        if (fill && typeof fill.getColor === 'function') {
-          const fillColor = fill.getColor();
-          if (fillColor) param.fill = { color: fillColor as string };
-        }
-        syncLabelCommon(style.getText?.());
+        this.syncStrokeFillFromStyle(style, param);
+        if (param.stroke?.width && !param.width) param.width = param.stroke.width;
+        param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     } else if (layerType === 'Point') {
       if (geometry && geometry.getType && geometry.getType() === 'Point') {
@@ -905,28 +587,14 @@ export default class Base {
         }
       }
       if (style) {
-        const image: any = style.getImage && style.getImage();
+        const image = (style.getImage && style.getImage()) as CircleStyle | undefined;
         if (image) {
-          if (typeof image.getRadius === 'function') {
-            const r = image.getRadius();
-            if (r != null) param.size = r;
-          }
-          const stroke = image.getStroke && image.getStroke();
-          if (stroke && typeof stroke.getColor === 'function') {
-            param.stroke = Object.assign({}, param.stroke, {
-              color: stroke.getColor?.() || param.stroke?.color,
-              width: stroke.getWidth?.() || param.stroke?.width,
-              lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-              lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-            });
-          }
-          const fill = image.getFill && image.getFill();
-          if (fill && typeof fill.getColor === 'function') {
-            const fillColor = fill.getColor();
-            if (fillColor) param.fill = { color: fillColor as string };
-          }
+          const r = image.getRadius();
+          if (r != null) param.size = r;
+          // stroke / fill 同步自 image（CircleStyle）
+          this.syncStrokeFillFromStyle(image, param);
         }
-        syncLabelCommon(style.getText?.());
+        param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     } else if (layerType === 'Circle') {
       if (geometry && geometry.getType && geometry.getType() === 'Circle') {
@@ -939,21 +607,8 @@ export default class Base {
         }
       }
       if (style) {
-        const stroke = style.getStroke && style.getStroke();
-        if (stroke && typeof stroke.getColor === 'function') {
-          param.stroke = Object.assign({}, param.stroke, {
-            color: stroke.getColor?.() || param.stroke?.color,
-            width: stroke.getWidth?.() || param.stroke?.width,
-            lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-            lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-          });
-        }
-        const fill = style.getFill && style.getFill();
-        if (fill && typeof fill.getColor === 'function') {
-          const fillColor = fill.getColor();
-          if (fillColor) param.fill = { color: fillColor as string };
-        }
-        syncLabelCommon(style.getText?.());
+        this.syncStrokeFillFromStyle(style, param);
+        param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     } else if (layerType === 'Polygon') {
       if (geometry && geometry.getType && geometry.getType() === 'Polygon') {
@@ -965,24 +620,36 @@ export default class Base {
         }
       }
       if (style) {
-        const stroke = style.getStroke && style.getStroke();
-        if (stroke && typeof stroke.getColor === 'function') {
-          param.stroke = Object.assign({}, param.stroke, {
-            color: stroke.getColor?.() || param.stroke?.color,
-            width: stroke.getWidth?.() || param.stroke?.width,
-            lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
-            lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-          });
-        }
-        const fill = style.getFill && style.getFill();
-        if (fill && typeof fill.getColor === 'function') {
-          const fillColor = fill.getColor();
-          if (fillColor) param.fill = { color: fillColor as string };
-        }
-        syncLabelCommon(style.getText?.());
+        this.syncStrokeFillFromStyle(style, param);
+        param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     }
     return param;
+  }
+  /**
+   * 解除 feature 上的闪烁监听（`listenerKey`），避免移除/隐藏后 postrender 仍持续触发。
+   * @param feature 矢量元素
+   */
+  protected unbindFeatureFlash(feature: Feature<Geometry>): void {
+    const listenerKey = feature.get('listenerKey');
+    if (listenerKey) {
+      unByKey(listenerKey);
+      feature.set('listenerKey', null);
+    }
+  }
+  /**
+   * 元素被隐藏时的钩子（默认无操作）。子类可覆写以停止与渲染绑定的副作用（如闪烁）。
+   * @param feature 被隐藏的元素
+   */
+  protected onFeatureHide(_feature: Feature<Geometry>): void {
+    /* default no-op */
+  }
+  /**
+   * 元素被重新显示时的钩子（默认无操作）。子类可覆写以恢复与渲染绑定的副作用。
+   * @param feature 被显示的元素
+   */
+  protected onFeatureShow(_feature: Feature<Geometry>): void {
+    /* default no-op */
   }
   /**
    * 删除图层所有矢量元素
@@ -1003,16 +670,25 @@ export default class Base {
   remove(id: string): void;
   remove(id?: string): void {
     if (id) {
-      this.layer.getSource()?.removeFeature(this.get(id)[0]);
-      const listener = this.featureListenerMap.get(id);
-      if (listener) {
-        unByKey(listener);
+      const feature = this.get(id)[0];
+      if (feature) {
+        // 先解除闪烁监听，再从数据源移除，防止 postrender 泄漏
+        this.unbindFeatureFlash(feature);
+        this.layer.getSource()?.removeFeature(feature);
+      }
+      const entry = this.featureListenerMap.get(id);
+      if (entry) {
+        entry.cancel();
+        unByKey(entry.key);
         this.featureListenerMap.delete(id);
       }
     } else {
+      // 解除所有闪烁监听与 change 监听
+      this.layer.getSource()?.getFeatures().forEach((f) => this.unbindFeatureFlash(f));
       this.layer.getSource()?.clear();
-      this.featureListenerMap.forEach((listener) => {
-        unByKey(listener);
+      this.featureListenerMap.forEach((entry) => {
+        entry.cancel();
+        unByKey(entry.key);
       });
       this.featureListenerMap.clear();
     }
@@ -1066,13 +742,15 @@ export default class Base {
   hide(id: string): void;
   hide(id?: string): void {
     if (id) {
-      const feature = this.get(id);
-      if (feature[0] == undefined) {
+      const feature = this.get(id)[0];
+      if (!feature) {
         console.warn('没有找到元素，请检查ID');
         return;
       }
-      this.hideFeatureMap.set(id, feature[0]);
-      this.remove(id);
+      this.hideFeatureMap.set(id, feature);
+      // 仅从数据源移除，不解绑 change 监听（show 时不需重新绑定），并通知子类停止副作用
+      this.onFeatureHide(feature);
+      this.layer.getSource()?.removeFeature(feature);
     } else {
       this.layer.setVisible(false);
     }
@@ -1097,9 +775,18 @@ export default class Base {
   show(id?: string): void {
     if (id) {
       const feature = this.hideFeatureMap.get(id);
-      if (feature) this.save(feature);
+      if (feature) {
+        // 直接加回数据源，不重新绑定监听（监听在 hide 时已保留）
+        this.layer.getSource()?.addFeature(feature);
+        this.onFeatureShow(feature);
+      }
       this.hideFeatureMap.delete(id);
     } else {
+      // 恢复所有单独隐藏的元素
+      this.hideFeatureMap.forEach((feature) => {
+        this.layer.getSource()?.addFeature(feature);
+        this.onFeatureShow(feature);
+      });
       this.hideFeatureMap.clear();
       this.layer.setVisible(true);
     }
@@ -1131,6 +818,9 @@ export default class Base {
    */
   destroy(): boolean {
     if (this.allowDestroyed) {
+      // 清理所有 change 监听、闪烁监听与隐藏缓存，避免内存泄漏
+      this.remove();
+      this.hideFeatureMap.clear();
       const flag = this.earth.removeLayer(this.layer);
       if (flag) {
         this.earth.removeRegisteredLayer(this.registryKey);

@@ -35,8 +35,16 @@ const isProd = mode === 'prod';
 
 export default defineConfig({
   input: `src/index.ts`,
-  // 不再 external 'ol' 与 '@turf/turf'，打包进产物，消费端无需单独安装它们
-  external: ['cesium', 'mitt', 'heatmap.js'],
+  // `ol` 与 `@turf/turf` 作为 peerDependency 由消费端提供，不打入产物，显著减小包体积。
+  // 其余第三方（mitt / heatmap.js / cesium）同样 external。
+  external: (id) =>
+    id === 'cesium' ||
+    id === 'mitt' ||
+    id === 'heatmap.js' ||
+    id === 'ol' ||
+    id.startsWith('ol/') ||
+    id === '@turf/turf' ||
+    id.startsWith('@turf/'),
   output: [
     {
       file: pkg.main,
@@ -54,11 +62,13 @@ export default defineConfig({
       name: 'EarthEngine',
       format: 'iife',
       sourcemap: !isProd,
-      globals: {
-        // 仅对 external 的依赖提供全局变量映射
-        cesium: 'Cesium',
-        mitt: 'Mitt',
-        'heatmap.js': 'Heatmap'
+      globals: (id) => {
+        if (id === 'ol' || id.startsWith('ol/')) return 'ol';
+        if (id === '@turf/turf' || id.startsWith('@turf/')) return 'turf';
+        if (id === 'cesium') return 'Cesium';
+        if (id === 'mitt') return 'Mitt';
+        if (id === 'heatmap.js') return 'Heatmap';
+        return id;
       }
     }
   ],

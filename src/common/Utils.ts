@@ -1,32 +1,41 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { IPointParam } from 'interface';
+import { IPointParam } from '../interface';
 import { Feature } from 'ol';
+import { Map } from 'ol';
 import { Coordinate } from 'ol/coordinate';
 import { easeOut } from 'ol/easing';
-import { getWidth, getCenter, boundingExtent } from 'ol/extent';
+import { getWidth } from 'ol/extent';
+import { getCenter, boundingExtent } from 'ol/extent';
 import { Geometry, Point } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
 import { unByKey } from 'ol/Observable';
 import { getVectorContext } from 'ol/render';
-import arrowSvg from '../assets/image/arrow.svg';
 import RenderEvent from 'ol/render/Event';
 import VectorSource from 'ol/source/Vector';
 import { Style, Stroke, Icon } from 'ol/style';
 import CircleStyle from 'ol/style/Circle';
-import { useEarth } from '../useEarth';
+import throttle from 'lodash/throttle';
+import arrowSvg from '../assets/image/arrow.svg';
 
-export default class Utils<T> {
-  /** 获取当前视图投影的 worldWidth；若不可得返回 undefined */
-  static getWorldWidth(): number | undefined {
+/**
+ * 通用工具类
+ *
+ * 说明：本类不再依赖 `useEarth()` 全局单例，所有需要地图实例的方法均显式接收 `map` 参数，
+ * 以支持同页面多地图实例并便于单元测试。调用方负责传入所属的 `Map`。
+ */
+export default class Utils {
+  /** 获取指定地图视图投影的 worldWidth；若不可得返回 undefined */
+  static getWorldWidth(map: Map): number | undefined {
     try {
-      const projExtent = useEarth().map.getView().getProjection().getExtent?.();
+      const projExtent = map.getView().getProjection().getExtent?.();
       if (projExtent) return projExtent[2] - projExtent[0];
-    } catch {/* ignore */}
+    } catch {
+      /* ignore */
+    }
     return undefined;
   }
   /** 计算指定 x 所在的 world 索引（Math.floor(x / worldWidth)）；若无法获取 worldWidth 返回 undefined */
-  static getWorldIndex(x: number): number | undefined {
-    const ww = this.getWorldWidth();
+  static getWorldIndex(map: Map, x: number): number | undefined {
+    const ww = this.getWorldWidth(map);
     if (!ww || !isFinite(ww) || ww === 0) return undefined;
     return Math.floor(x / ww);
   }
@@ -34,12 +43,16 @@ export default class Utils<T> {
    * 屏幕像素 pixel作为元素的新中心点，重新计算元素坐标
    * 支持 Point、LineString、Polygon、Circle
    * 返回新的坐标数组或参数对象（不直接修改原 feature）
+   * @param map 地图实例
    * @param pixel 屏幕像素坐标 [x, y]
-   * @param feature OpenLayers Feature 实例
+   * @param position 原始坐标
    */
-  static getFeatureToPixel(pixel: number[], position: Coordinate | Coordinate[] | Coordinate[][]): Coordinate | Coordinate[] | Coordinate[][] | null {
+  static getFeatureToPixel(
+    map: Map,
+    pixel: number[],
+    position: Coordinate | Coordinate[] | Coordinate[][]
+  ): Coordinate | Coordinate[] | Coordinate[][] | null {
     if (!pixel || pixel.length !== 2 || position == null) return null;
-    const map = useEarth().map;
     const target = map.getCoordinateFromPixel(pixel);
     if (!target) return null;
 
@@ -68,14 +81,14 @@ export default class Utils<T> {
     // Point: [x,y]
     // Line / MultiPoint: [[x,y],[x,y],...]
     // Polygon(单环或多环): [[[x,y],...],[...],...]
-    const isNumberArray = (arr: unknown): arr is number[] => Array.isArray(arr) && arr.length === 2 && arr.every((n) => typeof n === 'number');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isLineLike = (p: any): p is Coordinate[] => Array.isArray(p) && p.length > 0 && isNumberArray(p[0]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isPolygonLike = (p: any): p is Coordinate[][] =>
+    const isNumberArray = (arr: unknown): arr is number[] =>
+      Array.isArray(arr) && arr.length === 2 && arr.every((n) => typeof n === 'number');
+    const isLineLike = (p: Coordinate | Coordinate[] | Coordinate[][]): p is Coordinate[] =>
+      Array.isArray(p) && p.length > 0 && isNumberArray(p[0]);
+    const isPolygonLike = (p: Coordinate | Coordinate[] | Coordinate[][]): p is Coordinate[][] =>
       Array.isArray(p) && p.length > 0 && Array.isArray(p[0]) && !isNumberArray(p[0]) && isNumberArray(p[0][0]);
 
-    // 直接 Point / Circle center：使用与线一致的“最短位移”规则，避免跨屏后 target.x 超出世界导致要素不可见
+    // 直接 Point / Circle center
     if (isNumberArray(position)) {
       const base = position as Coordinate;
       const dx = shortestDeltaX(base[0], target[0]);
@@ -89,13 +102,11 @@ export default class Utils<T> {
       const center = getCenter(extent);
       const dx = shortestDeltaX(center[0], target[0]);
       const dy = target[1] - center[1];
-      // 直接使用最短位移 (target - center 经过 wrap 修正) 即可
       return (position as Coordinate[]).map((c) => [adjustX(c[0] + dx), c[1] + dy]);
     }
 
     // 多边形（多环）
     if (isPolygonLike(position)) {
-      // 扁平化所有 ring 计算中心
       const flat: Coordinate[] = (position as Coordinate[][]).reduce((acc: Coordinate[], ring) => {
         (ring || []).forEach((pt) => acc.push(pt as Coordinate));
         return acc;
@@ -108,44 +119,48 @@ export default class Utils<T> {
       return (position as Coordinate[][]).map((ring) => ring.map((c) => [adjustX(c[0] + dx), c[1] + dy] as Coordinate));
     }
 
-    // 未识别的结构
     return null;
   }
   /**
    * 将一组坐标(点/线/单环面)归一化到当前视图所在的 world copy。
+   * @param map 地图实例
+   * @param coords 坐标
    */
-  static normalizeToViewWorld<TC extends Coordinate | Coordinate[]>(coords: TC): TC {
-    const map = useEarth().map;
+  static normalizeToViewWorld<TC extends Coordinate | Coordinate[]>(map: Map, coords: TC): TC {
     const center = map.getView().getCenter();
-    const worldWidth = this.getWorldWidth();
+    const worldWidth = this.getWorldWidth(map);
     if (!center || !worldWidth) return Array.isArray(coords) ? (JSON.parse(JSON.stringify(coords)) as TC) : coords;
-    const centerWorld = this.getWorldIndex(center[0]);
+    const centerWorld = this.getWorldIndex(map, center[0]);
     if (centerWorld === undefined) return Array.isArray(coords) ? (JSON.parse(JSON.stringify(coords)) as TC) : coords;
     const normPoint = (p: Coordinate): Coordinate => {
-      const w = this.getWorldIndex(p[0]);
+      const w = this.getWorldIndex(map, p[0]);
       if (w === undefined) return [p[0], p[1]];
       const dw = centerWorld - w;
       return [p[0] + dw * worldWidth, p[1]] as Coordinate;
     };
     if (typeof (coords as Coordinate)[0] === 'number') return normPoint(coords as Coordinate) as TC;
-    if (Array.isArray(coords) && coords.length && Array.isArray((coords as any)[0])) {
+    if (Array.isArray(coords) && coords.length && Array.isArray((coords as Coordinate[])[0])) {
       return (coords as Coordinate[]).map((c) => normPoint(c)) as TC;
     }
     return coords;
   }
   /** 将已归一化坐标恢复到指定 world 索引 */
-  static restoreToWorldIndex<TC extends Coordinate | Coordinate[]>(coords: TC, targetWorldIndex: number | undefined): TC {
+  static restoreToWorldIndex<TC extends Coordinate | Coordinate[]>(
+    map: Map,
+    coords: TC,
+    targetWorldIndex: number | undefined
+  ): TC {
     if (targetWorldIndex === undefined) return coords;
-    const worldWidth = this.getWorldWidth();
+    const worldWidth = this.getWorldWidth(map);
     if (!worldWidth) return coords;
     const restorePoint = (p: Coordinate): Coordinate => {
-      const curW = this.getWorldIndex(p[0]);
+      const curW = this.getWorldIndex(map, p[0]);
       if (curW === undefined) return p;
       const dw = targetWorldIndex - curW;
       return dw === 0 ? p : ([p[0] + dw * worldWidth, p[1]] as Coordinate);
     };
     if (typeof (coords as Coordinate)[0] === 'number') return restorePoint(coords as Coordinate) as TC;
-    if (Array.isArray(coords) && coords.length && Array.isArray((coords as any)[0])) {
+    if (Array.isArray(coords) && coords.length && Array.isArray((coords as Coordinate[])[0])) {
       return (coords as Coordinate[]).map((c) => restorePoint(c)) as TC;
     }
     return coords;
@@ -165,40 +180,29 @@ export default class Utils<T> {
     return h[0] === t[0] && h[1] === t[1] ? ring.slice(0, ring.length - 1) : ring.slice();
   }
   /**
-   * @description: 获取一个新的GUID
-   * @param {'N'|'D'|'B'|'P'|'X'} format 输出字符串样式，N-无连接符、D-减号连接符，BPX-未实现，默认D
-   * @return {string}
+   * 获取一个新的 GUID
+   *
+   * 优先使用 `crypto.randomUUID()`（非浏览器/不支持时回退到基于 `Math.random` 的 v4 UUID）。
+   * @param format 输出样式：`D`-减号连接（默认），`N`-无连接符
    */
-  static GetGUID(format: 'N' | 'D' | 'B' | 'P' | 'X' = 'D'): string {
-    const gen = (count: number) => {
-      let out = '';
-      for (let i = 0; i < count; i++) {
-        out += (((1 + window.Math.random()) * 0x10000) | 0).toString(16).substring(1);
-      }
-      return out;
-    };
-    const arr = [gen(2), gen(1), gen(1), gen(1), gen(3)];
-    let guid: string;
-    switch (format) {
-      case 'N':
-        guid = arr.join('');
-        break;
-      case 'D':
-        guid = arr.join('-');
-        break;
-      default:
-        guid = arr.join('-');
-        break;
+  static GetGUID(format: 'N' | 'D' = 'D'): string {
+    let uuid: string;
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      uuid = crypto.randomUUID();
+    } else {
+      uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
     }
-    return guid;
+    return format === 'N' ? uuid.replace(/-/g, '') : uuid;
   }
   /**
-   * @description: 线性插值函数 此处的计算只处理二维带x ,y 的向量
-   * @param {number[]} startPos
-   * @param {number[]} endPos
-   * @param {number} t
-   * @return {*} number[]
-   * @author: gkc
+   * 线性插值函数 此处的计算只处理二维带 x , y 的向量
+   * @param startPos
+   * @param endPos
+   * @param t
    */
   static linearInterpolation(startPos: number[], endPos: number[], t: number): number[] {
     const a = this.constantMultiVector2(1 - t, startPos);
@@ -206,34 +210,28 @@ export default class Utils<T> {
     return this.vector2Add(a, b);
   }
   /**
-   * @description: 常数乘以二维向量数组的函数
-   * @param {number} constant
-   * @param {number} vector2
-   * @return {*} number[]
-   * @author: gkc
+   * 常数乘以二维向量数组的函数
+   * @param constant
+   * @param vector2
    */
   static constantMultiVector2(constant: number, vector2: number[]): number[] {
     return [constant * vector2[0], constant * vector2[1]];
   }
   /**
-   * @description: 计算曲线点
-   * @param {number} a
-   * @param {number} b
-   * @return {*} number[]
-   * @author: gkc
+   * 计算曲线点
+   * @param a
+   * @param b
    */
   static vector2Add(a: number[], b: number[]): number[] {
     return [a[0] + b[0], a[1] + b[1]];
   }
 
   /**
-   * @description: 计算贝塞尔曲线
-   * @param {number} startPos
-   * @param {number} center
-   * @param {number} endPos
-   * @param {number} t
-   * @return {*} number[]
-   * @author: gkc
+   * 计算贝塞尔曲线
+   * @param startPos
+   * @param center
+   * @param endPos
+   * @param t
    */
   static bezierSquareCalc(startPos: number[], center: number[], endPos: number[], t: number): number[] {
     const a = this.constantMultiVector2(Math.pow(1 - t, 2), startPos);
@@ -266,11 +264,18 @@ export default class Utils<T> {
     return style;
   }
   /**
-   * 动态点刷新方法
+   * 动态点闪烁刷新方法
+   * @param map 地图实例
    * @param feature `Point` 实例
    * @param param 详细参数，详见{@link IPointParam}
+   * @param layer 所属矢量图层
    */
-  flash(feature: Feature<Geometry>, param: IPointParam<T>, layer: VectorLayer<VectorSource<Geometry>>): void {
+  static flash<T>(
+    map: Map,
+    feature: Feature<Geometry>,
+    param: IPointParam<T>,
+    layer: VectorLayer<VectorSource<Geometry>>
+  ): void {
     const defaultOption = {
       duration: 1000,
       flashColor: param.flashColor || { R: 255, G: 0, B: 0 },
@@ -283,8 +288,8 @@ export default class Utils<T> {
     if (geometry) {
       const flashGeom = geometry.clone();
       const listenerKey = layer.on('postrender', (event: RenderEvent) => {
-        const worldWidth = getWidth(useEarth().map.getView().getProjection().getExtent());
-        const center = <Coordinate>useEarth().view.getCenter();
+        const worldWidth = getWidth(map.getView().getProjection().getExtent());
+        const center = <Coordinate>map.getView().getCenter();
         const offset = Math.floor(center[0] / worldWidth);
         const frameState = event.frameState;
         if (frameState) {
@@ -348,130 +353,22 @@ export default class Utils<T> {
 
   /**
    * 函数节流：在等待窗口期内只执行一次
+   *
+   * 委托给 `lodash/throttle` 实现。返回的函数附带 `cancel` / `flush` / `pending` 方法。
    * @param fn 需要节流的函数
    * @param wait 等待时间(ms)，默认100
-   * @param options 配置
-   *  - leading: 是否在首次调用时立即执行，默认 true
-   *  - trailing: 是否在窗口结束后再执行最后一次调用，默认 true
-   * @returns 包装后的函数，附带 cancel / flush / pending 方法
+   * @param options 配置: leading(默认true) / trailing(默认true)
    * @example
    * const onMove = Utils.throttle((e) => { console.log(e.pixel); }, 200);
    * map.on('pointermove', onMove);
-   * // 取消
    * onMove.cancel();
    */
-  static throttle<Fn extends (...args: any[]) => any>(
-    fn: Fn,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 通用函数包装约束，需 any 表示任意函数签名
+  static throttle<F extends (...args: any[]) => any>(
+    fn: F,
     wait = 100,
     options: { leading?: boolean; trailing?: boolean } = {}
-  ): ((...args: Parameters<Fn>) => ReturnType<Fn> | undefined) & {
-    cancel: () => void;
-    flush: () => ReturnType<Fn> | undefined;
-    pending: () => boolean;
-  } {
-    const { leading = true, trailing = true } = options;
-    let timer: number | null = null;
-    let lastCallTime: number | null = null; // 上一次触发 wrapper 的时间
-    let lastInvokeTime = 0; // 上一次真正执行 fn 的时间
-    let lastArgs: Parameters<Fn> | null = null;
-    let lastThis: any;
-    let result: ReturnType<Fn> | undefined;
-
-    const now = () => Date.now();
-
-    const invoke = () => {
-      lastInvokeTime = now();
-      if (lastArgs) {
-        result = fn.apply(lastThis as any, lastArgs);
-        lastArgs = null;
-        lastThis = undefined;
-      }
-      return result;
-    };
-
-    const startTimer = (remaining: number) => {
-      if (timer != null) window.clearTimeout(timer);
-      timer = window.setTimeout(timerExpired, remaining);
-    };
-
-    const remainingWait = (current: number) => {
-      if (lastCallTime == null) return 0;
-      const sinceLastCall = current - lastCallTime;
-      const sinceLastInvoke = current - lastInvokeTime;
-      return Math.max(wait - sinceLastCall, wait - sinceLastInvoke);
-    };
-
-    const shouldInvoke = (current: number) => {
-      if (lastCallTime == null) return true; // 首次
-      const sinceLastCall = current - lastCallTime;
-      const sinceLastInvoke = current - lastInvokeTime;
-      return sinceLastCall >= wait || sinceLastInvoke >= wait || sinceLastCall < 0; // 处理系统时间回拨
-    };
-
-    const timerExpired = () => {
-      timer = null;
-      const current = now();
-      if (trailing && lastArgs) {
-        if (shouldInvoke(current)) {
-          invoke();
-        } else {
-          // 仍在窗口内，重新启动定时器
-          startTimer(remainingWait(current));
-        }
-      }
-    };
-
-    const leadingEdge = (current: number) => {
-      lastInvokeTime = current;
-      if (leading) {
-        invoke();
-      }
-      // 启动 trailing 计时器
-      startTimer(wait);
-    };
-
-    const throttled = (...args: Parameters<Fn>): ReturnType<Fn> | undefined => {
-      const current = now();
-      lastCallTime = current;
-      lastArgs = args;
-      // eslint-disable-next-line @typescript-eslint/no-this-alias
-      lastThis = this;
-      if (shouldInvoke(current)) {
-        if (timer == null) {
-          leadingEdge(current);
-        } else if (trailing) {
-          // 允许 trailing，则更新时间等待执行
-          // 不立即执行，等待计时器结束
-        }
-      }
-      return result;
-    };
-
-    throttled.cancel = () => {
-      if (timer != null) {
-        window.clearTimeout(timer);
-        timer = null;
-      }
-      lastArgs = null;
-      lastThis = undefined;
-      lastCallTime = null;
-    };
-
-    throttled.flush = () => {
-      if (timer != null) {
-        window.clearTimeout(timer);
-        timer = null;
-        if (lastArgs) return invoke();
-      }
-      return result;
-    };
-
-    throttled.pending = () => !!timer;
-
-    return throttled as typeof throttled & {
-      cancel: () => void;
-      flush: () => ReturnType<Fn> | undefined;
-      pending: () => boolean;
-    };
+  ) {
+    return throttle(fn, wait, options);
   }
 }

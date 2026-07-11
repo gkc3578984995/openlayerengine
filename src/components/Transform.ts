@@ -3,8 +3,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import TransformInteraction from '../extends/transform-interaction/TransformInteraction';
 import { useEarth } from '../useEarth';
-import { ISetOverlayParam, ITransformCallback, ITransfromParams, ModifyType } from '../interface';
-import { ECursor, ETransfrom, ETranslateType } from '../enum';
+import Earth from '../Earth';
+import { ISetOverlayParam, ITransformCallback, ITransformParams, ModifyType } from '../interface';
+import { ECursor, ETransform, ETranslateType } from '../enum';
 import { Feature } from 'ol';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import { Coordinate } from 'ol/coordinate';
@@ -18,11 +19,15 @@ import cloneDeep from 'lodash/cloneDeep';
 import { IToolbarItem, Toolbar } from '../extends/toolbar/Toolbar';
 import DynamicDraw from './DynamicDraw';
 
-export default class Transfrom {
+export default class Transform {
+  /**
+   * 地图实例（由外部注入或回退到全局单例）
+   */
+  private earth: Earth;
   /**
    * 参数
    */
-  private options: ITransfromParams;
+  private options: ITransformParams;
   /**
    * 实列
    */
@@ -50,7 +55,7 @@ export default class Transfrom {
   /**
    * 默认参数
    */
-  private defaultParams: ITransfromParams = {
+  private defaultParams: ITransformParams = {
     hitTolerance: 2,
     translateType: ETranslateType.Feature,
     scale: true,
@@ -61,7 +66,7 @@ export default class Transfrom {
   /**
    * 外部监听器缓存
    */
-  private listenerMap: Map<ETransfrom, Set<(e: ITransformCallback) => void>> = new Map();
+  private listenerMap: Map<ETransform, Set<(e: ITransformCallback) => void>> = new Map();
   /**
    * 历史记录堆栈（当前选中周期内）
    * 结构：[{ featureId, geometryClone }]
@@ -110,9 +115,10 @@ export default class Transfrom {
   /** 平移开始时针对 plotPoints 的快照（用于在平移过程中同步控制点） */
   private translatePlotSnapshot: { featureId: string; basePlotPoints: Coordinate[]; baseCenter: Coordinate } | null = null;
 
-  constructor(options: ITransfromParams) {
+  constructor(options: ITransformParams) {
     this.options = options;
-    this.overlay = new OverlayLayer();
+    this.earth = options.earth ?? useEarth();
+    this.overlay = new OverlayLayer(this.earth);
     this.transforms = this.createTransform();
     // 初始化统一事件管线（内部数据处理 + 外部监听分发）
     this.setupEventPipeline();
@@ -149,7 +155,7 @@ export default class Transfrom {
       layers: params.transformLayers,
       features: params.transformFeatures
     });
-    useEarth().map.addInteraction(transforms);
+    this.earth.map.addInteraction(transforms);
     return transforms;
   }
   /**
@@ -179,27 +185,27 @@ export default class Transfrom {
    * 建立统一事件管线：一次性注册内部逻辑 -> 转换统一数据结构 -> 分发给外部
    */
   private setupEventPipeline() {
-    const events: ETransfrom[] = [
-      ETransfrom.Select,
-      ETransfrom.SelectEnd,
-      ETransfrom.EnterHandle,
-      ETransfrom.LeaveHandle,
-      ETransfrom.TranslateStart,
-      ETransfrom.Translating,
-      ETransfrom.TranslateEnd,
-      ETransfrom.RotateStart,
-      ETransfrom.Rotating,
-      ETransfrom.RotateEnd,
-      ETransfrom.ScaleStart,
-      ETransfrom.Scaling,
-      ETransfrom.ScaleEnd,
-      ETransfrom.Undo,
-      ETransfrom.Redo,
-      ETransfrom.Remove,
-      ETransfrom.Copy,
-      ETransfrom.ModifyStart,
-      ETransfrom.Modifying,
-      ETransfrom.ModifyEnd
+    const events: ETransform[] = [
+      ETransform.Select,
+      ETransform.SelectEnd,
+      ETransform.EnterHandle,
+      ETransform.LeaveHandle,
+      ETransform.TranslateStart,
+      ETransform.Translating,
+      ETransform.TranslateEnd,
+      ETransform.RotateStart,
+      ETransform.Rotating,
+      ETransform.RotateEnd,
+      ETransform.ScaleStart,
+      ETransform.Scaling,
+      ETransform.ScaleEnd,
+      ETransform.Undo,
+      ETransform.Redo,
+      ETransform.Remove,
+      ETransform.Copy,
+      ETransform.ModifyStart,
+      ETransform.Modifying,
+      ETransform.ModifyEnd
     ];
     events.forEach((ev) => {
       this.transforms.on(ev, (raw: any) => this.handleRawEvent(ev, raw));
@@ -209,14 +215,14 @@ export default class Transfrom {
    * 初始化键盘事件
    */
   private setupKeyDownEvent() {
-    useEarth().useGlobalEvent().enableGlobalKeyDownEvent();
-    this.keyDownFun = useEarth()
+    this.earth.useGlobalEvent().enableGlobalKeyDownEvent();
+    this.keyDownFun = this.earth
       .useGlobalEvent()
       .addKeyDownEventByGlobal((event) => {
         const key = event.key.toLowerCase();
         if (key === 'escape' && this.checkSelect) {
           let extent: any = this.checkSelect.getGeometry()?.getExtent();
-          extent = extent ? useEarth().map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
+          extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
           // 退出编辑
           this.transforms.exitEdit(extent);
         }
@@ -234,7 +240,7 @@ export default class Transfrom {
         }
         if (key === 'delete' && this.checkSelect) {
           let extent: any = this.checkSelect.getGeometry()?.getExtent();
-          extent = extent ? useEarth().map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
+          extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
           // 删除
           this.handleRemoveEvent(extent);
           // 阻止默认行为，例如防止浏览器保存页面
@@ -252,7 +258,7 @@ export default class Transfrom {
           // 粘贴
           if (this.checkSelect) {
             let extent: any = this.checkSelect.getGeometry()?.getExtent();
-            extent = extent ? useEarth().map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
+            extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
             this.transforms.exitEdit(extent);
           }
           // 优先使用最近一次 pointermove 记录的像素
@@ -260,7 +266,7 @@ export default class Transfrom {
           if (!pixel) {
             // 回退：使用地图中心像素
             try {
-              const size = useEarth().map.getSize();
+              const size = this.earth.map.getSize();
               if (size) pixel = [size[0] / 2, size[1] / 2];
             } catch (_) {
               pixel = [0, 0];
@@ -274,11 +280,11 @@ export default class Transfrom {
           // 剪切
           this.copyFeature = cloneDeep(this.checkSelect);
           let extent: any = this.checkSelect.getGeometry()?.getExtent();
-          extent = extent ? useEarth().map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
+          extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
           // 删除
           this.handleRemoveEvent(extent);
           // 设置鼠标默认样式
-          useEarth().setMouseStyleToDefault();
+          this.earth.setMouseStyleToDefault();
           // 阻止默认行为，例如防止浏览器保存页面
           event.preventDefault();
         }
@@ -290,7 +296,7 @@ export default class Transfrom {
    */
   private setupPointerTrack() {
     try {
-      this.pointerMoveKey = useEarth().map.on('pointermove', (evt: any) => {
+      this.pointerMoveKey = this.earth.map.on('pointermove', (evt: any) => {
         if (evt && Array.isArray(evt.pixel)) {
           this.lastPointerPixel = evt.pixel.slice();
         }
@@ -310,7 +316,7 @@ export default class Transfrom {
    * 依赖 TransformInteraction 在 resolution / rotation 变化时已先行重绘 bbox（其监听先注册、先触发）。
    */
   private setupToolbarSync() {
-    const map = useEarth().map;
+    const map = this.earth.map;
     const view = map.getView();
     const sync = () => this.syncToolbarPosition();
     this.toolbarSyncKeys.push(map.on('moveend', sync) as EventsKey);
@@ -336,33 +342,33 @@ export default class Transfrom {
   /**
    * 内部原子事件处理 + 组装回调参数 + 分发
    */
-  private handleRawEvent(eventName: ETransfrom, e: any) {
+  private handleRawEvent(eventName: ETransform, e: any) {
     if (this.disposed) return; // 已销毁直接忽略事件
     let callbackParam: ITransformCallback | null = null;
     // 事件集合分类，避免多处重复判断
-    const startEvents = new Set([ETransfrom.TranslateStart, ETransfrom.RotateStart, ETransfrom.ScaleStart]);
-    const progressingEvents = new Set([ETransfrom.Translating, ETransfrom.Rotating, ETransfrom.Scaling]);
-    const endEvents = new Set([ETransfrom.TranslateEnd, ETransfrom.RotateEnd, ETransfrom.ScaleEnd]);
-    const modifyEvents = new Set([ETransfrom.ModifyStart, ETransfrom.Modifying, ETransfrom.ModifyEnd]);
-    const otherEvents = new Set([ETransfrom.Undo, ETransfrom.Redo, ETransfrom.Remove, ETransfrom.Copy]);
+    const startEvents = new Set([ETransform.TranslateStart, ETransform.RotateStart, ETransform.ScaleStart]);
+    const progressingEvents = new Set([ETransform.Translating, ETransform.Rotating, ETransform.Scaling]);
+    const endEvents = new Set([ETransform.TranslateEnd, ETransform.RotateEnd, ETransform.ScaleEnd]);
+    const modifyEvents = new Set([ETransform.ModifyStart, ETransform.Modifying, ETransform.ModifyEnd]);
+    const otherEvents = new Set([ETransform.Undo, ETransform.Redo, ETransform.Remove, ETransform.Copy]);
     // 统一的 feature 参数构建（包含 feature / featurePosition / featureId 等）
     const buildFeatureParam = (): ITransformCallback => ({
       type: eventName,
-      eventPosition: toLonLat(useEarth().map.getCoordinateFromPixel(e.pixel)),
+      eventPosition: toLonLat(this.earth.map.getCoordinateFromPixel(e.pixel)),
       eventPixel: e.pixel,
       featureId: e.feature && e.feature.getId ? e.feature.getId() : '',
       featurePosition: e.feature && this.transformCoordinates(e.feature),
       feature: e.feature
     });
-    if (eventName === ETransfrom.Select) {
+    if (eventName === ETransform.Select) {
       if (this.checkSelect) {
         // 已选中状态再次触发 select 则向 SelectEnd 通道派发一次上一要素的退出事件
         callbackParam = {
-          type: ETransfrom.SelectEnd,
-          eventPosition: toLonLat(useEarth().map.getCoordinateFromPixel(e.pixel)),
+          type: ETransform.SelectEnd,
+          eventPosition: toLonLat(this.earth.map.getCoordinateFromPixel(e.pixel)),
           eventPixel: e.pixel
         };
-        this.dispatchTransformEvent(ETransfrom.SelectEnd, callbackParam);
+        this.dispatchTransformEvent(ETransform.SelectEnd, callbackParam);
       }
       this.checkSelect = e.feature;
       this.checkLayer = this.getLayerByFeature(e.feature);
@@ -374,11 +380,11 @@ export default class Transfrom {
       // 创建工具栏
       this.createToolbar(e);
       callbackParam = buildFeatureParam();
-    } else if (eventName === ETransfrom.SelectEnd) {
+    } else if (eventName === ETransform.SelectEnd) {
       if (this.checkSelect) {
         callbackParam = {
           type: eventName,
-          eventPosition: toLonLat(useEarth().map.getCoordinateFromPixel(e.pixel)),
+          eventPosition: toLonLat(this.earth.map.getCoordinateFromPixel(e.pixel)),
           eventPixel: e.pixel,
           featureId: this.checkSelect && this.checkSelect.getId() ? this.checkSelect.getId()?.toString() : '',
           featurePosition: this.checkSelect && this.transformCoordinates(this.checkSelect),
@@ -393,7 +399,7 @@ export default class Transfrom {
       this.checkLayer = null;
       this.removeHelpTooltip();
       this.clearHistory(); // 清空历史
-    } else if (eventName === ETransfrom.EnterHandle) {
+    } else if (eventName === ETransform.EnterHandle) {
       if (!this.checkEnterHandle) {
         this.updateHelpTooltipByCursorType(e);
         callbackParam = {
@@ -403,7 +409,7 @@ export default class Transfrom {
         };
         this.checkEnterHandle = true;
       }
-    } else if (eventName === ETransfrom.LeaveHandle) {
+    } else if (eventName === ETransform.LeaveHandle) {
       if (this.checkEnterHandle) {
         if (this.overlayKey) this.updateHelpTooltip(this.baseTransformTipFlag);
         else this.removeHelpTooltip();
@@ -420,11 +426,11 @@ export default class Transfrom {
       callbackParam = buildFeatureParam();
     } else if (progressingEvents.has(eventName)) {
       // 中间进行中事件
-      if (eventName === ETransfrom.Translating) {
+      if (eventName === ETransform.Translating) {
         this.updateHelpTooltip('平移中...');
-      } else if (eventName === ETransfrom.Rotating) {
+      } else if (eventName === ETransform.Rotating) {
         this.updateHelpTooltip(`旋转中...当前：${Utils.rad2deg(-e.angle).toFixed(0)}°`);
-      } else if (eventName === ETransfrom.Scaling) {
+      } else if (eventName === ETransform.Scaling) {
         this.updateHelpTooltip('缩放中...');
       }
       this.handleEventing(eventName, e);
@@ -448,7 +454,7 @@ export default class Transfrom {
     } else if (modifyEvents.has(eventName)) {
       callbackParam = {
         type: eventName,
-        eventPosition: toLonLat(useEarth().map.getCoordinateFromPixel(e.pixel)),
+        eventPosition: toLonLat(this.earth.map.getCoordinateFromPixel(e.pixel)),
         eventPixel: e.pixel,
         featureId: e.feature && e.feature.getId ? e.feature.getId() : '',
         featurePosition: e.position ? e.position : this.transformCoordinates(e.feature),
@@ -458,7 +464,7 @@ export default class Transfrom {
       // 线编辑过程中，同步更新平行叠加线
       const feature = e.feature as Feature | undefined;
       const layerType = feature?.get?.('layerType');
-      if (feature && layerType === 'Polyline' && (eventName === ETransfrom.Modifying || eventName === ETransfrom.ModifyEnd)) {
+      if (feature && layerType === 'Polyline' && (eventName === ETransform.Modifying || eventName === ETransform.ModifyEnd)) {
         const layer = this.getLayerByFeature(feature) as PolylineLayer | null;
         const id = feature.getId?.();
         const geom = feature.getGeometry?.() as unknown as { getCoordinates?: () => Coordinate[] };
@@ -483,7 +489,7 @@ export default class Transfrom {
   /**
    * 分发转换事件（包装错误处理，精简主流程）
    */
-  private dispatchTransformEvent(eventName: ETransfrom, param: ITransformCallback) {
+  private dispatchTransformEvent(eventName: ETransform, param: ITransformCallback) {
     const listeners = this.listenerMap.get(eventName);
     if (!listeners || !listeners.size) return;
     listeners.forEach((fn) => {
@@ -491,17 +497,17 @@ export default class Transfrom {
         fn(param);
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('[Transfrom:on] listener error:', err);
+        console.error('[Transform:on] listener error:', err);
       }
     });
   }
   /**
    * 处理变换事件开始前的逻辑
    */
-  private handleEventStart(eventName: ETransfrom, e: any) {
+  private handleEventStart(eventName: ETransform, e: any) {
     const type = e.feature?.getGeometry()?.getType();
     const param = e.feature?.get('param');
-    if (eventName === ETransfrom.TranslateStart || eventName === ETransfrom.ScaleStart) {
+    if (eventName === ETransform.TranslateStart || eventName === ETransform.ScaleStart) {
       if (type && param && this.checkLayer) {
         let layer;
         if (type == 'Point' || type == 'MultiPoint') {
@@ -509,7 +515,7 @@ export default class Transfrom {
           if (param.isFlash) layer.stopFlash(e.feature.getId());
         }
         // 记录平移开始时的 plotPoints 快照（仅在存在 plotPoints 时）
-        if (eventName === ETransfrom.TranslateStart && param?.plotPoints && Array.isArray(param.plotPoints) && param.plotPoints.length) {
+        if (eventName === ETransform.TranslateStart && param?.plotPoints && Array.isArray(param.plotPoints) && param.plotPoints.length) {
           try {
             const geom = e.feature.getGeometry();
             let center: Coordinate | null = null;
@@ -538,11 +544,11 @@ export default class Transfrom {
   /**
    * 处理变换事件进行中的逻辑
    */
-  private handleEventing(eventName: ETransfrom, e: any) {
+  private handleEventing(eventName: ETransform, e: any) {
     // const type = e.feature?.getGeometry()?.getType();
     // const param = e.feature?.get('param');
     // 平移进行中：同步 plotPoints
-    if (eventName === ETransfrom.Translating && this.translatePlotSnapshot && e.feature) {
+    if (eventName === ETransform.Translating && this.translatePlotSnapshot && e.feature) {
       const snap = this.translatePlotSnapshot;
       const fid = e.feature.getId?.();
       if (fid && String(fid) === snap.featureId) {
@@ -572,7 +578,7 @@ export default class Transfrom {
     }
     // 变换进行中：同步 Polyline（及其平行叠加线）
     if (
-      (eventName === ETransfrom.Translating || eventName === ETransfrom.Rotating || eventName === ETransfrom.Scaling) &&
+      (eventName === ETransform.Translating || eventName === ETransform.Rotating || eventName === ETransform.Scaling) &&
       e.feature
     ) {
       this.syncPolylineFeaturePosition(e.feature);
@@ -581,10 +587,10 @@ export default class Transfrom {
   /**
    * 处理变换事件结束的逻辑
    */
-  private handleEventEnd(eventName: ETransfrom, e: any) {
+  private handleEventEnd(eventName: ETransform, e: any) {
     const type = e.feature?.getGeometry()?.getType();
     const param = e.feature?.get('param');
-    if (eventName === ETransfrom.TranslateEnd || eventName === ETransfrom.ScaleEnd) {
+    if (eventName === ETransform.TranslateEnd || eventName === ETransform.ScaleEnd) {
       if (type && param && this.checkLayer) {
         let layer;
         if (type == 'Point' || type == 'MultiPoint') {
@@ -594,13 +600,13 @@ export default class Transfrom {
           }
         }
         // 平移结束后清理 plotPoints 快照
-        if (eventName === ETransfrom.TranslateEnd) {
+        if (eventName === ETransform.TranslateEnd) {
           this.translatePlotSnapshot = null;
         }
       }
     }
     if (
-      (eventName === ETransfrom.TranslateEnd || eventName === ETransfrom.RotateEnd || eventName === ETransfrom.ScaleEnd) &&
+      (eventName === ETransform.TranslateEnd || eventName === ETransform.RotateEnd || eventName === ETransform.ScaleEnd) &&
       e.feature
     ) {
       this.syncPolylineFeaturePosition(e.feature);
@@ -627,7 +633,7 @@ export default class Transfrom {
    */
   private translatePlotPoints(basePlotPoints: Coordinate[], baseCenter: Coordinate, newCenter: Coordinate): Coordinate[] {
     if (!basePlotPoints || !basePlotPoints.length) return [];
-    const map = useEarth().map;
+    const map = this.earth.map;
     let worldWidth: number | undefined;
     let minX: number | undefined;
     let maxX: number | undefined;
@@ -651,12 +657,12 @@ export default class Transfrom {
     const dx = shortestDeltaX(baseCenter[0], newCenter[0]);
     const dy = newCenter[1] - baseCenter[1];
     // 目标 world 索引（以 newCenter 为准）
-    const targetWorld = worldWidth ? Utils.getWorldIndex(newCenter[0]) : undefined;
+    const targetWorld = worldWidth ? Utils.getWorldIndex(this.earth.map, newCenter[0]) : undefined;
     return basePlotPoints.map((p) => {
       const nx = p[0] + dx;
       const ny = p[1] + dy;
       if (worldWidth && targetWorld !== undefined) {
-        const curWorld = Utils.getWorldIndex(nx);
+        const curWorld = Utils.getWorldIndex(this.earth.map, nx);
         if (curWorld !== undefined && curWorld !== targetWorld) {
           const dw = targetWorld - curWorld;
           return [nx + dw * worldWidth, ny] as Coordinate;
@@ -674,7 +680,7 @@ export default class Transfrom {
    */
   private translateGeometryByCenter(baseCoords: any, baseCenter: Coordinate, newCenter: Coordinate): any {
     if (!baseCoords) return baseCoords;
-    const map = useEarth().map;
+    const map = this.earth.map;
     let worldWidth: number | undefined;
     try {
       const extent = map.getView().getProjection().getExtent?.();
@@ -693,11 +699,11 @@ export default class Transfrom {
     };
     const dx = shortestDeltaX(baseCenter[0], newCenter[0]);
     const dy = newCenter[1] - baseCenter[1];
-    const targetWorld = worldWidth ? Utils.getWorldIndex(newCenter[0]) : undefined;
+    const targetWorld = worldWidth ? Utils.getWorldIndex(this.earth.map, newCenter[0]) : undefined;
 
     const normalizeXToTargetWorld = (x: number): number => {
       if (!worldWidth || targetWorld === undefined) return x;
-      const curWorld = Utils.getWorldIndex(x);
+      const curWorld = Utils.getWorldIndex(this.earth.map, x);
       if (curWorld === undefined || curWorld === targetWorld) return x;
       return x + (targetWorld - curWorld) * worldWidth;
     };
@@ -808,12 +814,12 @@ export default class Transfrom {
     } else if (key === 'edit') {
       // 开始要素编辑
       // 创建绘制工具
-      const draw = new DynamicDraw(useEarth());
+      const draw = new DynamicDraw(this.earth);
       // 获取元素类型
       const checkSelect = this.checkSelect;
       const geom = checkSelect?.getGeometry();
       const type = geom?.getType();
-      this.handleRawEvent(ETransfrom.ModifyStart, { feature: checkSelect, pixel: pixel });
+      this.handleRawEvent(ETransform.ModifyStart, { feature: checkSelect, pixel: pixel });
       if (type === 'Polygon') {
         const plotType = checkSelect?.get('param')?.plotType;
         if (plotType) {
@@ -823,9 +829,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               });
@@ -835,9 +841,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -847,9 +853,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -859,9 +865,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -871,9 +877,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -883,9 +889,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -895,9 +901,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -907,9 +913,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -919,9 +925,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -931,9 +937,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -943,9 +949,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -955,9 +961,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -967,9 +973,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -979,9 +985,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               })
@@ -997,10 +1003,10 @@ export default class Transfrom {
                 for (const item of ev.position!) {
                   arr.push(fromLonLat(item as Coordinate));
                 }
-                this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, position: arr, pixel: pixel });
+                this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, position: arr, pixel: pixel });
               } else if (ev.type === ModifyType.Modifyexit) {
                 draw.remove();
-                this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, pixel: pixel });
+                this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, pixel: pixel });
               }
             }
           });
@@ -1014,9 +1020,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               });
@@ -1026,9 +1032,9 @@ export default class Transfrom {
                 feature: checkSelect!,
                 callback: (ev) => {
                   if (ev.type === ModifyType.Modifying) {
-                    this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   } else if (ev.type === ModifyType.Modifyexit) {
-                    this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
+                    this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
               });
@@ -1044,10 +1050,10 @@ export default class Transfrom {
                 for (const item of ev.position!) {
                   arr.push(fromLonLat(item as Coordinate));
                 }
-                this.handleRawEvent(ETransfrom.Modifying, { feature: checkSelect, position: arr, pixel: pixel });
+                this.handleRawEvent(ETransform.Modifying, { feature: checkSelect, position: arr, pixel: pixel });
               } else if (ev.type === ModifyType.Modifyexit) {
                 draw.remove();
-                this.handleRawEvent(ETransfrom.ModifyEnd, { feature: checkSelect, pixel: pixel });
+                this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, pixel: pixel });
               }
             }
           });
@@ -1082,19 +1088,19 @@ export default class Transfrom {
       (evt: { pixel: number[] }) => {
         this.updateHelpTooltip('点击地图完成复制,右键地图退出复制');
         let newValue: any = null;
-        const pixelCenter = useEarth().map.getCoordinateFromPixel(evt.pixel);
+        const pixelCenter = this.earth.map.getCoordinateFromPixel(evt.pixel);
         if (type === 'Point' || type === 'Billboard') {
-          newValue = Utils.getFeatureToPixel(evt.pixel, baseCoords);
+          newValue = Utils.getFeatureToPixel(this.earth.map, evt.pixel, baseCoords);
           originParam.center = newValue;
         } else if (type === 'Polygon' || type === 'Polyline') {
           if (baseCenter && pixelCenter) {
             newValue = this.translateGeometryByCenter(baseCoords, baseCenter, pixelCenter as Coordinate);
           } else {
-            newValue = Utils.getFeatureToPixel(evt.pixel, baseCoords);
+            newValue = Utils.getFeatureToPixel(this.earth.map, evt.pixel, baseCoords);
           }
           originParam.positions = newValue;
         } else if (type === 'Circle') {
-          newValue = Utils.getFeatureToPixel(evt.pixel, baseCoords);
+          newValue = Utils.getFeatureToPixel(this.earth.map, evt.pixel, baseCoords);
           originParam.center = newValue; // center
         }
         // 平移过程中同步 plotPoints（若存在）
@@ -1119,30 +1125,30 @@ export default class Transfrom {
     );
     if (!pixel) {
       // 启用全局鼠标移动
-      useEarth().useGlobalEvent().enableGlobalMouseMoveEvent();
-      useEarth()
+      this.earth.useGlobalEvent().enableGlobalMouseMoveEvent();
+      this.earth
         .useGlobalEvent()
         .addMouseMoveEventByGlobal((event) => moveHandler(event));
 
-      useEarth()
+      this.earth
         .useGlobalEvent()
         .addMouseOnceClickEventByGlobal((event) => {
           // 确定复制要素
-          if (useEarth().useGlobalEvent().hasGlobalMouseMoveEvent()) {
-            useEarth().useGlobalEvent().disableGlobalMouseMoveEvent();
+          if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
+            this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
             moveHandler.flush?.();
             this.copyStatus = null;
             // 触发copy事件通知外部
-            this.handleRawEvent(ETransfrom.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: event.pixel });
+            this.handleRawEvent(ETransform.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: event.pixel });
             this.removeHelpTooltip();
           }
         });
-      useEarth()
+      this.earth
         .useGlobalEvent()
         .addMouseOnceRightClickEventByGlobal((event) => {
           // 取消复制
-          if (useEarth().useGlobalEvent().hasGlobalMouseMoveEvent()) {
-            useEarth().useGlobalEvent().disableGlobalMouseMoveEvent();
+          if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
+            this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
             moveHandler.cancel?.();
             // 仅在已创建副本（copyStatus 非 null）时才移除该副本；
             // 若用户未移动鼠标即右键取消，moveHandler 尚未执行、copyStatus 为 null，
@@ -1154,8 +1160,8 @@ export default class Transfrom {
           }
         });
     } else {
-      let newValue: any = Utils.getFeatureToPixel(pixel, baseCoords);
-      const pixelCenter = useEarth().map.getCoordinateFromPixel(pixel);
+      let newValue: any = Utils.getFeatureToPixel(this.earth.map, pixel, baseCoords);
+      const pixelCenter = this.earth.map.getCoordinateFromPixel(pixel);
       if (type === 'Point' || type === 'Billboard') {
         originParam.center = newValue;
       } else if (type === 'Polygon' || type === 'Polyline') {
@@ -1177,7 +1183,7 @@ export default class Transfrom {
       // 初次创建：add 一次
       layer.add(originParam);
       // 触发copy事件通知外部
-      this.handleRawEvent(ETransfrom.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: pixel });
+      this.handleRawEvent(ETransform.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: pixel });
     }
   }
   /**
@@ -1287,7 +1293,7 @@ export default class Transfrom {
 
     // 刷新提示牌（仍处于编辑模式）
     try {
-      this.updateHelpTooltipByCursorType({ type: ETransfrom.Select, eventPixel: this.lastPointerPixel } as any);
+      this.updateHelpTooltipByCursorType({ type: ETransform.Select, eventPixel: this.lastPointerPixel } as any);
       this.refreshBaseTransformTooltipIfNeeded();
     } catch (_) {
       /* ignore */
@@ -1303,14 +1309,14 @@ export default class Transfrom {
   private handleRemoveEvent(pixel: number[]) {
     if (this.checkSelect && this.checkLayer) {
       this.checkLayer.remove(this.checkSelect.getId() as string);
-      this.handleRawEvent(ETransfrom.Remove, { feature: cloneDeep(this.checkSelect) });
+      this.handleRawEvent(ETransform.Remove, { feature: cloneDeep(this.checkSelect) });
       this.transforms.exitEdit(pixel);
     }
   }
   /**
    * 记录当前要素几何快照
    */
-  private recordSnapshot(feature?: Feature, eventName?: ETransfrom) {
+  private recordSnapshot(feature?: Feature, eventName?: ETransform) {
     if (!feature) return;
     const id = feature.getId?.();
     if (!id) return;
@@ -1359,7 +1365,7 @@ export default class Transfrom {
           const geomType = currentGeom.getType?.();
           const isPointLike = geomType === 'Point' || geomType === 'MultiPoint';
           const isCircle = geomType === 'Circle';
-          const isScaleOrRotateEnd = eventName === ETransfrom.ScaleEnd || eventName === ETransfrom.RotateEnd;
+          const isScaleOrRotateEnd = eventName === ETransform.ScaleEnd || eventName === ETransform.RotateEnd;
           // 对 Point / Circle 的缩放或旋转操作，即使几何坐标未变化，也需要记录（样式 / 半径 / 旋转等可能变化）
           if (!(isScaleOrRotateEnd && (isPointLike || isCircle))) {
             return; // 其他类型或情况保持原逻辑：坐标未变不入栈
@@ -1403,7 +1409,7 @@ export default class Transfrom {
     const previous = this.historyStack[this.historyStack.length - 1];
     const feature = this.applySnapshot(previous);
     if (feature) {
-      this.handleRawEvent(ETransfrom.Undo, { feature });
+      this.handleRawEvent(ETransform.Undo, { feature });
     }
     this.refreshBaseTransformTooltipIfNeeded();
   }
@@ -1430,7 +1436,7 @@ export default class Transfrom {
     }
     const feature = this.applySnapshot(snapshot);
     if (feature) {
-      this.handleRawEvent(ETransfrom.Redo, { feature });
+      this.handleRawEvent(ETransform.Redo, { feature });
     }
     this.refreshBaseTransformTooltipIfNeeded();
   }
@@ -1440,7 +1446,7 @@ export default class Transfrom {
   private getFeatureById(id: string): Feature | null {
     if (!id) return null;
     // 遍历地图图层（只针对 vector 图层）
-    // 由于项目已有 useEarth().getLayer(id) 机制，优先尝试当前选中图层
+    // 由于项目已有 this.earth.getLayer(id) 机制，优先尝试当前选中图层
     if (this.checkLayer) {
       const source: any = (this.checkLayer as any).source || (this.checkLayer as any).getSource?.();
       if (source?.getFeatureById) {
@@ -1648,7 +1654,7 @@ export default class Transfrom {
     // 兼容性：某些要素可能不存在 get 方法或未附加属性
     const layerId = feature.get && feature.get('layerId');
     if (!layerId) return null;
-    const layer = useEarth().getLayer(layerId);
+    const layer = this.earth.getLayer(layerId);
     return (layer as Base) || null;
   }
   /**
@@ -1670,11 +1676,11 @@ export default class Transfrom {
     if (!this.overlayKey) {
       this.overlay.add({
         id: 'help_tooltip',
-        position: useEarth().map.getCoordinateFromPixel([0, -100]),
+        position: this.earth.map.getCoordinateFromPixel([0, -100]),
         element: this.helpTooltipEl,
         offset: [15, -11]
       });
-      this.overlayKey = useEarth().map.on('pointermove', (evt) => {
+      this.overlayKey = this.earth.map.on('pointermove', (evt) => {
         this.overlay.setPosition('help_tooltip', evt.coordinate);
       });
     } else {
@@ -1692,7 +1698,7 @@ export default class Transfrom {
       this.helpTooltipEl.textContent = str;
     }
     const params: ISetOverlayParam = { id: 'help_tooltip', element: this.helpTooltipEl };
-    if (pixel) params['position'] = useEarth().map.getCoordinateFromPixel(pixel);
+    if (pixel) params['position'] = this.earth.map.getCoordinateFromPixel(pixel);
     this.overlay.set(params);
   }
   /**
@@ -1795,7 +1801,7 @@ export default class Transfrom {
    */
   private updateHelpTooltipByCursorType(e: ITransformCallback) {
     if (typeof window === 'undefined') return;
-    const mapElement = useEarth().map.getTargetElement();
+    const mapElement = this.earth.map.getTargetElement();
     if (!mapElement) return;
     // 兼容两种来源：对外回调 ITransformCallback 用 eventPixel；TransformInteraction 原始事件用 pixel
     const pixel: number[] | undefined = e.eventPixel ?? (e as any).pixel;
@@ -1842,10 +1848,10 @@ export default class Transfrom {
   /**
    * 注册外部事件监听（内部逻辑已统一处理）
    */
-  public on(eventName: ETransfrom | ETransfrom[], callback: (e: ITransformCallback) => void): this {
+  public on(eventName: ETransform | ETransform[], callback: (e: ITransformCallback) => void): this {
     const events = Array.isArray(eventName) ? eventName : [eventName];
     events.forEach((ev) => {
-      if (!Object.values(ETransfrom).includes(ev)) {
+      if (!Object.values(ETransform).includes(ev)) {
         throw new Error('事件类型错误');
       }
       if (!this.listenerMap.has(ev)) {
@@ -1859,7 +1865,7 @@ export default class Transfrom {
   /**
    * 取消监听
    */
-  public off(eventName: ETransfrom, callback?: (e: ITransformCallback) => void): this {
+  public off(eventName: ETransform, callback?: (e: ITransformCallback) => void): this {
     const set = this.listenerMap.get(eventName);
     if (!set) return this;
     if (callback) {
@@ -1874,7 +1880,7 @@ export default class Transfrom {
    */
   public remove(): boolean {
     if (this.disposed) return false;
-    const interaction = useEarth().map.removeInteraction(this.transforms);
+    const interaction = this.earth.map.removeInteraction(this.transforms);
     return interaction ? true : false;
   }
 
@@ -1883,8 +1889,8 @@ export default class Transfrom {
    */
   public destroy(): void {
     if (this.disposed) return;
-    useEarth().setMouseStyleToDefault();
-    useEarth().useGlobalEvent().disableGlobalKeyDownEvent();
+    this.earth.setMouseStyleToDefault();
+    this.earth.useGlobalEvent().disableGlobalKeyDownEvent();
     this.remove();
     this.removeHelpTooltip();
     this.listenerMap.forEach((set) => set.clear());

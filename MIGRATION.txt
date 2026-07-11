@@ -1,0 +1,199 @@
+================================================================================
+@vrsim/earth-engine-ol  v1.0.0  迁移指南
+================================================================================
+
+本库由 0.x 升级到 1.0.0，包含若干破坏性变更（直接重命名，无 deprecated 别名）。
+外部消费端升级时请按本文件逐条核对修改。
+
+基线：tsc --noEmit 通过、npm run build 通过、.test demo 类型检查通过。
+
+
+================================================================================
+一、导入路径与符号重命名（编译报错）
+================================================================================
+
+目录 commponents → components
+类名  Transfrom  → Transform
+枚举  ETransfrom → ETransform
+接口  ITransfromParams → ITransformParams
+文件  commponents/Transfrom → components/Transform
+
+旧写法                                  新写法
+------------------------------------    ------------------------------------
+import { Transfrom } from 'earth-engine-ol'
+import { ETransfrom } from 'earth-engine-ol'
+import { ITransfromParams } from 'earth-engine-ol'
+import { ... } from '.../commponents'
+
+→ 全部替换为：
+
+import { Transform } from 'earth-engine-ol'
+import { ETransform } from 'earth-engine-ol'
+import { ITransformParams } from 'earth-engine-ol'
+import { ... } from '.../components'
+
+说明：Transfrom 是 ETransfrom / ITransfromParams / 变量名的公共子串，
+      全局替换 Transfrom → Transform 可一次性覆盖以上所有符号。
+      旧名已全部移除，不保留兼容别名。
+
+
+================================================================================
+二、Utils 方法签名变更（编译报错）
+================================================================================
+
+以下方法原先内部依赖全局单例 useEarth() 取 map，现改为首参显式接收 map：
+
+  旧                                         新（首参加 map）
+  -----------------------------------------  -----------------------------------------
+  Utils.getWorldWidth()                      Utils.getWorldWidth(map)
+  Utils.getWorldIndex(x)                     Utils.getWorldIndex(map, x)
+  Utils.getFeatureToPixel(pixel, position)   Utils.getFeatureToPixel(map, pixel, position)
+  Utils.normalizeToViewWorld(coords)         Utils.normalizeToViewWorld(map, coords)
+  Utils.restoreToWorldIndex(coords, idx)     Utils.restoreToWorldIndex(map, coords, idx)
+
+调用方需从所属 Earth / 图层实例取 map 传入，例如：
+
+  const map = earth.map;            // 或 layer.earth.map
+  Utils.getFeatureToPixel(map, pixel, baseCoords)
+
+
+================================================================================
+三、Utils.flash 静态化（编译报错）
+================================================================================
+
+  旧（实例方法，无 map）                       新（静态方法，首参 map）
+  ------------------------------------------  ------------------------------------------
+  new Utils().flash(feature, param, layer)    Utils.flash(map, feature, param, layer)
+
+示例：
+
+  const map = pointLayer.earth.map;
+  Utils.flash(map, feature, param, this.layer);
+
+
+================================================================================
+四、Utils.GetGUID format 参数收窄（编译报错）
+================================================================================
+
+  旧：format: 'N' | 'D' | 'B' | 'P' | 'X'
+  新：format: 'N' | 'D'      （B/P/X 原本未实现，已移除）
+
+  Utils.GetGUID('B')   // ❌ 现在编译报错
+  Utils.GetGUID('D')   // ✅ 默认值，可省略
+  Utils.GetGUID()      // ✅ 等价于 'D'
+
+同时实现改用 crypto.randomUUID()（非浏览器环境回退到 Math.random v4），
+返回值格式不变（D 为带连字符，N 为去连字符）。
+
+
+================================================================================
+五、ol 改为 peerDependency（安装期 / 运行期）
+================================================================================
+
+包内不再打包 ol，消费端必须自行安装：
+
+  npm install ol@^7
+
+否则 import { Map } from 'ol' 等会在运行时找不到模块。
+
+注：@turf/turf 经核查全项目未使用，已从依赖中移除，无需安装。
+
+
+================================================================================
+六、Earth.graticule / Earth.scaleLine 变只读 getter（赋值报错）
+================================================================================
+
+  旧：可写字段
+      earth.graticule = xxx;          // 允许
+
+  新：只读 getter（透传到 earth.controls）
+      earth.graticule;                // ✅ 只能读
+      earth.graticule = xxx;          // ❌ 运行时抛错 / TS 报错
+
+读取不受影响，例如 earth.graticule?.getSource() 仍可用。
+
+新增可用公共字段（非破坏）：
+  earth.camera    // Camera 实例（视图动画 / 定位）
+  earth.controls  // Controls 实例（网格线 / 比例尺）
+
+
+================================================================================
+七、getUpdatedParam 返回类型收窄（可能需调整）
+================================================================================
+
+  旧：返回 any
+  新：返回 AnyParam | undefined
+      （IBillboardParam | IPolylineParam | IPolylineFlyParam
+        | IPointParam | ICircleParam | IPolygonParam 的联合）
+
+若消费端把它当 any 任意访问字段，TS 可能报错，需在分支里类型收窄或显式断言：
+
+  const p = layer.getUpdatedParam(feature);
+  if (p && 'positions' in p) { /* 折线/多边形 */ }
+
+
+================================================================================
+八、非破坏但需知晓
+================================================================================
+
+1. ITransformParams 新增可选字段 earth?: Earth
+   多地图场景可注入；不传则回退到全局单例 useEarth()。旧代码无需修改。
+
+2. Earth.removeLayer() 无参分支行为修复
+   之前遍历图层集合时边遍历边删除会跳过相邻项；现反向遍历，返回最后被移除的
+   底图图层（id === 'imageProvider'）。
+
+3. hide / show 行为优化
+   - hide(id) 不再解绑 change 监听器，show(id) 不再重新绑定，避免重复绑定。
+   - destroy() 现彻底清理 change 监听器、闪烁监听器与 hideFeatureMap（之前有泄漏）。
+   - PointLayer 隐藏元素时会自动停止闪烁（onFeatureHide 钩子）。
+
+4. feature change 监听节流
+   updateXxxParam 现以约 33ms 节流（trailing），拖拽高频变更时 param 同步开销显著降低，
+   最终位置仍会同步一次。
+
+5. 包管理器统一为 npm
+   pnpm-lock.yaml 已删除，仅保留 package-lock.json。
+   bundledDependencies（已废弃语法）已移除。
+
+
+================================================================================
+九、迁移 Checklist
+================================================================================
+
+[ ] 1. 全局替换：commponents → components
+[ ] 2. 全局替换：Transfrom → Transform（覆盖 ETransfrom / ITransfromParams / 变量名）
+[ ] 3. 全局替换：new Utils().flash(  →  Utils.flash(map,
+[ ] 4. 给以下 Utils 调用补 map 首参：
+        getWorldWidth / getWorldIndex / getFeatureToPixel
+        normalizeToViewWorld / restoreToWorldIndex
+[ ] 5. 检查 Utils.GetGUID('B'|'P'|'X') 调用，改为 'N' 或 'D'
+[ ] 6. 安装 peerDependency：npm install ol@^7
+[ ] 7. 检查对 earth.graticule / earth.scaleLine 的赋值（现只读）
+[ ] 8. 检查 getUpdatedParam 返回值的使用（按联合类型 narrow）
+[ ] 9. 编译验证：tsc --noEmit
+[ ] 10. 运行验证：启动应用，确认图层 / 事件 / Transform 等功能正常
+
+
+================================================================================
+十、快速 sed 替换参考（bash，请先备份再执行）
+================================================================================
+
+# 1) 命名替换（注意：先小写 transfrom，再大写 Transfrom）
+find src -name '*.ts' -exec sed -i 's/transfrom/transform/g; s/Transfrom/Transform/g' {} +
+
+# 2) 目录名替换（import 路径中的 commponents）
+find src -name '*.ts' -exec sed -i 's/commponents/components/g' {} +
+
+# 3) flash 静态化（需人工补 map 首参，不可纯 sed）
+#    旧: new Utils().flash(feature, param, layer)
+#    新: Utils.flash(this.earth.map, feature, param, layer)
+
+# 4) GetGUID format（人工核查 'B'/'P'/'X' 调用）
+
+注意：Utils 的 5 个 map 相关方法需人工逐处补 map 首参，无法纯 sed 完成。
+
+
+================================================================================
+                              迁移指南结束
+================================================================================

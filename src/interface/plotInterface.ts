@@ -1,4 +1,4 @@
-import { EPlotType } from 'enum';
+import { EPlotType } from '../enum';
 import { Feature } from 'ol';
 import { Coordinate } from 'ol/coordinate';
 

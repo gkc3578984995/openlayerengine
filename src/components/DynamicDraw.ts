@@ -1762,7 +1762,7 @@ export default class DynamicDraw {
       return ring;
     };
     // 4. 复制一份用于编辑的坐标（规范化至当前视图 world copy）
-    let editRing = Utils.normalizeToViewWorld(originalPositions[0]);
+    let editRing = Utils.normalizeToViewWorld(this.map, originalPositions[0]);
     // 5. 创建控制点
     for (const p of editRing) {
       pointLayer.add({
@@ -1864,7 +1864,7 @@ export default class DynamicDraw {
         let ring = (<Coordinate[][]>polygon.getGeometry()?.getCoordinates())[0];
         ring = ensureClosed(ring);
         if (baseWorldIndex !== undefined && ring.length) {
-          ring = Utils.restoreToWorldIndex(ring, baseWorldIndex);
+          ring = Utils.restoreToWorldIndex(this.map, ring, baseWorldIndex);
           ring = ensureClosed(ring);
         }
         // 写回原几何 & 重新挂回原图层
@@ -1933,7 +1933,7 @@ export default class DynamicDraw {
     } catch {
       /* ignore */
     }
-    let editCoords = Utils.normalizeToViewWorld(original);
+    let editCoords = Utils.normalizeToViewWorld(this.map, original);
     // 控制点
     for (const c of editCoords) {
       point.add({ center: c, stroke: { color: '#fff' }, fill: { color: '#00aaff' } });
@@ -2013,7 +2013,7 @@ export default class DynamicDraw {
         this.updateUndoRedoTooltip();
         let finalCoords = (<Coordinate[]>line.getGeometry()?.getCoordinates()).slice();
         if (baseWorldIndex !== undefined && finalCoords.length) {
-          finalCoords = Utils.restoreToWorldIndex(finalCoords, baseWorldIndex) as Coordinate[];
+          finalCoords = Utils.restoreToWorldIndex(this.map, finalCoords, baseWorldIndex) as Coordinate[];
         }
         geometry.setCoordinates(finalCoords);
         layer?.getSource()?.addFeature(param.feature);
@@ -2078,7 +2078,7 @@ export default class DynamicDraw {
     } catch {
       /* ignore */
     }
-    let editPos = Utils.normalizeToViewWorld(original);
+    let editPos = Utils.normalizeToViewWorld(this.map, original);
     const point = pointLayer.add({ center: editPos, stroke: { color: '#00aaff', width: 2 }, fill: { color: '#ffffff61' } });
     const modify = new Modify({ source: <VectorSource<Geometry>>pointLayer.getLayer().getSource() });
     let beforePos: Coordinate | null = null;
@@ -2145,14 +2145,14 @@ export default class DynamicDraw {
         this.updateUndoRedoTooltip();
         let finalPos = <Coordinate>point.getGeometry()?.getCoordinates();
         if (baseWorldIndex !== undefined) {
-          finalPos = Utils.restoreToWorldIndex(finalPos, baseWorldIndex) as Coordinate;
+          finalPos = Utils.restoreToWorldIndex(this.map, finalPos, baseWorldIndex) as Coordinate;
         }
         geometry.setCoordinates(finalPos);
         const fParam = <IPointParam<unknown>>param.feature.get('param');
         if (fParam?.isFlash) {
           fParam.center = toLonLat(finalPos);
           param.feature.set('param', fParam);
-          new Utils().flash(param.feature, fParam, layer);
+          Utils.flash(this.map, param.feature, fParam, layer);
         }
         layer?.getSource()?.addFeature(param.feature);
         if (this.overlayKey) {
