@@ -683,6 +683,7 @@ export default class Base {
         // 先解除闪烁监听，再从数据源移除，防止 postrender 泄漏
         this.unbindFeatureFlash(feature);
         this.layer.getSource()?.removeFeature(feature);
+        this.clearContextMenuState(feature);
       }
       const entry = this.featureListenerMap.get(id);
       if (entry) {
@@ -692,16 +693,25 @@ export default class Base {
       }
     } else {
       // 解除所有闪烁监听与 change 监听
-      this.layer
-        .getSource()
-        ?.getFeatures()
-        .forEach((f) => this.unbindFeatureFlash(f));
+      const features = this.layer.getSource()?.getFeatures() ?? [];
+      features.forEach((feature) => {
+        this.unbindFeatureFlash(feature);
+        this.clearContextMenuState(feature);
+      });
       this.layer.getSource()?.clear();
       this.featureListenerMap.forEach((entry) => {
         entry.cancel();
         unByKey(entry.key);
       });
       this.featureListenerMap.clear();
+    }
+  }
+
+  private clearContextMenuState(feature: Feature<Geometry>): void {
+    const module = feature.get('module');
+    const featureId = feature.getId();
+    if (typeof module === 'string' && featureId !== undefined && featureId !== null) {
+      this.earth.clearContextMenuState(module, String(featureId));
     }
   }
   /**

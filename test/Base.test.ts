@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import Base from '../src/base/Base';
 import { Feature } from 'ol';
 import { Point, Polygon, Circle as GeomCircle, Geometry } from 'ol/geom';
@@ -42,6 +42,25 @@ describe('Base.setLayerOpacity', () => {
     expect(base.setLayerOpacity(101)).toBe(false);
     expect(base.setLayerOpacity(Number.NaN)).toBe(false);
     expect(layer.getOpacity()).toBe(0.5);
+  });
+});
+
+describe('Base 右键菜单状态生命周期', () => {
+  it('永久删除要素时清理其模块菜单状态', () => {
+    const clearContextMenuState = vi.fn();
+    const earth = { ...makeMockEarth(), clearContextMenuState };
+    const layer = new VectorLayer({ source: new VectorSource() });
+    const base = new Base(earth, layer, 'Point');
+    const feature = new Feature<Point>({ geometry: new Point([10, 20]) });
+    feature.setId('vehicle-01');
+    feature.set('module', 'vehicle');
+    const source = layer.getSource();
+    if (!source) throw new Error('预期矢量图层存在数据源');
+    source.addFeature(feature);
+
+    base.remove('vehicle-01');
+
+    expect(clearContextMenuState).toHaveBeenCalledWith('vehicle', 'vehicle-01');
   });
 });
 

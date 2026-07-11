@@ -1,0 +1,108 @@
+.ol-context-menu {
+  position: absolute;
+  z-index: 1000;
+  min-width: 144px;
+  border: 1px solid;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  font-size: 13px;
+  user-select: none;
+
+  &__list {
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+  }
+
+  &__item {
+    position: relative;
+
+    button {
+      width: 100%;
+      min-height: 30px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+
+      &:not(:disabled):hover,
+      &:not(:disabled):focus-visible {
+        outline: 0;
+      }
+    }
+  }
+
+  &__item--has-child > button {
+    position: relative;
+    padding-right: 28px;
+
+    &::after {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      width: 0;
+      height: 0;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      border-left: 5px solid currentColor;
+      content: '';
+      transform: translateY(-50%);
+    }
+  }
+
+  &__child {
+    display: none;
+    position: absolute;
+    z-index: 1;
+    top: -4px;
+    left: calc(100% - 1px);
+    min-width: 144px;
+    border: inherit;
+    border-radius: 0 4px 4px 4px;
+    box-shadow: 4px 4px 12px rgb(0 0 0 / 18%);
+  }
+
+  &__item:hover > &__child,
+  &__item:focus-within > &__child {
+    display: block;
+  }
+
+  &--light {
+    border-color: #cbd5e1;
+    background: #ffffff;
+    color: #1f2937;
+
+    button:not(:disabled):hover,
+    button:not(:disabled):focus-visible {
+      background: #e0f2fe;
+    }
+
+    .ol-context-menu__child {
+      background: #ffffff;
+    }
+  }
+
+  &--dark {
+    border-color: #475569;
+    background: #1f2937;
+    color: #f8fafc;
+
+    button:not(:disabled):hover,
+    button:not(:disabled):focus-visible {
+      background: #334155;
+    }
+
+    .ol-context-menu__child {
+      background: #1f2937;
+    }
+  }
+}

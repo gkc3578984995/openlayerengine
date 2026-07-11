@@ -906,11 +906,9 @@ class TransformInteraction extends PointerInteraction {
    */
   private handleDownEvent_(evt: MapBrowserEvent<any>): boolean | void {
     if (this.checkDynmicDraw_(evt)) return;
-    // 右键（button === 2）退出编辑：不区分是否点在要素或手柄上
+    // 右键交给 Transform 的原生 contextmenu 捕获监听处理，以便菜单不会在退出编辑后打开。
     const oe: any = (evt as any).originalEvent;
     if (oe && oe.button === 2) {
-      if (this.selection_.getLength()) this.exitEdit(evt.pixel);
-      oe.preventDefault?.();
       return false; // 阻止继续走后续左键选择逻辑
     }
     if (!this._handleEvent(evt, this.selection_)) return;

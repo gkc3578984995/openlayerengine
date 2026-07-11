@@ -31,5 +31,5 @@ window.onload = () => {
   // testMeasure();
   // testWindLayer();
   // testDescriptor();
-  // testContextMenu();
+  testContextMenu();
 };

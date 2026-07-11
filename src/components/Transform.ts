@@ -105,6 +105,8 @@ export default class Transform {
   private toolbarSyncKeys: EventsKey[] = [];
   /** 平移开始时针对 plotPoints 的快照（用于在平移过程中同步控制点） */
   private translatePlotSnapshot: { featureId: string; basePlotPoints: Coordinate[]; baseCenter: Coordinate } | null = null;
+  /** 绑定后的右键监听，确保销毁时可精确解除。 */
+  private readonly boundHandleContextMenu = this.handleContextMenu.bind(this);
 
   constructor(options: ITransformParams) {
     this.options = options;
@@ -114,6 +116,7 @@ export default class Transform {
     this.transforms = this.createTransform();
     // 初始化统一事件管线（内部数据处理 + 外部监听分发）
     this.setupEventPipeline();
+    this.watchContextMenu();
     // 初始化键盘事件
     this.setupKeyDownEvent();
     // 跟踪鼠标位置，供键盘触发操作使用
@@ -202,6 +205,16 @@ export default class Transform {
     events.forEach((ev) => {
       this.transforms.on(ev, (raw: any) => this.handleRawEvent(ev, raw));
     });
+  }
+  /** 编辑状态下优先消费右键，用于退出编辑而非打开地图菜单。 */
+  private watchContextMenu(): void {
+    this.earth.map.getViewport()?.addEventListener('contextmenu', this.boundHandleContextMenu, true);
+  }
+  private handleContextMenu(event: MouseEvent): void {
+    if (!this.checkSelect) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.transforms.exitEdit(this.earth.map.getEventPixel(event));
   }
   /**
    * 初始化键盘事件
@@ -1790,6 +1803,7 @@ export default class Transform {
   public destroy(): void {
     if (this.disposed) return;
     this.earth.setMouseStyleToDefault();
+    this.earth.map.getViewport()?.removeEventListener('contextmenu', this.boundHandleContextMenu, true);
     this.earth.useGlobalEvent().disableGlobalKeyDownEvent();
     this.remove();
     this.removeHelpTooltip();

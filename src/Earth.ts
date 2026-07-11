@@ -12,7 +12,7 @@ import { TileCoord } from 'ol/tilecoord';
 import { ViewOptions } from 'ol/View';
 import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, WindLayer } from './base';
 import Base from './base/Base';
-import { DynamicDraw, GlobalEvent, Measure } from './components';
+import { ContextMenu, DynamicDraw, GlobalEvent, IContextMenuOption, Measure } from './components';
 import { DoubleClickZoom, DragPan, MouseWheelZoom } from 'ol/interaction';
 import { Geometry } from 'ol/geom';
 import { Layer } from 'ol/layer';
@@ -49,6 +49,10 @@ export default class Earth {
    * 测量
    */
   private measure?: Measure;
+  /**
+   * 右键菜单
+   */
+  private contextMenu?: ContextMenu;
   /**
    * 默认中心点
    */
@@ -406,6 +410,24 @@ export default class Earth {
     return this.globalEvent as GlobalEvent;
   }
   /**
+   * 使用右键菜单。
+   * @param option 菜单配置；已创建菜单时，仅会同步传入的主题配置。
+   */
+  useContextMenu(option?: IContextMenuOption): ContextMenu {
+    if (!this.contextMenu) {
+      this.contextMenu = new ContextMenu(this, option);
+    } else if (option?.isDarkTheme !== undefined) {
+      this.contextMenu.setTheme(option.isDarkTheme);
+    }
+    return this.contextMenu;
+  }
+  /**
+   * 清理已永久删除要素的模块菜单状态；不会创建新的右键菜单实例。
+   */
+  clearContextMenuState(module: string, featureId: string): boolean {
+    return this.contextMenu?.clearModuleMenuState(module, featureId) ?? false;
+  }
+  /**
    * 使用动态绘制工具
    */
   useDrawTool(): DynamicDraw {
@@ -508,6 +530,9 @@ export default class Earth {
 
     this.measure?.clear();
     this.measure = undefined;
+
+    this.contextMenu?.destroy();
+    this.contextMenu = undefined;
 
     this.entities?.reset();
     this.entities = undefined;
