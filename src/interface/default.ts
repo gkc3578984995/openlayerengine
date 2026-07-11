@@ -355,7 +355,7 @@ export interface IPolylineParam<T> extends IAddBaseParam<T> {
    */
   positions: number[][];
   /**
-   * 线宽，默认为2
+   * @deprecated 请使用 `stroke.width`。仅在 stroke.width 未设置时作为兼容兜底，默认值为 2。
    */
   width?: number;
   /**
@@ -399,7 +399,7 @@ export interface ISetPolylineParam {
    */
   positions?: number[][];
   /**
-   * 线宽，默认为2
+   * @deprecated 请使用 `stroke.width`。仅在 stroke.width 未设置时作为兼容兜底，默认值为 2。
    */
   width?: number;
   /**

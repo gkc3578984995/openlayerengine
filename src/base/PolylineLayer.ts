@@ -1,6 +1,6 @@
 import { Utils } from '../common';
 import type Earth from '../Earth';
-import { IPolylineFlyParam, IPolylineParam, ISetPolylineParam } from '../interface';
+import { IPolylineFlyParam, IPolylineParam, ISetPolylineParam, IStroke } from '../interface';
 import { Feature } from 'ol';
 import { LineString } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
@@ -15,6 +15,11 @@ import { unByKey } from 'ol/Observable';
 import { EventsKey } from 'ol/events';
 import { getWidth } from 'ol/extent';
 import { getDefaultEarth } from '../earthContext';
+
+/** Resolve the effective main-line width while keeping the legacy top-level width fallback. */
+export function resolvePolylineWidth(stroke?: IStroke, width?: number): number {
+  return stroke?.width ?? width ?? 2;
+}
 
 /**
  * 创建线`Polyline`
@@ -75,7 +80,7 @@ export default class Polyline<T = LineString> extends Base {
       const patternSrc = Array.isArray(strokeCfg?.lineDash) ? strokeCfg.lineDash : [];
       const pattern = patternSrc.slice();
       const patternSum = pattern.length ? pattern.reduce((a, b) => a + b, 0) : 1;
-      const strokeWidth = strokeCfg?.width ?? param.width ?? 2;
+      const strokeWidth = resolvePolylineWidth(strokeCfg, param.width);
       const backgroundStyle = param.backgroundStroke ? super.setStroke(new Style(), param.backgroundStroke, param.width) : undefined;
       let lastSig = '';
       let cachedStyle: Style | null = null;
@@ -220,7 +225,7 @@ export default class Polyline<T = LineString> extends Base {
     const fullLineStyle = new Style({
       stroke: new Stroke({
         color: param.fullLineColor || 'rgba(30,144,255, 1)',
-        width: param.width || 2,
+        width: resolvePolylineWidth(param.stroke, param.width),
         lineDash: [0]
       }),
       image: new Circle({
@@ -277,7 +282,7 @@ export default class Polyline<T = LineString> extends Base {
         const newDottedLineStyle = new Style({
           stroke: new Stroke({
             color: param.dottedLineColor || 'rgba(255, 250, 250, 1)',
-            width: param.width || 2,
+            width: resolvePolylineWidth(param.stroke, param.width),
             lineDash: dashToUse,
             lineDashOffset: lineDashOffset
           })
