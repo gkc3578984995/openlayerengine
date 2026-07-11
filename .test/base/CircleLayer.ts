@@ -67,4 +67,8 @@ export const testCircleLayer = () => {
   //     text: "123"
   //   }
   // })
+  return () => {
+    layer.remove();
+    layer.destroy();
+  };
 };

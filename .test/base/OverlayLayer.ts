@@ -1,19 +1,19 @@
-import { Overlay } from "ol";
-import { toStringHDMS } from "ol/coordinate";
-import { fromLonLat, toLonLat } from "ol/proj";
-import { OverlayLayer, useEarth } from "../../src";
+import { Overlay } from 'ol';
+import { toStringHDMS } from 'ol/coordinate';
+import { fromLonLat, toLonLat } from 'ol/proj';
+import { OverlayLayer, useEarth } from '../../src';
 
 export const testOverlayLayer = () => {
   const layer = new OverlayLayer();
-  const div = document.createElement("div");
-  div.className = "overlay";
-  div.innerHTML = "<div class='title'>div，基于Overlay创建</div>"
+  const div = document.createElement('div');
+  div.className = 'overlay';
+  div.innerHTML = "<div class='title'>div，基于Overlay创建</div>";
   document.body.appendChild(div);
   layer.add({
-    id: "overlay_1",
+    id: 'overlay_1',
     position: fromLonLat([80, 22]),
-    element: div,
-  })
+    element: div
+  });
 
   // let popup: Overlay;
   // useEarth().map.on('click', function (evt) {
@@ -43,4 +43,9 @@ export const testOverlayLayer = () => {
   //   id: "overlay_1",
   //   element: div2
   // })
-}
+  return () => {
+    layer.remove();
+    layer.destroy();
+    div.remove();
+  };
+};

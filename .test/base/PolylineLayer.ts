@@ -9,14 +9,14 @@ export const testPolylineLayer = () => {
   const e = layer.add({
     id: 'polyline_2',
     positions: [fromLonLat([100, 30]), fromLonLat([100, 50])],
-    stroke: {
+    innerStroke: {
       color: 'red',
       width: 5,
       lineDash: [30, 20, 30, 20]
     },
     outerStroke: {
       color: '#00e5ff',
-      width: 3,
+      width: 11,
       lineDash: [40, 10, 40, 10],
       lineDashOffset: 0
     },
@@ -120,4 +120,9 @@ export const testPolylineLayer = () => {
   //     console.log(e)
   //   },
   // })
+  return () => {
+    layer.removeFlightLine();
+    layer.remove();
+    layer.destroy();
+  };
 };

@@ -3,11 +3,19 @@ import AttackArrow from '../../src/extends/plot/geom/AttackArrow';
 
 export const testTransform = () => {
   const transform = new Transform({});
-  const eventNname = [ETransform.Select, ETransform.SelectEnd, ETransform.Translating, ETransform.TranslateEnd, ETransform.ModifyStart, ETransform.Modifying, ETransform.ModifyEnd, ETransform.Copy];
+  const eventNname = [
+    ETransform.Select,
+    ETransform.SelectEnd,
+    ETransform.Translating,
+    ETransform.TranslateEnd,
+    ETransform.ModifyStart,
+    ETransform.Modifying,
+    ETransform.ModifyEnd,
+    ETransform.Copy
+  ];
   transform.on(eventNname, (e) => {
     console.log(e.type, e);
     if (e.type === ETransform.TranslateEnd) {
-
       // const a = e.feature?.clone();
       // a?.setId(e.featureId);
       // const b = useEarth().getLayer(e.feature!.get('layerId'));
@@ -16,7 +24,6 @@ export const testTransform = () => {
       //   b?.getLayer().getSource()?.addFeature(a!);
       //   transform.replaceEditingFeature(a!)
       // }, 1000);
-
     }
     // if (e.type === ETransform.Copy) {
     //   const a = new AttackArrow({}, e.feature?.get('param').plotPoints, {});
@@ -60,4 +67,5 @@ export const testTransform = () => {
   // });
 
   // ETransform.TranslateStart, ETransform.Translating,
+  return () => transform.destroy();
 };

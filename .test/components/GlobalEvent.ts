@@ -1,9 +1,12 @@
-import Interaction from "ol/interaction/Interaction"
+import Interaction from 'ol/interaction/Interaction';
 import PointerInteraction from 'ol/interaction/Pointer.js';
-import { unByKey } from "ol/Observable";
-import { useEarth } from "../../src"
+import { unByKey } from 'ol/Observable';
+import { useEarth } from '../../src';
 
 export const testGlobalEvent = () => {
+  const dispose = useEarth()
+    .useGlobalEvent()
+    .addMouseMoveEventByGlobal(() => undefined);
   /**
    * 启用模块鼠标移动监听
    */
@@ -111,4 +114,5 @@ export const testGlobalEvent = () => {
   // setTimeout(() => {
   //   useEarth().useGlobalEvent().disableGlobalMouseRightClickEvent();
   // }, 5000)
-}
+  return dispose;
+};

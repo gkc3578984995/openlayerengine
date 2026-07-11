@@ -78,4 +78,8 @@ export const testPolygonLayer = () => {
   //     console.log(e)
   //   }
   // });
+  return () => {
+    layer.remove();
+    layer.destroy();
+  };
 };

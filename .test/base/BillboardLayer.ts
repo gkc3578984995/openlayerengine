@@ -23,11 +23,11 @@ export const testBillboardLayer = () => {
       fill: {
         color: '#fff'
       },
-      
+
       textAlign: 'center',
       rotation: 0,
       offsetX: 100,
-      offsetY: 100,
+      offsetY: 100
     }
   });
   /**
@@ -43,4 +43,8 @@ export const testBillboardLayer = () => {
   //     text: "a",
   //   }
   // })
+  return () => {
+    layer.remove();
+    layer.destroy();
+  };
 };

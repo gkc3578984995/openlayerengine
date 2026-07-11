@@ -1,4 +1,4 @@
-import { IContextMenuItem, PointLayer, useEarth } from '../../src';
+import { ContextMenu, IContextMenuItem, PointLayer, useEarth } from '../../src';
 import { fromLonLat } from 'ol/proj';
 
 const vehicleMenu: IContextMenuItem[] = [
@@ -13,7 +13,7 @@ const vehicleMenu: IContextMenuItem[] = [
 
 export const testContextMenu = () => {
   const earth = useEarth();
-  const contextMenu = earth.useContextMenu({ isDarkTheme: false });
+  const contextMenu = new ContextMenu(earth, { isDarkTheme: false });
 
   contextMenu.addDefaultMenu(
     [
@@ -70,4 +70,9 @@ export const testContextMenu = () => {
     label: { text: '车辆 B：状态独立' },
     data: { name: 'vehicle-b', status: 'offline' }
   });
+  return () => {
+    contextMenu.destroy();
+    vehicleLayer.remove();
+    vehicleLayer.destroy();
+  };
 };

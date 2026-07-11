@@ -1,6 +1,7 @@
-import { useEarth } from "../../src"
+import { Measure, useEarth } from '../../src';
 
 export const testMeasure = () => {
+  const measure = new Measure(useEarth());
   // useEarth().useMeasure().lineSegmentation({
   //   pointColor: "red",
   //   callback: () => {
@@ -21,4 +22,5 @@ export const testMeasure = () => {
   //     console.log(e)
   //   }
   // });
-}
+  return () => measure.clear();
+};

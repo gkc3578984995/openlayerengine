@@ -1,5 +1,5 @@
 import { Coordinate } from 'ol/coordinate';
-import { DrawType, EPlotType, PointLayer, useEarth } from '../../src';
+import { DrawType, DynamicDraw, EPlotType, PointLayer, useEarth } from '../../src';
 import { Feature } from 'ol';
 import { Point } from 'ol/geom';
 import PlotDraw from '../../src/extends/plot/plotDraw';
@@ -19,7 +19,7 @@ export const testDynamicDraw = () => {
 
   useEarth().enableGraticule();
   useEarth().enableScaleLine();
-  const dynamicDraw = useEarth().useDrawTool();
+  const dynamicDraw = new DynamicDraw(useEarth());
   dynamicDraw.drawAssaultDirectionArrow({
     // keepGraphics: false,
     callback: (e) => {
@@ -38,4 +38,9 @@ export const testDynamicDraw = () => {
       }
     }
   });
+  return () => {
+    dynamicDraw.destroy({ removeGraphics: true, removeLayers: true });
+    useEarth().disableGraticule();
+    useEarth().disableScaleLine();
+  };
 };

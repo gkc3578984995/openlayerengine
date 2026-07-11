@@ -3,20 +3,20 @@ import { PointLayer, useEarth } from '../../src';
 export const testPointLayer = () => {
   const layer = new PointLayer();
   layer.add({
-    id: "point_1",
+    id: 'point_1',
     center: fromLonLat([125, 50]),
     label: {
-      text: "带标签点"
+      text: '带标签点'
     },
     isFlash: true,
-    module: "point"
-  })
+    module: 'point'
+  });
   let a = layer.add({
-    id: "point_2",
+    id: 'point_2',
     center: fromLonLat([125, 45]),
     size: 10,
     fill: {
-      color: "blue"
+      color: 'blue'
     },
     isFlash: true,
     flashColor: {
@@ -26,8 +26,8 @@ export const testPointLayer = () => {
     },
     duration: 3000,
     isRepeat: false,
-    module: "point"
-  })
+    module: 'point'
+  });
   // useEarth().useDrawTool().editPoint({
   //   feature: a,
   //   callback(e) {
@@ -62,4 +62,8 @@ export const testPointLayer = () => {
   //   })
   // }, 3000)
 
-}
+  return () => {
+    layer.remove();
+    layer.destroy();
+  };
+};
