@@ -128,26 +128,24 @@ export default class DynamicDraw {
   }
 
   /** 将 DynamicDraw 的兼容参数转换为 PolylineLayer 样式参数 */
-  private buildDrawLineStyle(param?: IDrawLine): { stroke: IStroke; outerStroke?: IStroke; innerStroke?: IStroke } {
+  private buildDrawLineStyle(param?: IDrawLine): { stroke: IStroke; backgroundStroke?: IStroke } {
     return {
       stroke: {
         color: param?.strokeColor || '#ffcc33',
         width: param?.strokeWidth || 2
       },
-      outerStroke: param?.outerStroke,
-      innerStroke: param?.innerStroke
+      backgroundStroke: param?.backgroundStroke
     };
   }
 
   /** 将 DynamicDraw 的兼容参数转换为 PolygonLayer 样式参数 */
-  private buildDrawPolygonStyle(param?: IDrawPolygon): { stroke: IStroke; outerStroke?: IStroke; innerStroke?: IStroke; fill: IGeometryFill } {
+  private buildDrawPolygonStyle(param?: IDrawPolygon): { stroke: IStroke; backgroundStroke?: IStroke; fill: IGeometryFill } {
     return {
       stroke: {
         width: param?.strokeWidth ?? 2,
         ...(param?.strokeColor ? { color: param.strokeColor } : {})
       },
-      outerStroke: param?.outerStroke,
-      innerStroke: param?.innerStroke,
+      backgroundStroke: param?.backgroundStroke,
       fill: param?.fill ?? { color: param?.fillColor ?? 'rgba(255,255,255,0.2)' }
     };
   }
@@ -166,7 +164,7 @@ export default class DynamicDraw {
   /** 创建绘制过程样式，使预览与保存后的分层描边保持一致 */
   private buildDrawPreviewStyle(
     type: string,
-    param?: (IDrawPoint | IDrawLine | IDrawPolygon) & { strokeColor?: string; strokeWidth?: number; outerStroke?: IStroke; innerStroke?: IStroke }
+    param?: (IDrawPoint | IDrawLine | IDrawPolygon) & { strokeColor?: string; strokeWidth?: number; backgroundStroke?: IStroke }
   ): Style | Style[] {
     const legacyStroke: IStroke =
       type === 'LineString'
@@ -178,14 +176,13 @@ export default class DynamicDraw {
               lineDash: [10, 10],
               width: param?.strokeWidth ?? 2
             };
-    const innerStroke = param?.innerStroke ? this.buildDrawPreviewStroke(param.innerStroke) : undefined;
     const previewLegacyStroke = this.buildDrawPreviewStroke(legacyStroke);
-    const outerStroke = param?.outerStroke ? this.buildDrawPreviewStroke(param.outerStroke) : undefined;
+    const backgroundStroke = param?.backgroundStroke ? this.buildDrawPreviewStroke(param.backgroundStroke) : undefined;
     const foreground = new Style({
       fill: new Fill({
         color: 'rgba(255, 255, 255, 0.2)'
       }),
-      stroke: new Stroke(innerStroke ?? previewLegacyStroke),
+      stroke: new Stroke(previewLegacyStroke),
       image: new CircleStyle({
         radius: 5,
         stroke: new Stroke({
@@ -194,8 +191,8 @@ export default class DynamicDraw {
       })
     });
 
-    if (outerStroke && (type === 'LineString' || type === 'Polygon')) {
-      return [new Style({ stroke: new Stroke(outerStroke) }), foreground];
+    if (backgroundStroke && (type === 'LineString' || type === 'Polygon')) {
+      return [new Style({ stroke: new Stroke(backgroundStroke) }), foreground];
     }
 
     return foreground;

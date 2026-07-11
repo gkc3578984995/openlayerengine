@@ -87,20 +87,18 @@ export default class Base {
     return style;
   }
   /**
-   * 设置双层描边样式，外描边在后、前景描边在前
+   * 设置双层描边样式，背景描边在后、主描边在前
    * @param style 前景样式实例
    * @param stroke 兼容旧版描边参数
-   * @param outerStroke 外描边参数
-   * @param innerStroke 内描边参数，优先于旧版描边
+   * @param backgroundStroke 背景描边参数
    * @param width 宽度，可选的
    * @returns 单个样式或按从后到前顺序排列的样式数组
    */
-  protected setLayeredStroke(style: Style, stroke?: IStroke, outerStroke?: IStroke, innerStroke?: IStroke, width?: number): Style | Style[] {
-    const foreground = innerStroke ?? stroke;
-    const primary = this.setStroke(style, foreground, width);
-    if (!outerStroke) return primary;
-    const outer = this.setStroke(new Style(), outerStroke, width);
-    return [outer, primary];
+  protected setLayeredStroke(style: Style, stroke?: IStroke, backgroundStroke?: IStroke, width?: number): Style | Style[] {
+    const primary = this.setStroke(style, stroke, width);
+    if (!backgroundStroke) return primary;
+    const background = this.setStroke(new Style(), backgroundStroke, width);
+    return [background, primary];
   }
   /**
    * 设置填充样式
@@ -512,7 +510,7 @@ export default class Base {
     // 样式同步（静态样式）
     const style = this.resolveStaticStyle(feature);
     if (style) {
-        if (!isPatternFill(param.fill)) this.syncStrokeFillFromStyle(style, param);
+      if (!isPatternFill(param.fill)) this.syncStrokeFillFromStyle(style, param);
       param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
     feature.set(FEATURE_KEYS.param, param);

@@ -56,7 +56,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
       style = super.setFill(style, param.fill);
     }
     style = this.applyText(style, param.label, feature);
-    feature.setStyle(this.setLayeredStroke(style, param.stroke, param.outerStroke, param.innerStroke));
+    feature.setStyle(this.setLayeredStroke(style, param.stroke, param.backgroundStroke));
   }
   /**
    * 添加多边形
@@ -98,15 +98,12 @@ export default class PolygonLayer<T = Polygon> extends Base {
     }
     const feature = features[0];
     const stored = feature.get(FEATURE_KEYS.param) as IPolygonParam<T>;
-    const nextFill = isPatternFill(param.fill)
-      ? { ...(isPatternFill(stored.fill) ? stored.fill : {}), ...param.fill }
-      : param.fill ?? stored.fill;
+    const nextFill = isPatternFill(param.fill) ? { ...(isPatternFill(stored.fill) ? stored.fill : {}), ...param.fill } : (param.fill ?? stored.fill);
     const next: IPolygonParam<T> = {
       ...stored,
       positions: param.positions ?? stored.positions,
       stroke: param.stroke ? { ...stored.stroke, ...param.stroke } : stored.stroke,
-      outerStroke: param.outerStroke ? { ...stored.outerStroke, ...param.outerStroke } : stored.outerStroke,
-      innerStroke: param.innerStroke ? { ...stored.innerStroke, ...param.innerStroke } : stored.innerStroke,
+      backgroundStroke: param.backgroundStroke ? { ...stored.backgroundStroke, ...param.backgroundStroke } : stored.backgroundStroke,
       fill: nextFill,
       label: param.label ? { ...stored.label, ...param.label } : stored.label
     };

@@ -105,10 +105,8 @@ export interface IDrawPoint extends IDrawBase {
   fillColor?: string;
 }
 export interface IDrawLine extends IDrawBase {
-  /** Back-most visual outline. It is drawn before innerStroke. */
-  outerStroke?: IStroke;
-  /** Foreground visual outline. It takes precedence over legacy stroke. */
-  innerStroke?: IStroke;
+  /** 背景描边，绘制在 stroke 之前。 */
+  backgroundStroke?: IStroke;
   /**
    * 边框颜色
    */
@@ -119,10 +117,8 @@ export interface IDrawLine extends IDrawBase {
   strokeWidth?: number;
 }
 export interface IDrawPolygon extends IDrawBase {
-  /** Back-most visual outline. It is drawn before innerStroke. */
-  outerStroke?: IStroke;
-  /** Foreground visual outline. It takes precedence over legacy stroke. */
-  innerStroke?: IStroke;
+  /** 背景描边，绘制在 stroke 之前。 */
+  backgroundStroke?: IStroke;
   /**
    * 边框颜色
    */

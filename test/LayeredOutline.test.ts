@@ -21,12 +21,12 @@ describe('layered outlines', () => {
     expect(feature.getStyle()).toBeInstanceOf(Style);
   });
 
-  it('renders polygon outerStroke before innerStroke and preserves its fill', () => {
+  it('renders backgroundStroke before stroke and preserves polygon fill', () => {
     const feature = new PolygonLayer(earth()).add({
       positions: polygon,
       fill: { color: '#ffffff33' },
-      outerStroke: { color: '#00ff36', width: 10, lineDash: [10, 6] },
-      innerStroke: { color: '#ff0000', width: 4 }
+      backgroundStroke: { color: '#00ff36', width: 10, lineDash: [10, 6] },
+      stroke: { color: '#ff0000', width: 4 }
     });
     const styles = asStyles(feature.getStyle() as Style[]);
     expect(styles).toHaveLength(2);
@@ -36,14 +36,14 @@ describe('layered outlines', () => {
     expect(styles[1].getFill()?.getColor()).toBe('#ffffff33');
   });
 
-  it('uses legacy stroke as the foreground when only an outer polyline stroke is supplied', () => {
+  it('renders backgroundStroke behind the polyline stroke', () => {
     const feature = new PolylineLayer(earth()).add({
       positions: [
         [0, 0],
         [10, 0]
       ],
       stroke: { color: '#000', width: 5 },
-      outerStroke: { color: '#f00', width: 11 }
+      backgroundStroke: { color: '#f00', width: 11 }
     });
     expect(asStyles(feature.getStyle() as Style[]).map((style) => style.getStroke()?.getColor())).toEqual(['#f00', '#000']);
   });
@@ -51,37 +51,35 @@ describe('layered outlines', () => {
   it('reapplies polygon layered styles after set without losing its label or fill', () => {
     const layer = new PolygonLayer(earth());
     const feature = layer.add({ id: 'area', positions: polygon, fill: { color: '#abcdef' }, label: { text: 'area' }, stroke: { color: '#000', width: 2 } });
-    layer.set({ id: 'area', outerStroke: { color: '#f00', width: 8 }, innerStroke: { color: '#111', width: 3 } });
+    layer.set({ id: 'area', backgroundStroke: { color: '#f00', width: 8 }, stroke: { color: '#111', width: 3 } });
     const styles = asStyles(feature.getStyle() as Style[]);
     expect(styles).toHaveLength(2);
     expect(styles[1].getFill()?.getColor()).toBe('#abcdef');
     expect(styles[1].getText()?.getText()).toBe('area');
   });
 
-  it('prefers innerStroke over legacy stroke when both are provided', () => {
-    const feature = new PolylineLayer(earth()).add({
-      positions: [
-        [0, 0],
-        [10, 0]
-      ],
-      stroke: { color: '#f00', width: 9 },
-      outerStroke: { color: '#00ff36', width: 13 },
-      innerStroke: { color: '#000', width: 3 }
-    });
-    expect(asStyles(feature.getStyle() as Style[]).map((style) => style.getStroke()?.getColor())).toEqual(['#00ff36', '#000']);
-  });
-
-  it('renders a layered polyline as one feature and retains no parallel-overlay state', () => {
+  it('renders a background polyline as one feature and retains no parallel-overlay state', () => {
     const layer = new PolylineLayer(earth());
     layer.add({
       positions: [
         [0, 0],
         [10, 0]
       ],
-      outerStroke: { color: '#f00', width: 8 },
-      innerStroke: { color: '#000', width: 3 }
+      backgroundStroke: { color: '#f00', width: 8 },
+      stroke: { color: '#000', width: 3 }
     });
     expect(layer.getLayer().getSource()?.getFeatures()).toHaveLength(1);
     expect((layer as any)['parallel' + 'OverlayMap']).toBeUndefined();
+  });
+
+  it('does not create a fill style for a polyline', () => {
+    const feature = new PolylineLayer(earth()).add({
+      positions: [
+        [0, 0],
+        [10, 0]
+      ],
+      fill: { color: '#f00' }
+    } as any);
+    expect((feature.getStyle() as Style).getFill()).toBeNull();
   });
 });

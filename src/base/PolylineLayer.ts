@@ -63,13 +63,12 @@ export default class Polyline<T = LineString> extends Base {
     });
     // 初始 style（当不需要动态适配时使用）
     const baseStyle = new Style();
-    super.setFill(baseStyle, param.fill);
     this.applyText(baseStyle, param.label, feature);
     // 如果未设置 stroke 或未提供 lineDash 或未启用 fitPatternOnce，直接常规处理
-    const strokeCfg = param.innerStroke ?? param.stroke;
+    const strokeCfg = param.stroke;
     const needFit = !!(strokeCfg && strokeCfg.lineDash && strokeCfg.lineDash.length > 0 && strokeCfg.fitPatternOnce);
     if (!needFit) {
-      feature.setStyle(this.setLayeredStroke(baseStyle, param.stroke, param.outerStroke, param.innerStroke, param.width));
+      feature.setStyle(this.setLayeredStroke(baseStyle, param.stroke, param.backgroundStroke, param.width));
     } else {
       // 动态 style function：随视图缩放或线坐标变动实时匹配一轮 pattern
       // pattern 视为比例数组，按其和做归一化
@@ -77,7 +76,7 @@ export default class Polyline<T = LineString> extends Base {
       const pattern = patternSrc.slice();
       const patternSum = pattern.length ? pattern.reduce((a, b) => a + b, 0) : 1;
       const strokeWidth = strokeCfg?.width ?? param.width ?? 2;
-      const outerStyle = param.outerStroke ? super.setStroke(new Style(), param.outerStroke, param.width) : undefined;
+      const backgroundStyle = param.backgroundStroke ? super.setStroke(new Style(), param.backgroundStroke, param.width) : undefined;
       let lastSig = '';
       let cachedStyle: Style | null = null;
       // 生成坐标签名 + 分辨率签名：防止重复计算
@@ -89,12 +88,12 @@ export default class Polyline<T = LineString> extends Base {
       };
       feature.setStyle((feat: import('ol/Feature').FeatureLike, res: number) => {
         const geom = (feat as Feature<LineString>).getGeometry && (feat as Feature<LineString>).getGeometry();
-        if (!geom || !(geom instanceof LineString)) return outerStyle ? [outerStyle, baseStyle] : baseStyle;
+        if (!geom || !(geom instanceof LineString)) return backgroundStyle ? [backgroundStyle, baseStyle] : baseStyle;
         const map = this.earth?.map;
-        if (!map) return outerStyle ? [outerStyle, baseStyle] : baseStyle;
+        if (!map) return backgroundStyle ? [backgroundStyle, baseStyle] : baseStyle;
         const coords: number[][] = geom.getCoordinates();
         const sig = buildSig(coords, res);
-        if (sig === lastSig && cachedStyle) return outerStyle ? [outerStyle, cachedStyle] : cachedStyle;
+        if (sig === lastSig && cachedStyle) return backgroundStyle ? [backgroundStyle, cachedStyle] : cachedStyle;
         lastSig = sig;
         // 计算屏幕像素总长度
         let totalPx = 0;
@@ -120,9 +119,9 @@ export default class Polyline<T = LineString> extends Base {
         cachedStyle = new Style({
           stroke,
           text: baseStyle.getText(),
-          fill: baseStyle.getFill()
+          fill: undefined
         });
-        return outerStyle ? [outerStyle, cachedStyle] : cachedStyle;
+        return backgroundStyle ? [backgroundStyle, cachedStyle] : cachedStyle;
       });
     }
     // 其余属性挂载

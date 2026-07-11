@@ -35,18 +35,16 @@ describe('DynamicDraw 监听生命周期', () => {
     expect(disableGlobalMouseLeftDownEvent).not.toHaveBeenCalled();
   });
 
-  it('uses the same outer and inner strokes for polygon preview and saved parameters', () => {
+  it('uses the same background stroke for polygon preview and saved parameters', () => {
     const draw = Object.create(DynamicDraw.prototype) as any;
     const param = {
       strokeColor: '#ffcc33',
       strokeWidth: 2,
-      outerStroke: { color: '#00ff36', width: 8, lineDash: [10, 6] },
-      innerStroke: { color: '#f00', width: 4 }
+      backgroundStroke: { color: '#00ff36', width: 8, lineDash: [10, 6] }
     };
     const saved = draw.buildDrawPolygonStyle(param);
     const preview = draw.buildDrawPreviewStyle('Polygon', param);
-    expect(saved.outerStroke).toEqual(param.outerStroke);
-    expect(saved.innerStroke).toEqual(param.innerStroke);
+    expect(saved.backgroundStroke).toEqual(param.backgroundStroke);
     expect(Array.isArray(preview) ? preview : [preview]).toHaveLength(2);
     expect((Array.isArray(preview) ? preview[0] : preview).getStroke()?.getColor()).toBe('#00ff36');
   });
@@ -63,7 +61,7 @@ describe('DynamicDraw 监听生命周期', () => {
 
   it('applies saved stroke defaults to partial layered preview strokes', () => {
     const draw = Object.create(DynamicDraw.prototype) as any;
-    const preview = draw.buildDrawPreviewStyle('Polygon', { outerStroke: { color: '#00ff36' }, innerStroke: { color: '#f00' } });
+    const preview = draw.buildDrawPreviewStyle('Polygon', { backgroundStroke: { color: '#00ff36' }, strokeColor: '#f00' });
     const styles = Array.isArray(preview) ? preview : [preview];
     expect(styles[0].getStroke()?.getWidth()).toBe(2);
     expect(styles[1].getStroke()?.getWidth()).toBe(2);
