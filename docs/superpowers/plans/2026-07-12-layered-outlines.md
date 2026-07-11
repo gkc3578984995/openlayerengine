@@ -211,10 +211,11 @@ describe('Transform style snapshots', () => {
 Append to `LayeredOutline.test.ts`:
 
 ```ts
-it('does not create a second feature for a layered polyline', () => {
+it('renders a layered polyline as one feature and retains no parallel-overlay state', () => {
   const layer = new PolylineLayer(earth());
   layer.add({ positions: [[0, 0], [10, 0]], outerStroke: { color: '#f00', width: 8 }, innerStroke: { color: '#000', width: 3 } });
   expect(layer.getLayer().getSource()?.getFeatures()).toHaveLength(1);
+  expect((layer as any).parallelOverlayMap).toBeUndefined();
 });
 ```
 
@@ -222,7 +223,7 @@ it('does not create a second feature for a layered polyline', () => {
 
 Run: `npm test -- --run test/TransformStyleSnapshot.test.ts test/LayeredOutline.test.ts`
 
-Expected: FAIL because `cloneStyleSnapshot` does not exist and PolylineLayer still creates a parallel-overlay feature when configured through the old API.
+Expected: FAIL because `cloneStyleSnapshot` does not exist and `PolylineLayer` still retains `parallelOverlayMap`.
 
 - [ ] **Step 3: Remove all parallel-overlay code and use the snapshot helper.**
 
