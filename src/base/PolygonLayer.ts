@@ -9,7 +9,7 @@ import { Fill, Style } from 'ol/style';
 import Base from './Base';
 import { Coordinate } from 'ol/coordinate';
 import { getDefaultEarth } from '../earthContext';
-import { createPolygonPattern, isPolygonPatternFill } from './PolygonPatternFill';
+import { createPatternFill, isPatternFill } from '../common/PatternFill';
 
 /**
  * 创建区域`Polygon`
@@ -51,8 +51,8 @@ export default class PolygonLayer<T = Polygon> extends Base {
   private applyPolygonStyle(feature: Feature<Polygon>, param: IPolygonParam<T>): void {
     let style = new Style();
     style = super.setStroke(style, param.stroke);
-    if (isPolygonPatternFill(param.fill)) {
-      style.setFill(new Fill({ color: createPolygonPattern(param.fill, param.stroke?.color) }));
+    if (isPatternFill(param.fill)) {
+      style.setFill(new Fill({ color: createPatternFill(param.fill, param.stroke?.color) }));
     } else {
       style = super.setFill(style, param.fill);
     }
@@ -99,8 +99,8 @@ export default class PolygonLayer<T = Polygon> extends Base {
     }
     const feature = features[0];
     const stored = feature.get(FEATURE_KEYS.param) as IPolygonParam<T>;
-    const nextFill = isPolygonPatternFill(param.fill)
-      ? { ...(isPolygonPatternFill(stored.fill) ? stored.fill : {}), ...param.fill }
+    const nextFill = isPatternFill(param.fill)
+      ? { ...(isPatternFill(stored.fill) ? stored.fill : {}), ...param.fill }
       : param.fill ?? stored.fill;
     const next: IPolygonParam<T> = {
       ...stored,

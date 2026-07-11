@@ -1,10 +1,10 @@
 import { createCanvasContext2D } from 'ol/dom';
-import type { IPolygonFill, IPolygonPatternFill, PolygonPatternType } from '../interface';
+import type { IGeometryFill, IPatternFill, PatternFillType } from '../interface';
 
 const PATTERN_SIZES = [4, 8, 16, 32, 64, 128] as const;
 
-export interface ResolvedPolygonPatternFill {
-  type: PolygonPatternType;
+export interface ResolvedPatternFill {
+  type: PatternFillType;
   color: string;
   backgroundColor?: string;
   size: (typeof PATTERN_SIZES)[number];
@@ -12,13 +12,13 @@ export interface ResolvedPolygonPatternFill {
   dotRadius: number;
 }
 
-/** 判断填充参数是否为 Polygon 内置纹理 */
-export function isPolygonPatternFill(fill: IPolygonFill | undefined): fill is IPolygonPatternFill {
+/** 判断填充参数是否为内置纹理 */
+export function isPatternFill(fill: IGeometryFill | undefined): fill is IPatternFill {
   return !!fill && 'type' in fill && typeof fill.type === 'string';
 }
 
 /** 规范化纹理参数并解析最终纹理颜色 */
-export function normalizePolygonPatternFill(fill: IPolygonPatternFill, strokeColor?: string): ResolvedPolygonPatternFill {
+export function normalizePatternFill(fill: IPatternFill, strokeColor?: string): ResolvedPatternFill {
   const size = PATTERN_SIZES.includes(fill.size as (typeof PATTERN_SIZES)[number]) ? (fill.size as (typeof PATTERN_SIZES)[number]) : 16;
   return {
     type: fill.type,
@@ -43,7 +43,7 @@ function drawDiagonal(context: CanvasRenderingContext2D, size: number, reverse: 
 }
 
 /** 在一个 Canvas 图块中绘制内置纹理 */
-export function drawPolygonPattern(context: CanvasRenderingContext2D, pattern: ResolvedPolygonPatternFill): void {
+export function drawPatternFill(context: CanvasRenderingContext2D, pattern: ResolvedPatternFill): void {
   context.strokeStyle = pattern.color;
   context.fillStyle = pattern.color;
   context.lineWidth = pattern.lineWidth;
@@ -76,15 +76,15 @@ export function drawPolygonPattern(context: CanvasRenderingContext2D, pattern: R
 }
 
 /** 创建 OpenLayers Fill 可使用的重复 CanvasPattern */
-export function createPolygonPattern(fill: IPolygonPatternFill, strokeColor?: string): CanvasPattern {
-  const pattern = normalizePolygonPatternFill(fill, strokeColor);
+export function createPatternFill(fill: IPatternFill, strokeColor?: string): CanvasPattern {
+  const pattern = normalizePatternFill(fill, strokeColor);
   const context = createCanvasContext2D(pattern.size, pattern.size);
   if (pattern.backgroundColor) {
     context.fillStyle = pattern.backgroundColor;
     context.fillRect(0, 0, pattern.size, pattern.size);
   }
-  drawPolygonPattern(context, pattern);
+  drawPatternFill(context, pattern);
   const canvasPattern = context.createPattern(context.canvas, 'repeat');
-  if (!canvasPattern) throw new Error('Unable to create polygon fill pattern');
+  if (!canvasPattern) throw new Error('Unable to create fill pattern');
   return canvasPattern;
 }

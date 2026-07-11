@@ -317,7 +317,7 @@ export interface IPolygonParam<T> extends IAddBaseParam<T> {
   /**
    * 填充样式
    */
-  fill?: IPolygonFill;
+  fill?: IGeometryFill;
   /**
    * 标签样式
    */
@@ -339,7 +339,7 @@ export interface ISetPolygonParam {
   /**
    * 填充样式
    */
-  fill?: IPolygonFill;
+  fill?: IGeometryFill;
   /**
    * 标签样式
    */
@@ -557,13 +557,13 @@ export interface IFill {
   color?: string;
 }
 
-/** Polygon 内置纹理类型 */
-export type PolygonPatternType = 'diagonal' | 'cross' | 'dot' | 'horizontal' | 'vertical';
+/** 内置纹理类型 */
+export type PatternFillType = 'diagonal' | 'cross' | 'dot' | 'horizontal' | 'vertical';
 
-/** Polygon 纹理填充参数 */
-export interface IPolygonPatternFill {
+/** 可复用于各类几何图层的纹理填充参数 */
+export interface IPatternFill extends IFill {
   /** 内置纹理类型 */
-  type: PolygonPatternType;
+  type: PatternFillType;
   /** 纹理线条或圆点颜色；未传时继承显式边框颜色 */
   color?: string;
   /** 纹理图块尺寸，仅支持 2 的幂 */
@@ -576,8 +576,8 @@ export interface IPolygonPatternFill {
   backgroundColor?: string;
 }
 
-/** Polygon 填充参数，兼容已有纯色填充 */
-export type IPolygonFill = IFill | IPolygonPatternFill;
+/** 几何图层填充参数，兼容已有纯色填充 */
+export type IGeometryFill = IFill | IPatternFill;
 export interface ILabel {
   /**
    * 文本

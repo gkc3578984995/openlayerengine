@@ -4,7 +4,7 @@ import { Modify, Select, Translate } from 'ol/interaction';
 import VectorLayer from 'ol/layer/Vector';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import VectorSource from 'ol/source/Vector';
-import { PointLayer, PolygonLayer, PolygonPatternType, useEarth } from '../../src';
+import { PatternFillType, PointLayer, PolygonLayer, useEarth } from '../../src';
 import { Coordinate } from 'ol/coordinate';
 export const testPolygonLayer = () => {
   const layer = new PolygonLayer(useEarth());
@@ -23,7 +23,7 @@ export const testPolygonLayer = () => {
       color: '#fffff3'
     }
   });
-  const patternExamples: Array<{ id: string; type: PolygonPatternType; positions: Coordinate[][]; color?: string; backgroundColor?: string }> = [
+  const patternExamples: Array<{ id: string; type: PatternFillType; positions: Coordinate[][]; color?: string; backgroundColor?: string }> = [
     {
       id: 'polygon_pattern_diagonal',
       type: 'diagonal',

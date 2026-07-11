@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { DrawType, IDrawEvent, IDrawLine, IDrawPoint, IDrawPolygon, IEditParam, IFill, IPointParam, IPolygonFill, ModifyType } from '../interface';
+import { DrawType, IDrawEvent, IDrawLine, IDrawPoint, IDrawPolygon, IEditParam, IFill, IGeometryFill, IPointParam, ModifyType } from '../interface';
 import { Feature, Map } from 'ol';
 import { Geometry, LineString, Point, Polygon, Circle as CircleGeom } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
@@ -11,7 +11,7 @@ import { fromLonLat, toLonLat } from 'ol/proj';
 import { Fill, Stroke, Style } from 'ol/style';
 import CircleStyle from 'ol/style/Circle';
 import { OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, CircleLayer, Base } from '../base';
-import { isPolygonPatternFill } from '../base/PolygonPatternFill';
+import { isPatternFill } from '../common/PatternFill';
 import { unByKey } from 'ol/Observable';
 import { EventsKey } from 'ol/events';
 import { Coordinate } from 'ol/coordinate';
@@ -128,7 +128,7 @@ export default class DynamicDraw {
   }
 
   /** 将 DynamicDraw 的兼容参数转换为 PolygonLayer 样式参数 */
-  private buildDrawPolygonStyle(param?: IDrawPolygon): { stroke: { color?: string; width: number }; fill: IPolygonFill } {
+  private buildDrawPolygonStyle(param?: IDrawPolygon): { stroke: { color?: string; width: number }; fill: IGeometryFill } {
     return {
       stroke: {
         width: param?.strokeWidth ?? 2,
@@ -140,8 +140,8 @@ export default class DynamicDraw {
 
   /** 纹理底图可见时，不使用半透明编辑面遮盖其细节 */
   private getPolygonEditPreviewFill(feature: Feature<Geometry>, isShowUnderlay?: boolean): IFill {
-    const fill = (feature.get('param') as { fill?: IPolygonFill } | undefined)?.fill;
-    return { color: isShowUnderlay && isPolygonPatternFill(fill) ? 'rgba(0,0,0,0)' : '#ffffff61' };
+    const fill = (feature.get('param') as { fill?: IGeometryFill } | undefined)?.fill;
+    return { color: isShowUnderlay && isPatternFill(fill) ? 'rgba(0,0,0,0)' : '#ffffff61' };
   }
   /**
    * 提示牌初始化方法
