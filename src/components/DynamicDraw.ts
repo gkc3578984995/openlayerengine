@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { DrawType, IDrawEvent, IDrawLine, IDrawPoint, IDrawPolygon, IEditParam, IFill, IGeometryFill, IPointParam, ModifyType } from '../interface';
+import { DrawType, IDrawEvent, IDrawLine, IDrawPoint, IDrawPolygon, IEditParam, IFill, IGeometryFill, IPointParam, IStroke, ModifyType } from '../interface';
 import { Feature, Map } from 'ol';
 import { Geometry, LineString, Point, Polygon, Circle as CircleGeom } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
@@ -127,15 +127,78 @@ export default class DynamicDraw {
     return undefined;
   }
 
+  /** 将 DynamicDraw 的兼容参数转换为 PolylineLayer 样式参数 */
+  private buildDrawLineStyle(param?: IDrawLine): { stroke: IStroke; outerStroke?: IStroke; innerStroke?: IStroke } {
+    return {
+      stroke: {
+        color: param?.strokeColor || '#ffcc33',
+        width: param?.strokeWidth || 2
+      },
+      outerStroke: param?.outerStroke,
+      innerStroke: param?.innerStroke
+    };
+  }
+
   /** 将 DynamicDraw 的兼容参数转换为 PolygonLayer 样式参数 */
-  private buildDrawPolygonStyle(param?: IDrawPolygon): { stroke: { color?: string; width: number }; fill: IGeometryFill } {
+  private buildDrawPolygonStyle(param?: IDrawPolygon): { stroke: IStroke; outerStroke?: IStroke; innerStroke?: IStroke; fill: IGeometryFill } {
     return {
       stroke: {
         width: param?.strokeWidth ?? 2,
         ...(param?.strokeColor ? { color: param.strokeColor } : {})
       },
+      outerStroke: param?.outerStroke,
+      innerStroke: param?.innerStroke,
       fill: param?.fill ?? { color: param?.fillColor ?? 'rgba(255,255,255,0.2)' }
     };
+  }
+
+  /** 将绘制预览的描边补齐为基础图层保存时使用的默认值 */
+  private buildDrawPreviewStroke(stroke: IStroke): IStroke {
+    return {
+      color: stroke.color || '#ffcc33',
+      width: stroke.width || 2,
+      lineDash: stroke.lineDash ?? undefined,
+      lineDashOffset: stroke.lineDashOffset,
+      ...stroke
+    };
+  }
+
+  /** 创建绘制过程样式，使预览与保存后的分层描边保持一致 */
+  private buildDrawPreviewStyle(
+    type: string,
+    param?: (IDrawPoint | IDrawLine | IDrawPolygon) & { strokeColor?: string; strokeWidth?: number; outerStroke?: IStroke; innerStroke?: IStroke }
+  ): Style | Style[] {
+    const legacyStroke: IStroke =
+      type === 'LineString'
+        ? this.buildDrawLineStyle(param as IDrawLine).stroke
+        : type === 'Polygon'
+          ? this.buildDrawPolygonStyle(param as IDrawPolygon).stroke
+          : {
+              color: param?.strokeColor ?? '#ffcc33',
+              lineDash: [10, 10],
+              width: param?.strokeWidth ?? 2
+            };
+    const innerStroke = param?.innerStroke ? this.buildDrawPreviewStroke(param.innerStroke) : undefined;
+    const previewLegacyStroke = this.buildDrawPreviewStroke(legacyStroke);
+    const outerStroke = param?.outerStroke ? this.buildDrawPreviewStroke(param.outerStroke) : undefined;
+    const foreground = new Style({
+      fill: new Fill({
+        color: 'rgba(255, 255, 255, 0.2)'
+      }),
+      stroke: new Stroke(innerStroke ?? previewLegacyStroke),
+      image: new CircleStyle({
+        radius: 5,
+        stroke: new Stroke({
+          color: '#ffcc33'
+        })
+      })
+    });
+
+    if (outerStroke && (type === 'LineString' || type === 'Polygon')) {
+      return [new Style({ stroke: new Stroke(outerStroke) }), foreground];
+    }
+
+    return foreground;
   }
 
   /** 纹理底图可见时，不使用半透明编辑面遮盖其细节 */
@@ -206,22 +269,7 @@ export default class DynamicDraw {
     // 初始化提示标牌
     this.initHelpTooltip('左击开始绘制，右击退出绘制');
     this.earth.setMouseStyle('pointer');
-    const drawStyle = new Style({
-      fill: new Fill({
-        color: 'rgba(255, 255, 255, 0.2)'
-      }),
-      stroke: new Stroke({
-        color: '#ffcc33',
-        lineDash: [10, 10],
-        width: 2
-      }),
-      image: new CircleStyle({
-        radius: 5,
-        stroke: new Stroke({
-          color: '#ffcc33'
-        })
-      })
-    });
+    const drawStyle = this.buildDrawPreviewStyle(type, param);
     // 如果存在绘制工具 则清除以前的绘制工具
     // if (this.draw) this.map.removeInteraction(this.draw);
     // 创建绘制
@@ -383,12 +431,12 @@ export default class DynamicDraw {
       try {
         if (geometryType === 'LineString' && featurePosition && featurePosition.length > 1 && baseLayer instanceof PolylineLayer) {
           if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-            const lineParam = param as IDrawLine;
             const geom = event.feature.getGeometry() as LineString;
             const coords = geom.getCoordinates();
+            const lineStyle = this.buildDrawLineStyle(param as IDrawLine);
             const f = baseLayer.add({
               positions: coords,
-              stroke: { color: lineParam?.strokeColor || '#ffcc33', width: lineParam?.strokeWidth || 2 }
+              ...lineStyle
             });
             f.set('dynamicDraw', true);
             response.feature = f;
