@@ -42,6 +42,25 @@ The removed mechanism calculated and rewrote an offset `LineString` for each con
 
 No compatibility migration is required because the user confirmed the parallel-overlay API has not been adopted.
 
+Remove the matching `isParallelOverlay` feature key and every Transform filter or synchronization branch that exists solely for parallel-overlay features. Polyline coordinate synchronization itself remains: Transform must continue to write changed line coordinates back through `PolylineLayer.setPosition`.
+
+## Transform integration
+
+Layered outlines are static `Style[]` values on the original feature, so Transform's translate, rotate, scale, and geometry-edit operations must leave them in place rather than recreate them. The implementation must support style arrays when making history snapshots: clone every `Style` in an array instead of retaining the array by reference.
+
+Undo and redo for polygon and polyline geometry must preserve both the geometry and the current layered-outline configuration. No outline-specific Transform option is added.
+
+## DynamicDraw integration
+
+Add `outerStroke?: IStroke` and `innerStroke?: IStroke` to `IDrawLine` and `IDrawPolygon`.
+
+Use one conversion path for legacy drawing options (`strokeColor` and `strokeWidth`) and the new fields. It must be used for both:
+
+1. The temporary `Draw` interaction preview. A requested layered outline is visible while the user draws, so the completed graphic does not visually jump.
+2. The final feature saved into `PolylineLayer` or `PolygonLayer`.
+
+The existing blue geometry and control-point layers used by DynamicDraw and plot editing remain editing aids. They do not need to mirror the finished feature's outline; after an edit exits, the original feature and its layered styles are shown again.
+
 ## Tests
 
 Add focused unit coverage for both layers:
@@ -51,6 +70,8 @@ Add focused unit coverage for both layers:
 - `outerStroke` plus legacy `stroke` uses `stroke` as the foreground fallback.
 - `set` merges and reapplies layered-outline fields without losing fill or label configuration.
 - Polyline parameter interfaces and behavior no longer expose or use parallel-overlay state.
+- Transform translate, rotate/scale where supported, and undo/redo retain layered styles for polygons and polylines.
+- DynamicDraw's temporary preview and the resulting polygon/polyline feature use the requested layered styles.
 
 ## Scope
 
