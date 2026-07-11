@@ -1,83 +1,87 @@
-# 地图基础功能封装(Openlayers)
+# @vrsim/earth-engine-ol
 
-该组件库基于Openlayers 7.0进行开发，目的旨在为开发人员提供快捷高效的地图创建与业务开发，本组件库将持续更新。
+基于 OpenLayers 7 的 TypeScript 地图基础能力封装库，面向业务地图快速开发。库内封装了地图实例、基础矢量图层、覆盖物、风场、绘制测量、标绘、要素变换、全局事件和常用地理计算工具。
 
-`支持内容`
+## 功能范围
 
-·图层类：点、线、圆、矩形、文本、图片、多边形、覆盖物，内置常用的交互与动态效果，详见文档
+- 图层：点、线、圆、多边形、图片标牌、覆盖物、风场等。
+- 组件：动态绘制、测量、Transform 编辑、Descriptor 标牌、右键菜单。
+- 事件：全局地图事件、按模块过滤事件。
+- 扩展：态势标绘、飞线、工具栏、Transform interaction。
+- 工具：角度转换、世界宽度计算、跨世界坐标归一化、要素平移、闪烁效果等。
 
-·组件类：态势标绘、右键菜单、动态编辑、动态测量、动态编辑、hover标牌等
+## 安装
 
-·事件类：提供全局事件、模块事件
-
-·工具类：提供与地图计算相关的常用算法
-
-·拓展类：主要包含气象类组件，如：热力图、色斑图（用于气压、气温展示）、风场、洋流等
-
-具体内容及使用方法请参见文档
-
-## 运行测试环境
-
-测试代码在`.test`文件夹中，若要进行组件库的预览及测试，请执行如下命令
-
-**`Example`**
-
+```bash
+npm install @vrsim/earth-engine-ol ol@^7
 ```
-// 打开.test文件夹下 main.ts 文件，修改如下代码，二者选其一
 
-// 本地或在线瓦片地图 需要填入可用的瓦片地址。如无有效的瓦片地址，请使用OSM地图
-earth.addLayer(earth.createXyzLayer(‘http://xxxx’));
+`ol` 是 peer dependency，需要由业务项目显式安装。
 
-// OSM地图，在科学上网的环境能有限提示底图的加载速度
+## 基础用法
+
+```ts
+import { Earth, PointLayer } from '@vrsim/earth-engine-ol';
+import '@vrsim/earth-engine-ol/dist/index.css';
+import { fromLonLat } from 'ol/proj';
+
+const earth = new Earth(undefined, { target: 'olContainer' });
 earth.addLayer(earth.createOsmLayer());
 
+const points = new PointLayer(earth);
+points.add({
+  id: 'point-1',
+  center: fromLonLat([119, 39]),
+  size: 8,
+  fill: { color: '#ff3b30' },
+  data: { name: 'demo' }
+});
+```
+
+也可以通过全局单例方式创建：
+
+```ts
+import { useEarth } from '@vrsim/earth-engine-ol';
+
+const earth = useEarth(undefined, { target: 'olContainer' });
+```
+
+多地图场景建议显式传入 `Earth` 实例，例如 `new PointLayer(earth)`，避免不同地图之间共享默认实例。
+
+## 开发命令
+
+```bash
 npm install
 npm run dev
-
+npm test
+npm run typecheck
+npm run lint
+npm run build
+npm run verify
 ```
 
-## 生成文档
+`npm run verify` 会依次执行类型检查、lint、单元测试和生产构建。
 
-**`Example`**
+## 文档
 
-```
+```bash
 npm run doc
 ```
 
-## 运行文档
+TypeDoc 输出目录为 `docs`。
 
-**`Example`**
-目前文档只支持API查看，相关示例及及开发文档会在之后逐步完善
-```
-// 注意，文档运行需要node 18.0及以上版本，若node低于该版本请将`.docs`文件夹下 package.json中`dev`命令替换为`"dev": "vuepress dev --temp .temp"`
+## 打包发布
 
-// 将`docs`文件夹下内容复制粘贴至`.docs`文件夹下，`注意`:docs文件夹下`readme.md`文件无需复制
-
-cd .docs
-
-// 进入.docs文件下执行如下命令
-
-npm install
-
-npm run dev
-```
-
-## 打包项目与使用
-
-**`Example`**
-
-```
-npm run clean
-
+```bash
 npm run build
-
 npm pack
-
-// 将打包后的*.taz包放入node_modules即可使用
-npm install *.taz
-
 ```
 
+发布产物位于 `dist`，包含 ESM、CJS、CSS 和类型声明。
 
+## 工程状态
 
-
+- Rollup 构建已清理历史循环依赖警告。
+- `ol` 深路径导入保持 external，不打入库产物。
+- `cesium`、`@turf/turf` 不再作为隐式 external 保留。
+- 仍有历史 lint warning，主要集中在 plot、Transform、事件层的 `any` 和旧式空实现，建议后续按模块逐步收敛。

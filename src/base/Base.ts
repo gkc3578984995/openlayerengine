@@ -1,4 +1,4 @@
-import Earth from '../Earth';
+import type Earth from '../Earth';
 import { IFill, ILabel, IStroke, IBillboardParam, IPolylineParam, IPolylineFlyParam, IPointParam, ICircleParam, IPolygonParam } from '../interface';
 import { Feature } from 'ol';
 import { Geometry } from 'ol/geom';
@@ -15,12 +15,7 @@ import cloneDeep from 'lodash/cloneDeep';
 // import BaseEvent from 'ol/events/Event';
 /** 所有图层参数的联合类型（用于 {@link Base.getUpdatedParam} 的返回） */
 export type AnyParam =
-  | IBillboardParam<unknown>
-  | IPolylineParam<unknown>
-  | IPolylineFlyParam<unknown>
-  | IPointParam<unknown>
-  | ICircleParam<unknown>
-  | IPolygonParam<unknown>;
+  IBillboardParam<unknown> | IPolylineParam<unknown> | IPolylineFlyParam<unknown> | IPointParam<unknown> | ICircleParam<unknown> | IPolygonParam<unknown>;
 
 /**
  * 基类，提供图层常见的获取，删除及更新方法
@@ -56,7 +51,11 @@ export default class Base {
    * @param earth 地图实例
    * @param layer 图层实例
    */
-  constructor(protected earth: Earth, layer: VectorLayer<VectorSource<Geometry>>, type: string) {
+  constructor(
+    protected earth: Earth,
+    layer: VectorLayer<VectorSource<Geometry>>,
+    type: string
+  ) {
     const layerId = Utils.GetGUID();
     this.registryKey = layerId;
     layer.set('type', type);
@@ -110,7 +109,7 @@ export default class Base {
       font: param?.font || style.getText()?.getFont(),
       offsetX: param?.offsetX || style.getText()?.getOffsetX(),
       // offsetY 公共约定为"正值向上"（与 OL 原生"正值向下"相反），写入 OL 时取反
-      offsetY: param?.offsetY ? -param.offsetY : (offsetY || style.getText()?.getOffsetY()),
+      offsetY: param?.offsetY ? -param.offsetY : offsetY || style.getText()?.getOffsetY(),
       scale: param?.scale || style.getText()?.getScale(),
       textAlign: param?.textAlign || style.getText()?.getTextAlign(),
       textBaseline: param?.textBaseline || style.getText()?.getTextBaseline(),
@@ -265,11 +264,8 @@ export default class Base {
     })();
     const stored = this.getStoredLabelOffset(feature);
     const scale =
-      (typeof text.getScale === 'function'
-        ? Array.isArray(text.getScale())
-          ? (text.getScale() as number[])[0]
-          : (text.getScale() as number)
-        : undefined) || prev?.scale;
+      (typeof text.getScale === 'function' ? (Array.isArray(text.getScale()) ? (text.getScale() as number[])[0] : (text.getScale() as number)) : undefined) ||
+      prev?.scale;
     const fillFrom = (() => {
       const f = text.getFill && text.getFill();
       if (f && typeof f.getColor === 'function') {
@@ -696,7 +692,10 @@ export default class Base {
       }
     } else {
       // 解除所有闪烁监听与 change 监听
-      this.layer.getSource()?.getFeatures().forEach((f) => this.unbindFeatureFlash(f));
+      this.layer
+        .getSource()
+        ?.getFeatures()
+        .forEach((f) => this.unbindFeatureFlash(f));
       this.layer.getSource()?.clear();
       this.featureListenerMap.forEach((entry) => {
         entry.cancel();

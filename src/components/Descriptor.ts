@@ -1,15 +1,14 @@
-import { Coordinate } from "ol/coordinate";
-import { useEarth } from "../useEarth";
-import { OverlayLayer } from "../base";
-import { Utils } from "../common";
-import Earth from "../Earth";
-import { fromLonLat, toLonLat } from "ol/proj";
-import { Overlay } from "ol";
-import { LineString } from "ol/geom";
-import { getWidth } from "ol/extent";
-import { unByKey } from "ol/Observable";
-import { Pixel } from "ol/pixel";
-import { IDescriptorParams, IDescriptorSetParams, IProperties } from "../interface/descriptor";
+import { Coordinate } from 'ol/coordinate';
+import { OverlayLayer } from '../base';
+import { Utils } from '../common';
+import type Earth from '../Earth';
+import { fromLonLat, toLonLat } from 'ol/proj';
+import { Overlay } from 'ol';
+import { LineString } from 'ol/geom';
+import { getWidth } from 'ol/extent';
+import { unByKey } from 'ol/Observable';
+import { Pixel } from 'ol/pixel';
+import { IDescriptorParams, IDescriptorSetParams, IProperties } from '../interface/descriptor';
 
 /**
  * 描述列表
@@ -30,7 +29,7 @@ export default class Descriptor<T = any> {
   /**
    * 容器className
    */
-  private classNameList: string = "earth-engine-component-descriptor descriptor-list";
+  private classNameList: string = 'earth-engine-component-descriptor descriptor-list';
   /**
    * 容器坐标与事件坐标差值
    */
@@ -45,18 +44,21 @@ export default class Descriptor<T = any> {
   private hook: Map<string, any> = new Map();
   /**
    * 构造器
-   * @param earth 地图实列 
+   * @param earth 地图实列
    * @param options 标牌参数，详见{@link IDescriptorParams}
    */
-  constructor(private earth: Earth, private options: IDescriptorParams<T>) {
+  constructor(
+    private earth: Earth,
+    private options: IDescriptorParams<T>
+  ) {
     this.id = Utils.GetGUID();
-    this.overLayer = new OverlayLayer();
+    this.overLayer = new OverlayLayer(this.earth);
   }
   /**
    * 初始化地图容器及相关事件
    */
   private init() {
-    this.dom = document.createElement("div");
+    this.dom = document.createElement('div');
     const container = document.getElementById(this.earth.containerId);
     container?.append(this.dom);
     if (this.options.type === 'list') {
@@ -65,11 +67,11 @@ export default class Descriptor<T = any> {
   }
   /**
    * 更新连接线位置
-   * @param coordinate 容器坐标点 
+   * @param coordinate 容器坐标点
    */
   private updateLinePosition(coordinate: Coordinate) {
     const overlay = <Overlay>this.overLayer.get(this.id);
-    const position = overlay.get("data").position;
+    const position = overlay.get('data').position;
     // 修改定位线位置
     let oldPixel: number[] = [];
     const newPixel = this.earth.map.getPixelFromCoordinate(coordinate);
@@ -79,13 +81,13 @@ export default class Descriptor<T = any> {
     const center = <Coordinate>this.earth.view.getCenter();
     const offset = Math.floor(center[0] / worldWidth);
     if (offset != 0) {
-      const feature = <LineString>useEarth().useDefaultLayer().polyline.get(this.id)[0].getGeometry();
+      const feature = <LineString>this.earth.useDefaultLayer().polyline.get(this.id)[0].getGeometry();
       const coords = feature.getCoordinates();
       const line = new LineString(coords);
       line.translate(offset * worldWidth, 0);
-      oldPixel = this.earth.map.getPixelFromCoordinate(line.getCoordinates()[0])
+      oldPixel = this.earth.map.getPixelFromCoordinate(line.getCoordinates()[0]);
     } else {
-      oldPixel = this.earth.map.getPixelFromCoordinate(position)
+      oldPixel = this.earth.map.getPixelFromCoordinate(position);
     }
     const lt = coordinate;
     const lb = this.earth.map.getCoordinateFromPixel([newPixel[0], newPixel[1] + height]);
@@ -120,13 +122,13 @@ export default class Descriptor<T = any> {
     const positions = toLonLat(lineEndPosition);
     if (positions[0] < 0) {
       // eslint-disable-next-line no-self-assign
-      positions[0] = positions[0]
+      positions[0] = positions[0];
     }
-    const line = useEarth().useDefaultLayer().polyline.get(this.id);
-    const param = line[0].get("param");
+    const line = this.earth.useDefaultLayer().polyline.get(this.id);
+    const param = line[0].get('param');
     param.positions = [position, fromLonLat(positions)];
-    line[0].set("param", param);
-    useEarth().useDefaultLayer().polyline.setPosition(this.id, [position, fromLonLat(positions)]);
+    line[0].set('param', param);
+    this.earth.useDefaultLayer().polyline.setPosition(this.id, [position, fromLonLat(positions)]);
   }
   /**
    * 开始列表下容器事件
@@ -139,8 +141,8 @@ export default class Descriptor<T = any> {
         const coordinate = this.earth.map.getCoordinateFromPixel([event.x, event.y]);
         coordinate[0] = coordinate[0] - this.positionDValue[0];
         coordinate[1] = coordinate[1] - this.positionDValue[1];
-        if (this.options.fixedModel == "pixel") {
-          this.pixel = this.earth.map.getPixelFromCoordinate(coordinate)
+        if (this.options.fixedModel == 'pixel') {
+          this.pixel = this.earth.map.getPixelFromCoordinate(coordinate);
         }
         overlay.setPosition(coordinate);
         if (this.options.isShowFixedline || this.options.isShowFixedline == undefined) {
@@ -163,19 +165,19 @@ export default class Descriptor<T = any> {
       this.hook.set('eventListener', () => {
         this.dom.removeEventListener('mousedown', handleMouseLeftDown);
       });
-      const postrender = this.earth.map.on("postrender", (e) => {
+      const postrender = this.earth.map.on('postrender', (e) => {
         const overlay = <Overlay>this.overLayer.get(this.id);
         const position = <Coordinate>overlay.getPosition();
         if (this.options.isShowFixedline || this.options.isShowFixedline == undefined) {
           this.updateLinePosition(position);
         }
-        if (this.options.fixedModel == "pixel") {
+        if (this.options.fixedModel == 'pixel') {
           if (!this.pixel) {
             this.pixel = this.earth.map.getPixelFromCoordinate(position);
           }
           overlay.setPosition(this.earth.map.getCoordinateFromPixel(this.pixel));
         }
-      })
+      });
       this.hook.set('postrender', postrender);
     }
   }
@@ -186,18 +188,18 @@ export default class Descriptor<T = any> {
    */
   private createHtmlList(element: IProperties<string | number>[]): string {
     const list: string[] = [];
-    let header: string = "";
+    let header: string = '';
     if (this.options.isShowClose || this.options.isShowClose == undefined) {
       header += `<img class="close" src='image/close.png' id=${this.id} />`;
     }
     if (this.options.header) {
       header += `<span>${this.options.header}</span>`;
     }
-    if (header != "") {
+    if (header != '') {
       list.push(`<li class="header">${header}</li>`);
     }
-    element.forEach(item => {
-      if (item.type == "text") {
+    element.forEach((item) => {
+      if (item.type == 'text') {
         //
       } else {
         list.push(
@@ -205,9 +207,9 @@ export default class Descriptor<T = any> {
             <label>${item.label}</label>
             <span style="${item.color ? 'color:' + item.color : ''}">${item.value}</span>
           </li>`
-        )
+        );
       }
-    })
+    });
     if (this.options.footer) {
       list.push(`<li class="footer">${this.options.footer}</li>`);
     }
@@ -218,7 +220,7 @@ export default class Descriptor<T = any> {
    */
   private destoryEvent() {
     this.hook.forEach((value, key) => {
-      if (key == "postrender") {
+      if (key == 'postrender') {
         unByKey(value);
       } else {
         value();
@@ -236,7 +238,7 @@ export default class Descriptor<T = any> {
       this.destoryEvent();
     }
     this.init();
-    let html = "";
+    let html = '';
     if (params.element) {
       if (this.options.type === 'list' && params.element instanceof Array) {
         this.dom.className = this.classNameList;
@@ -244,29 +246,33 @@ export default class Descriptor<T = any> {
       }
     }
     this.dom.innerHTML = html;
-    const data = Object.assign(params.data || {}, { position: params.position })
+    const data = Object.assign(params.data || {}, { position: params.position });
     this.overLayer.add({
       id: this.id,
       position: params.position,
       element: this.dom,
       offset: params.offset,
       data: data,
-      className: this.id,
-    })
+      className: this.id
+    });
 
-    const line = useEarth().useDefaultLayer().polyline.get(this.id)
+    const line = this.earth.useDefaultLayer().polyline.get(this.id);
     // 绘制定位点、线
-    if (line.length == 0 && (this.options.drag || this.options.drag == undefined) && (this.options.isShowFixedline || this.options.isShowFixedline == undefined)) {
-      useEarth().useDefaultLayer().polyline.add({
+    if (
+      line.length == 0 &&
+      (this.options.drag || this.options.drag == undefined) &&
+      (this.options.isShowFixedline || this.options.isShowFixedline == undefined)
+    ) {
+      this.earth.useDefaultLayer().polyline.add({
         id: this.id,
         isFlowingDash: true,
-        fullLineColor: "#ffffff00",
-        dottedLineColor: this.options.fixedLineColor || "#aef",
+        fullLineColor: '#ffffff00',
+        dottedLineColor: this.options.fixedLineColor || '#aef',
         positions: [params.position, params.position]
-      })
+      });
     }
     if (line.length == 0) {
-      this.dom.style.display = "none";
+      this.dom.style.display = 'none';
     }
     if ((this.options.drag || this.options.drag == undefined) && (this.options.isShowFixedline || this.options.isShowFixedline == undefined)) {
       // 控制窗口经度偏移10°
@@ -278,37 +284,35 @@ export default class Descriptor<T = any> {
         const item = event.target as HTMLElement;
         if (item.className === 'close') {
           this.hide();
-        // eslint-disable-next-line @typescript-eslint/no-extra-semi
-        };
-      }
+          // eslint-disable-next-line @typescript-eslint/no-extra-semi
+        }
+      };
       this.dom.addEventListener('click', callback);
       this.hook.set('setListener', () => {
         this.dom.removeEventListener('click', callback);
       });
     }
-
   }
   /**
    * 显示标牌
    */
   show() {
     this.dom.style.display = 'block';
-    useEarth().useDefaultLayer().polyline.show(this.id);
+    this.earth.useDefaultLayer().polyline.show(this.id);
   }
   /**
    * 隐藏标牌
    */
   hide() {
     this.dom.style.display = 'none';
-    useEarth().useDefaultLayer().polyline.hide(this.id);
+    this.earth.useDefaultLayer().polyline.hide(this.id);
   }
   /**
    * 销毁标牌及相关事件
    */
   destroy() {
     this.overLayer.remove(this.id);
-    useEarth().useDefaultLayer().polyline.remove(this.id);
+    this.earth.useDefaultLayer().polyline.remove(this.id);
     this.destoryEvent();
   }
-
 }

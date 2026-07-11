@@ -1,6 +1,7 @@
-import Earth from "./Earth";
-import { ViewOptions } from "ol/View";
-import { IEarthConstructorOptions } from "./interface";
+import Earth from './Earth';
+import { ViewOptions } from 'ol/View';
+import { IEarthConstructorOptions } from './interface';
+import { setDefaultEarthProvider } from './earthContext';
 
 let earth: Earth | undefined;
 /**
@@ -19,10 +20,10 @@ const useEarth = (viewOptions?: ViewOptions, options?: IEarthConstructorOptions)
       if (earth === current) {
         earth = undefined;
       }
-    }
+    };
   }
   return earth;
-}
+};
 
 /**
  * 销毁并清空当前地图单例
@@ -32,6 +33,8 @@ const destroyEarth = (): void => {
     earth.destroy();
   }
   earth = undefined;
-}
+};
 
-export { useEarth, destroyEarth }
+setDefaultEarthProvider(() => useEarth());
+
+export { useEarth, destroyEarth };

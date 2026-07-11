@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { EPlotType } from '../../enum';
-import { useEarth } from '../../useEarth';
-import Earth from '../../Earth';
+import type Earth from '../../Earth';
 import { Feature, Map } from 'ol';
 import { Geometry } from 'ol/geom';
 import AttackArrow from './geom/AttackArrow';
@@ -31,6 +30,7 @@ import CurvePolyline from './polyline/CurvePolyline';
 import RectAnglePolygon from './polygon/RectAnglePolygon';
 import TrianglePolygon from './polygon/TrianglePolygon';
 import EquilateralTrianglePolygon from './polygon/EquilateralTrianglePolygon';
+import { getDefaultEarth } from '../../earthContext';
 
 // 事件类型与监听器类型定义（放在类外部避免语法错误）
 export type PlotDrawEventName = 'start' | 'add-point' | 'moving' | 'end' | 'cancel' | string;
@@ -52,7 +52,22 @@ class PlotDraw {
   /**
    * 元素geometry
    */
-  private geom: AttackArrow | FineArrow | DoubleArrow | AssemblePolygon | Circle | Ellipse | ClosedCurvePolygon | SectorPolygon | LunePolygon | LunePolyline | CurvePolyline | RectAnglePolygon | TrianglePolygon | EquilateralTrianglePolygon | undefined;
+  private geom:
+    | AttackArrow
+    | FineArrow
+    | DoubleArrow
+    | AssemblePolygon
+    | Circle
+    | Ellipse
+    | ClosedCurvePolygon
+    | SectorPolygon
+    | LunePolygon
+    | LunePolyline
+    | CurvePolyline
+    | RectAnglePolygon
+    | TrianglePolygon
+    | EquilateralTrianglePolygon
+    | undefined;
   /**
    * 元素feature
    */
@@ -75,7 +90,7 @@ class PlotDraw {
   private offEvents: any[] = [];
 
   constructor(earth?: Earth) {
-    this.earth = earth ?? useEarth();
+    this.earth = earth ?? getDefaultEarth();
     this.map = this.earth.map;
     // 创建图层
     this.layer = this.createLayer();
@@ -401,7 +416,7 @@ class PlotDraw {
    * 开始绘制
    */
   public init(type: EPlotType) {
-    this.earth.setMouseStyle('pointer')
+    this.earth.setMouseStyle('pointer');
     this.geom = this.createGeom(type);
     this.feature = new Feature(this.geom);
     this.feature.set('dynamicDraw', true);
@@ -409,7 +424,7 @@ class PlotDraw {
     // 创建监听事件
     this.createEvent();
     // 初始化提示牌
-    this.initHelpTooltip("左击开始绘制，右击退出绘制");
+    this.initHelpTooltip('左击开始绘制，右击退出绘制');
   }
   /**
    * 销毁：结束绘制、移除图层、清空事件监听。可多次调用（幂等）。

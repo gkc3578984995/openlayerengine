@@ -1,5 +1,5 @@
 import { Utils } from '../common';
-import Earth from '../Earth';
+import type Earth from '../Earth';
 import { Feature } from 'ol';
 import { Circle } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
@@ -8,7 +8,7 @@ import Style from 'ol/style/Style';
 import Base from './Base';
 import { ICircleParam, ISetCircleParam } from '../interface';
 import { Coordinate } from 'ol/coordinate';
-import { useEarth } from '@/useEarth';
+import { getDefaultEarth } from '../earthContext';
 /**
  * 创建圆`Circle`
  */
@@ -27,7 +27,7 @@ export default class CircleLayer<T = Circle> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? useEarth();
+    const e = earth ?? getDefaultEarth();
     super(e, layer, 'Circle');
   }
   /**

@@ -49,7 +49,7 @@ import Map from 'ol/Map';
 // 视图对象无需单独类型导入（直接通过 map.getView 访问）
 import { EventsKey } from 'ol/events';
 import { ol_ext_element } from './element';
-import { useEarth } from '../../useEarth';
+import { getDefaultEarth } from '../../earthContext';
 // 资源通过 ESM import 让打包器处理（方案A）
 import rotateSvg from '../../assets/image/rotate.png';
 import stretchHImg from '../../assets/image/stretchH.png';
@@ -824,9 +824,7 @@ class TransformInteraction extends PointerInteraction {
       if (p) {
         // 取旋转后外接矩形半宽/半高（兼顾 scale 与 rotation）；取不到则回退 ptRadius
         const half =
-          (this.selection_.getLength() === 1
-            ? this._pointGetRotatedHalfSizePixel_(this.selection_.item(0) as Feature<any>)
-            : undefined) ||
+          (this.selection_.getLength() === 1 ? this._pointGetRotatedHalfSizePixel_(this.selection_.item(0) as Feature<any>) : undefined) ||
           (ptRadius ? (ptRadius as number[]) : [10, 10]);
         const dx = half[0] || 10;
         const dy = half[1] || 10;
@@ -980,7 +978,7 @@ class TransformInteraction extends PointerInteraction {
    */
   private checkDynmicDraw_(evt: MapBrowserEvent<any>): boolean {
     let flag = false;
-    useEarth()
+    getDefaultEarth()
       .map.getInteractions()
       .forEach((i) => {
         if (i.get('dynamicDraw')) {
@@ -1001,7 +999,8 @@ class TransformInteraction extends PointerInteraction {
         flag = true;
       }
     }
-    if (feature && useEarth().graticule && useEarth().graticule?.getSource()?.hasFeature(feature)) {
+    const earth = getDefaultEarth();
+    if (feature && earth.graticule && earth.graticule?.getSource()?.hasFeature(feature)) {
       flag = true;
     }
     return flag;

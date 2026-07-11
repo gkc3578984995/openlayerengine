@@ -2,8 +2,7 @@
 import { IPlotEditParams } from '../../interface';
 import { Map as OlMap } from 'ol';
 import { Coordinate } from 'ol/coordinate';
-import { useEarth } from '../../useEarth';
-import Earth from '../../Earth';
+import type Earth from '../../Earth';
 import PolygonLayer from '../../base/PolygonLayer';
 import PointLayer from '../../base/PointLayer';
 import { EPlotType } from '../../enum';
@@ -31,6 +30,7 @@ import CurvePolyline from './polyline/CurvePolyline';
 import RectAnglePolygon from './polygon/RectAnglePolygon';
 import TrianglePolygon from './polygon/TrianglePolygon';
 import EquilateralTrianglePolygon from './polygon/EquilateralTrianglePolygon';
+import { getDefaultEarth } from '../../earthContext';
 
 // 事件类型定义（新增 undo / redo）
 export type PlotEditEventType = 'modifyStart' | 'modifying' | 'modifyEnd' | 'modifyExit' | 'undo' | 'redo';
@@ -147,10 +147,23 @@ class plotEdit {
   /** 线标绘类型数组 */
   private plotLineTypes = [EPlotType.LuneLine, EPlotType.CurvePolyline];
   /** 需要排除创建中点的类型 */
-  private exclude = [EPlotType.FineArrow, EPlotType.TailedSquadCombatArrow, EPlotType.AssaultDirectionArrow, EPlotType.DoubleArrow, EPlotType.AssemblePolygon, EPlotType.Circle, EPlotType.SectorPolygon, EPlotType.LunePolygon, EPlotType.LuneLine, EPlotType.RectAnglePolygon, EPlotType.TrianglePolygon, EPlotType.EquilateralTrianglePolygon];
+  private exclude = [
+    EPlotType.FineArrow,
+    EPlotType.TailedSquadCombatArrow,
+    EPlotType.AssaultDirectionArrow,
+    EPlotType.DoubleArrow,
+    EPlotType.AssemblePolygon,
+    EPlotType.Circle,
+    EPlotType.SectorPolygon,
+    EPlotType.LunePolygon,
+    EPlotType.LuneLine,
+    EPlotType.RectAnglePolygon,
+    EPlotType.TrianglePolygon,
+    EPlotType.EquilateralTrianglePolygon
+  ];
 
   constructor(earth?: Earth) {
-    this.earth = earth ?? useEarth();
+    this.earth = earth ?? getDefaultEarth();
     this.map = this.earth.map;
     this.createLayer();
   }
@@ -281,18 +294,16 @@ class plotEdit {
   /** 注册键盘撤销/重做 */
   private setupKeyDown() {
     try {
-      this.keyDownDispose = this.earth
-        .useGlobalEvent()
-        .addKeyDownEventByGlobal((ev: KeyboardEvent) => {
-          const key = ev.key.toLowerCase();
-          if (key === 'z' && ev.ctrlKey) {
-            this.undo();
-            ev.preventDefault();
-          } else if (key === 'y' && ev.ctrlKey) {
-            this.redo();
-            ev.preventDefault();
-          }
-        });
+      this.keyDownDispose = this.earth.useGlobalEvent().addKeyDownEventByGlobal((ev: KeyboardEvent) => {
+        const key = ev.key.toLowerCase();
+        if (key === 'z' && ev.ctrlKey) {
+          this.undo();
+          ev.preventDefault();
+        } else if (key === 'y' && ev.ctrlKey) {
+          this.redo();
+          ev.preventDefault();
+        }
+      });
     } catch (_) {
       /* ignore */
     }
@@ -482,12 +493,11 @@ class plotEdit {
     this.coords = coords;
     if (this.plotLineTypes.includes(this.plotType!)) {
       // 更新线
-      this.polylineLayer?.setPosition('edit-plot', (coords as Coordinate[]));
+      this.polylineLayer?.setPosition('edit-plot', coords as Coordinate[]);
     } else {
       // 更新多边形
-      this.polygonLayer?.setPosition('edit-plot', (coords as Coordinate[][]));
+      this.polygonLayer?.setPosition('edit-plot', coords as Coordinate[][]);
     }
-
   }
   /**
    * 根据plot类型获取要素坐标

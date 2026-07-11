@@ -35,16 +35,8 @@ const isProd = mode === 'prod';
 
 export default defineConfig({
   input: `src/index.ts`,
-  // `ol` 与 `@turf/turf` 作为 peerDependency 由消费端提供，不打入产物，显著减小包体积。
-  // 其余第三方（mitt / heatmap.js / cesium）同样 external。
-  external: (id) =>
-    id === 'cesium' ||
-    id === 'mitt' ||
-    id === 'heatmap.js' ||
-    id === 'ol' ||
-    id.startsWith('ol/') ||
-    id === '@turf/turf' ||
-    id.startsWith('@turf/'),
+  // Keep peer and runtime-provided dependencies out of the library bundle.
+  external: (id) => id === 'mitt' || id === 'heatmap.js' || id === 'ol' || id.startsWith('ol/'),
   output: [
     {
       file: pkg.main,
@@ -99,7 +91,7 @@ export default defineConfig({
     }),
     shader(),
     nodeResolve(),
-  commonjs(),
-  terser()
+    commonjs(),
+    terser()
   ]
 });

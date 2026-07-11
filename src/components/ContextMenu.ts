@@ -1,10 +1,7 @@
-import { useEarth } from "../useEarth";
-import Earth from "../Earth";
+import type Earth from '../Earth';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-interface IContextMenuOption {
-
-}
+interface IContextMenuOption {}
 /**
  * 菜单类
  */
@@ -22,10 +19,8 @@ export default class ContextMenu {
    */
   private watchContextMenu() {
     // 启用右键点击事件
-    useEarth().useGlobalEvent().enableGlobalMouseRightClickEvent();
-    useEarth().useGlobalEvent().addMouseRightClickEventByGlobal((e) => {
-      
-    })
+    this.earth.useGlobalEvent().enableGlobalMouseRightClickEvent();
+    this.earth.useGlobalEvent().addMouseRightClickEventByGlobal((e) => {});
     // 判断是否存在元素
     // 显示菜单
     // 触发回调
@@ -34,28 +29,20 @@ export default class ContextMenu {
    * 按模块添加点击事件
    */
   // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public addModuleMenu() {
-
-  }
+  public addModuleMenu() {}
   /**
    * 设置默认点击事件
    */
   // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public addDefaultMenu() {
-
-  }
+  public addDefaultMenu() {}
   /**
    * 按模块销毁菜单
    */
   // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public remove() {
-
-  }
+  public remove() {}
   /**
    * 销毁菜单
    */
   // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public destory() {
-
-  }
+  public destory() {}
 }

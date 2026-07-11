@@ -1,20 +1,23 @@
-import PolylineLayer from "../../base/PolylineLayer";
-import { Feature, Map } from "ol";
-import { Geometry, LineString, MultiLineString, Point } from "ol/geom";
-import { Vector as VectorLayer } from "ol/layer";
-import { unByKey } from "ol/Observable";
-import { getVectorContext } from "ol/render";
-import { Vector as VectorSource } from "ol/source";
-import { Stroke, Style, Icon } from "ol/style";
-import { useEarth } from "../../useEarth";
-import FlightLineSource from "./FlightLineSource";
-import { IFlyPosition, IPointsFeature, IPolylineFlyParam, IRadialColor } from "../../interface/default";
-import { EventsKey } from "ol/events";
-import { Utils } from "../../common";
-import { Coordinate } from "ol/coordinate";
-import { getWidth } from "ol/extent";
+import { Feature, Map } from 'ol';
+import { Geometry, LineString, MultiLineString, Point } from 'ol/geom';
+import { Vector as VectorLayer } from 'ol/layer';
+import { unByKey } from 'ol/Observable';
+import { getVectorContext } from 'ol/render';
+import { Vector as VectorSource } from 'ol/source';
+import { Stroke, Style, Icon } from 'ol/style';
+import FlightLineSource from './FlightLineSource';
+import { IFlyPosition, IPointsFeature, IPolylineFlyParam, IPolylineParam, IRadialColor } from '../../interface/default';
+import { EventsKey } from 'ol/events';
+import { Utils } from '../../common';
+import { Coordinate } from 'ol/coordinate';
+import { getWidth } from 'ol/extent';
 
-
+interface AnchorLineLayer {
+  add(param: IPolylineParam<unknown>): Feature<LineString>;
+  remove(): void;
+  remove(id: string): void;
+  get(id: string): Feature<Geometry>[];
+}
 
 export default class Flightline<T = unknown> {
   private map: Map;
@@ -45,17 +48,17 @@ export default class Flightline<T = unknown> {
       0.8: '#98F5FF',
       1: '#8EE5EE'
     },
-    controlRatio: 1,
-  }
-  private lineLayers: PolylineLayer<unknown>;
+    controlRatio: 1
+  };
+  private lineLayers: AnchorLineLayer;
 
-  constructor(layer: VectorLayer<VectorSource<Geometry>>, params: IPolylineFlyParam<T>, id: string) {
+  constructor(layer: VectorLayer<VectorSource<Geometry>>, params: IPolylineFlyParam<T>, id: string, lineLayers: AnchorLineLayer, map: Map) {
     let options = Object.assign(this.defaultOptions, params);
-    this.lineLayers = new PolylineLayer(useEarth())
+    this.lineLayers = lineLayers;
     // 保存点的位置的数组
     this.positions = [{ id: id, position: params.position }];
     this.params = options;
-    this.map = useEarth().map;
+    this.map = map;
     // 开始点与跟结束点的features
     this.pointsFeatures = [];
     // 分割线段长度越高则曲线越准确
@@ -63,7 +66,7 @@ export default class Flightline<T = unknown> {
     // 一帧耗时多少毫秒
     this.oneFrameLimitTime = options.oneFrameLimitTime;
     // 渐变色
-    if (typeof options.color == "object") {
+    if (typeof options.color == 'object') {
       this.radialColor = options.color;
     } else {
       this.radialColor = this.defaultOptions.radialColor;
@@ -73,7 +76,7 @@ export default class Flightline<T = unknown> {
     // 图层
     this.flightlineLayer = layer;
     // 图层源
-    this.flightlineSource = this.flightlineLayer.getSource()
+    this.flightlineSource = this.flightlineLayer.getSource();
     this.eventKey = null;
     this.pointsFeatures = this.generatePointsFeatures(this.positions);
     this.init();
@@ -116,7 +119,7 @@ export default class Flightline<T = unknown> {
                 },
                 module: this.params.module,
                 data: this.params.data
-              })
+              });
             }
           }
         }
@@ -138,7 +141,7 @@ export default class Flightline<T = unknown> {
         }
       }
       this.flightlineLayer.changed();
-    })
+    });
     if (this.flightlineSource && this.params.isShowAnchorPoint) {
       for (const item of this.pointsFeatures) {
         this.flightlineSource.addFeatures(item.feature);
@@ -148,8 +151,8 @@ export default class Flightline<T = unknown> {
 
   /**
    * 根据 positions 生成 point Features
-   * @param {*} positions 
-   * @returns pointsFeatures 
+   * @param {*} positions
+   * @returns pointsFeatures
    */
   generatePointsFeatures(positions: IFlyPosition[]) {
     let pointsFeatures = [];
@@ -160,23 +163,23 @@ export default class Flightline<T = unknown> {
           startPos: positions[i].position[0],
           endPos: positions[i].position[1],
           controlRatio: this.controlRatio
-        }),
-      })
-      startFeature.setId(positions[i].id + "_startPoint");
-      startFeature.set("module", this.params.module);
-      startFeature.set("data", this.params.data);
-      let endtFeature = new Feature({ geometry: new Point(positions[i].position[1]) })
-      endtFeature.setId(positions[i].id + "_endPoint");
-      endtFeature.set("module", this.params.module);
-      endtFeature.set("data", this.params.data);
+        })
+      });
+      startFeature.setId(positions[i].id + '_startPoint');
+      startFeature.set('module', this.params.module);
+      startFeature.set('data', this.params.data);
+      let endtFeature = new Feature({ geometry: new Point(positions[i].position[1]) });
+      endtFeature.setId(positions[i].id + '_endPoint');
+      endtFeature.set('module', this.params.module);
+      endtFeature.set('data', this.params.data);
       pointsFeatures.push({ id: positions[i].id, feature: [startFeature, endtFeature] });
     }
-    return pointsFeatures
+    return pointsFeatures;
   }
 
   /**
    * 曲线的渲染
-   * @param {*} ctx 绘制的上下文 
+   * @param {*} ctx 绘制的上下文
    * @param {*} lineCoords 推进的 multiLineString 数组
    * @param {*} startPos 开始点 经纬度表示
    * @param {*} endPos 结束点 经纬度表示
@@ -189,8 +192,8 @@ export default class Flightline<T = unknown> {
     let yDiff = endGrdPixelPos[1] - startGrdPixelPos[1];
     let radius = Math.pow(Math.pow(xDiff, 2) + Math.pow(yDiff, 2), 0.5);
     let grd;
-    if (typeof this.params.color == "string") {
-      grd = this.params.color
+    if (typeof this.params.color == 'string') {
+      grd = this.params.color;
     } else {
       grd = ctx.context_.createRadialGradient(startGrdPixelPos[0], startGrdPixelPos[1], 0, startGrdPixelPos[0], startGrdPixelPos[1], radius);
       let radialColor = this.radialColor;
@@ -198,74 +201,77 @@ export default class Flightline<T = unknown> {
         grd.addColorStop(i, radialColor[i]);
       }
     }
-    const worldWidth = getWidth(useEarth().map.getView().getProjection().getExtent());
-    const center = <Coordinate>useEarth().view.getCenter();
+    const worldWidth = getWidth(this.map.getView().getProjection().getExtent());
+    const center = <Coordinate>this.map.getView().getCenter();
     const offset = Math.floor(center[0] / worldWidth);
-    ctx.setStyle(new Style({
-      stroke: new Stroke({
-        color: grd,
-        width: this.params.width,
+    ctx.setStyle(
+      new Style({
+        stroke: new Stroke({
+          color: grd,
+          width: this.params.width
+        })
       })
-    }))
+    );
     geometry.translate(offset * worldWidth, 0);
     ctx.drawGeometry(geometry);
     geometry.translate(worldWidth, 0);
     ctx.drawGeometry(geometry);
-
   }
 
   /**
    * 箭头的渲染
-   * @param {*} ctx 绘制的上下文 
+   * @param {*} ctx 绘制的上下文
    * @param {*} arrowImage 箭头的htmlElement
    * @param {*} arrowLoad 图片是否加载完成
    * @param {*} lastEndPos 上一个点的结束坐标 经纬度表示
    * @param {*} curEndPos 当前的结束点坐标 经纬度表示
    */
   arrowRender(ctx: any, arrowImage: HTMLImageElement, arrowLoad: boolean, lastEndPos: number[], curEndPos: number[]) {
-    let arrowGeometry
-    arrowGeometry = new Point(curEndPos)
+    let arrowGeometry;
+    arrowGeometry = new Point(curEndPos);
     // geometrys
     const dx = curEndPos[0] - lastEndPos[0];
     const dy = curEndPos[1] - lastEndPos[1];
     const rotation = Math.atan2(dy, dx);
     if (arrowLoad) {
-      ctx.setImageStyle(new Icon({
-        img: arrowImage,
-        anchor: [0.75, 0.5],
-        imgSize: [16,16],
-        rotateWithView: true,
-        rotation: -rotation,
-        color: this.params.arrowColor
-      }))
+      ctx.setImageStyle(
+        new Icon({
+          img: arrowImage,
+          anchor: [0.75, 0.5],
+          imgSize: [16, 16],
+          rotateWithView: true,
+          rotation: -rotation,
+          color: this.params.arrowColor
+        })
+      );
     }
-    const worldWidth = getWidth(useEarth().map.getView().getProjection().getExtent());
-    const center = <Coordinate>useEarth().view.getCenter();
+    const worldWidth = getWidth(this.map.getView().getProjection().getExtent());
+    const center = <Coordinate>this.map.getView().getCenter();
     const offset = Math.floor(center[0] / worldWidth);
     // 渲染
     arrowGeometry.translate(offset * worldWidth, 0);
-    ctx.drawGeometry(arrowGeometry)
+    ctx.drawGeometry(arrowGeometry);
     arrowGeometry.translate(worldWidth, 0);
-    ctx.drawGeometry(arrowGeometry)
+    ctx.drawGeometry(arrowGeometry);
   }
   /**
    * @description: 删除飞线
-   * @return {*} 
+   * @return {*}
    * @author: gkc
    */
   removeFeatureById(id: string): void {
-    this.pointsFeatures = this.pointsFeatures.filter(item => {
+    this.pointsFeatures = this.pointsFeatures.filter((item) => {
       if (item.id != id) {
         return item;
       } else {
-        this.flightlineSource?.removeFeature(item.feature[0])
-        this.flightlineSource?.removeFeature(item.feature[1])
+        this.flightlineSource?.removeFeature(item.feature[0]);
+        this.flightlineSource?.removeFeature(item.feature[1]);
       }
-    })
-    this.lineLayers.remove(id + "_anchorLine");
+    });
+    this.lineLayers.remove(id + '_anchorLine');
   }
   setPosition(id: string, position: Coordinate[]): void {
-    this.pointsFeatures.map(item => {
+    this.pointsFeatures.map((item) => {
       if (item.id == id) {
         item.feature[0].getGeometry()?.setCoordinates(position[0]);
         item.feature[1].getGeometry()?.setCoordinates(position[1]);
@@ -273,8 +279,8 @@ export default class Flightline<T = unknown> {
         this.pointsFeatures = this.generatePointsFeatures(this.positions);
         this.init();
       }
-    })
-    const features = <Feature<LineString>[]>this.lineLayers.get(id + "_anchorLine");
+    });
+    const features = <Feature<LineString>[]>this.lineLayers.get(id + '_anchorLine');
     if (features.length > 0) {
       features[0].getGeometry()?.setCoordinates(position);
     }

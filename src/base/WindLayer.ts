@@ -1,9 +1,9 @@
-import Earth from '../Earth';
+import type Earth from '../Earth';
 import { Map as Maps } from 'ol';
 import { WindLayer as WindLayers } from 'ol-wind';
 import { ISetWindOptions, ISetWindParam, IWindParam } from '../interface';
 import { Utils } from '../common';
-import { useEarth } from '@/useEarth';
+import { getDefaultEarth } from '../earthContext';
 
 /**
  * 风场类，可绘制风场、洋流
@@ -22,7 +22,7 @@ export default class WindLayer {
    * @param earth 地图实例
    */
   constructor(earth?: Earth) {
-    const e = earth ?? useEarth();
+    const e = earth ?? getDefaultEarth();
     this.map = e.map;
   }
   /**

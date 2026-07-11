@@ -1,4 +1,3 @@
-import { useEarth } from '../../useEarth';
 import { OverlayLayer } from '../../base';
 import saveSvg from '../../assets/image/toolbar-save.svg?raw';
 import undoSvg from '../../assets/image/toolbar-undo.svg?raw';

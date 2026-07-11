@@ -1,5 +1,5 @@
 import { Utils } from '../common';
-import Earth from '../Earth';
+import type Earth from '../Earth';
 import { IPolylineFlyParam, IPolylineParam, ISetPolylineParam } from '../interface';
 import { Feature } from 'ol';
 import { LineString } from 'ol/geom';
@@ -14,7 +14,7 @@ import RenderEvent from 'ol/render/Event';
 import { unByKey } from 'ol/Observable';
 import { EventsKey } from 'ol/events';
 import { getWidth } from 'ol/extent';
-import { useEarth } from '@/useEarth';
+import { getDefaultEarth } from '../earthContext';
 
 /**
  * 创建线`Polyline`
@@ -57,7 +57,7 @@ export default class Polyline<T = LineString> extends Base {
       }),
       declutter: true
     });
-    const e = earth ?? useEarth();
+    const e = earth ?? getDefaultEarth();
     super(e, layer, 'Polyline');
   }
   /**
@@ -370,11 +370,7 @@ export default class Polyline<T = LineString> extends Base {
   private addParallelOverlay(param: IPolylineParam<T>): void {
     if (param.parallelOverlayOnTop === undefined || !param.id) return;
     const strokeWidth = param.stroke?.width ?? param.width ?? 2;
-    const overlayPositions = this.buildParallelOffsetPositions(
-      param.positions as Coordinate[],
-      param.parallelOverlayOnTop,
-      strokeWidth
-    );
+    const overlayPositions = this.buildParallelOffsetPositions(param.positions as Coordinate[], param.parallelOverlayOnTop, strokeWidth);
     const overlayId = `${param.id}__parallel`;
     const overlayStroke = param.parallelOverlayStroke || param.stroke;
     const overlayWidth = param.parallelOverlayStroke?.width ?? param.width;
@@ -431,9 +427,7 @@ export default class Polyline<T = LineString> extends Base {
   private findParallelOverlayFeatureByParentId(id: string): Feature<LineString> | undefined {
     const source = this.layer.getSource();
     const features = source?.getFeatures() || [];
-    return features.find((item) => item.get('isParallelOverlay') && item.get('parentId') === id) as
-      | Feature<LineString>
-      | undefined;
+    return features.find((item) => item.get('isParallelOverlay') && item.get('parentId') === id) as Feature<LineString> | undefined;
   }
 
   /**
@@ -556,7 +550,7 @@ export default class Polyline<T = LineString> extends Base {
    */
   addFlightLine(param: IPolylineFlyParam<T>): Flightline {
     param.id = param.id || Utils.GetGUID();
-    const flightline = new Flightline(this.layer, param, param.id);
+    const flightline = new Flightline(this.layer, param, param.id, this, this.earth.map);
     this.flyCatch.set(param.id, flightline);
     return flightline;
   }

@@ -1,4 +1,4 @@
-import Earth from 'Earth';
+import type Earth from '../Earth';
 import { IBillboardParam, ISetBillboardParam } from '../interface';
 import { IconOrigin, IconAnchorUnits } from 'ol/style/Icon';
 import { Point } from 'ol/geom';
@@ -8,8 +8,8 @@ import { Icon, Style } from 'ol/style';
 import Base from './Base';
 import { Utils } from '../common';
 import { Coordinate } from 'ol/coordinate';
-import { useEarth } from '../useEarth';
 import { Feature } from 'ol';
+import { getDefaultEarth } from '../earthContext';
 
 /**
  * 创建广告牌`Billboard`
@@ -29,7 +29,7 @@ export default class BillboardLayer<T = Point> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? useEarth();
+    const e = earth ?? getDefaultEarth();
     super(e, layer, 'Billboard');
   }
   /**
@@ -122,9 +122,7 @@ export default class BillboardLayer<T = Point> extends Base {
     const resolvedRotationDeg = nextRotationDeg !== undefined ? nextRotationDeg : Utils.rad2deg(oldIcon.getRotation());
     // 屏幕空间偏移：优先用传入值，否则回退已存储的屏幕空间偏移（不能用 oldIcon.getDisplacement()，那是已补偿过的本地值）
     const oldScreenDisp = <number[] | undefined>features[0].get('screenDisplacement');
-    const screenDisp = param.displacement !== undefined && param.displacement !== null
-      ? param.displacement
-      : (oldScreenDisp || [0, 0]);
+    const screenDisp = param.displacement !== undefined && param.displacement !== null ? param.displacement : oldScreenDisp || [0, 0];
     // size 必须是数组（宽高），否则使用旧值
     const nextSize: [number, number] | undefined = Array.isArray(param.size)
       ? (param.size as [number, number])
@@ -200,7 +198,7 @@ export default class BillboardLayer<T = Point> extends Base {
    * @returns [minLon, minLat, maxLon, maxLat]
    */
   getIconExtent(feature: Feature<Point>): [number, number, number, number] | null {
-    const map = useEarth().map;
+    const map = this.earth.map;
     const style = feature.getStyle() as Style;
     const icon = style.getImage() as Icon;
     if (!icon || !icon.getSize()) return null;

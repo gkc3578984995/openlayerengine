@@ -1,14 +1,14 @@
-import { useEarth } from "@/useEarth";
-import { Utils } from "../common";
-import Earth from "../Earth";
-import { IOverlayParam, ISetOverlayParam } from "../interface";
-import { Map, Overlay } from "ol";
-import { Coordinate } from "ol/coordinate";
+import { Utils } from '../common';
+import type Earth from '../Earth';
+import { IOverlayParam, ISetOverlayParam } from '../interface';
+import { Map, Overlay } from 'ol';
+import { Coordinate } from 'ol/coordinate';
+import { getDefaultEarth } from '../earthContext';
 
 /**
  * 创建覆盖物`Overlay`
  */
-export default class OverlayLayer<T = unknown>{
+export default class OverlayLayer<T = unknown> {
   /**
    * 地图map对象
    */
@@ -18,12 +18,12 @@ export default class OverlayLayer<T = unknown>{
    * @param earth 地图实例
    * @example
    * ```
-   * const overlayLayer = new OverlayLayer(useEarth()); 
+   * const overlayLayer = new OverlayLayer(useEarth());
    * ```
    */
   constructor(earth?: Earth) {
-    const e = earth ?? useEarth();
-    this.map = e.map
+    const e = earth ?? getDefaultEarth();
+    this.map = e.map;
   }
   /**
    * 添加覆盖物
@@ -52,7 +52,7 @@ export default class OverlayLayer<T = unknown>{
       autoPan: param.autoPan,
       className: param.className
     });
-    overlay.set("data", param.data);
+    overlay.set('data', param.data);
     this.map.addOverlay(overlay);
     return overlay;
   }
@@ -70,7 +70,7 @@ export default class OverlayLayer<T = unknown>{
   set(param: ISetOverlayParam): Overlay | null {
     const overlay = this.get(param.id);
     if (overlay == undefined) {
-      console.warn("没有找到元素，请检查ID");
+      console.warn('没有找到元素，请检查ID');
       return null;
     }
     if (param.position) {
@@ -101,7 +101,7 @@ export default class OverlayLayer<T = unknown>{
   setPosition(id: string, position: Coordinate | undefined): Overlay | null {
     const overlay = this.get(id);
     if (overlay == undefined) {
-      console.warn("没有找到元素，请检查ID");
+      console.warn('没有找到元素，请检查ID');
       return null;
     }
     overlay.setPosition(position);
@@ -160,7 +160,7 @@ export default class OverlayLayer<T = unknown>{
     if (id) {
       const overlay = this.get(id);
       if (overlay == undefined) {
-        console.warn("没有找到元素，请检查ID");
+        console.warn('没有找到元素，请检查ID');
         return;
       }
       this.map.removeOverlay(overlay);

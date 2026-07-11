@@ -1,4 +1,4 @@
-import Earth from '../Earth';
+import type Earth from '../Earth';
 import { IPointParam, ISetPointParam } from '../interface';
 import { Feature } from 'ol';
 import { Point } from 'ol/geom';
@@ -9,7 +9,7 @@ import { Circle, Fill, Stroke, Style } from 'ol/style.js';
 import { Utils } from '../common';
 import { unByKey } from 'ol/Observable';
 import { Coordinate } from 'ol/coordinate';
-import { useEarth } from '@/useEarth';
+import { getDefaultEarth } from '../earthContext';
 
 /**
  * 创建点`Point`
@@ -29,7 +29,7 @@ export default class PointLayer<T = Point> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? useEarth();
+    const e = earth ?? getDefaultEarth();
     super(e, layer, 'Point');
   }
   /**

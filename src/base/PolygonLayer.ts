@@ -1,5 +1,5 @@
 import { Utils } from '../common';
-import Earth from '../Earth';
+import type Earth from '../Earth';
 import { IPolygonParam, ISetPolygonParam } from '../interface';
 import { Feature } from 'ol';
 import { Polygon } from 'ol/geom';
@@ -8,7 +8,7 @@ import VectorSource from 'ol/source/Vector';
 import { Style } from 'ol/style';
 import Base from './Base';
 import { Coordinate } from 'ol/coordinate';
-import { useEarth } from '@/useEarth';
+import { getDefaultEarth } from '../earthContext';
 
 /**
  * 创建区域`Polygon`
@@ -29,7 +29,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? useEarth();
+    const e = earth ?? getDefaultEarth();
     super(e, layer, 'Polygon');
   }
   /**
@@ -87,7 +87,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
     if (param.positions) {
       features[0].getGeometry()?.setCoordinates(param.positions);
     }
-  const style = <Style>features[0].getStyle();
+    const style = <Style>features[0].getStyle();
     if (param.stroke) {
       super.setStroke(style, param.stroke);
     }

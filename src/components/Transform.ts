@@ -2,8 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import TransformInteraction from '../extends/transform-interaction/TransformInteraction';
-import { useEarth } from '../useEarth';
-import Earth from '../Earth';
+import type Earth from '../Earth';
 import { ISetOverlayParam, ITransformCallback, ITransformParams, ModifyType } from '../interface';
 import { ECursor, ETransform, ETranslateType } from '../enum';
 import { Feature } from 'ol';
@@ -18,6 +17,7 @@ import { Utils } from '../common';
 import cloneDeep from 'lodash/cloneDeep';
 import { IToolbarItem, Toolbar } from '../extends/toolbar/Toolbar';
 import DynamicDraw from './DynamicDraw';
+import { getDefaultEarth } from '../earthContext';
 
 export default class Transform {
   /**
@@ -117,7 +117,7 @@ export default class Transform {
 
   constructor(options: ITransformParams) {
     this.options = options;
-    this.earth = options.earth ?? useEarth();
+    this.earth = options.earth ?? getDefaultEarth();
     this.overlay = new OverlayLayer(this.earth);
     this.transforms = this.createTransform();
     // 初始化统一事件管线（内部数据处理 + 外部监听分发）
@@ -216,79 +216,77 @@ export default class Transform {
    */
   private setupKeyDownEvent() {
     this.earth.useGlobalEvent().enableGlobalKeyDownEvent();
-    this.keyDownFun = this.earth
-      .useGlobalEvent()
-      .addKeyDownEventByGlobal((event) => {
-        const key = event.key.toLowerCase();
-        if (key === 'escape' && this.checkSelect) {
+    this.keyDownFun = this.earth.useGlobalEvent().addKeyDownEventByGlobal((event) => {
+      const key = event.key.toLowerCase();
+      if (key === 'escape' && this.checkSelect) {
+        let extent: any = this.checkSelect.getGeometry()?.getExtent();
+        extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
+        // 退出编辑
+        this.transforms.exitEdit(extent);
+      }
+      if (key === 'z' && event.ctrlKey && this.checkSelect) {
+        // 回退
+        this.undo();
+        // 阻止默认行为，例如防止浏览器保存页面
+        event.preventDefault();
+      }
+      if (key === 'y' && event.ctrlKey && this.checkSelect) {
+        // 重做
+        this.redo();
+        // 阻止默认行为，例如防止浏览器保存页面
+        event.preventDefault();
+      }
+      if (key === 'delete' && this.checkSelect) {
+        let extent: any = this.checkSelect.getGeometry()?.getExtent();
+        extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
+        // 删除
+        this.handleRemoveEvent(extent);
+        // 阻止默认行为，例如防止浏览器保存页面
+        event.preventDefault();
+      }
+      if (key.toLowerCase() === 'c' && event.ctrlKey && this.checkSelect) {
+        // 复制
+        this.copyFeature = cloneDeep(this.checkSelect);
+        // 设置标牌
+        this.helpTooltipEl!.innerHTML = this.buildTransformBaseTooltip();
+        // 阻止默认行为，例如防止浏览器保存页面
+        event.preventDefault();
+      }
+      if (key.toLowerCase() === 'v' && event.ctrlKey && this.copyFeature) {
+        // 粘贴
+        if (this.checkSelect) {
           let extent: any = this.checkSelect.getGeometry()?.getExtent();
           extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
-          // 退出编辑
           this.transforms.exitEdit(extent);
         }
-        if (key === 'z' && event.ctrlKey && this.checkSelect) {
-          // 回退
-          this.undo();
-          // 阻止默认行为，例如防止浏览器保存页面
-          event.preventDefault();
-        }
-        if (key === 'y' && event.ctrlKey && this.checkSelect) {
-          // 重做
-          this.redo();
-          // 阻止默认行为，例如防止浏览器保存页面
-          event.preventDefault();
-        }
-        if (key === 'delete' && this.checkSelect) {
-          let extent: any = this.checkSelect.getGeometry()?.getExtent();
-          extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
-          // 删除
-          this.handleRemoveEvent(extent);
-          // 阻止默认行为，例如防止浏览器保存页面
-          event.preventDefault();
-        }
-        if (key.toLowerCase() === 'c' && event.ctrlKey && this.checkSelect) {
-          // 复制
-          this.copyFeature = cloneDeep(this.checkSelect);
-          // 设置标牌
-          this.helpTooltipEl!.innerHTML = this.buildTransformBaseTooltip();
-          // 阻止默认行为，例如防止浏览器保存页面
-          event.preventDefault();
-        }
-        if (key.toLowerCase() === 'v' && event.ctrlKey && this.copyFeature) {
-          // 粘贴
-          if (this.checkSelect) {
-            let extent: any = this.checkSelect.getGeometry()?.getExtent();
-            extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
-            this.transforms.exitEdit(extent);
+        // 优先使用最近一次 pointermove 记录的像素
+        let pixel: number[] | undefined = this.lastPointerPixel ? [...this.lastPointerPixel] : undefined;
+        if (!pixel) {
+          // 回退：使用地图中心像素
+          try {
+            const size = this.earth.map.getSize();
+            if (size) pixel = [size[0] / 2, size[1] / 2];
+          } catch (_) {
+            pixel = [0, 0];
           }
-          // 优先使用最近一次 pointermove 记录的像素
-          let pixel: number[] | undefined = this.lastPointerPixel ? [...this.lastPointerPixel] : undefined;
-          if (!pixel) {
-            // 回退：使用地图中心像素
-            try {
-              const size = this.earth.map.getSize();
-              if (size) pixel = [size[0] / 2, size[1] / 2];
-            } catch (_) {
-              pixel = [0, 0];
-            }
-          }
-          if (pixel) this.handleCopyEvent(this.copyFeature, pixel);
-          // 阻止默认行为，例如防止浏览器保存页面
-          event.preventDefault();
         }
-        if (key.toLowerCase() === 'x' && event.ctrlKey && this.checkSelect) {
-          // 剪切
-          this.copyFeature = cloneDeep(this.checkSelect);
-          let extent: any = this.checkSelect.getGeometry()?.getExtent();
-          extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
-          // 删除
-          this.handleRemoveEvent(extent);
-          // 设置鼠标默认样式
-          this.earth.setMouseStyleToDefault();
-          // 阻止默认行为，例如防止浏览器保存页面
-          event.preventDefault();
-        }
-      });
+        if (pixel) this.handleCopyEvent(this.copyFeature, pixel);
+        // 阻止默认行为，例如防止浏览器保存页面
+        event.preventDefault();
+      }
+      if (key.toLowerCase() === 'x' && event.ctrlKey && this.checkSelect) {
+        // 剪切
+        this.copyFeature = cloneDeep(this.checkSelect);
+        let extent: any = this.checkSelect.getGeometry()?.getExtent();
+        extent = extent ? this.earth.map.getPixelFromCoordinate([extent[0], extent[3]]) : [0, 0];
+        // 删除
+        this.handleRemoveEvent(extent);
+        // 设置鼠标默认样式
+        this.earth.setMouseStyleToDefault();
+        // 阻止默认行为，例如防止浏览器保存页面
+        event.preventDefault();
+      }
+    });
   }
 
   /**
@@ -577,10 +575,7 @@ export default class Transform {
       }
     }
     // 变换进行中：同步 Polyline（及其平行叠加线）
-    if (
-      (eventName === ETransform.Translating || eventName === ETransform.Rotating || eventName === ETransform.Scaling) &&
-      e.feature
-    ) {
+    if ((eventName === ETransform.Translating || eventName === ETransform.Rotating || eventName === ETransform.Scaling) && e.feature) {
       this.syncPolylineFeaturePosition(e.feature);
     }
   }
@@ -605,10 +600,7 @@ export default class Transform {
         }
       }
     }
-    if (
-      (eventName === ETransform.TranslateEnd || eventName === ETransform.RotateEnd || eventName === ETransform.ScaleEnd) &&
-      e.feature
-    ) {
+    if ((eventName === ETransform.TranslateEnd || eventName === ETransform.RotateEnd || eventName === ETransform.ScaleEnd) && e.feature) {
       this.syncPolylineFeaturePosition(e.feature);
     }
   }
@@ -846,7 +838,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'fineArrow':
               draw.editFineArrow({
@@ -858,7 +850,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'tailedSquadCombatArrow':
               draw.editTailedSquadCombatArrow({
@@ -870,7 +862,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'assaultDirectionArrow':
               draw.editAssaultDirectionArrow({
@@ -882,7 +874,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'doubleArrow':
               draw.editDoubleArrow({
@@ -894,7 +886,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'assemblePolygon':
               draw.editAssemblePolygon({
@@ -906,7 +898,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'closedCurvePolygon':
               draw.editClosedCurvePolygon({
@@ -918,7 +910,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'ellipse':
               draw.editEllipse({
@@ -930,7 +922,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'sectorPolygon':
               draw.editSectorPolygon({
@@ -942,7 +934,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'lunePolygon':
               draw.editLunePolygon({
@@ -954,7 +946,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'rectAnglePolygon':
               draw.editRectAnglePolygon({
@@ -966,7 +958,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'trianglePolygon':
               draw.editTrianglePolygon({
@@ -978,7 +970,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
             case 'equilateralTrianglePolygon':
               draw.editEquilateralTrianglePolygon({
@@ -990,7 +982,7 @@ export default class Transform {
                     this.handleRawEvent(ETransform.ModifyEnd, { feature: checkSelect, plotParam: ev.plotParam, pixel: pixel });
                   }
                 }
-              })
+              });
               break;
           }
         } else {
@@ -1058,7 +1050,6 @@ export default class Transform {
             }
           });
         }
-
       }
       // 退出编辑模式
       this.transforms.exitEdit(pixel);
@@ -1126,39 +1117,33 @@ export default class Transform {
     if (!pixel) {
       // 启用全局鼠标移动
       this.earth.useGlobalEvent().enableGlobalMouseMoveEvent();
-      this.earth
-        .useGlobalEvent()
-        .addMouseMoveEventByGlobal((event) => moveHandler(event));
+      this.earth.useGlobalEvent().addMouseMoveEventByGlobal((event) => moveHandler(event));
 
-      this.earth
-        .useGlobalEvent()
-        .addMouseOnceClickEventByGlobal((event) => {
-          // 确定复制要素
-          if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
-            this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
-            moveHandler.flush?.();
-            this.copyStatus = null;
-            // 触发copy事件通知外部
-            this.handleRawEvent(ETransform.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: event.pixel });
-            this.removeHelpTooltip();
+      this.earth.useGlobalEvent().addMouseOnceClickEventByGlobal((event) => {
+        // 确定复制要素
+        if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
+          this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
+          moveHandler.flush?.();
+          this.copyStatus = null;
+          // 触发copy事件通知外部
+          this.handleRawEvent(ETransform.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: event.pixel });
+          this.removeHelpTooltip();
+        }
+      });
+      this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal((event) => {
+        // 取消复制
+        if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
+          this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
+          moveHandler.cancel?.();
+          // 仅在已创建副本（copyStatus 非 null）时才移除该副本；
+          // 若用户未移动鼠标即右键取消，moveHandler 尚未执行、copyStatus 为 null，
+          // 此时不可调用 layer.remove(undefined) —— 否则会触发 Base.remove 的清空整层逻辑，导致数据丢失。
+          if (this.copyStatus?.id) {
+            layer.remove(this.copyStatus.id);
           }
-        });
-      this.earth
-        .useGlobalEvent()
-        .addMouseOnceRightClickEventByGlobal((event) => {
-          // 取消复制
-          if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
-            this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
-            moveHandler.cancel?.();
-            // 仅在已创建副本（copyStatus 非 null）时才移除该副本；
-            // 若用户未移动鼠标即右键取消，moveHandler 尚未执行、copyStatus 为 null，
-            // 此时不可调用 layer.remove(undefined) —— 否则会触发 Base.remove 的清空整层逻辑，导致数据丢失。
-            if (this.copyStatus?.id) {
-              layer.remove(this.copyStatus.id);
-            }
-            this.copyStatus = null;
-          }
-        });
+          this.copyStatus = null;
+        }
+      });
     } else {
       let newValue: any = Utils.getFeatureToPixel(this.earth.map, pixel, baseCoords);
       const pixelCenter = this.earth.map.getCoordinateFromPixel(pixel);
@@ -1748,9 +1733,7 @@ export default class Transform {
     } else if (type == 'MultiPolygon') {
       // MultiPolygon 坐标为 Coordinate[][][]（多面 -> 环 -> 点），需三层遍历
       coordinates = (coordinates as Coordinate[][][]).map((polygon: Coordinate[][]) =>
-        polygon.map((ring: Coordinate[]) =>
-          ring.map((pt: Coordinate) => toLonLat(pt))
-        )
+        polygon.map((ring: Coordinate[]) => ring.map((pt: Coordinate) => toLonLat(pt)))
       );
     } else if (type == 'LineString' || type == 'MultiLineString') {
       coordinates = (coordinates as Coordinate[]).map((item: Coordinate) => {
