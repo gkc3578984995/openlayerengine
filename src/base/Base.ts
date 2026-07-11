@@ -496,7 +496,7 @@ export default class Base {
     // 样式同步（静态样式）
     const style = this.resolveStaticStyle(feature);
     if (style) {
-      this.syncStrokeFillFromStyle(style, param);
+        if (!isPatternFill(param.fill)) this.syncStrokeFillFromStyle(style, param);
       param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
     feature.set(FEATURE_KEYS.param, param);
@@ -619,7 +619,7 @@ export default class Base {
         }
       }
       if (style) {
-      this.syncStrokeFillFromStyle(style, param);
+        if (!isPatternFill(param.fill)) this.syncStrokeFillFromStyle(style, param);
         param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     } else if (layerType === 'Polygon') {

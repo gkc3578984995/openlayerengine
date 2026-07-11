@@ -40,7 +40,7 @@ export interface ICircleParam<T> extends IAddBaseParam<T> {
   /**
    * 填充样式
    */
-  fill?: IFill;
+  fill?: IGeometryFill;
   /**
    * 标签样式
    */
@@ -66,7 +66,7 @@ export interface ISetCircleParam {
   /**
    * 填充样式
    */
-  fill?: IFill;
+  fill?: IGeometryFill;
   /**
    * 标签样式
    */

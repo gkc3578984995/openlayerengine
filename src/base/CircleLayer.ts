@@ -1,14 +1,15 @@
-import { Utils } from '../common';
+import { FEATURE_KEYS, Utils } from '../common';
 import type Earth from '../Earth';
 import { Feature } from 'ol';
 import { Circle } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
-import Style from 'ol/style/Style';
+import { Fill, Style } from 'ol/style';
 import Base from './Base';
-import { ICircleParam, ISetCircleParam } from '../interface';
+import type { ICircleParam, ISetCircleParam } from '../interface';
 import { Coordinate } from 'ol/coordinate';
 import { getDefaultEarth } from '../earthContext';
+import { createPatternFill, isPatternFill } from '../common/PatternFill';
 /**
  * 创建圆`Circle`
  */
@@ -39,14 +40,22 @@ export default class CircleLayer<T = Circle> extends Base {
     const feature = new Feature({
       geometry: new Circle(param.center, param.radius)
     });
-
-    let style = new Style();
-    style = super.setStroke(style, param.stroke);
-    style = super.setFill(style, param.fill);
-    style = this.applyText(style, param.label, feature);
-    feature.setStyle(style);
+    this.applyCircleStyle(feature, param);
     this.bindFeature(feature, param, 'Circle');
     return feature;
+  }
+
+  /** 根据声明式参数完整重建 Circle 样式 */
+  private applyCircleStyle(feature: Feature<Circle>, param: ICircleParam<T>): void {
+    let style = new Style();
+    style = super.setStroke(style, param.stroke);
+    if (isPatternFill(param.fill)) {
+      style.setFill(new Fill({ color: createPatternFill(param.fill, param.stroke?.color) }));
+    } else {
+      style = super.setFill(style, param.fill);
+    }
+    style = this.applyText(style, param.label, feature);
+    feature.setStyle(style);
   }
   /**
    * 创建一个圆形
@@ -84,17 +93,26 @@ export default class CircleLayer<T = Circle> extends Base {
       return [];
     }
     const feature = features[0];
-    let style = <Style>feature.getStyle();
-    style = super.setStroke(style, param.stroke);
-    style = super.setFill(style, param.fill);
-    style = this.applyText(style, param.label, feature);
-    feature.setStyle(style);
+    const stored = feature.get(FEATURE_KEYS.param) as ICircleParam<T>;
+    const nextFill = isPatternFill(param.fill)
+      ? { ...(isPatternFill(stored.fill) ? stored.fill : {}), ...param.fill }
+      : param.fill ?? stored.fill;
+    const next: ICircleParam<T> = {
+      ...stored,
+      center: param.center ?? stored.center,
+      radius: param.radius ?? stored.radius,
+      stroke: param.stroke ? { ...stored.stroke, ...param.stroke } : stored.stroke,
+      fill: nextFill,
+      label: param.label ? { ...stored.label, ...param.label } : stored.label
+    };
     if (param.center) {
       this.setPosition(param.id, param.center);
     }
-    if (param.radius) {
+    if (param.radius !== undefined) {
       feature.getGeometry()?.setRadius(param.radius);
     }
+    feature.set(FEATURE_KEYS.param, next);
+    this.applyCircleStyle(feature, next);
     return features;
   }
   /**
