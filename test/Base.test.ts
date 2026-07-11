@@ -22,6 +22,29 @@ function makeBase(type = 'Point') {
   return { base: new Base(makeMockEarth(), layer, type), layer };
 }
 
+describe('Base.setLayerOpacity', () => {
+  it('converts percentages to OpenLayers opacity and defaults to 100', () => {
+    const { base, layer } = makeBase();
+
+    expect(base.setLayerOpacity()).toBe(true);
+    expect(layer.getOpacity()).toBe(1);
+    expect(base.setLayerOpacity(50)).toBe(true);
+    expect(layer.getOpacity()).toBe(0.5);
+    expect(base.setLayerOpacity(0)).toBe(true);
+    expect(layer.getOpacity()).toBe(0);
+  });
+
+  it('rejects invalid percentages without changing the current opacity', () => {
+    const { base, layer } = makeBase();
+    base.setLayerOpacity(50);
+
+    expect(base.setLayerOpacity(-1)).toBe(false);
+    expect(base.setLayerOpacity(101)).toBe(false);
+    expect(base.setLayerOpacity(Number.NaN)).toBe(false);
+    expect(layer.getOpacity()).toBe(0.5);
+  });
+});
+
 describe('Base.getUpdatedParam — Point', () => {
   it('从几何与样式同步 center / size / stroke / fill / label', () => {
     const { base } = makeBase('Point');

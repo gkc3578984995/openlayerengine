@@ -803,6 +803,20 @@ export default class Base {
     }
   }
   /**
+   * 设置图层透明度。
+   * @param opacity 透明度百分比，取值范围为 `0` 到 `100`，默认 `100`。
+   * @returns 参数有效且修改成功时返回 `true`，否则返回 `false`。
+   * @example
+   * ```
+   * layer.setLayerOpacity(50);
+   * ```
+   */
+  setLayerOpacity(opacity: number = 100): boolean {
+    if (!Number.isFinite(opacity) || opacity < 0 || opacity > 100) return false;
+    this.layer.setOpacity(opacity / 100);
+    return true;
+  }
+  /**
    * 设置图层`z-index`等级
    * @param index 等级
    * @example
