@@ -89,8 +89,10 @@ describe('PolygonLayer pattern fills', () => {
         [1, 1]
       ]
     ]);
+    layer.setPosition('transform', positions);
 
     expect(feature.get('param').fill).toEqual({ type: 'vertical' });
     expect(layer.getUpdatedParam(feature as any)?.fill).toEqual({ type: 'vertical' });
+    expect(getFillColor(feature)).toEqual({ color: '#000000' });
   });
 });
