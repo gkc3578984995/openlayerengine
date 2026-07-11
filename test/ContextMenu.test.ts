@@ -2,6 +2,61 @@
 import { describe, expect, it, vi } from 'vitest';
 import ContextMenu, { IContextMenuItem } from '../src/components/ContextMenu';
 
+function createFakeElement() {
+  const listeners = new Map<string, ((event: any) => void)[]>();
+  const element: any = {
+    children: [] as any[],
+    parent: undefined as any,
+    className: '',
+    classList: { add: vi.fn(), toggle: vi.fn() },
+    dataset: {},
+    style: {},
+    setAttribute: vi.fn(),
+    appendChild(child: any) {
+      child.parent = element;
+      this.children.push(child);
+    },
+    replaceChildren(...children: any[]) {
+      this.children = [];
+      children.forEach((child) => this.appendChild(child));
+    },
+    addEventListener(type: string, listener: (event: any) => void) {
+      listeners.set(type, [...(listeners.get(type) || []), listener]);
+    },
+    removeEventListener(type: string, listener: (event: any) => void) {
+      listeners.set(
+        type,
+        (listeners.get(type) || []).filter((item) => item !== listener)
+      );
+    },
+    dispatchEvent(event: any) {
+      event.target ??= element;
+      (listeners.get(event.type) || []).forEach((listener) => listener(event));
+      if (event.bubbles !== false && !event.cancelBubble) element.parent?.dispatchEvent(event);
+    }
+  };
+  Object.defineProperty(element, 'childElementCount', { get: () => element.children.length });
+  return element;
+}
+
+function withFakeDom<T>(callback: (viewport: any) => T): T {
+  const originalDocument = globalThis.document;
+  const viewport = createFakeElement();
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      createElement: () => createFakeElement(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    }
+  });
+  try {
+    return callback(viewport);
+  } finally {
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
+  }
+}
+
 function makeContextMenu(): ContextMenu {
   const viewport = {
     addEventListener: () => undefined,
@@ -138,5 +193,36 @@ describe('ContextMenu 状态', () => {
     expect(contextMenu.currentItems.has('openInfo')).toBe(false);
     expect(dataButton.disabled).toBe(true);
     expect(before).toHaveBeenCalledWith(expect.objectContaining({ featureId: 'car-01', menu: vehicleMenus[2].child![0] }));
+  });
+
+  it('菜单浮层应阻断 pointerdown 冒泡到地图视口', () => {
+    withFakeDom((viewport) => {
+      const earth = {
+        map: {
+          getViewport: () => viewport,
+          on: () => undefined
+        }
+      } as any;
+      const menu = new ContextMenu(earth);
+      const contextMenu = menu as any;
+      const viewportPointerDown = vi.fn();
+      viewport.addEventListener('pointerdown', viewportPointerDown);
+
+      contextMenu.ensureRoot();
+      const event = {
+        type: 'pointerdown',
+        bubbles: true,
+        cancelBubble: false,
+        preventDefault: vi.fn(),
+        stopPropagation() {
+          this.cancelBubble = true;
+        }
+      };
+
+      contextMenu.root.dispatchEvent(event);
+
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(viewportPointerDown).not.toHaveBeenCalled();
+    });
   });
 });

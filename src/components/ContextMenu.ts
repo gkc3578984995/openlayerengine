@@ -209,6 +209,11 @@ export default class ContextMenu {
       document.removeEventListener('keydown', this.handleKeyDown);
     }
     this.root?.removeEventListener('click', this.handleMenuClick);
+    this.root?.removeEventListener('pointerdown', this.stopMenuEvent);
+    this.root?.removeEventListener('mousedown', this.stopMenuEvent);
+    this.root?.removeEventListener('pointerup', this.stopMenuEvent);
+    this.root?.removeEventListener('mouseup', this.stopMenuEvent);
+    this.root?.removeEventListener('contextmenu', this.stopMenuEvent);
     this.root?.remove();
     this.root = undefined;
     this.defaultMenu = undefined;
@@ -261,6 +266,7 @@ export default class ContextMenu {
   };
 
   private handleMenuClick = (event: MouseEvent): void => {
+    this.stopMenuEvent(event);
     const target = event.target as HTMLElement | null;
     const button = target?.closest<HTMLButtonElement>('button[data-menu-key]');
     const menuKey = button?.dataset.menuKey;
@@ -280,6 +286,11 @@ export default class ContextMenu {
 
   private handleDocumentPointerDown = (event: PointerEvent): void => {
     if (this.root && event.target instanceof Node && !this.root.contains(event.target)) this.close();
+  };
+
+  private stopMenuEvent = (event: Event): void => {
+    event.preventDefault?.();
+    event.stopPropagation?.();
   };
 
   private handleKeyDown = (event: KeyboardEvent): void => {
@@ -374,6 +385,11 @@ export default class ContextMenu {
     this.root.setAttribute('role', 'menu');
     this.root.style.display = 'none';
     this.root.addEventListener('click', this.handleMenuClick);
+    this.root.addEventListener('pointerdown', this.stopMenuEvent);
+    this.root.addEventListener('mousedown', this.stopMenuEvent);
+    this.root.addEventListener('pointerup', this.stopMenuEvent);
+    this.root.addEventListener('mouseup', this.stopMenuEvent);
+    this.root.addEventListener('contextmenu', this.stopMenuEvent);
     viewport.appendChild(this.root);
     document.addEventListener('pointerdown', this.handleDocumentPointerDown, true);
     document.addEventListener('keydown', this.handleKeyDown);
