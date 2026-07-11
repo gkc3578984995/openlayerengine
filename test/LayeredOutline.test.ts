@@ -37,4 +37,27 @@ describe('layered outlines', () => {
     });
     expect(asStyles(feature.getStyle() as Style[]).map((style) => style.getStroke()?.getColor())).toEqual(['#f00', '#000']);
   });
+
+  it('reapplies polygon layered styles after set without losing its label or fill', () => {
+    const layer = new PolygonLayer(earth());
+    const feature = layer.add({ id: 'area', positions: polygon, fill: { color: '#abcdef' }, label: { text: 'area' }, stroke: { color: '#000', width: 2 } });
+    layer.set({ id: 'area', outerStroke: { color: '#f00', width: 8 }, innerStroke: { color: '#111', width: 3 } });
+    const styles = asStyles(feature.getStyle() as Style[]);
+    expect(styles).toHaveLength(2);
+    expect(styles[1].getFill()?.getColor()).toBe('#abcdef');
+    expect(styles[1].getText()?.getText()).toBe('area');
+  });
+
+  it('prefers innerStroke over legacy stroke when both are provided', () => {
+    const feature = new PolylineLayer(earth()).add({
+      positions: [
+        [0, 0],
+        [10, 0]
+      ],
+      stroke: { color: '#f00', width: 9 },
+      outerStroke: { color: '#00ff36', width: 13 },
+      innerStroke: { color: '#000', width: 3 }
+    });
+    expect(asStyles(feature.getStyle() as Style[]).map((style) => style.getStroke()?.getColor())).toEqual(['#00ff36', '#000']);
+  });
 });

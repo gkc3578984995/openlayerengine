@@ -50,14 +50,13 @@ export default class PolygonLayer<T = Polygon> extends Base {
   /** 根据声明式参数完整重建 Polygon 样式 */
   private applyPolygonStyle(feature: Feature<Polygon>, param: IPolygonParam<T>): void {
     let style = new Style();
-    style = super.setStroke(style, param.stroke);
     if (isPatternFill(param.fill)) {
       style.setFill(new Fill({ color: createPatternFill(param.fill, param.stroke?.color) }));
     } else {
       style = super.setFill(style, param.fill);
     }
     style = this.applyText(style, param.label, feature);
-    feature.setStyle(style);
+    feature.setStyle(this.setLayeredStroke(style, param.stroke, param.outerStroke, param.innerStroke));
   }
   /**
    * 添加多边形
@@ -106,6 +105,8 @@ export default class PolygonLayer<T = Polygon> extends Base {
       ...stored,
       positions: param.positions ?? stored.positions,
       stroke: param.stroke ? { ...stored.stroke, ...param.stroke } : stored.stroke,
+      outerStroke: param.outerStroke ? { ...stored.outerStroke, ...param.outerStroke } : stored.outerStroke,
+      innerStroke: param.innerStroke ? { ...stored.innerStroke, ...param.innerStroke } : stored.innerStroke,
       fill: nextFill,
       label: param.label ? { ...stored.label, ...param.label } : stored.label
     };

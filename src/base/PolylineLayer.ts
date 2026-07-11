@@ -74,11 +74,10 @@ export default class Polyline<T = LineString> extends Base {
     super.setFill(baseStyle, param.fill);
     this.applyText(baseStyle, param.label, feature);
     // 如果未设置 stroke 或未提供 lineDash 或未启用 fitPatternOnce，直接常规处理
-    const strokeCfg = param.stroke;
+    const strokeCfg = param.innerStroke ?? param.stroke;
     const needFit = !!(strokeCfg && strokeCfg.lineDash && strokeCfg.lineDash.length > 0 && strokeCfg.fitPatternOnce);
     if (!needFit) {
-      super.setStroke(baseStyle, strokeCfg, param.width);
-      feature.setStyle(baseStyle);
+      feature.setStyle(this.setLayeredStroke(baseStyle, param.stroke, param.outerStroke, param.innerStroke, param.width));
     } else {
       // 动态 style function：随视图缩放或线坐标变动实时匹配一轮 pattern
       // pattern 视为比例数组，按其和做归一化
@@ -86,6 +85,7 @@ export default class Polyline<T = LineString> extends Base {
       const pattern = patternSrc.slice();
       const patternSum = pattern.length ? pattern.reduce((a, b) => a + b, 0) : 1;
       const strokeWidth = strokeCfg?.width ?? param.width ?? 2;
+      const outerStyle = param.outerStroke ? super.setStroke(new Style(), param.outerStroke, param.width) : undefined;
       let lastSig = '';
       let cachedStyle: Style | null = null;
       // 生成坐标签名 + 分辨率签名：防止重复计算
@@ -97,12 +97,12 @@ export default class Polyline<T = LineString> extends Base {
       };
       feature.setStyle((feat: import('ol/Feature').FeatureLike, res: number) => {
         const geom = (feat as Feature<LineString>).getGeometry && (feat as Feature<LineString>).getGeometry();
-        if (!geom || !(geom instanceof LineString)) return baseStyle;
+        if (!geom || !(geom instanceof LineString)) return outerStyle ? [outerStyle, baseStyle] : baseStyle;
         const map = this.earth?.map;
-        if (!map) return baseStyle;
+        if (!map) return outerStyle ? [outerStyle, baseStyle] : baseStyle;
         const coords: number[][] = geom.getCoordinates();
         const sig = buildSig(coords, res);
-        if (sig === lastSig && cachedStyle) return cachedStyle;
+        if (sig === lastSig && cachedStyle) return outerStyle ? [outerStyle, cachedStyle] : cachedStyle;
         lastSig = sig;
         // 计算屏幕像素总长度
         let totalPx = 0;
@@ -130,7 +130,7 @@ export default class Polyline<T = LineString> extends Base {
           text: baseStyle.getText(),
           fill: baseStyle.getFill()
         });
-        return cachedStyle;
+        return outerStyle ? [outerStyle, cachedStyle] : cachedStyle;
       });
     }
     // 其余属性挂载
