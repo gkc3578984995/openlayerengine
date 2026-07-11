@@ -29,7 +29,6 @@
   "dependencies": {
     "heatmap.js": "^2.0.5",
     "lodash": "^4.17.21",
-    "lodash.clonedeep": "^4.5.0",
     "mitt": "^3.0.0",
     "ol-wind": "^1.1.2"
   },
@@ -44,7 +43,6 @@
     "@rollup/plugin-url": "^8.0.2",
     "@types/heatmap.js": "^2.0.37",
     "@types/lodash": "^4.17.20",
-    "@types/minimatch": "^6.0.0",
     "@types/node": "^18.13.0",
     "@typescript-eslint/eslint-plugin": "^5.52.0",
     "copyfiles": "^2.4.1",
@@ -63,8 +61,7 @@
     "typescript": "5.4",
     "vite": "^4.1.1",
     "vite-plugin-string": "^1.2.1",
-    "vitest": "^1.6.0",
-    "vue-tsc": "^1.0.24"
+    "vitest": "^1.6.0"
   },
   "license": "MIT",
   "exports": {

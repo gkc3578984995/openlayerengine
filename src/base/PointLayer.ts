@@ -23,14 +23,14 @@ export default class PointLayer<T = Point> extends Base {
    * const pointLayer = new PointLayer(useEarth());
    * ```
    */
-  constructor(earth?: Earth, options?: { wrapX?: boolean }) {
+  constructor(earth?: Earth, options?: { wrapX?: boolean; register?: boolean }) {
     const layer = new VectorLayer({
       source: new VectorSource({
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
     const e = earth ?? getDefaultEarth();
-    super(e, layer, 'Point');
+    super(e, layer, 'Point', options);
   }
   /**
    * 创建矢量元素

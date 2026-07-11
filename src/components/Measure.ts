@@ -29,6 +29,12 @@ export default class Measure {
    * 绘制工具
    */
   private draw?: Draw;
+  /** 当前测量会话的右键退出监听释放器 */
+  private measureExitDisposer?: () => void;
+  /** 中心测距使用的左键抬起监听释放器 */
+  private centerLeftUpDisposer?: () => void;
+  /** 中心测距延迟注册监听的定时器 */
+  private centerLeftUpTimer?: ReturnType<typeof setTimeout>;
   /**
    * 图层
    */
@@ -101,6 +107,25 @@ export default class Measure {
     });
     this.map.addLayer(this.layer);
     this.pointLayer = new PointLayer(this.earth);
+  }
+  /** 释放当前测量会话登记的监听和延迟任务 */
+  private clearMeasureListeners() {
+    this.measureExitDisposer?.();
+    this.centerLeftUpDisposer?.();
+    if (this.centerLeftUpTimer !== undefined) {
+      clearTimeout(this.centerLeftUpTimer);
+    }
+    this.measureExitDisposer = undefined;
+    this.centerLeftUpDisposer = undefined;
+    this.centerLeftUpTimer = undefined;
+  }
+  /** 开启新测量会话前，清理上一个会话的交互和监听 */
+  private beginMeasureSession() {
+    this.clearMeasureListeners();
+    if (this.draw) {
+      this.map.removeInteraction(this.draw);
+      this.draw = undefined;
+    }
   }
   private formatLength(line: LineString): number {
     const length = getLength(line);
@@ -234,6 +259,7 @@ export default class Measure {
    * @param param 参数，详见{@link IMeasure}
    */
   private lineMeasure(param: IMeasure) {
+    this.beginMeasureSession();
     this.earth.setMouseStyle('pointer');
     const activeTip = '单击继续绘制线 右击退出测量';
     const idleTip = '单击开始测量';
@@ -289,9 +315,10 @@ export default class Measure {
       this.measureData.totalDistance = totalDistance;
       param.callback?.call(this, this.measureData);
     });
-    this.earth
+    this.measureExitDisposer = this.earth
       .useGlobalEvent()
-      .addMouseOnceRightClickEventByGlobal((e) => {
+      .addCancelableMouseOnceRightClickEventByGlobal(() => {
+        this.clearMeasureListeners();
         if (this.draw) {
           this.draw.finishDrawing();
           this.map.removeInteraction(this.draw);
@@ -323,6 +350,7 @@ export default class Measure {
    * @param param 参数，详见{@link IMeasure}
    */
   lineCenter(param: IMeasure) {
+    this.beginMeasureSession();
     this.segments = true;
     this.labels = false;
     this.earth.setMouseStyle('pointer');
@@ -349,10 +377,10 @@ export default class Measure {
     this.draw.on('drawstart', (e) => {
       const line = <LineString>e.feature.getGeometry();
       tip = activeTip;
-      setTimeout(() => {
-        if (!this.earth.useGlobalEvent().hasGlobalMouseLeftUpEvent()) {
-          this.earth.useGlobalEvent().enableGlobalMouseLeftUpEvent();
-          this.earth
+      if (!this.centerLeftUpDisposer && this.centerLeftUpTimer === undefined) {
+        this.centerLeftUpTimer = setTimeout(() => {
+          this.centerLeftUpTimer = undefined;
+          this.centerLeftUpDisposer = this.earth
             .useGlobalEvent()
             .addMouseLeftUpEventByGlobal(() => {
               if (this.draw) {
@@ -367,8 +395,8 @@ export default class Measure {
             },
             size: param?.pointSzie || 3
           });
-        }
-      }, 50);
+        }, 50);
+      }
     });
     this.draw.on('drawend', (e) => {
       tip = idleTip;
@@ -394,12 +422,10 @@ export default class Measure {
         });
       });
     });
-    this.earth
+    this.measureExitDisposer = this.earth
       .useGlobalEvent()
-      .addMouseOnceRightClickEventByGlobal((e) => {
-        if (this.earth.useGlobalEvent().hasGlobalMouseLeftUpEvent()) {
-          this.earth.useGlobalEvent().disableGlobalMouseLeftUpEvent();
-        }
+      .addCancelableMouseOnceRightClickEventByGlobal(() => {
+        this.clearMeasureListeners();
         if (this.draw) {
           this.draw.finishDrawing();
           this.map.removeInteraction(this.draw);
@@ -414,6 +440,7 @@ export default class Measure {
    * @param param 参数，详见{@link IMeasure}
    */
   polygonMeasure(param: IMeasure) {
+    this.beginMeasureSession();
     this.segments = true;
     this.labels = true;
     this.earth.setMouseStyle('pointer');
@@ -461,9 +488,10 @@ export default class Measure {
       this.measureData.area = this.formatArea(polygon.getGeometry()!);
       param.callback?.call(this, this.measureData);
     });
-    this.earth
+    this.measureExitDisposer = this.earth
       .useGlobalEvent()
-      .addMouseOnceRightClickEventByGlobal((e) => {
+      .addCancelableMouseOnceRightClickEventByGlobal(() => {
+        this.clearMeasureListeners();
         if (this.draw) {
           this.draw.finishDrawing();
           this.map.removeInteraction(this.draw);
@@ -476,6 +504,11 @@ export default class Measure {
    * 清空测量
    */
   clear() {
+    this.clearMeasureListeners();
+    if (this.draw) {
+      this.map.removeInteraction(this.draw);
+      this.draw = undefined;
+    }
     this.map.removeLayer(this.layer);
     this.pointLayer.destroy();
     this.measureData = { data: [] };

@@ -78,6 +78,14 @@ export default class DynamicDraw {
   private circleLayer?: CircleLayer;
   /** 标记当前一次绘制是否已经通过 drawend 正常完成 */
   private lastDrawCompleted = false;
+  /** 当前绘制过程注册的鼠标监听释放器 */
+  private drawProgressDisposers: Array<() => void> = [];
+  /** 当前绘制会话注册的右键退出监听释放器 */
+  private drawExitDisposer?: () => void;
+  /** 当前编辑会话注册的右键退出监听释放器 */
+  private editSessionExitDisposer?: () => void;
+  /** 当前编辑会话的临时资源清理函数 */
+  private editSessionCleanup?: () => void;
   private plot: PlotDraw | undefined; // 绘制工具
   /**
    * 构造器
@@ -168,6 +176,7 @@ export default class DynamicDraw {
       callback?: (e: IDrawEvent) => void;
     }
   ) {
+    this.clearDrawEventListeners();
     if (this.draw) {
       this.map.removeInteraction(this.draw);
     }
@@ -232,21 +241,42 @@ export default class DynamicDraw {
       param
     );
   }
+  /** 释放绘制过程中的移动和左键监听 */
+  private clearDrawProgressListeners() {
+    this.drawProgressDisposers.splice(0).forEach((dispose) => dispose());
+  }
+  /** 释放当前绘制会话注册的全部全局监听 */
+  private clearDrawEventListeners() {
+    this.clearDrawProgressListeners();
+    this.drawExitDisposer?.();
+    this.drawExitDisposer = undefined;
+  }
+  /** 取消编辑会话的监听，并返回尚未执行的资源清理函数 */
+  private releaseEditSession(): (() => void) | undefined {
+    const cleanup = this.editSessionCleanup;
+    this.editSessionCleanup = undefined;
+    this.editSessionExitDisposer?.();
+    this.editSessionExitDisposer = undefined;
+    return cleanup;
+  }
+  /** 关闭当前编辑会话，释放临时资源 */
+  private closeEditSession() {
+    this.releaseEditSession()?.();
+  }
+  /** 注册当前编辑会话的右键退出行为 */
+  private registerEditSessionExit(cleanup: () => void) {
+    this.editSessionCleanup = cleanup;
+    this.editSessionExitDisposer = this.earth.useGlobalEvent().addCancelableMouseOnceRightClickEventByGlobal(() => {
+      this.closeEditSession();
+    });
+  }
   /**
    * 退出绘制工具
    * @param event 绘制事件
    * @param callback 回调函数
    */
   private exitDraw(event: { position: Coordinate }, callback?: (e: IDrawEvent) => void) {
-    if (this.earth.useGlobalEvent().hasGlobalMouseRightClickEvent()) {
-      this.earth.useGlobalEvent().disableGlobalMouseRightClickEvent();
-    }
-    if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
-      this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
-    }
-    if (this.earth.useGlobalEvent().hasGlobalMouseLeftDownEvent()) {
-      this.earth.useGlobalEvent().disableGlobalMouseLeftDownEvent();
-    }
+    this.clearDrawEventListeners();
     if (this.draw) {
       // this.draw.removeLastPoint();
       this.draw.finishDrawing();
@@ -272,13 +302,11 @@ export default class DynamicDraw {
    * @param param 参数
    */
   private drawChange(callback: (e: IDrawEvent) => void, type: string, param?: IDrawPoint | IDrawLine | IDrawPolygon) {
+    this.clearDrawEventListeners();
     // 标记当前绘制是否已经通过 drawend 正常完成
     this.lastDrawCompleted = false;
     // 绘制计次
     let drawNum = 0;
-    if (!this.earth.useGlobalEvent().hasGlobalMouseRightClickEvent()) {
-      this.earth.useGlobalEvent().enableGlobalMouseRightClickEvent();
-    }
     // 开始绘制回调函数
     this.draw?.on('drawstart', (event: DrawEvent) => {
       const coordinate = this.map.getCoordinateFromPixel(event.target.downPx_);
@@ -287,31 +315,27 @@ export default class DynamicDraw {
         eventPosition: coordinate
       });
       // 绘制中移动回调函数
-      this.earth.useGlobalEvent().enableGlobalMouseMoveEvent();
-      this.earth.useGlobalEvent().addMouseMoveEventByGlobal((event) => {
-        callback.call(this, {
-          type: DrawType.Drawing,
-          eventPosition: event.position
-        });
-      });
-      // 绘制中点击回调函数
-      this.earth.useGlobalEvent().enableGlobalMouseLeftDownEvent();
-      this.earth.useGlobalEvent().addMouseLeftDownEventByGlobal((event) => {
-        callback.call(this, {
-          type: DrawType.DrawingClick,
-          eventPosition: event.position
-        });
-      });
+      this.clearDrawProgressListeners();
+      const globalEvent = this.earth.useGlobalEvent();
+      this.drawProgressDisposers.push(
+        globalEvent.addMouseMoveEventByGlobal((event) => {
+          callback.call(this, {
+            type: DrawType.Drawing,
+            eventPosition: event.position
+          });
+        }),
+        globalEvent.addMouseLeftDownEventByGlobal((event) => {
+          callback.call(this, {
+            type: DrawType.DrawingClick,
+            eventPosition: event.position
+          });
+        })
+      );
     });
     // 绘制完成回调函数
     this.draw?.on('drawend', (event: DrawEvent) => {
       // 标记为已正常完成，后续若再触发 exitDraw 则不再回调 Drawexit
-      if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
-        this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
-      }
-      if (this.earth.useGlobalEvent().hasGlobalMouseLeftDownEvent()) {
-        this.earth.useGlobalEvent().disableGlobalMouseLeftDownEvent();
-      }
+      this.clearDrawProgressListeners();
       let geometry;
       const coordinate = this.map.getCoordinateFromPixel(event.target.downPx_);
       let featurePosition;
@@ -431,7 +455,7 @@ export default class DynamicDraw {
       }
     });
     // 退出绘制回调函数
-    this.earth.useGlobalEvent().addMouseRightClickEventByGlobal((event) => {
+    this.drawExitDisposer = this.earth.useGlobalEvent().addMouseRightClickEventByGlobal((event) => {
       this.exitDraw(event, param?.callback);
     });
   }
@@ -439,12 +463,19 @@ export default class DynamicDraw {
    * 处理标绘编辑
    */
   private handlePlotEdit(param: IEditParam) {
+    this.closeEditSession();
     const isShowUnderlay = param.isShowUnderlay === undefined ? true : param.isShowUnderlay;
     const layer = this.earth.getLayer(param.feature.get('layerId')) as Base;
     if (!isShowUnderlay) {
       layer.hide(param.feature.getId() as string);
     }
     const p = new PlotEdit(this.earth);
+    this.editSessionCleanup = () => {
+      p.destroy();
+      if (!isShowUnderlay) {
+        layer.show(param.feature.getId() as string);
+      }
+    };
     p.init({ feature: param.feature });
     p.on('modifyStart', (e) => {
       // 回调：绘制开始
@@ -460,6 +491,7 @@ export default class DynamicDraw {
     });
     p.on('modifyExit', (e) => {
       // 回调：退出绘制
+      this.releaseEditSession();
       p.destroy();
       const geom = param.feature.getGeometry();
       const pType = geom?.getType();
@@ -707,6 +739,7 @@ export default class DynamicDraw {
    * @param param 参数，详见{@link IEditParam}
    */
   editPolygon(param: IEditParam): void {
+    this.closeEditSession();
     this.initHelpTooltip('单击修改面，alt+单击删除点，右击退出编辑');
     // 开始新的编辑会话，清空历史并移除旧监听
     this.undoStack = [];
@@ -716,8 +749,8 @@ export default class DynamicDraw {
       this.keydownHandler = null;
     }
     // 1. 创建编辑临时图层（关闭 wrapX 避免多世界复制下命中异常）
-    const polygonLayer = new PolygonLayer(this.earth, { wrapX: false });
-    const pointLayer = new PointLayer(this.earth, { wrapX: false });
+    const polygonLayer = new PolygonLayer(this.earth, { wrapX: false, register: false });
+    const pointLayer = new PointLayer(this.earth, { wrapX: false, register: false });
     // 2. 原始图层与要素
     const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) layer?.getSource()?.removeFeature(param.feature);
@@ -830,7 +863,7 @@ export default class DynamicDraw {
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
     // 8. 退出（右键）保存：将编辑 ring 映射回原始 world copy
-    this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal(() => {
+    const finishEdit = () => {
       this.map.removeInteraction(modify);
       polygonLayer.destroy();
       pointLayer.destroy();
@@ -868,13 +901,15 @@ export default class DynamicDraw {
       })();
       const lonlat = outputRing.map((c) => toLonLat(c));
       param.callback?.call(this, { type: ModifyType.Modifyexit, position: lonlat });
-    });
+    };
+    this.registerEditSessionExit(finishEdit);
   }
   /**
    * 动态修改线
    * @param param 参数，详见{@link IEditParam}
    */
   editPolyline(param: IEditParam): void {
+    this.closeEditSession();
     this.initHelpTooltip('单击修改线，alt+单击删除点，右击退出编辑');
     // 新会话清空历史
     this.undoStack = [];
@@ -883,8 +918,8 @@ export default class DynamicDraw {
       window.removeEventListener('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
-    const polyline = new PolylineLayer(this.earth, { wrapX: false });
-    const point = new PointLayer(this.earth, { wrapX: false });
+    const polyline = new PolylineLayer(this.earth, { wrapX: false, register: false });
+    const point = new PointLayer(this.earth, { wrapX: false, register: false });
     const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) {
       try {
@@ -979,7 +1014,7 @@ export default class DynamicDraw {
     };
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
-    this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal(() => {
+    const finishEdit = () => {
       this.map.removeInteraction(modify);
       polyline.destroy();
       point.destroy();
@@ -1021,13 +1056,15 @@ export default class DynamicDraw {
         this.overlayKey = undefined;
       }
       param.callback?.call(this, { type: ModifyType.Modifyexit, position: finalCoords.map((p) => toLonLat(p)) });
-    });
+    };
+    this.registerEditSessionExit(finishEdit);
   }
   /**
    * 动态修改点
    * @param param 参数，详见{@link IEditParam}
    */
   editPoint(param: IEditParam): void {
+    this.closeEditSession();
     this.initHelpTooltip('单击修改点，右击退出编辑');
     // 新会话清空历史
     this.undoStack = [];
@@ -1036,7 +1073,7 @@ export default class DynamicDraw {
       window.removeEventListener('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
-    const pointLayer = new PointLayer(this.earth, { wrapX: false });
+    const pointLayer = new PointLayer(this.earth, { wrapX: false, register: false });
     const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) {
       layer?.getSource()?.removeFeature(param.feature);
@@ -1110,7 +1147,7 @@ export default class DynamicDraw {
     };
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
-    this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal(() => {
+    const finishEdit = () => {
       this.map.removeInteraction(modify);
       pointLayer.destroy();
       // 清空历史并移除监听
@@ -1139,7 +1176,8 @@ export default class DynamicDraw {
         this.overlayKey = undefined;
       }
       param.callback?.call(this, { type: ModifyType.Modifyexit, position: toLonLat(finalPos) });
-    });
+    };
+    this.registerEditSessionExit(finishEdit);
   }
   /**
    * 获取所有绘制对象
@@ -1205,6 +1243,7 @@ export default class DynamicDraw {
    */
   public destroy(options?: { removeGraphics?: boolean; removeLayers?: boolean }): void {
     const { removeGraphics = false, removeLayers = false } = options || {};
+    this.closeEditSession();
     this.plot?.destroy();
     this.plot = undefined;
     // 1) 移除由本工具添加的交互（draw/modify 等），它们都被标记了 dynamicDraw=true
@@ -1256,12 +1295,9 @@ export default class DynamicDraw {
     this.undoStack = [];
     this.redoStack = [];
 
-    // 4) 关闭全局鼠标事件（若仍处于开启状态）
+    // 4) 释放当前实例登记的全局鼠标监听
     try {
-      const ge = this.earth.useGlobalEvent();
-      if (ge.hasGlobalMouseRightClickEvent()) ge.disableGlobalMouseRightClickEvent();
-      if (ge.hasGlobalMouseMoveEvent()) ge.disableGlobalMouseMoveEvent();
-      if (ge.hasGlobalMouseLeftDownEvent()) ge.disableGlobalMouseLeftDownEvent();
+      this.clearDrawEventListeners();
     } catch {
       /* ignore */
     }

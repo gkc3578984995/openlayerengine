@@ -58,7 +58,6 @@ import {
   rotatedBBoxHalf
 } from './pointVisual';
 import { applyWrapOffset, movePoint, projectVector, vectorBetween } from './geometryTransform';
-import { getDefaultEarth } from '../../earthContext';
 // 资源通过 ESM import 让打包器处理（方案A）
 import rotateSvg from '../../assets/image/rotate.png';
 import stretchHImg from '../../assets/image/stretchH.png';
@@ -92,6 +91,8 @@ interface TransformOptions {
   features?: any; // 期望为 OL Collection
   /** 外部 select 交互实例，用于同步选中状态 */
   select?: any; // 外部选择交互实例
+  /** 当前 Earth 的网格图层，仅用于排除网格要素。 */
+  graticule?: { getSource?: () => { hasFeature?: (feature: Feature<any>) => boolean } | null };
   /** 像素命中容差 */
   hitTolerance?: number;
   /** 是否允许直接平移选中要素本体（点或要素） */
@@ -171,6 +172,7 @@ class TransformInteraction extends PointerInteraction {
   private overlayLayer_: VectorLayer<VectorSource>;
   private features_?: Collection<Feature<any>>;
   private layers_: any[] | null;
+  private readonly graticule?: TransformOptions['graticule'];
   private _filter?: (f: Feature<any>, layer: any) => boolean;
   private _handleEvent: (e: MapBrowserEvent<any>, features: Collection<Feature<any>>) => boolean;
   private addFn_: (e: MapBrowserEvent<any>) => boolean;
@@ -257,6 +259,7 @@ class TransformInteraction extends PointerInteraction {
       }
     });
     selfRef.instance = this;
+    this.graticule = options.graticule;
 
     // 初始化选中与手柄集合
     this.selection_ = new Collection();
@@ -649,7 +652,17 @@ class TransformInteraction extends PointerInteraction {
    * 绘制/刷新当前选中要素的控制手柄与外包框。
    * centerOnly=true 时只更新中心与 bbox 不生成所有手柄（用于旋转实时刷新性能优化）。
    */
-  public drawSketch_(centerOnly?: boolean): void {
+  /** 刷新当前选中要素的控制框与手柄 */
+  public refreshSketch(centerOnly?: boolean): void {
+    this.drawSketch_(centerOnly);
+  }
+
+  /** 获取当前控制框要素 */
+  public getBoundingBoxFeature(): Feature<any> | null {
+    return this.bbox_;
+  }
+
+  private drawSketch_(centerOnly?: boolean): void {
     this.overlayLayer_.getSource()?.clear();
     if (!this.selection_.getLength()) return;
     const map = this.getMap();
@@ -873,8 +886,8 @@ class TransformInteraction extends PointerInteraction {
    */
   private checkDynmicDraw_(evt: MapBrowserEvent<any>): boolean {
     let flag = false;
-    getDefaultEarth()
-      .map.getInteractions()
+    evt.map
+      .getInteractions()
       .forEach((i) => {
         if (i.get('dynamicDraw')) {
           flag = true;
@@ -894,8 +907,7 @@ class TransformInteraction extends PointerInteraction {
         flag = true;
       }
     }
-    const earth = getDefaultEarth();
-    if (feature && earth.graticule && earth.graticule?.getSource()?.hasFeature(feature)) {
+    if (feature && this.graticule?.getSource?.()?.hasFeature?.(feature)) {
       flag = true;
     }
     return flag;

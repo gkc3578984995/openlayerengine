@@ -880,29 +880,48 @@ export default class GlobalEvent {
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseOnceClickEventByGlobal(callback: GlobalEventCallback): void {
-    this.map.once('click', (evt) => {
+    this.addCancelableMouseOnceClickEventByGlobal(callback);
+  }
+  /**
+   * 按全局添加一次性鼠标点击事件，并返回取消当前监听的方法。
+   */
+  addCancelableMouseOnceClickEventByGlobal(callback: GlobalEventCallback): () => void {
+    const key = this.map.once('click', (evt) => {
       callback.call(this, {
         position: toLonLat(evt.coordinate),
         pixel: evt.pixel
       });
     });
+    return () => unByKey(key);
   }
   /**
    * 按全局添加鼠标右击事件,只执行一次。该方法无需启用事件和删除事件，直接调用即可
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseOnceRightClickEventByGlobal(callback: GlobalEventCallback): void {
-    this.map.getViewport().addEventListener(
-      'contextmenu',
-      (event: MouseEvent) => {
-        const coordinate = this.map.getEventCoordinate(event);
-        callback.call(this, {
-          position: toLonLat(coordinate),
-          pixel: [event.x, event.y]
-        });
-      },
-      { once: true }
-    );
+    this.addCancelableMouseOnceRightClickEventByGlobal(callback);
+  }
+  /**
+   * 按全局添加一次性鼠标右键事件，并返回取消当前监听的方法。
+   */
+  addCancelableMouseOnceRightClickEventByGlobal(callback: GlobalEventCallback): () => void {
+    const viewport = this.map.getViewport();
+    let active = true;
+    const handler = (event: MouseEvent) => {
+      if (!active) return;
+      active = false;
+      const coordinate = this.map.getEventCoordinate(event);
+      callback.call(this, {
+        position: toLonLat(coordinate),
+        pixel: this.map.getEventPixel(event)
+      });
+    };
+    viewport.addEventListener('contextmenu', handler, { once: true });
+    return () => {
+      if (!active) return;
+      active = false;
+      viewport.removeEventListener('contextmenu', handler);
+    };
   }
   /**
    * 校验模块是否注册鼠标移动事件

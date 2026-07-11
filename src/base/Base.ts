@@ -54,7 +54,8 @@ export default class Base {
   constructor(
     protected earth: Earth,
     layer: VectorLayer<VectorSource<Geometry>>,
-    type: string
+    type: string,
+    options?: { register?: boolean }
   ) {
     const layerId = Utils.GetGUID();
     this.registryKey = layerId;
@@ -62,8 +63,10 @@ export default class Base {
     layer.set('id', layerId);
     this.layer = layer;
     earth.map.addLayer(layer);
-    // 自动注册封装层实例到 Earth（key 为 registryKey，便于通过 earth.getLayer 反查）
-    this.earth._autoRegisterLayer(this.registryKey, this);
+    // 自动注册封装层实例到 Earth（临时编辑图层可选择不登记）
+    if (options?.register !== false) {
+      this.earth._autoRegisterLayer(this.registryKey, this);
+    }
   }
   /**
    * 设置描边样式

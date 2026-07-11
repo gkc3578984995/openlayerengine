@@ -22,7 +22,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
    * const polygonLayer = new PolygonLayer(useEarth());
    * ```
    */
-  constructor(earth?: Earth, options?: { wrapX?: boolean }) {
+  constructor(earth?: Earth, options?: { wrapX?: boolean; register?: boolean }) {
     // 增加 wrapX 可配置（编辑模式下需要关闭以避免多世界复制导致交互命中失败）
     const layer = new VectorLayer({
       source: new VectorSource({
@@ -30,7 +30,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
       })
     });
     const e = earth ?? getDefaultEarth();
-    super(e, layer, 'Polygon');
+    super(e, layer, 'Polygon', options);
   }
   /**
    * 创建矢量元素

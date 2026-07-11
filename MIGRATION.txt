@@ -125,3 +125,77 @@ const layer = new PointLayer(earth);
 - [ ] 检查 `earth.graticule` / `earth.scaleLine` 赋值代码。
 - [ ] 检查 `getUpdatedParam` 返回值访问是否需要类型收窄。
 - [ ] 执行 `npm run verify`。
+
+## 11. 生命周期与临时图层调整
+
+本次调整以多 Earth 实例并存时的隔离性为目标，现有业务调用无需修改；如果项目自行管理全局事件或创建临时图层，请关注以下行为。
+
+### 11.1 全局事件按实例释放
+
+`DynamicDraw`、`Transform` 与 `Measure` 不再调用 `disableGlobal*` 关闭整类全局事件，而是仅释放自身注册的回调。
+
+- 一个工具退出、销毁或重新开始时，不会影响同一 Earth 上其他工具的鼠标和键盘监听。
+- `DynamicDraw` 连续启动绘制或编辑时，会主动关闭上一绘制/编辑会话的临时监听与资源。
+- `Measure.lineCenter()` 的延迟左键抬起监听会在测量退出时取消，不会在退出后重新注册。
+
+若业务代码仍直接调用 `enableGlobal*` / `disableGlobal*`，这些 API 仍保持兼容；多个功能并存时，推荐保留 `addMouse*EventByGlobal`、`addKeyDownEventByGlobal` 返回的释放函数，并在功能结束时调用。
+
+### 11.2 可取消的一次性全局事件
+
+新增以下方法，用于在一次性事件触发前主动取消监听：
+
+```ts
+const cancelClick = earth.useGlobalEvent().addCancelableMouseOnceClickEventByGlobal((event) => {
+  // 左键确认
+});
+
+const cancelRightClick = earth.useGlobalEvent().addCancelableMouseOnceRightClickEventByGlobal((event) => {
+  // 右键取消
+});
+
+// 会话提前结束时调用
+cancelClick();
+cancelRightClick();
+```
+
+原有的 `addMouseOnceClickEventByGlobal` 与 `addMouseOnceRightClickEventByGlobal` 仍可继续使用；它们保持原来的 `void` 返回类型。
+
+### 11.3 临时图层不登记到 Earth
+
+`PointLayer`、`PolylineLayer`、`PolygonLayer` 的构造参数新增可选 `register`：
+
+```ts
+const temporaryLayer = new PointLayer(earth, {
+  wrapX: false,
+  register: false
+});
+```
+
+`register: false` 会将图层添加到 OpenLayers 地图，但不会登记到 `earth.getLayer()` 使用的图层注册表。该选项适用于编辑控制点、预览和其他生命周期短的内部图层；默认值仍为 `true`，普通业务图层不受影响。
+
+### 11.4 Transform 多 Earth 与稳定控制框 API
+
+Transform 交互现在使用创建它的 Earth 实例检查动态绘制和网格图层，不再依赖默认 Earth。多地图场景请继续显式传入 Earth：
+
+```ts
+const transform = new Transform({ earth });
+```
+
+对于需要访问自定义 TransformInteraction 控制框的扩展代码，请使用以下稳定方法，不再读取 `bbox_` 或调用 `drawSketch_`：
+
+```ts
+const bbox = interaction.getBoundingBoxFeature();
+interaction.refreshSketch();
+```
+
+### 11.5 依赖清理
+
+项目移除了未使用的直接依赖：`lodash.clonedeep`、`vue-tsc` 与 `@types/minimatch`。业务项目不需要额外操作；锁文件中如果仍存在 `@types/minimatch`，它可能来自其他包的传递依赖。
+
+## 12. 本次验证 Checklist
+
+- [ ] 多个地图实例同时启用 Transform 时，确认各自只响应本地图的动态绘制和网格要素。
+- [ ] 连续启动、退出 DynamicDraw 编辑或 Measure 测量时，确认不会留下额外的右键、移动或左键抬起回调。
+- [ ] 自定义临时图层如不需要通过 `earth.getLayer()` 查询，使用 `register: false`。
+- [ ] 自定义 TransformInteraction 扩展改用 `getBoundingBoxFeature()` 与 `refreshSketch()`。
+- [ ] 执行 `npm run verify`。

@@ -89,6 +89,12 @@ export default class Transform {
    * 键盘事件处理函数（用于销毁时解绑）
    */
   private keyDownFun: (() => void) | undefined;
+  /** 复制预览阶段的鼠标移动监听释放器 */
+  private copyMoveDisposer?: () => void;
+  /** 复制预览阶段的左键确认监听释放器 */
+  private copyConfirmDisposer?: () => void;
+  /** 复制预览阶段的右键取消监听释放器 */
+  private copyCancelDisposer?: () => void;
   /**
    * 是否进入复制状态
    */
@@ -148,7 +154,8 @@ export default class Transform {
       rotate: params.rotate,
       filter: mergedFilter,
       layers: params.transformLayers,
-      features: params.transformFeatures
+      features: params.transformFeatures,
+      graticule: this.earth.graticule
     });
     this.earth.map.addInteraction(transforms);
     return transforms;
@@ -220,7 +227,6 @@ export default class Transform {
    * 初始化键盘事件
    */
   private setupKeyDownEvent() {
-    this.earth.useGlobalEvent().enableGlobalKeyDownEvent();
     this.keyDownFun = this.earth.useGlobalEvent().addKeyDownEventByGlobal((event) => {
       const key = event.key.toLowerCase();
       if (key === 'escape' && this.checkSelect) {
@@ -332,7 +338,7 @@ export default class Transform {
    */
   private syncToolbarPosition() {
     if (!this.toolbar) return;
-    const bbox = this.transforms?.bbox_;
+    const bbox = this.transforms?.getBoundingBoxFeature?.();
     if (!bbox) return;
     const geom = bbox.getGeometry?.();
     if (!geom) return;
@@ -1064,6 +1070,7 @@ export default class Transform {
    * 处理元素复制
    */
   private handleCopyEvent(feature: any, pixel?: number[]) {
+    this.clearCopyListeners();
     if (!feature) return;
     const type: string = feature.get('layerType');
     const originParam = cloneDeep(feature.get('param')) || {};
@@ -1120,34 +1127,29 @@ export default class Transform {
       { leading: true, trailing: true }
     );
     if (!pixel) {
-      // 启用全局鼠标移动
-      this.earth.useGlobalEvent().enableGlobalMouseMoveEvent();
-      this.earth.useGlobalEvent().addMouseMoveEventByGlobal((event) => moveHandler(event));
+      const globalEvent = this.earth.useGlobalEvent();
+      this.copyMoveDisposer = globalEvent.addMouseMoveEventByGlobal((event) => moveHandler(event));
 
-      this.earth.useGlobalEvent().addMouseOnceClickEventByGlobal((event) => {
+      this.copyConfirmDisposer = globalEvent.addCancelableMouseOnceClickEventByGlobal((event) => {
         // 确定复制要素
-        if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
-          this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
-          moveHandler.flush?.();
-          this.copyStatus = null;
-          // 触发copy事件通知外部
-          this.handleRawEvent(ETransform.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: event.pixel });
-          this.removeHelpTooltip();
-        }
+        this.clearCopyListeners();
+        moveHandler.flush?.();
+        this.copyStatus = null;
+        // 触发copy事件通知外部
+        this.handleRawEvent(ETransform.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: event.pixel });
+        this.removeHelpTooltip();
       });
-      this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal((event) => {
+      this.copyCancelDisposer = globalEvent.addCancelableMouseOnceRightClickEventByGlobal(() => {
         // 取消复制
-        if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
-          this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
-          moveHandler.cancel?.();
+        this.clearCopyListeners();
+        moveHandler.cancel?.();
           // 仅在已创建副本（copyStatus 非 null）时才移除该副本；
           // 若用户未移动鼠标即右键取消，moveHandler 尚未执行、copyStatus 为 null，
           // 此时不可调用 layer.remove(undefined) —— 否则会触发 Base.remove 的清空整层逻辑，导致数据丢失。
           if (this.copyStatus?.id) {
             layer.remove(this.copyStatus.id);
           }
-          this.copyStatus = null;
-        }
+        this.copyStatus = null;
       });
     } else {
       let newValue: any = Utils.getFeatureToPixel(this.earth.map, pixel, baseCoords);
@@ -1175,6 +1177,15 @@ export default class Transform {
       // 触发copy事件通知外部
       this.handleRawEvent(ETransform.Copy, { feature: layer.get(originParam.id) ? layer.get(originParam.id)[0] : null, pixel: pixel });
     }
+  }
+  /** 释放复制预览阶段注册的全部全局监听 */
+  private clearCopyListeners() {
+    this.copyMoveDisposer?.();
+    this.copyConfirmDisposer?.();
+    this.copyCancelDisposer?.();
+    this.copyMoveDisposer = undefined;
+    this.copyConfirmDisposer = undefined;
+    this.copyCancelDisposer = undefined;
   }
   /**
    * 外部替换当前正在编辑（已选中）的 feature
@@ -1228,8 +1239,7 @@ export default class Transform {
           this.transforms.select(newFeature, false);
         } else {
           // 兜底：强制重绘（不如 setSelection 可靠）
-          if (typeof this.transforms.drawSketch_ === 'function') this.transforms.drawSketch_();
-          else if (typeof this.transforms.drawSketch === 'function') this.transforms.drawSketch();
+          if (typeof this.transforms.refreshSketch === 'function') this.transforms.refreshSketch();
         }
       }
     } catch (_) {
@@ -1261,7 +1271,7 @@ export default class Transform {
       // 优先使用交互的 bbox 信息
       let point: any = undefined;
       try {
-        const bboxExtent = this.transforms?.bbox_?.getGeometry().getCoordinates?.();
+        const bboxExtent = this.transforms?.getBoundingBoxFeature?.()?.getGeometry().getCoordinates?.();
         point = bboxExtent?.[0]?.[2] ?? bboxExtent?.[0]?.[0];
       } catch (_) {
         /* ignore */
@@ -1491,12 +1501,9 @@ export default class Transform {
           }
         }
         // 重绘变换控制框
-        // 安全调用内部私有方法（未来版本可能移除）
         try {
-          if (this.transforms && typeof this.transforms.drawSketch_ === 'function') {
-            this.transforms.drawSketch_();
-          } else if (this.transforms && typeof this.transforms.drawSketch === 'function') {
-            this.transforms.drawSketch();
+          if (this.transforms && typeof this.transforms.refreshSketch === 'function') {
+            this.transforms.refreshSketch();
           }
         } catch (_) {
           /* 忽略内部刷新失败 */
@@ -1547,8 +1554,8 @@ export default class Transform {
         this.toolbar.updateItem('undo', { disabled: !this.history.canUndo });
         this.toolbar.updateItem('redo', { disabled: !this.history.canRedo });
         // 更新工具栏位置
-        if (this.transforms && this.transforms.bbox_) {
-          const bboxExtent = this.transforms.bbox_?.getGeometry().getCoordinates();
+        if (this.transforms?.getBoundingBoxFeature?.()) {
+          const bboxExtent = this.transforms.getBoundingBoxFeature()?.getGeometry().getCoordinates();
           this.toolbar.updateOptions({ point: bboxExtent[0][2] });
         }
       }
@@ -1804,12 +1811,12 @@ export default class Transform {
     if (this.disposed) return;
     this.earth.setMouseStyleToDefault();
     this.earth.map.getViewport()?.removeEventListener('contextmenu', this.boundHandleContextMenu, true);
-    this.earth.useGlobalEvent().disableGlobalKeyDownEvent();
     this.remove();
     this.removeHelpTooltip();
     this.listenerMap.forEach((set) => set.clear());
     this.listenerMap.clear();
     this.keyDownFun && this.keyDownFun();
+    this.clearCopyListeners();
     this.toolbar && this.toolbar.destroy();
     this.keyDownFun = undefined;
     this.toolbar = null;

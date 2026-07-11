@@ -50,7 +50,7 @@ export default class Polyline<T = LineString> extends Base {
    * const polyline = new Polyline(useEarth());
    * ```
    */
-  constructor(earth?: Earth, options?: { wrapX?: boolean }) {
+  constructor(earth?: Earth, options?: { wrapX?: boolean; register?: boolean }) {
     const layer = new VectorLayer({
       source: new VectorSource({
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
@@ -58,7 +58,7 @@ export default class Polyline<T = LineString> extends Base {
       declutter: true
     });
     const e = earth ?? getDefaultEarth();
-    super(e, layer, 'Polyline');
+    super(e, layer, 'Polyline', options);
   }
   /**
    * 创建矢量元素
