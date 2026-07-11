@@ -2,7 +2,7 @@ import { IPlotEditEventPayload } from '../extends/plot/plotEdit';
 import { Feature } from 'ol';
 import { Coordinate } from 'ol/coordinate';
 import { Geometry, LineString, Polygon } from 'ol/geom';
-import { IGeometryFill } from './default';
+import { IGeometryFill, IStroke } from './default';
 
 export enum DrawType {
   /**
@@ -105,6 +105,10 @@ export interface IDrawPoint extends IDrawBase {
   fillColor?: string;
 }
 export interface IDrawLine extends IDrawBase {
+  /** Back-most visual outline. It is drawn before innerStroke. */
+  outerStroke?: IStroke;
+  /** Foreground visual outline. It takes precedence over legacy stroke. */
+  innerStroke?: IStroke;
   /**
    * 边框颜色
    */
@@ -115,6 +119,10 @@ export interface IDrawLine extends IDrawBase {
   strokeWidth?: number;
 }
 export interface IDrawPolygon extends IDrawBase {
+  /** Back-most visual outline. It is drawn before innerStroke. */
+  outerStroke?: IStroke;
+  /** Foreground visual outline. It takes precedence over legacy stroke. */
+  innerStroke?: IStroke;
   /**
    * 边框颜色
    */

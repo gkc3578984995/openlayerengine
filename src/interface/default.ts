@@ -314,6 +314,10 @@ export interface IPolygonParam<T> extends IAddBaseParam<T> {
    * 边框样式
    */
   stroke?: IStroke;
+  /** Back-most visual outline. It is drawn before innerStroke. */
+  outerStroke?: IStroke;
+  /** Foreground visual outline. It takes precedence over legacy stroke. */
+  innerStroke?: IStroke;
   /**
    * 填充样式
    */
@@ -336,6 +340,10 @@ export interface ISetPolygonParam {
    * 边框样式
    */
   stroke?: IStroke;
+  /** Back-most visual outline. It is drawn before innerStroke. */
+  outerStroke?: IStroke;
+  /** Foreground visual outline. It takes precedence over legacy stroke. */
+  innerStroke?: IStroke;
   /**
    * 填充样式
    */
@@ -358,6 +366,10 @@ export interface IPolylineParam<T> extends IAddBaseParam<T> {
    * 填充样式
    */
   stroke?: IStroke;
+  /** Back-most visual outline. It is drawn before innerStroke. */
+  outerStroke?: IStroke;
+  /** Foreground visual outline. It takes precedence over legacy stroke. */
+  innerStroke?: IStroke;
   /**
    * @deprecated 已废弃 请使用stroke
    * 填充样式 无效
@@ -417,6 +429,10 @@ export interface ISetPolylineParam {
    * 边框样式
    */
   stroke?: IStroke;
+  /** Back-most visual outline. It is drawn before innerStroke. */
+  outerStroke?: IStroke;
+  /** Foreground visual outline. It takes precedence over legacy stroke. */
+  innerStroke?: IStroke;
   /**
    * 填充样式
    */
