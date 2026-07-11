@@ -20,6 +20,7 @@ import DynamicDraw from './DynamicDraw';
 import { getDefaultEarth } from '../earthContext';
 import { extractGeometryInfo, geometriesEqual } from './transform/geometry';
 import { TransformHistory } from './transform/history';
+import { cloneStyleSnapshot } from './transform/styleSnapshot';
 
 export default class Transform {
   /**
@@ -137,8 +138,6 @@ export default class Transform {
     // 初始化参数
     const { params, translate, translateFeature } = this.initParams();
     const mergedFilter = (feature: Feature): boolean => {
-      // 平行叠加线不可被 Transform 选中
-      if (feature?.get?.('isParallelOverlay')) return false;
       if (typeof params.beforeTransform === 'function') {
         return params.beforeTransform(feature);
       }
@@ -585,7 +584,7 @@ export default class Transform {
         }
       }
     }
-    // 变换进行中：同步 Polyline（及其平行叠加线）
+    // 变换进行中：同步 Polyline
     if ((eventName === ETransform.Translating || eventName === ETransform.Rotating || eventName === ETransform.Scaling) && e.feature) {
       this.syncPolylineFeaturePosition(e.feature);
     }
@@ -617,11 +616,10 @@ export default class Transform {
   }
 
   /**
-   * 将 Transform 中的 Polyline 几何变更同步回图层（触发叠加线同步）
+   * 将 Transform 中的 Polyline 几何变更同步回图层
    */
   private syncPolylineFeaturePosition(feature?: Feature): void {
     if (!feature) return;
-    if (feature.get?.('isParallelOverlay')) return;
     if (feature.get?.('layerType') !== 'Polyline') return;
     const layer = this.getLayerByFeature(feature) as PolylineLayer | null;
     const id = feature.getId?.();
@@ -1143,12 +1141,12 @@ export default class Transform {
         // 取消复制
         this.clearCopyListeners();
         moveHandler.cancel?.();
-          // 仅在已创建副本（copyStatus 非 null）时才移除该副本；
-          // 若用户未移动鼠标即右键取消，moveHandler 尚未执行、copyStatus 为 null，
-          // 此时不可调用 layer.remove(undefined) —— 否则会触发 Base.remove 的清空整层逻辑，导致数据丢失。
-          if (this.copyStatus?.id) {
-            layer.remove(this.copyStatus.id);
-          }
+        // 仅在已创建副本（copyStatus 非 null）时才移除该副本；
+        // 若用户未移动鼠标即右键取消，moveHandler 尚未执行、copyStatus 为 null，
+        // 此时不可调用 layer.remove(undefined) —— 否则会触发 Base.remove 的清空整层逻辑，导致数据丢失。
+        if (this.copyStatus?.id) {
+          layer.remove(this.copyStatus.id);
+        }
         this.copyStatus = null;
       });
     } else {
@@ -1328,8 +1326,7 @@ export default class Transform {
     try {
       const style: any = feature.getStyle?.();
       if (style) {
-        // 如果 style 存在 clone 方法则克隆，否则直接引用（大多数 OL 内置 Style 有 clone）
-        const styleClone = style.clone ? style.clone() : style;
+        const styleClone = cloneStyleSnapshot(style);
         featureClone.set('styleSnapshot', styleClone);
         // 对 Point：若 param.size 缺失，补齐当前半径（避免初始 size 未写入导致撤销无法恢复）
         const geomType = feature.getGeometry()?.getType();

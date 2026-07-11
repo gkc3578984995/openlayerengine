@@ -14,11 +14,10 @@ export const testPolylineLayer = () => {
       width: 5,
       lineDash: [30, 20, 30, 20]
     },
-    parallelOverlayOnTop: true,
-    parallelOverlayStroke: {
+    outerStroke: {
       color: '#00e5ff',
       width: 3,
-      lineDash: [40,10,40,10],
+      lineDash: [40, 10, 40, 10],
       lineDashOffset: 0
     },
     width: 5
@@ -65,7 +64,7 @@ export const testPolylineLayer = () => {
   layer.add({
     id: 'polyline_6',
     positions: [fromLonLat([60, 60]), fromLonLat([100, 60])],
-    isFlowingDash: true,
+    isFlowingDash: true
   });
   layer.add;
   layer.addFlightLine({

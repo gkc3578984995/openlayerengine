@@ -399,18 +399,6 @@ export interface IPolylineParam<T> extends IAddBaseParam<T> {
    * 流水线虚线填充色 isFlowingDash为true生效
    */
   dottedLineColor?: string;
-  /**
-   * 平行叠加线方向。
-   * - true: 叠加在线条上方
-   * - false: 叠加在线条下方
-   * - undefined: 不叠加平行线
-   */
-  parallelOverlayOnTop?: boolean;
-  /**
-   * 平行叠加线专用描边样式（颜色、宽度、线形）。
-   * 未配置时默认复用主线 `stroke`。
-   */
-  parallelOverlayStroke?: IStroke;
 }
 export interface ISetPolylineParam {
   /**
@@ -461,18 +449,6 @@ export interface ISetPolylineParam {
    * 流水线虚线填充色 isFlowingDash为true生效
    */
   dottedLineColor?: string;
-  /**
-   * 平行叠加线方向。
-   * - true: 叠加在线条上方
-   * - false: 叠加在线条下方
-   * - undefined: 不叠加平行线
-   */
-  parallelOverlayOnTop?: boolean;
-  /**
-   * 平行叠加线专用描边样式（颜色、宽度、线形）。
-   * 未配置时默认复用主线 `stroke`。
-   */
-  parallelOverlayStroke?: IStroke;
 }
 export interface IPolylineFlyParam<T> extends IAddBaseParam<T>, IFlightLineParams {
   /**

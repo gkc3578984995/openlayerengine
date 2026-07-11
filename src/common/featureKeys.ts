@@ -28,9 +28,7 @@ export const FEATURE_KEYS = {
   /** 标绘控制点 */
   plotPoints: 'plotPoints',
   /** 是否为箭头叠加线 */
-  isArrows: 'isArrows',
-  /** 平行叠加线标记（Transform 选中时跳过） */
-  isParallelOverlay: 'isParallelOverlay'
+  isArrows: 'isArrows'
 } as const;
 
 /** 图层类型标识枚举（与 FEATURE_KEYS.layerType 的值对应） */
