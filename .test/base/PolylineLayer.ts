@@ -9,18 +9,21 @@ export const testPolylineLayer = () => {
   const e = layer.add({
     id: 'polyline_2',
     positions: [fromLonLat([100, 30]), fromLonLat([100, 50])],
-    innerStroke: {
+    // innerStroke: {
+    //   color: 'blue',
+    //   width: 5,
+    //   lineDash: [30, 20, 30, 20]
+    // },
+    // outerStroke: {
+    //   color: 'yellow',
+    //   width: 12,
+    // },
+        stroke: {
       color: 'red',
-      width: 5,
-      lineDash: [30, 20, 30, 20]
+      lineDash: [9, 0.5, 4, 0.5, 2],
+      fitPatternOnce: true,
     },
-    outerStroke: {
-      color: '#00e5ff',
-      width: 11,
-      lineDash: [40, 10, 40, 10],
-      lineDashOffset: 0
-    },
-    width: 5
+    width: 15
   });
   layer.add({
     id: 'polyline_3',

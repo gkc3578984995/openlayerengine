@@ -11,7 +11,7 @@ export const testLayeredOutline = () => {
     positions: [[fromLonLat([100, 35]), fromLonLat([100, 42]), fromLonLat([112, 42]), fromLonLat([112, 35]), fromLonLat([100, 35])]],
     fill: { color: 'rgba(14, 165, 233, 0.18)' },
     outerStroke: { color: '#0f172a', width: 10 },
-    innerStroke: { color: '#38bdf8', width: 4 },
+    innerStroke: { color: '#38bdf8', width: 10 },
     label: { text: 'Layered polygon outline' }
   });
 
