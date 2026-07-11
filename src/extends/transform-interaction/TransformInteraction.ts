@@ -49,6 +49,15 @@ import Map from 'ol/Map';
 // 视图对象无需单独类型导入（直接通过 map.getView 访问）
 import { EventsKey } from 'ol/events';
 import { ol_ext_element } from './element';
+import {
+  getPointRotatedHalfSizePixel,
+  getPointVisualRadiusPixel,
+  getPointVisualSizePixel,
+  hasPointIconImage,
+  isPixelInsidePointBBox,
+  rotatedBBoxHalf
+} from './pointVisual';
+import { applyWrapOffset, movePoint, projectVector, vectorBetween } from './geometryTransform';
 import { getDefaultEarth } from '../../earthContext';
 // 资源通过 ESM import 让打包器处理（方案A）
 import rotateSvg from '../../assets/image/rotate.png';
@@ -564,13 +573,13 @@ class TransformInteraction extends PointerInteraction {
       for (const f of candidates) {
         const g = f.getGeometry?.();
         if (!g || g.getType() !== 'Point') continue;
-        if (this._pointHasIconImage_(f) && isStrict) {
+        if (hasPointIconImage(f) && isStrict) {
           // 严格矩形判定
           // 尝试使用 wrap 后的坐标求像素
           const raw = (g as PointGeom).getCoordinates();
           const wrapped = [wrapX(raw[0]), raw[1]] as Coordinate;
           const wrappedPixel = map.getPixelFromCoordinate(wrapped);
-          if (!this._isPixelInsidePointBBox_(f, pixel, wrapped)) continue;
+          if (!isPixelInsidePointBBox(f, pixel, map, wrapped)) continue;
           if (!wrappedPixel) continue;
           const dx = wrappedPixel[0] - px;
           const dy = wrappedPixel[1] - py;
@@ -585,7 +594,7 @@ class TransformInteraction extends PointerInteraction {
           const p = [wrapX(p0[0]), p0[1]] as Coordinate;
           const fpixel = map.getPixelFromCoordinate(p);
           if (!fpixel) continue;
-          const visualR = this._getPointVisualRadiusPixel_(f) || 0;
+          const visualR = getPointVisualRadiusPixel(f) || 0;
           const dx = fpixel[0] - px;
           const dy = fpixel[1] - py;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -601,8 +610,8 @@ class TransformInteraction extends PointerInteraction {
       const f = result.feature as Feature<any>;
       if (f.getGeometry?.()?.getType() === 'Point') {
         const isHandle = (f as any).get && (f as any).get('handle');
-        if (!isHandle && this._pointHasIconImage_(f)) {
-          if (!this._isPixelInsidePointBBox_(f, pixel)) result = {};
+        if (!isHandle && hasPointIconImage(f)) {
+          if (!isPixelInsidePointBBox(f, pixel, map)) result = {};
         }
       }
     }
@@ -623,120 +632,6 @@ class TransformInteraction extends PointerInteraction {
     const ctr = map && map.getView() ? map.getView().getCenter() : undefined;
     if (ctr) g.rotate(rot * -1, ctr);
     return g;
-  }
-
-  /** 返回点图标当前视觉尺寸（像素），考虑双轴 scale。*/
-  private _pointGetVisualSizePixel_(feature: Feature<any>): [number, number] | undefined {
-    try {
-      if (!feature?.getGeometry || feature.getGeometry().getType() !== 'Point') return undefined;
-      const style: any = feature.getStyle?.();
-      if (!style?.getImage) return undefined;
-      const img = style.getImage();
-      if (!img) return undefined;
-      let w: number | undefined;
-      let h: number | undefined;
-      if (img.getImageSize) {
-        const sz = img.getImageSize();
-        if (sz && sz.length === 2) {
-          w = sz[0];
-          h = sz[1];
-        }
-      }
-      if ((w == null || h == null) && img.getSize) {
-        const sz2 = img.getSize();
-        if (sz2 && sz2.length === 2) {
-          w = sz2[0];
-          h = sz2[1];
-        }
-      }
-      if ((w == null || h == null) && img.getWidth && img.getHeight) {
-        const ww = img.getWidth?.();
-        const hh = img.getHeight?.();
-        if (ww && hh) {
-          w = ww;
-          h = hh;
-        }
-      }
-      if (w == null && img.getRadius) {
-        const r = img.getRadius();
-        if (r) {
-          w = r * 2;
-          h = r * 2;
-        }
-      }
-      if (w == null || h == null) return undefined;
-      let sx = 1,
-        sy = 1;
-      if (img.getScale) {
-        const sc: any = img.getScale();
-        if (Array.isArray(sc)) {
-          // 翻转（scale 可能为负）时使用绝对值，保证命中检测 bbox 正常
-          sx = Math.abs(sc[0] || 1);
-          sy = Math.abs(sc[1] || 1);
-        } else if (typeof sc === 'number') {
-          sx = Math.abs(sc);
-          sy = Math.abs(sc);
-        }
-      }
-      return [w * sx, h * sy];
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
-   * 计算宽 w、高 h 的矩形在旋转 rot（弧度）后的轴对齐外接矩形半宽 / 半高。
-   * 单位与传入的 w / h 一致（像素或地图单位）。旋转后外接矩形大于矩形本身，
-   * 必须用 |w·cos|+|h·sin| 计算，否则 bbox 会偏小、包不住旋转后的图标。
-   */
-  private _rotatedBBoxHalf(w: number, h: number, rot: number): [number, number] {
-    const c = Math.abs(Math.cos(rot));
-    const s = Math.abs(Math.sin(rot));
-    return [(w * c + h * s) / 2, (w * s + h * c) / 2];
-  }
-
-  /**
-   * 点图标在屏幕空间的轴对齐外接矩形半宽 / 半高（兼顾 scale 与 rotation）。
-   * 返回 undefined 时表示无法推导图标尺寸。
-   */
-  private _pointGetRotatedHalfSizePixel_(feature: Feature<any>): [number, number] | undefined {
-    const size = this._pointGetVisualSizePixel_(feature); // [w*sx, h*sy] 未旋转满尺寸
-    if (!size) return undefined;
-    const style: any = feature.getStyle?.();
-    const img: any = style?.getImage?.();
-    const rot = img?.getRotation ? img.getRotation() || 0 : 0;
-    return this._rotatedBBoxHalf(size[0], size[1], rot);
-  }
-
-  /** 判断像素是否在点图标视觉 bbox 内 */
-  private _isPixelInsidePointBBox_(feature: Feature<any>, pixel: number[], overrideCenter?: Coordinate): boolean {
-    const map = this.getMap();
-    if (!map) return false;
-    const geom = feature.getGeometry?.();
-    if (!geom || geom.getType() !== 'Point') return false;
-    const size = this._pointGetVisualSizePixel_(feature);
-    if (!size) return false;
-    const view = map.getView();
-    const proj: any = view.getProjection();
-    const extentWidth: number = proj?.getExtent ? proj.getExtent()[2] - proj.getExtent()[0] : 40075016.68557849;
-    const viewCenter = view.getCenter();
-    const centerX = viewCenter ? viewCenter[0] : 0;
-    const wrapX = (x: number): number => {
-      if (Math.abs(x - centerX) > extentWidth / 2) return x + Math.round((centerX - x) / extentWidth) * extentWidth;
-      return x;
-    };
-    const base = overrideCenter || (geom as PointGeom).getCoordinates();
-    const candidates: Coordinate[] = [base];
-    // 添加包裹后坐标（避免远距离 copy 失配）
-    candidates.push([wrapX(base[0]), base[1]]);
-    for (const c of candidates) {
-      const px = map.getPixelFromCoordinate(c);
-      if (!px) continue;
-      const hw = size[0] / 2;
-      const hh = size[1] / 2;
-      if (pixel[0] >= px[0] - hw && pixel[0] <= px[0] + hw && pixel[1] >= px[1] - hh && pixel[1] <= px[1] + hh) return true;
-    }
-    return false;
   }
 
   /**
@@ -804,7 +699,7 @@ class TransformInteraction extends PointerInteraction {
         const style: any = pf?.getStyle?.();
         const img: any = style?.getImage?.();
         const rot = img?.getRotation ? img.getRotation() || 0 : 0;
-        const [halfW, halfH] = this._rotatedBBoxHalf(this._ptRotateBBoxSize[0], this._ptRotateBBoxSize[1], rot);
+        const [halfW, halfH] = rotatedBBoxHalf(this._ptRotateBBoxSize[0], this._ptRotateBBoxSize[1], rot);
         const cx = this.center_[0] + wrapOffset;
         const cy = this.center_[1];
         centerExtent = [cx - halfW, cy - halfH, cx + halfW, cy + halfH];
@@ -824,7 +719,7 @@ class TransformInteraction extends PointerInteraction {
       if (p) {
         // 取旋转后外接矩形半宽/半高（兼顾 scale 与 rotation）；取不到则回退 ptRadius
         const half =
-          (this.selection_.getLength() === 1 ? this._pointGetRotatedHalfSizePixel_(this.selection_.item(0) as Feature<any>) : undefined) ||
+          (this.selection_.getLength() === 1 ? getPointRotatedHalfSizePixel(this.selection_.item(0) as Feature<any>) : undefined) ||
           (ptRadius ? (ptRadius as number[]) : [10, 10]);
         const dx = half[0] || 10;
         const dy = half[1] || 10;
@@ -878,7 +773,7 @@ class TransformInteraction extends PointerInteraction {
         allowRotate = false;
         if (this.selection_.getLength() === 1) {
           const pf = this.selection_.item(0) as Feature<any>;
-          if (this._pointHasIconImage_(pf)) allowRotate = true;
+          if (hasPointIconImage(pf)) allowRotate = true;
         }
       }
       if (allowRotate) {
@@ -891,7 +786,7 @@ class TransformInteraction extends PointerInteraction {
       // 当点要素具有位图 image 时，允许显示边中点拉伸手柄（与非点几 geometry 一致）
       if (!disableRotateScale && this.get('stretch') && this.selection_.getLength() === 1) {
         const pf = this.selection_.item(0) as Feature<any>;
-        if (this._pointHasIconImage_(pf)) {
+        if (hasPointIconImage(pf)) {
           for (let i = 0; i < g.length - 1; i++) {
             const mid = [(g[i][0] + g[i + 1][0]) / 2, (g[i][1] + g[i + 1][1]) / 2];
             features.push(
@@ -1042,10 +937,10 @@ class TransformInteraction extends PointerInteraction {
       // 如进入点图标旋转，记录初始 bbox 尺寸（依据当前 scale 与像素尺寸换算）
       if (this.mode_ === 'rotate' && this.ispt_ && this.selection_.getLength() === 1) {
         const pf = this.selection_.item(0) as Feature<any>;
-        if (this._pointHasIconImage_(pf)) {
+        if (hasPointIconImage(pf)) {
           const map = this.getMap();
           if (map) {
-            const sizePx = this._pointGetVisualSizePixel_(pf);
+            const sizePx = getPointVisualSizePixel(pf);
             const centerPx = map.getPixelFromCoordinate(this.center_);
             if (sizePx && centerPx) {
               const p1: [number, number] = [centerPx[0] - sizePx[0] / 2, centerPx[1] - sizePx[1] / 2];
@@ -1177,7 +1072,7 @@ class TransformInteraction extends PointerInteraction {
             if (geometry.getType() === 'Circle') (geometry as any).setCenterAndRadius((geometry as any).getCenter(), (geometry as any).getRadius());
             f.setGeometry(geometry);
           } else {
-            if (this._pointHasIconImage_(f)) {
+            if (hasPointIconImage(f)) {
               const style: any = f.getStyle?.();
               const img = style?.getImage?.();
               if (img?.setRotation) {
@@ -1421,8 +1316,8 @@ class TransformInteraction extends PointerInteraction {
               const pointD = [g1[6], g1[7]];
               const pointA1 = [g1[8], g1[9]]; // 重复 A 点（闭合）
               if (stretch) {
-                const base = opt % 2 === 0 ? this._countVector(pointA, pointB) : this._countVector(pointD, pointA);
-                const projected = this._projectVectorOnVector(displacementVector, base);
+                const base = opt % 2 === 0 ? vectorBetween(pointA, pointB) : vectorBetween(pointD, pointA);
+                const projected = projectVector(displacementVector, base);
                 const nextIndex = opt + 1 < pointArray.length ? opt + 1 : 0;
                 const coordsToChange = [...pointArray[opt], ...pointArray[nextIndex]];
                 for (let j = 0; j < g1.length; j += dim) {
@@ -1438,39 +1333,39 @@ class TransformInteraction extends PointerInteraction {
                 let displacement: number[] = [];
                 let projLeft: number[] = [];
                 let projRight: number[] = [];
-                const move = (src: number[], vec: number[]) => this._movePoint(src, vec);
+                const move = (src: number[], vec: number[]) => movePoint(src, vec);
                 switch (opt) {
                   case 0:
-                    displacement = this._countVector(pointD, dragCoordinate);
-                    projLeft = this._projectVectorOnVector(displacement, this._countVector(pointC, pointD));
-                    projRight = this._projectVectorOnVector(displacement, this._countVector(pointA, pointD));
+                    displacement = vectorBetween(pointD, dragCoordinate);
+                    projLeft = projectVector(displacement, vectorBetween(pointC, pointD));
+                    projRight = projectVector(displacement, vectorBetween(pointA, pointD));
                     [g2[0], g2[1]] = move(pointA, projLeft);
                     [g2[4], g2[5]] = move(pointC, projRight);
                     [g2[6], g2[7]] = move(pointD, displacement);
                     [g2[8], g2[9]] = move(pointA1, projLeft);
                     break;
                   case 1:
-                    displacement = this._countVector(pointA, dragCoordinate);
-                    projLeft = this._projectVectorOnVector(displacement, this._countVector(pointD, pointA));
-                    projRight = this._projectVectorOnVector(displacement, this._countVector(pointB, pointA));
+                    displacement = vectorBetween(pointA, dragCoordinate);
+                    projLeft = projectVector(displacement, vectorBetween(pointD, pointA));
+                    projRight = projectVector(displacement, vectorBetween(pointB, pointA));
                     [g2[0], g2[1]] = move(pointA, displacement);
                     [g2[2], g2[3]] = move(pointB, projLeft);
                     [g2[6], g2[7]] = move(pointD, projRight);
                     [g2[8], g2[9]] = move(pointA1, displacement);
                     break;
                   case 2:
-                    displacement = this._countVector(pointB, dragCoordinate);
-                    projLeft = this._projectVectorOnVector(displacement, this._countVector(pointA, pointB));
-                    projRight = this._projectVectorOnVector(displacement, this._countVector(pointC, pointB));
+                    displacement = vectorBetween(pointB, dragCoordinate);
+                    projLeft = projectVector(displacement, vectorBetween(pointA, pointB));
+                    projRight = projectVector(displacement, vectorBetween(pointC, pointB));
                     [g2[0], g2[1]] = move(pointA, projRight);
                     [g2[2], g2[3]] = move(pointB, displacement);
                     [g2[4], g2[5]] = move(pointC, projLeft);
                     [g2[8], g2[9]] = move(pointA1, projRight);
                     break;
                   case 3:
-                    displacement = this._countVector(pointC, dragCoordinate);
-                    projLeft = this._projectVectorOnVector(displacement, this._countVector(pointB, pointC));
-                    projRight = this._projectVectorOnVector(displacement, this._countVector(pointD, pointC));
+                    displacement = vectorBetween(pointC, dragCoordinate);
+                    projLeft = projectVector(displacement, vectorBetween(pointB, pointC));
+                    projRight = projectVector(displacement, vectorBetween(pointD, pointC));
                     [g2[2], g2[3]] = move(pointB, projRight);
                     [g2[4], g2[5]] = move(pointC, displacement);
                     [g2[6], g2[7]] = move(pointD, projLeft);
@@ -1571,7 +1466,7 @@ class TransformInteraction extends PointerInteraction {
             wrapOffset = Math.round((centerX - gCenter[0]) / extentWidth) * extentWidth;
           }
           if (wrapOffset !== 0) {
-            this._applyWrapOffset_(geom, wrapOffset, extentWidth);
+            applyWrapOffset(geom, wrapOffset, extentWidth);
             // 强制刷新
             if (typeof (f as any).changed === 'function') (f as any).changed();
             // 重新索引（一些 source 在 wrapX 场景需要 remove/add 保证渲染更新）
@@ -1672,132 +1567,12 @@ class TransformInteraction extends PointerInteraction {
     }
   }
 
-  /**
-   * 估算点要素在像素空间的视觉半径（用于命中测试扩大选择范围）。
-   */
-  private _getPointVisualRadiusPixel_(feature: Feature<any>): number {
-    try {
-      if (!feature?.getGeometry || feature.getGeometry().getType() !== 'Point') return 0;
-      const style: any = feature.getStyle?.();
-      if (style?.getImage) {
-        const image = style.getImage();
-        if (image) {
-          const getScalePair = (): [number, number] => {
-            if (image.getScale) {
-              const sc: any = image.getScale();
-              if (Array.isArray(sc)) return [sc[0] || 1, sc[1] || 1];
-              if (typeof sc === 'number') return [sc, sc];
-            }
-            return [1, 1];
-          };
-          // 负 scale 代表翻转，这里取绝对值用于视觉半径
-          const [rawSx, rawSy] = getScalePair();
-          const sx = Math.abs(rawSx);
-          const sy = Math.abs(rawSy);
-          const sizes: [number, number][] = [];
-          if (image.getImageSize) {
-            const isz = image.getImageSize();
-            if (isz && isz.length === 2) sizes.push([isz[0] * sx, isz[1] * sy]);
-          }
-          if (image.getSize) {
-            const sz = image.getSize();
-            if (sz && sz.length === 2) sizes.push([sz[0] * sx, sz[1] * sy]);
-          }
-          if (image.getWidth && image.getHeight) {
-            const w = image.getWidth?.();
-            const h = image.getHeight?.();
-            if (w && h) sizes.push([w * sx, h * sy]);
-          }
-          if (sizes.length) {
-            const mx = Math.max(...sizes.map((s) => s[0]));
-            const my = Math.max(...sizes.map((s) => s[1]));
-            return Math.max(mx, my) / 2;
-          }
-          if (image.getRadius) {
-            const r = image.getRadius();
-            if (r) return Math.abs(r) * Math.max(sx, sy);
-          }
-        }
-      }
-      if (style?.getSize) {
-        const s = style.getSize();
-        if (s && s.length === 2) return Math.max(s[0], s[1]) / 2;
-      }
-      return 8;
-    } catch {
-      return 8;
-    }
-  }
-
   /** 获取当前选中要素集合 */
   getFeatures(): Collection<Feature<any>> {
     return this.selection_;
   }
 
-  /**
-   * 判断点要素是否具有真实图标 / 位图（而非 Circle / RegularShape）。
-   */
-  private _pointHasIconImage_(feature: Feature<any>): boolean {
-    if (!feature?.getGeometry || feature.getGeometry().getType() !== 'Point') return false;
-    const style: any = feature.getStyle?.();
-    if (!style?.getImage) return false;
-    const img = style.getImage();
-    if (!img) return false;
-    if (img.getRadius) return false; // 规则形状 / 圆形不属于位图图标
-    if (img.getSrc) return true;
-    if (img.getImageSize && img.getImageSize()) return true;
-    if (img.getSize && img.getSize()) return true;
-    return false;
-  }
-
   // ===== 向量操作辅助函数 =====
-  /**
-   * 将向量 displacement 投影到 base 上（返回投影向量）。
-   * 用于矩形角点拖动时拆解位移。
-   */
-  private _projectVectorOnVector(displacement: number[], base: number[]): number[] {
-    const k = (displacement[0] * base[0] + displacement[1] * base[1]) / (base[0] * base[0] + base[1] * base[1]);
-    return [base[0] * k, base[1] * k];
-  }
-  /** 返回 start->end 向量 */
-  private _countVector(start: number[], end: number[]): number[] {
-    return [end[0] - start[0], end[1] - start[1]];
-  }
-  /** 位移点坐标 */
-  private _movePoint(point: number[], displacement: number[]): number[] {
-    return [point[0] + displacement[0], point[1] + displacement[1]];
-  }
-
-  /**
-   * 应用 wrapOffset 到几何，保持经度值落在当前视图附近。
-   * 支持 Point / LineString / MultiPoint / Polygon / MultiLineString / MultiPolygon / Circle。
-   * 通过模运算归一化 X 坐标，避免平移后落入遥远复制区。
-   */
-  private _applyWrapOffset_(geom: Geometry, wrapOffset: number, extentWidth: number): void {
-    const wrapCoord = (x: number): number => {
-      const half = extentWidth / 2;
-      return ((((x + half) % extentWidth) + extentWidth) % extentWidth) - half; // wrap 到 [-half, half]
-    };
-    const type = geom.getType();
-    if (type === 'Point') {
-      const p = (geom as PointGeom).getCoordinates();
-      (geom as PointGeom).setCoordinates([wrapCoord(p[0] + wrapOffset), p[1]]);
-    } else if (type === 'LineString' || type === 'MultiPoint') {
-      const coords = (geom as any).getCoordinates().map((c: number[]) => [wrapCoord(c[0] + wrapOffset), c[1]]);
-      (geom as any).setCoordinates(coords);
-    } else if (type === 'Polygon' || type === 'MultiLineString') {
-      const coords = (geom as any).getCoordinates().map((ring: number[][]) => ring.map((c: number[]) => [wrapCoord(c[0] + wrapOffset), c[1]]));
-      (geom as any).setCoordinates(coords);
-    } else if (type === 'MultiPolygon') {
-      const coords = (geom as any)
-        .getCoordinates()
-        .map((poly: number[][][]) => poly.map((ring: number[][]) => ring.map((c: number[]) => [wrapCoord(c[0] + wrapOffset), c[1]])));
-      (geom as any).setCoordinates(coords);
-    } else if (type === 'Circle') {
-      const c = (geom as any).getCenter();
-      (geom as any).setCenterAndRadius([wrapCoord(c[0] + wrapOffset), c[1]], (geom as any).getRadius());
-    }
-  }
 }
 
 export default TransformInteraction;

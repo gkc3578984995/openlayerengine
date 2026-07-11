@@ -18,6 +18,8 @@ import cloneDeep from 'lodash/cloneDeep';
 import { IToolbarItem, Toolbar } from '../extends/toolbar/Toolbar';
 import DynamicDraw from './DynamicDraw';
 import { getDefaultEarth } from '../earthContext';
+import { extractGeometryInfo, geometriesEqual } from './transform/geometry';
+import { TransformHistory } from './transform/history';
 
 export default class Transform {
   /**
@@ -67,19 +69,8 @@ export default class Transform {
    * 外部监听器缓存
    */
   private listenerMap: Map<ETransform, Set<(e: ITransformCallback) => void>> = new Map();
-  /**
-   * 历史记录堆栈（当前选中周期内）
-   * 结构：[{ featureId, geometryClone }]
-   */
-  private historyStack: Array<{ id: string; feature: Feature }> = [];
-  /**
-   * 重做堆栈
-   */
-  private redoStack: Array<{ id: string; feature: Feature }> = [];
-  /**
-   * 标记本次 select 周期是否已经记录初始状态
-   */
-  private hasRecordedInitial: boolean = false;
+  /** 当前选中周期内的变换历史。 */
+  private history: TransformHistory;
   /**
    * Tooltip DOM 元素（复用避免内存泄漏）
    */
@@ -117,6 +108,7 @@ export default class Transform {
 
   constructor(options: ITransformParams) {
     this.options = options;
+    this.history = new TransformHistory(() => this.options.historyLimit ?? this.defaultParams.historyLimit ?? 10);
     this.earth = options.earth ?? getDefaultEarth();
     this.overlay = new OverlayLayer(this.earth);
     this.transforms = this.createTransform();
@@ -446,8 +438,8 @@ export default class Transform {
       if (e.feature) this.recordSnapshot(e.feature, eventName);
       // 更新工具栏undo/redo状态
       if (this.toolbar) {
-        this.toolbar.updateItem('undo', { disabled: this.historyStack.length <= 1 });
-        this.toolbar.updateItem('redo', { disabled: !this.redoStack.length });
+        this.toolbar.updateItem('undo', { disabled: !this.history.canUndo });
+        this.toolbar.updateItem('redo', { disabled: !this.history.canRedo });
       }
     } else if (modifyEvents.has(eventName)) {
       callbackParam = {
@@ -1340,12 +1332,12 @@ export default class Transform {
       /* 忽略样式克隆失败 */
     }
     // 如果与最近一次快照几何一致则跳过
-    const last = this.historyStack[this.historyStack.length - 1];
+    const last = this.history.current;
     if (last) {
       const lastGeom = last.feature.getGeometry();
       const currentGeom = featureClone.getGeometry();
       if (lastGeom && currentGeom) {
-        const same = this.compareGeometry(lastGeom, currentGeom);
+        const same = geometriesEqual(lastGeom, currentGeom);
         if (same) {
           const geomType = currentGeom.getType?.();
           const isPointLike = geomType === 'Point' || geomType === 'MultiPoint';
@@ -1359,23 +1351,15 @@ export default class Transform {
       }
     }
     // 控制栈长度
-    const limit = this.options.historyLimit ?? this.defaultParams.historyLimit ?? 10;
-    this.historyStack.push({ id: String(id), feature: featureClone });
-    if (this.historyStack.length > limit) {
-      this.historyStack.shift();
-    }
+    this.history.record({ id: String(id), feature: featureClone });
     // 新的操作产生后，清空 redo 栈
-    this.redoStack = [];
-    this.hasRecordedInitial = true;
     this.refreshBaseTransformTooltipIfNeeded();
   }
   /**
    * 重置（Select 开始时）
    */
   private resetHistory() {
-    this.historyStack = [];
-    this.redoStack = [];
-    this.hasRecordedInitial = false;
+    this.history.clear();
   }
   /**
    * SelectEnd 时清空
@@ -1387,11 +1371,8 @@ export default class Transform {
    * 撤销
    */
   public undo() {
-    if (this.historyStack.length <= 1) return null; // 至少保留初始状态
-    const current = this.historyStack.pop();
-    if (!current) return null;
-    this.redoStack.push(current);
-    const previous = this.historyStack[this.historyStack.length - 1];
+    const previous = this.history.undo();
+    if (!previous) return null;
     const feature = this.applySnapshot(previous);
     if (feature) {
       this.handleRawEvent(ETransform.Undo, { feature });
@@ -1402,8 +1383,7 @@ export default class Transform {
    * 重做
    */
   public redo() {
-    if (!this.redoStack.length) return null;
-    const snapshot = this.redoStack.pop();
+    const snapshot = this.history.takeRedo();
     if (!snapshot) return null;
     // 当前状态（应用前）入历史
     const currentFeature = this.getFeatureById(snapshot.id);
@@ -1412,12 +1392,7 @@ export default class Transform {
       currentClone.setId(snapshot.id);
       // 深拷贝 param，避免与当前要素共享引用而被后续修改污染撤销点
       currentClone.set('param', cloneDeep(currentFeature.get('param')));
-      this.historyStack.push({ id: snapshot.id, feature: currentClone });
-      // 同 recordSnapshot 一样受 historyLimit 限制，防止 redo 反复操作导致栈无限增长
-      const limit = this.options.historyLimit ?? this.defaultParams.historyLimit ?? 10;
-      if (this.historyStack.length > limit) {
-        this.historyStack.shift();
-      }
+      this.history.push({ id: snapshot.id, feature: currentClone });
     }
     const feature = this.applySnapshot(snapshot);
     if (feature) {
@@ -1454,7 +1429,7 @@ export default class Transform {
     if (!snapshot || !snapshot.feature) return null;
     const geomSnap = snapshot.feature.getGeometry?.();
     if (!geomSnap) return null;
-    const { coords } = this.extractGeometryInfo(geomSnap);
+    const { coords } = extractGeometryInfo(geomSnap);
     const type = snapshot.feature.get('layerType');
     const param = snapshot.feature.get('param');
     if (param && coords && type && this.checkLayer) {
@@ -1515,10 +1490,10 @@ export default class Transform {
         }
       } else if (type == 'Polygon') {
         layer = this.checkLayer as PolygonLayer;
-        layer?.setPosition(param.id, coords);
+        layer?.setPosition(param.id, coords as Coordinate[][]);
       } else if (type == 'Polyline') {
         layer = this.checkLayer as PolylineLayer;
-        layer?.setPosition(param.id, coords);
+        layer?.setPosition(param.id, coords as Coordinate[]);
       } else if (type == 'Circle') {
         layer = this.checkLayer as CircleLayer;
         layer?.set(param);
@@ -1556,8 +1531,8 @@ export default class Transform {
       }
       if (this.toolbar) {
         // 更新工具栏undo/redo状态
-        this.toolbar.updateItem('undo', { disabled: this.historyStack.length <= 1 });
-        this.toolbar.updateItem('redo', { disabled: !this.redoStack.length });
+        this.toolbar.updateItem('undo', { disabled: !this.history.canUndo });
+        this.toolbar.updateItem('redo', { disabled: !this.history.canRedo });
         // 更新工具栏位置
         if (this.transforms && this.transforms.bbox_) {
           const bboxExtent = this.transforms.bbox_?.getGeometry().getCoordinates();
@@ -1568,64 +1543,6 @@ export default class Transform {
     } else {
       return null;
     }
-  }
-  /**
-   * 比较两个几何是否坐标一致（仅处理常见类型 Point/LineString/Polygon，多类型可扩展）
-   */
-  private compareGeometry(a: any, b: any): boolean {
-    const at = a?.getType?.();
-    const bt = b?.getType?.();
-    if (at !== bt) return false;
-    const ac = this.extractGeometryInfo(a).coords;
-    const bc = this.extractGeometryInfo(b).coords;
-    return this.compareCoords(ac, bc);
-  }
-  /**
-   * 递归比较坐标数组（避免 JSON.stringify 造成性能与顺序敏感问题）
-   */
-  private compareCoords(a: any, b: any): boolean {
-    if (a === b) return true;
-    if (!a || !b) return false;
-    const aIsArr = Array.isArray(a);
-    const bIsArr = Array.isArray(b);
-    if (aIsArr !== bIsArr) return false;
-    if (!aIsArr) {
-      // 数字比较：允许极小浮点误差
-      if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-9;
-      return a === b;
-    }
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!this.compareCoords(a[i], b[i])) return false;
-    }
-    return true;
-  }
-  /**
-   * 提取几何的类型与坐标（安全）
-   */
-  private extractGeometryInfo(geom: any): { type: string | undefined; coords: any } {
-    const type = geom?.getType?.();
-    let coords: any = undefined;
-    try {
-      if (
-        geom instanceof Point ||
-        geom instanceof LineString ||
-        geom instanceof Polygon ||
-        geom instanceof MultiPoint ||
-        geom instanceof MultiLineString ||
-        geom instanceof MultiPolygon
-      ) {
-        coords = geom.getCoordinates();
-      } else if (geom instanceof CircleGeom) {
-        // Circle 使用中心点 & 半径
-        coords = { center: geom.getCenter(), radius: geom.getRadius() };
-      } else if (geom?.getCoordinates) {
-        coords = geom.getCoordinates();
-      }
-    } catch (_) {
-      coords = undefined;
-    }
-    return { type, coords };
   }
   /**
    * 根据要素安全获取所属图层
@@ -1746,8 +1663,8 @@ export default class Transform {
 
   /** 构建基础提示：包含快捷键以及当前可撤销/重做次数 */
   private buildTransformBaseTooltip(): string {
-    const undoCount = Math.max(0, this.historyStack.length - 1); // 初始快照不计入
-    const redoCount = this.redoStack.length;
+    const undoCount = this.history.undoCount; // 初始快照不计入
+    const redoCount = this.history.redoCount;
     const canPaste = !!this.copyFeature;
     const keySpan = (combo: string, label: string, color?: string, disabled?: boolean, extraDesc?: string): string => {
       const style: string[] = [];
@@ -1885,8 +1802,7 @@ export default class Transform {
     this.checkSelect = null;
     this.checkLayer = null;
     this.disposed = true;
-    this.historyStack = [];
-    this.redoStack = [];
+    this.history.clear();
     this.copyStatus = null;
     this.copyFeature = null;
     if (this.pointerMoveKey) {

@@ -16,27 +16,9 @@ import { EventsKey } from 'ol/events';
 import { Coordinate } from 'ol/coordinate';
 import { Utils } from '../common';
 import PlotDraw from '../extends/plot/plotDraw';
-import { EPlotType } from '../enum';
-import { IPlotAttackArrow } from '../interface';
-import AttackArrow from '../extends/plot/geom/AttackArrow';
 import PlotEdit from '../extends/plot/plotEdit';
-import TailedAttackArrow from '@/extends/plot/geom/TailedAttackArrow';
-import FineArrow from '@/extends/plot/geom/FineArrow';
-import TailedSquadCombat from '@/extends/plot/geom/TailedSquadCombatArrow';
-import AssaultDirectionArrow from '@/extends/plot/geom/AssaultDirectionArrow';
-import DoubleArrow from '@/extends/plot/geom/DoubleArrow';
-import AssemblePolygon from '@/extends/plot/polygon/AssemblePolygon';
-import Circle from '@/extends/plot/circle/Circle';
-import Ellipse from '@/extends/plot/circle/Ellipse';
-import ClosedCurvePolygon from '@/extends/plot/polygon/ClosedCurvePolygon';
-import SectorPolygon from '@/extends/plot/polygon/SectorPolygon';
-import LunePolygon from '@/extends/plot/polygon/LunePolygon';
-import LunePolyline from '@/extends/plot/polyline/LunePolyline';
-import CurvePolyline from '@/extends/plot/polyline/CurvePolyline';
-import RectAnglePolygon from '@/extends/plot/polygon/RectAnglePolygon';
-import TrianglePolygon from '@/extends/plot/polygon/TrianglePolygon';
-import EquilateralTrianglePolygon from '@/extends/plot/polygon/EquilateralTrianglePolygon';
-import { cloneDeep } from 'lodash';
+import { startPlotDrawing } from './dynamic-draw/plotDrawing';
+import type { PlotDrawingKind, PlotTargetLayer } from './dynamic-draw/plotDrawing';
 
 // 编辑历史记录类型定义（用于当前会话内 Ctrl+Z / Ctrl+Y）
 type HistoryLineRecord = { type: 'LineString'; before: Coordinate[]; after: Coordinate[]; apply: (coords: Coordinate[]) => void };
@@ -306,24 +288,20 @@ export default class DynamicDraw {
       });
       // 绘制中移动回调函数
       this.earth.useGlobalEvent().enableGlobalMouseMoveEvent();
-      this.earth
-        .useGlobalEvent()
-        .addMouseMoveEventByGlobal((event) => {
-          callback.call(this, {
-            type: DrawType.Drawing,
-            eventPosition: event.position
-          });
+      this.earth.useGlobalEvent().addMouseMoveEventByGlobal((event) => {
+        callback.call(this, {
+          type: DrawType.Drawing,
+          eventPosition: event.position
         });
+      });
       // 绘制中点击回调函数
       this.earth.useGlobalEvent().enableGlobalMouseLeftDownEvent();
-      this.earth
-        .useGlobalEvent()
-        .addMouseLeftDownEventByGlobal((event) => {
-          callback.call(this, {
-            type: DrawType.DrawingClick,
-            eventPosition: event.position
-          });
+      this.earth.useGlobalEvent().addMouseLeftDownEventByGlobal((event) => {
+        callback.call(this, {
+          type: DrawType.DrawingClick,
+          eventPosition: event.position
         });
+      });
     });
     // 绘制完成回调函数
     this.draw?.on('drawend', (event: DrawEvent) => {
@@ -453,11 +431,9 @@ export default class DynamicDraw {
       }
     });
     // 退出绘制回调函数
-    this.earth
-      .useGlobalEvent()
-      .addMouseRightClickEventByGlobal((event) => {
-        this.exitDraw(event, param?.callback);
-      });
+    this.earth.useGlobalEvent().addMouseRightClickEventByGlobal((event) => {
+      this.exitDraw(event, param?.callback);
+    });
   }
   /**
    * 处理标绘编辑
@@ -488,9 +464,9 @@ export default class DynamicDraw {
       const geom = param.feature.getGeometry();
       const pType = geom?.getType();
       if (pType === 'Polygon') {
-        (geom as Polygon).setCoordinates((e.coords as Coordinate[][]));
+        (geom as Polygon).setCoordinates(e.coords as Coordinate[][]);
       } else if (pType === 'LineString') {
-        (geom as LineString).setCoordinates((e.coords as Coordinate[]));
+        (geom as LineString).setCoordinates(e.coords as Coordinate[]);
       }
       const fParam = param.feature.get('param');
       fParam.plotPoints = e.points;
@@ -529,1095 +505,99 @@ export default class DynamicDraw {
   // drawCircle(param?: { strokeColor?: string; strokeWidth?: number; fillColor?: string; callback?: (e: IDrawEvent) => void }) {
   //   this.initDraw('Circle', param);
   // }
-  /**
-   * 动态绘制正圆
-   */
+  private beginPlotDrawing(kind: PlotDrawingKind, param?: IDrawPolygon): void {
+    this.plot = startPlotDrawing({
+      earth: this.earth,
+      kind,
+      param,
+      callbackContext: this,
+      getLayer: (type) => this.getBaseLayer(type) as unknown as PlotTargetLayer
+    });
+  }
+
+  /** 绘制正圆。 */
   drawCircle(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.Circle);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length == 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new Circle([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const CircleParam = {
-            positions: coords,
-            plotType: EPlotType.Circle,
-            plotPoints: e.points,
-            center: e.center ? e.center : null,
-            radius: e.radius ? e.radius : null,
-          };
-          f?.set('param', CircleParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        response.center = e.center;
-        response.radius = e.radius;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('circle', param);
   }
-  /**
- * 动态绘制椭圆
- */
+
+  /** 绘制椭圆。 */
   drawEllipse(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.Ellipse);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length == 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new Ellipse([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const ellipseParam = {
-            positions: coords,
-            plotType: EPlotType.Ellipse,
-            plotPoints: e.points,
-          };
-          f?.set('param', ellipseParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('ellipse', param);
   }
-  /**
-   * 动态绘制进攻箭头
-   */
+
+  /** 绘制进攻箭头。 */
   drawAttackArrow(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.AttackArrow);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length > 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const geom = new AttackArrow([], e.points, {});
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const attackArrowParam = {
-            positions: coords,
-            plotType: EPlotType.AttackArrow,
-            plotPoints: e.points
-          };
-          f?.set('param', attackArrowParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('attackArrow', param);
   }
-  /**
-   * 动态绘制进攻箭头(燕尾)
-   */
+
+  /** 绘制燕尾进攻箭头。 */
   drawTailedAttackArrow(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.TailedAttackArrow);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length > 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new TailedAttackArrow([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const tailedattackArrowParam = {
-            positions: coords,
-            plotType: EPlotType.TailedAttackArrow,
-            plotPoints: e.points
-          };
-          f?.set('param', tailedattackArrowParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('tailedAttackArrow', param);
   }
-  /**
-   * 动态绘制单箭头(2控制点)
-   */
+
+  /** 绘制细直箭头。 */
   drawFineArrow(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.FineArrow);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length == 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new FineArrow([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const fineArrowParam = {
-            positions: coords,
-            plotType: EPlotType.FineArrow,
-            plotPoints: e.points
-          };
-          f?.set('param', fineArrowParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('fineArrow', param);
   }
-  /**
-   * 动态绘制单箭头(燕尾-2控制点)
-   */
+
+  /** 绘制燕尾单箭头。 */
   drawTailedSquadCombatArrow(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.TailedSquadCombatArrow);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length == 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new TailedSquadCombat([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const tailedSquadCombatParam = {
-            positions: coords,
-            plotType: EPlotType.TailedSquadCombatArrow,
-            plotPoints: e.points
-          };
-          f?.set('param', tailedSquadCombatParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('tailedSquadCombatArrow', param);
   }
-  /**
-   * 动态绘制单直箭头(平尾-2控制点)
-   */
+
+  /** 绘制攻击方向箭头。 */
   drawAssaultDirectionArrow(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.AssaultDirectionArrow);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length == 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new AssaultDirectionArrow([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const assaultDirectionArrowParam = {
-            positions: coords,
-            plotType: EPlotType.AssaultDirectionArrow,
-            plotPoints: e.points
-          };
-          f?.set('param', assaultDirectionArrowParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('assaultDirectionArrow', param);
   }
-  /**
-   * 动态绘制双箭头(平尾-4控制点)
-   */
+
+  /** 绘制双箭头。 */
   drawDoubleArrow(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.DoubleArrow);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length == 5) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new DoubleArrow([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const doubleArrowParam = {
-            positions: coords,
-            plotType: EPlotType.DoubleArrow,
-            plotPoints: e.points
-          };
-          f?.set('param', doubleArrowParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('doubleArrow', param);
   }
-  /**
-   * 动态绘制规则矩形(区域-2控制点)
-   */
+
+  /** 绘制矩形区域。 */
   drawRectAnglePolygon(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.RectAnglePolygon);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length === 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new RectAnglePolygon([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const rectAnglePolygonParam = {
-            positions: coords,
-            plotType: EPlotType.RectAnglePolygon,
-            plotPoints: e.points
-          };
-          f?.set('param', rectAnglePolygonParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('rectAnglePolygon', param);
   }
-  /**
- * 动态绘制三角形(区域-3控制点)
- */
+
+  /** 绘制三角形区域。 */
   drawTrianglePolygon(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.TrianglePolygon);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length === 3) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new TrianglePolygon([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const trianglePolygonParam = {
-            positions: coords,
-            plotType: EPlotType.TrianglePolygon,
-            plotPoints: e.points
-          };
-          f?.set('param', trianglePolygonParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('trianglePolygon', param);
   }
-  /**
-  * 动态绘制正三角形(区域-2控制点)
-  */
+
+  /** 绘制正三角形区域。 */
   drawEquilateralTrianglePolygon(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.EquilateralTrianglePolygon);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length === 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new EquilateralTrianglePolygon([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const equilateralTrianglePolygonParam = {
-            positions: coords,
-            plotType: EPlotType.EquilateralTrianglePolygon,
-            plotPoints: e.points
-          };
-          f?.set('param', equilateralTrianglePolygonParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('equilateralTrianglePolygon', param);
   }
-  /**
-   * 动态绘制集结地(区域-3控制点)
-   */
+
+  /** 绘制集结地。 */
   drawAssemblePolygon(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.AssemblePolygon);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length === 3) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new AssemblePolygon([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const assemblePolygonParam = {
-            positions: coords,
-            plotType: EPlotType.AssemblePolygon,
-            plotPoints: e.points
-          };
-          f?.set('param', assemblePolygonParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('assemblePolygon', param);
   }
-  /**
-   * 动态绘制闭合曲面(区域-控制点无上限)
-   */
+
+  /** 绘制闭合曲面。 */
   drawClosedCurvePolygon(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.ClosedCurvePolygon);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length > 2) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new ClosedCurvePolygon([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const closedCurvePolygonParam = {
-            positions: coords,
-            plotType: EPlotType.ClosedCurvePolygon,
-            plotPoints: e.points
-          };
-          f?.set('param', closedCurvePolygonParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('closedCurvePolygon', param);
   }
-  /**
- * 动态绘制扇面(区域-3控制点)
- */
+
+  /** 绘制扇形区域。 */
   drawSectorPolygon(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.SectorPolygon);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length === 3) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new SectorPolygon([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const sectorPolygonParam = {
-            positions: coords,
-            plotType: EPlotType.SectorPolygon,
-            plotPoints: e.points
-          };
-          f?.set('param', sectorPolygonParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('sectorPolygon', param);
   }
-  /**
-  * 动态绘制弓形(区域-3控制点)
-  */
+
+  /** 绘制弓形区域。 */
   drawLunePolygon(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.LunePolygon);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length === 3) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('Polygon') as PolygonLayer | undefined;
-          const geom = new LunePolygon([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-            fill: { color: param?.fillColor || 'rgba(255,255,255,0.2)' }
-          });
-          const lunePolygonParam = {
-            positions: coords,
-            plotType: EPlotType.LunePolygon,
-            plotPoints: e.points
-          };
-          f?.set('param', lunePolygonParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates![0] as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('lunePolygon', param);
   }
-  /**
-  * 动态绘制弓形(线-3控制点)
-  */
+
+  /** 绘制弓形线。 */
   drawLunePolyline(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.LuneLine);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length === 3) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
-          const geom = new LunePolyline([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          });
-          const lunePolylineParam = {
-            positions: coords,
-            plotType: EPlotType.LuneLine,
-            plotPoints: e.points
-          };
-          f?.set('param', lunePolylineParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates! as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('lunePolyline', param);
   }
-  /**
-* 动态绘制曲线(线-控制点无上限)
-*/
+
+  /** 绘制曲线。 */
   drawCurvePolyline(param?: IDrawPolygon) {
-    // 初始化绘制工具
-    this.plot = new PlotDraw(this.earth);
-    this.plot.init(EPlotType.CurvePolyline);
-    this.plot.on<IPlotAttackArrow>('start', (e) => {
-      // 回调：绘制开始
-      param?.callback?.call(this, {
-        type: DrawType.Drawstart,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('add-point', (e) => {
-      // 回调：绘制中点击（新增控制点）
-      param?.callback?.call(this, {
-        type: DrawType.DrawingClick,
-        eventPosition: e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('moving', (e) => {
-      // 回调：绘制移动（实时移动位置，优先使用临时点）
-      param?.callback?.call(this, {
-        type: DrawType.Drawing,
-        eventPosition: e.tempPoint || e.point
-      });
-    });
-    this.plot.on<IPlotAttackArrow>('end', (e) => {
-      if (e.points && e.points.length > 1) {
-        const response: IDrawEvent = {
-          type: DrawType.Drawend,
-          eventPosition: e.points[e.points.length - 1]
-        };
-        if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
-          const baseLayer = this.getBaseLayer('LineString') as PolylineLayer | undefined;
-          const geom = new CurvePolyline([], e.points, {});
-          const coords = geom.getCoordinates();
-          const f = baseLayer?.add({
-            positions: coords,
-            stroke: { color: param?.strokeColor || '#ffcc33', width: param?.strokeWidth || 2 },
-          });
-          const curvePolylineParam = {
-            positions: coords,
-            plotType: EPlotType.CurvePolyline,
-            plotPoints: e.points
-          };
-          f?.set('param', curvePolylineParam);
-          response.feature = f;
-        }
-        response.featurePosition = cloneDeep(e.coordinates as Coordinate[]);
-        response.ctlPoints = e.points;
-        param?.callback?.call(this, response);
-      } else {
-        const response: IDrawEvent = {
-          type: DrawType.Drawexit,
-          eventPosition: e.points && e.points.length > 0 ? e.points[e.points.length - 1] : []
-        };
-        param?.callback?.call(this, response);
-      }
-      this.plot?.destroy();
-    });
+    this.beginPlotDrawing('curvePolyline', param);
   }
 
   /**
@@ -1681,14 +661,14 @@ export default class DynamicDraw {
     this.handlePlotEdit(param);
   }
   /**
- * 动态编辑闭合曲面(区域-控制点无上限)
- */
+   * 动态编辑闭合曲面(区域-控制点无上限)
+   */
   editClosedCurvePolygon(param: IEditParam): void {
     this.handlePlotEdit(param);
   }
   /**
-  * 动态编辑扇面(区域-3控制点)
-  */
+   * 动态编辑扇面(区域-3控制点)
+   */
   editSectorPolygon(param: IEditParam): void {
     this.handlePlotEdit(param);
   }
@@ -1723,7 +703,7 @@ export default class DynamicDraw {
     this.handlePlotEdit(param);
   }
   /**
-   * 动态修改面 
+   * 动态修改面
    * @param param 参数，详见{@link IEditParam}
    */
   editPolygon(param: IEditParam): void {
@@ -1850,47 +830,45 @@ export default class DynamicDraw {
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
     // 8. 退出（右键）保存：将编辑 ring 映射回原始 world copy
-    this.earth
-      .useGlobalEvent()
-      .addMouseOnceRightClickEventByGlobal(() => {
-        this.map.removeInteraction(modify);
-        polygonLayer.destroy();
-        pointLayer.destroy();
-        // 清空历史 & 移除键盘监听
-        this.undoStack = [];
-        this.redoStack = [];
-        if (this.keydownHandler) {
-          window.removeEventListener('keydown', this.keydownHandler);
-          this.keydownHandler = null;
-        }
-        this.updateUndoRedoTooltip();
-        // 最新编辑 ring
-        let ring = (<Coordinate[][]>polygon.getGeometry()?.getCoordinates())[0];
+    this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal(() => {
+      this.map.removeInteraction(modify);
+      polygonLayer.destroy();
+      pointLayer.destroy();
+      // 清空历史 & 移除键盘监听
+      this.undoStack = [];
+      this.redoStack = [];
+      if (this.keydownHandler) {
+        window.removeEventListener('keydown', this.keydownHandler);
+        this.keydownHandler = null;
+      }
+      this.updateUndoRedoTooltip();
+      // 最新编辑 ring
+      let ring = (<Coordinate[][]>polygon.getGeometry()?.getCoordinates())[0];
+      ring = ensureClosed(ring);
+      if (baseWorldIndex !== undefined && ring.length) {
+        ring = Utils.restoreToWorldIndex(this.map, ring, baseWorldIndex);
         ring = ensureClosed(ring);
-        if (baseWorldIndex !== undefined && ring.length) {
-          ring = Utils.restoreToWorldIndex(this.map, ring, baseWorldIndex);
-          ring = ensureClosed(ring);
+      }
+      // 写回原几何 & 重新挂回原图层
+      geometry.setCoordinates([ring]);
+      layer?.getSource()?.addFeature(param.feature);
+      if (this.overlayKey) {
+        this.overlay.remove('draw_help_tooltip');
+        unByKey(this.overlayKey);
+        this.overlayKey = undefined;
+      }
+      // 生成回调坐标（去除可能的闭合重复点再 lonlat 化）
+      const outputRing = (() => {
+        if (ring.length > 1) {
+          const h = ring[0];
+          const t = ring[ring.length - 1];
+          if (h[0] === t[0] && h[1] === t[1]) return ring.slice(0, ring.length - 1);
         }
-        // 写回原几何 & 重新挂回原图层
-        geometry.setCoordinates([ring]);
-        layer?.getSource()?.addFeature(param.feature);
-        if (this.overlayKey) {
-          this.overlay.remove('draw_help_tooltip');
-          unByKey(this.overlayKey);
-          this.overlayKey = undefined;
-        }
-        // 生成回调坐标（去除可能的闭合重复点再 lonlat 化）
-        const outputRing = (() => {
-          if (ring.length > 1) {
-            const h = ring[0];
-            const t = ring[ring.length - 1];
-            if (h[0] === t[0] && h[1] === t[1]) return ring.slice(0, ring.length - 1);
-          }
-          return ring;
-        })();
-        const lonlat = outputRing.map((c) => toLonLat(c));
-        param.callback?.call(this, { type: ModifyType.Modifyexit, position: lonlat });
-      });
+        return ring;
+      })();
+      const lonlat = outputRing.map((c) => toLonLat(c));
+      param.callback?.call(this, { type: ModifyType.Modifyexit, position: lonlat });
+    });
   }
   /**
    * 动态修改线
@@ -2001,51 +979,49 @@ export default class DynamicDraw {
     };
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
-    this.earth
-      .useGlobalEvent()
-      .addMouseOnceRightClickEventByGlobal(() => {
-        this.map.removeInteraction(modify);
-        polyline.destroy();
-        point.destroy();
-        // 退出清空历史并移除监听
-        this.undoStack = [];
-        this.redoStack = [];
-        if (this.keydownHandler) {
-          window.removeEventListener('keydown', this.keydownHandler);
-          this.keydownHandler = null;
-        }
-        this.updateUndoRedoTooltip();
-        let finalCoords = (<Coordinate[]>line.getGeometry()?.getCoordinates()).slice();
-        if (baseWorldIndex !== undefined && finalCoords.length) {
-          finalCoords = Utils.restoreToWorldIndex(this.map, finalCoords, baseWorldIndex) as Coordinate[];
-        }
-        geometry.setCoordinates(finalCoords);
-        layer?.getSource()?.addFeature(param.feature);
-        // 箭头恢复（仅静态 style 情况）
-        try {
-          const oldParam = param.feature.get('param');
-          const currentStyle = param.feature.getStyle();
-          if (oldParam?.isArrow && typeof currentStyle !== 'function') {
-            let baseStyles: Style[] = [];
-            if (Array.isArray(currentStyle)) baseStyles = currentStyle.filter((s: Style) => s.getImage() == null);
-            else if (currentStyle && (currentStyle as Style).getImage() == null) baseStyles = [currentStyle as Style];
-            if (oldParam.arrowIsRepeat) {
-              geometry.forEachSegment((start, end) => baseStyles.push(Utils.createStyle(start, end, oldParam.stroke?.color)));
-            } else if (finalCoords.length >= 2) {
-              baseStyles.push(Utils.createStyle(finalCoords[finalCoords.length - 2], finalCoords[finalCoords.length - 1], oldParam.stroke?.color));
-            }
-            param.feature.setStyle(baseStyles);
+    this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal(() => {
+      this.map.removeInteraction(modify);
+      polyline.destroy();
+      point.destroy();
+      // 退出清空历史并移除监听
+      this.undoStack = [];
+      this.redoStack = [];
+      if (this.keydownHandler) {
+        window.removeEventListener('keydown', this.keydownHandler);
+        this.keydownHandler = null;
+      }
+      this.updateUndoRedoTooltip();
+      let finalCoords = (<Coordinate[]>line.getGeometry()?.getCoordinates()).slice();
+      if (baseWorldIndex !== undefined && finalCoords.length) {
+        finalCoords = Utils.restoreToWorldIndex(this.map, finalCoords, baseWorldIndex) as Coordinate[];
+      }
+      geometry.setCoordinates(finalCoords);
+      layer?.getSource()?.addFeature(param.feature);
+      // 箭头恢复（仅静态 style 情况）
+      try {
+        const oldParam = param.feature.get('param');
+        const currentStyle = param.feature.getStyle();
+        if (oldParam?.isArrow && typeof currentStyle !== 'function') {
+          let baseStyles: Style[] = [];
+          if (Array.isArray(currentStyle)) baseStyles = currentStyle.filter((s: Style) => s.getImage() == null);
+          else if (currentStyle && (currentStyle as Style).getImage() == null) baseStyles = [currentStyle as Style];
+          if (oldParam.arrowIsRepeat) {
+            geometry.forEachSegment((start, end) => baseStyles.push(Utils.createStyle(start, end, oldParam.stroke?.color)));
+          } else if (finalCoords.length >= 2) {
+            baseStyles.push(Utils.createStyle(finalCoords[finalCoords.length - 2], finalCoords[finalCoords.length - 1], oldParam.stroke?.color));
           }
-        } catch {
-          /* ignore */
+          param.feature.setStyle(baseStyles);
         }
-        if (this.overlayKey) {
-          this.overlay.remove('draw_help_tooltip');
-          unByKey(this.overlayKey);
-          this.overlayKey = undefined;
-        }
-        param.callback?.call(this, { type: ModifyType.Modifyexit, position: finalCoords.map((p) => toLonLat(p)) });
-      });
+      } catch {
+        /* ignore */
+      }
+      if (this.overlayKey) {
+        this.overlay.remove('draw_help_tooltip');
+        unByKey(this.overlayKey);
+        this.overlayKey = undefined;
+      }
+      param.callback?.call(this, { type: ModifyType.Modifyexit, position: finalCoords.map((p) => toLonLat(p)) });
+    });
   }
   /**
    * 动态修改点
@@ -2134,38 +1110,36 @@ export default class DynamicDraw {
     };
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
-    this.earth
-      .useGlobalEvent()
-      .addMouseOnceRightClickEventByGlobal(() => {
-        this.map.removeInteraction(modify);
-        pointLayer.destroy();
-        // 清空历史并移除监听
-        this.undoStack = [];
-        this.redoStack = [];
-        if (this.keydownHandler) {
-          window.removeEventListener('keydown', this.keydownHandler);
-          this.keydownHandler = null;
-        }
-        this.updateUndoRedoTooltip();
-        let finalPos = <Coordinate>point.getGeometry()?.getCoordinates();
-        if (baseWorldIndex !== undefined) {
-          finalPos = Utils.restoreToWorldIndex(this.map, finalPos, baseWorldIndex) as Coordinate;
-        }
-        geometry.setCoordinates(finalPos);
-        const fParam = <IPointParam<unknown>>param.feature.get('param');
-        if (fParam?.isFlash) {
-          fParam.center = toLonLat(finalPos);
-          param.feature.set('param', fParam);
-          Utils.flash(this.map, param.feature, fParam, layer);
-        }
-        layer?.getSource()?.addFeature(param.feature);
-        if (this.overlayKey) {
-          this.overlay.remove('draw_help_tooltip');
-          unByKey(this.overlayKey);
-          this.overlayKey = undefined;
-        }
-        param.callback?.call(this, { type: ModifyType.Modifyexit, position: toLonLat(finalPos) });
-      });
+    this.earth.useGlobalEvent().addMouseOnceRightClickEventByGlobal(() => {
+      this.map.removeInteraction(modify);
+      pointLayer.destroy();
+      // 清空历史并移除监听
+      this.undoStack = [];
+      this.redoStack = [];
+      if (this.keydownHandler) {
+        window.removeEventListener('keydown', this.keydownHandler);
+        this.keydownHandler = null;
+      }
+      this.updateUndoRedoTooltip();
+      let finalPos = <Coordinate>point.getGeometry()?.getCoordinates();
+      if (baseWorldIndex !== undefined) {
+        finalPos = Utils.restoreToWorldIndex(this.map, finalPos, baseWorldIndex) as Coordinate;
+      }
+      geometry.setCoordinates(finalPos);
+      const fParam = <IPointParam<unknown>>param.feature.get('param');
+      if (fParam?.isFlash) {
+        fParam.center = toLonLat(finalPos);
+        param.feature.set('param', fParam);
+        Utils.flash(this.map, param.feature, fParam, layer);
+      }
+      layer?.getSource()?.addFeature(param.feature);
+      if (this.overlayKey) {
+        this.overlay.remove('draw_help_tooltip');
+        unByKey(this.overlayKey);
+        this.overlayKey = undefined;
+      }
+      param.callback?.call(this, { type: ModifyType.Modifyexit, position: toLonLat(finalPos) });
+    });
   }
   /**
    * 获取所有绘制对象
@@ -2231,14 +1205,12 @@ export default class DynamicDraw {
    */
   public destroy(options?: { removeGraphics?: boolean; removeLayers?: boolean }): void {
     const { removeGraphics = false, removeLayers = false } = options || {};
-    this.plot?.destroy()
+    this.plot?.destroy();
     this.plot = undefined;
     // 1) 移除由本工具添加的交互（draw/modify 等），它们都被标记了 dynamicDraw=true
     try {
       const interactions = this.map.getInteractions().getArray();
-      interactions
-        .filter((it: any) => typeof it.get === 'function' && it.get('dynamicDraw'))
-        .forEach((it) => this.map.removeInteraction(it));
+      interactions.filter((it: any) => typeof it.get === 'function' && it.get('dynamicDraw')).forEach((it) => this.map.removeInteraction(it));
     } catch {
       /* ignore */
     }
@@ -2342,8 +1314,6 @@ export default class DynamicDraw {
       this.polylineLayer = undefined;
       this.polygonLayer = undefined;
       this.circleLayer = undefined;
-
     }
-
   }
 }
