@@ -45,12 +45,7 @@ export default class CircleLayer<T = Circle> extends Base {
     style = super.setFill(style, param.fill);
     style = this.applyText(style, param.label, feature);
     feature.setStyle(style);
-    feature.setId(param.id);
-    feature.set('data', param.data);
-    feature.set('module', param.module);
-    feature.set('layerId', this.layer.get('id'));
-    feature.set('layerType', 'Circle');
-    feature.set('param', param);
+    this.bindFeature(feature, param, 'Circle');
     return feature;
   }
   /**

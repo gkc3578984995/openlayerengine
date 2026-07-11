@@ -6,7 +6,6 @@ import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import Earth from '../Earth';
 import { Draw, Modify } from 'ol/interaction';
-import { useEarth } from '../useEarth';
 import { DrawEvent } from 'ol/interaction/Draw';
 import { fromLonLat, toLonLat } from 'ol/proj';
 import { Fill, Stroke, Style } from 'ol/style';
@@ -48,6 +47,10 @@ type HistoryRecord = HistoryLineRecord | HistoryPolygonRecord | HistoryPointReco
  * 动态绘制类
  */
 export default class DynamicDraw {
+  /**
+   * earth实例
+   */
+  private earth: Earth;
   /**
    * map实例
    */
@@ -104,29 +107,30 @@ export default class DynamicDraw {
     const layer = new VectorLayer({ source });
     layer.set('layerType', 'dynamicDrawTempLayer');
     earth.addLayer(layer); // 保持与旧实现兼容（仍在地图上显示绘制过程）
+    this.earth = earth;
     this.map = earth.map;
     this.source = source; // 兼容旧属性命名
     this.layer = layer; // 兼容旧属性命名
     this.tempSource = source;
     this.tempLayer = layer;
-    this.overlay = new OverlayLayer();
+    this.overlay = new OverlayLayer(this.earth);
   }
   /** 获取对应基础图层（懒创建，避免与用户手工创建重复冲突：如果外部已存在同类型图层，可在 Earth 封装里拓展一个获取逻辑；这里简单内部创建一次） */
   private getBaseLayer(type: 'Point' | 'LineString' | 'Polygon' | 'Circle') {
     if (type === 'Point') {
-      if (!this.pointLayer) this.pointLayer = new PointLayer();
+      if (!this.pointLayer) this.pointLayer = new PointLayer(this.earth);
       return this.pointLayer;
     }
     if (type === 'LineString') {
-      if (!this.polylineLayer) this.polylineLayer = new PolylineLayer();
+      if (!this.polylineLayer) this.polylineLayer = new PolylineLayer(this.earth);
       return this.polylineLayer;
     }
     if (type === 'Polygon') {
-      if (!this.polygonLayer) this.polygonLayer = new PolygonLayer();
+      if (!this.polygonLayer) this.polygonLayer = new PolygonLayer(this.earth);
       return this.polygonLayer;
     }
     if (type === 'Circle') {
-      if (!this.circleLayer) this.circleLayer = new CircleLayer();
+      if (!this.circleLayer) this.circleLayer = new CircleLayer(this.earth);
       return this.circleLayer;
     }
     return undefined;
@@ -192,7 +196,7 @@ export default class DynamicDraw {
     }
     // 初始化提示标牌
     this.initHelpTooltip('左击开始绘制，右击退出绘制');
-    useEarth().setMouseStyle('pointer');
+    this.earth.setMouseStyle('pointer');
     const drawStyle = new Style({
       fill: new Fill({
         color: 'rgba(255, 255, 255, 0.2)'
@@ -252,14 +256,14 @@ export default class DynamicDraw {
    * @param callback 回调函数
    */
   private exitDraw(event: { position: Coordinate }, callback?: (e: IDrawEvent) => void) {
-    if (useEarth().useGlobalEvent().hasGlobalMouseRightClickEvent()) {
-      useEarth().useGlobalEvent().disableGlobalMouseRightClickEvent();
+    if (this.earth.useGlobalEvent().hasGlobalMouseRightClickEvent()) {
+      this.earth.useGlobalEvent().disableGlobalMouseRightClickEvent();
     }
-    if (useEarth().useGlobalEvent().hasGlobalMouseMoveEvent()) {
-      useEarth().useGlobalEvent().disableGlobalMouseMoveEvent();
+    if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
+      this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
     }
-    if (useEarth().useGlobalEvent().hasGlobalMouseLeftDownEvent()) {
-      useEarth().useGlobalEvent().disableGlobalMouseLeftDownEvent();
+    if (this.earth.useGlobalEvent().hasGlobalMouseLeftDownEvent()) {
+      this.earth.useGlobalEvent().disableGlobalMouseLeftDownEvent();
     }
     if (this.draw) {
       // this.draw.removeLastPoint();
@@ -271,7 +275,7 @@ export default class DynamicDraw {
       unByKey(this.overlayKey);
       this.overlayKey = undefined;
     }
-    useEarth().setMouseStyleToDefault();
+    this.earth.setMouseStyleToDefault();
     // 如果本次会话已经通过 drawend 正常结束（回调了 DrawType.Drawend），则不再触发 Drawexit 回调
     if (!this.lastDrawCompleted) {
       callback?.call(this, {
@@ -290,8 +294,8 @@ export default class DynamicDraw {
     this.lastDrawCompleted = false;
     // 绘制计次
     let drawNum = 0;
-    if (!useEarth().useGlobalEvent().hasGlobalMouseRightClickEvent()) {
-      useEarth().useGlobalEvent().enableGlobalMouseRightClickEvent();
+    if (!this.earth.useGlobalEvent().hasGlobalMouseRightClickEvent()) {
+      this.earth.useGlobalEvent().enableGlobalMouseRightClickEvent();
     }
     // 开始绘制回调函数
     this.draw?.on('drawstart', (event: DrawEvent) => {
@@ -301,8 +305,8 @@ export default class DynamicDraw {
         eventPosition: coordinate
       });
       // 绘制中移动回调函数
-      useEarth().useGlobalEvent().enableGlobalMouseMoveEvent();
-      useEarth()
+      this.earth.useGlobalEvent().enableGlobalMouseMoveEvent();
+      this.earth
         .useGlobalEvent()
         .addMouseMoveEventByGlobal((event) => {
           callback.call(this, {
@@ -311,8 +315,8 @@ export default class DynamicDraw {
           });
         });
       // 绘制中点击回调函数
-      useEarth().useGlobalEvent().enableGlobalMouseLeftDownEvent();
-      useEarth()
+      this.earth.useGlobalEvent().enableGlobalMouseLeftDownEvent();
+      this.earth
         .useGlobalEvent()
         .addMouseLeftDownEventByGlobal((event) => {
           callback.call(this, {
@@ -324,11 +328,11 @@ export default class DynamicDraw {
     // 绘制完成回调函数
     this.draw?.on('drawend', (event: DrawEvent) => {
       // 标记为已正常完成，后续若再触发 exitDraw 则不再回调 Drawexit
-      if (useEarth().useGlobalEvent().hasGlobalMouseMoveEvent()) {
-        useEarth().useGlobalEvent().disableGlobalMouseMoveEvent();
+      if (this.earth.useGlobalEvent().hasGlobalMouseMoveEvent()) {
+        this.earth.useGlobalEvent().disableGlobalMouseMoveEvent();
       }
-      if (useEarth().useGlobalEvent().hasGlobalMouseLeftDownEvent()) {
-        useEarth().useGlobalEvent().disableGlobalMouseLeftDownEvent();
+      if (this.earth.useGlobalEvent().hasGlobalMouseLeftDownEvent()) {
+        this.earth.useGlobalEvent().disableGlobalMouseLeftDownEvent();
       }
       let geometry;
       const coordinate = this.map.getCoordinateFromPixel(event.target.downPx_);
@@ -440,7 +444,7 @@ export default class DynamicDraw {
           // 如果用户要求不保留结果，则从基础图层移除
           try {
             const feat = response.feature as Feature<Geometry>;
-            const l = useEarth().getLayerAtFeature(feat) as VectorLayer<VectorSource<Geometry>> | undefined;
+            const l = this.earth.getLayerAtFeature(feat) as VectorLayer<VectorSource<Geometry>> | undefined;
             l?.getSource()?.removeFeature(feat);
           } catch {
             /* ignore */
@@ -449,7 +453,7 @@ export default class DynamicDraw {
       }
     });
     // 退出绘制回调函数
-    useEarth()
+    this.earth
       .useGlobalEvent()
       .addMouseRightClickEventByGlobal((event) => {
         this.exitDraw(event, param?.callback);
@@ -460,11 +464,11 @@ export default class DynamicDraw {
    */
   private handlePlotEdit(param: IEditParam) {
     const isShowUnderlay = param.isShowUnderlay === undefined ? true : param.isShowUnderlay;
-    const layer = useEarth().getLayer(param.feature.get('layerId')) as Base;
+    const layer = this.earth.getLayer(param.feature.get('layerId')) as Base;
     if (!isShowUnderlay) {
       layer.hide(param.feature.getId() as string);
     }
-    const p = new PlotEdit();
+    const p = new PlotEdit(this.earth);
     p.init({ feature: param.feature });
     p.on('modifyStart', (e) => {
       // 回调：绘制开始
@@ -530,7 +534,7 @@ export default class DynamicDraw {
    */
   drawCircle(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.Circle);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -598,7 +602,7 @@ export default class DynamicDraw {
  */
   drawEllipse(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.Ellipse);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -662,7 +666,7 @@ export default class DynamicDraw {
    */
   drawAttackArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.AttackArrow);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -726,7 +730,7 @@ export default class DynamicDraw {
    */
   drawTailedAttackArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.TailedAttackArrow);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -790,7 +794,7 @@ export default class DynamicDraw {
    */
   drawFineArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.FineArrow);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -854,7 +858,7 @@ export default class DynamicDraw {
    */
   drawTailedSquadCombatArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.TailedSquadCombatArrow);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -918,7 +922,7 @@ export default class DynamicDraw {
    */
   drawAssaultDirectionArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.AssaultDirectionArrow);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -982,7 +986,7 @@ export default class DynamicDraw {
    */
   drawDoubleArrow(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.DoubleArrow);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1046,7 +1050,7 @@ export default class DynamicDraw {
    */
   drawRectAnglePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.RectAnglePolygon);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1110,7 +1114,7 @@ export default class DynamicDraw {
  */
   drawTrianglePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.TrianglePolygon);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1174,7 +1178,7 @@ export default class DynamicDraw {
   */
   drawEquilateralTrianglePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.EquilateralTrianglePolygon);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1238,7 +1242,7 @@ export default class DynamicDraw {
    */
   drawAssemblePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.AssemblePolygon);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1302,7 +1306,7 @@ export default class DynamicDraw {
    */
   drawClosedCurvePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.ClosedCurvePolygon);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1366,7 +1370,7 @@ export default class DynamicDraw {
  */
   drawSectorPolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.SectorPolygon);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1430,7 +1434,7 @@ export default class DynamicDraw {
   */
   drawLunePolygon(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.LunePolygon);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1494,7 +1498,7 @@ export default class DynamicDraw {
   */
   drawLunePolyline(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.LuneLine);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1557,7 +1561,7 @@ export default class DynamicDraw {
 */
   drawCurvePolyline(param?: IDrawPolygon) {
     // 初始化绘制工具
-    this.plot = new PlotDraw();
+    this.plot = new PlotDraw(this.earth);
     this.plot.init(EPlotType.CurvePolyline);
     this.plot.on<IPlotAttackArrow>('start', (e) => {
       // 回调：绘制开始
@@ -1732,10 +1736,10 @@ export default class DynamicDraw {
       this.keydownHandler = null;
     }
     // 1. 创建编辑临时图层（关闭 wrapX 避免多世界复制下命中异常）
-    const polygonLayer = new PolygonLayer(useEarth(), { wrapX: false });
-    const pointLayer = new PointLayer(useEarth(), { wrapX: false });
+    const polygonLayer = new PolygonLayer(this.earth, { wrapX: false });
+    const pointLayer = new PointLayer(this.earth, { wrapX: false });
     // 2. 原始图层与要素
-    const layer = <VectorLayer<VectorSource<Geometry>>>useEarth().getLayerAtFeature(param.feature);
+    const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) layer?.getSource()?.removeFeature(param.feature);
     const geometry = <Polygon>param.feature.getGeometry();
     const originalPositions = <Coordinate[][]>geometry.getCoordinates();
@@ -1846,7 +1850,7 @@ export default class DynamicDraw {
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
     // 8. 退出（右键）保存：将编辑 ring 映射回原始 world copy
-    useEarth()
+    this.earth
       .useGlobalEvent()
       .addMouseOnceRightClickEventByGlobal(() => {
         this.map.removeInteraction(modify);
@@ -1901,9 +1905,9 @@ export default class DynamicDraw {
       window.removeEventListener('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
-    const polyline = new PolylineLayer(useEarth(), { wrapX: false });
-    const point = new PointLayer(useEarth(), { wrapX: false });
-    const layer = <VectorLayer<VectorSource<Geometry>>>useEarth().getLayerAtFeature(param.feature);
+    const polyline = new PolylineLayer(this.earth, { wrapX: false });
+    const point = new PointLayer(this.earth, { wrapX: false });
+    const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) {
       try {
         const oldParam = param.feature.get('param');
@@ -1997,7 +2001,7 @@ export default class DynamicDraw {
     };
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
-    useEarth()
+    this.earth
       .useGlobalEvent()
       .addMouseOnceRightClickEventByGlobal(() => {
         this.map.removeInteraction(modify);
@@ -2056,8 +2060,8 @@ export default class DynamicDraw {
       window.removeEventListener('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
-    const pointLayer = new PointLayer(useEarth(), { wrapX: false });
-    const layer = <VectorLayer<VectorSource<Geometry>>>useEarth().getLayerAtFeature(param.feature);
+    const pointLayer = new PointLayer(this.earth, { wrapX: false });
+    const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) {
       layer?.getSource()?.removeFeature(param.feature);
       const listenerKey = param.feature.get('listenerKey');
@@ -2130,7 +2134,7 @@ export default class DynamicDraw {
     };
     window.addEventListener('keydown', this.keydownHandler);
     this.updateUndoRedoTooltip();
-    useEarth()
+    this.earth
       .useGlobalEvent()
       .addMouseOnceRightClickEventByGlobal(() => {
         this.map.removeInteraction(modify);
@@ -2282,7 +2286,7 @@ export default class DynamicDraw {
 
     // 4) 关闭全局鼠标事件（若仍处于开启状态）
     try {
-      const ge = useEarth().useGlobalEvent();
+      const ge = this.earth.useGlobalEvent();
       if (ge.hasGlobalMouseRightClickEvent()) ge.disableGlobalMouseRightClickEvent();
       if (ge.hasGlobalMouseMoveEvent()) ge.disableGlobalMouseMoveEvent();
       if (ge.hasGlobalMouseLeftDownEvent()) ge.disableGlobalMouseLeftDownEvent();
@@ -2291,7 +2295,7 @@ export default class DynamicDraw {
     }
     // 恢复鼠标样式
     try {
-      useEarth().setMouseStyleToDefault();
+      this.earth.setMouseStyleToDefault();
     } catch {
       /* ignore */
     }

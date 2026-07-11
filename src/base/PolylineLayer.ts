@@ -134,12 +134,7 @@ export default class Polyline<T = LineString> extends Base {
       });
     }
     // 其余属性挂载
-    feature.setId(param.id);
-    feature.set('data', param.data);
-    feature.set('module', param.module);
-    feature.set('layerId', this.layer.get('id'));
-    feature.set('layerType', 'Polyline');
-    feature.set('param', param);
+    this.bindFeature(feature, param, 'Polyline');
     return feature;
   }
   /**

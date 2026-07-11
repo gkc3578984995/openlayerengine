@@ -24,7 +24,7 @@ export default class ContextMenu {
     // 启用右键点击事件
     useEarth().useGlobalEvent().enableGlobalMouseRightClickEvent();
     useEarth().useGlobalEvent().addMouseRightClickEventByGlobal((e) => {
-      console.log(e)
+      
     })
     // 判断是否存在元素
     // 显示菜单

@@ -57,12 +57,7 @@ export default class BillboardLayer<T = Point> extends Base {
     style = this.applyText(style, param.label, feature);
     style.setImage(icon);
     feature.setStyle(style);
-    feature.setId(param.id);
-    feature.set('data', param.data);
-    feature.set('module', param.module);
-    feature.set('layerId', this.layer.get('id'));
-    feature.set('layerType', 'Billboard');
-    feature.set('param', param);
+    this.bindFeature(feature, param, 'Billboard');
     // 记录屏幕空间偏移（未补偿），供 set() 只传 rotation 时重新补偿使用
     feature.set('screenDisplacement', param.displacement ? param.displacement.slice() : [0, 0]);
     return feature;

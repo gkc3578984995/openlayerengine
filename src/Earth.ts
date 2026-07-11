@@ -187,25 +187,17 @@ export default class Earth {
     const el = options?.target || 'olContainer';
     const map: Map = new Map({
       target: el,
-      view: new View(
-        Object.assign(
-          {
-            center: this.center,
-            zoom: 4
-          },
-          viewOptions
-        )
-      ),
-      controls: defaults(
-        Object.assign(
-          {
-            zoom: false,
-            rotate: false,
-            attribution: false
-          },
-          options
-        )
-      )
+      view: new View({
+        center: this.center,
+        zoom: 4,
+        ...viewOptions
+      }),
+      controls: defaults({
+        zoom: false,
+        rotate: false,
+        attribution: false,
+        ...options
+      })
     });
     this.map = map;
     this.view = map.getView();

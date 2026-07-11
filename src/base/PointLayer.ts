@@ -65,12 +65,7 @@ export default class PointLayer<T = Point> extends Base {
     );
     style = this.applyText(style, param.label, feature, -15);
     feature.setStyle(style);
-    feature.setId(param.id);
-    feature.set('data', param.data);
-    feature.set('module', param.module);
-    feature.set('layerId', this.layer.get('id'));
-    feature.set('layerType', 'Point');
-    feature.set('param', param);
+    this.bindFeature(feature, param, 'Point');
     return feature;
   }
   /**

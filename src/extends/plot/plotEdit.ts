@@ -3,6 +3,7 @@ import { IPlotEditParams } from '../../interface';
 import { Map as OlMap } from 'ol';
 import { Coordinate } from 'ol/coordinate';
 import { useEarth } from '../../useEarth';
+import Earth from '../../Earth';
 import PolygonLayer from '../../base/PolygonLayer';
 import PointLayer from '../../base/PointLayer';
 import { EPlotType } from '../../enum';
@@ -57,6 +58,10 @@ interface IPlotParam {
 }
 
 class plotEdit {
+  /**
+   * earth实例
+   */
+  private earth: Earth;
   /**
    * 地图对象
    */
@@ -144,8 +149,9 @@ class plotEdit {
   /** 需要排除创建中点的类型 */
   private exclude = [EPlotType.FineArrow, EPlotType.TailedSquadCombatArrow, EPlotType.AssaultDirectionArrow, EPlotType.DoubleArrow, EPlotType.AssemblePolygon, EPlotType.Circle, EPlotType.SectorPolygon, EPlotType.LunePolygon, EPlotType.LuneLine, EPlotType.RectAnglePolygon, EPlotType.TrianglePolygon, EPlotType.EquilateralTrianglePolygon];
 
-  constructor() {
-    this.map = useEarth().map;
+  constructor(earth?: Earth) {
+    this.earth = earth ?? useEarth();
+    this.map = this.earth.map;
     this.createLayer();
   }
   /**
@@ -275,7 +281,7 @@ class plotEdit {
   /** 注册键盘撤销/重做 */
   private setupKeyDown() {
     try {
-      this.keyDownDispose = useEarth()
+      this.keyDownDispose = this.earth
         .useGlobalEvent()
         .addKeyDownEventByGlobal((ev: KeyboardEvent) => {
           const key = ev.key.toLowerCase();
@@ -356,10 +362,10 @@ class plotEdit {
    * 创建编辑要素图层
    */
   private createLayer() {
-    this.polygonLayer = new PolygonLayer(useEarth());
-    this.polylineLayer = new PolylineLayer(useEarth());
-    this.pointLayer = new PointLayer<Point>(useEarth());
-    this.midPointLayer = new PointLayer<Point>(useEarth());
+    this.polygonLayer = new PolygonLayer(this.earth);
+    this.polylineLayer = new PolylineLayer(this.earth);
+    this.pointLayer = new PointLayer<Point>(this.earth);
+    this.midPointLayer = new PointLayer<Point>(this.earth);
   }
   /**
    * 由控制点生成序列中点
@@ -546,11 +552,11 @@ class plotEdit {
    * 创建修改监听
    */
   private createModifyEvent() {
-    const event = useEarth().useGlobalEvent();
+    const event = this.earth.useGlobalEvent();
     // 鼠标移入
     event.addMouseMoveEventByModule('plot-ctl-point', (e) => {
       if (e.feature) {
-        useEarth().setMouseStyle('move');
+        this.earth.setMouseStyle('move');
         // 根据当前要素 id 判断是否是中点
         const id = e.id;
         if (this.isDragging) {
@@ -561,7 +567,7 @@ class plotEdit {
           this.updateUndoRedoTooltip();
         }
       } else {
-        useEarth().setMouseStyleToDefault();
+        this.earth.setMouseStyleToDefault();
         if (!this.isDragging) this.updateUndoRedoTooltip();
       }
     });
@@ -571,7 +577,7 @@ class plotEdit {
       const isCtrlPoint = this.pointIdMap?.has(e.id) ?? false;
       const isMidPoint = !isCtrlPoint && (this.midPointIdMap?.has(e.id) ?? false);
       // 禁用地图拖拽
-      useEarth().disabledMapDrag();
+      this.earth.disabledMapDrag();
       this.midPointLayer?.hide();
       // =============== 中点新增逻辑 ===============
       if (isMidPoint) {
@@ -611,7 +617,7 @@ class plotEdit {
         const mouseUp = event.addMouseLeftUpEventByGlobal((up) => {
           this.midPointLayer?.show();
           if (this.modifyPointIndex === undefined) return;
-          useEarth().enableMapDrag();
+          this.earth.enableMapDrag();
           mouseMove();
           mouseUp();
           this.pointLayer?.set({ id: newPointId!, size: 4, center: fromLonLat(up.position) });
@@ -655,7 +661,7 @@ class plotEdit {
         const mouseUp = event.addMouseLeftUpEventByGlobal((up) => {
           this.midPointLayer?.show();
           if (this.modifyPointIndex === undefined) return;
-          useEarth().enableMapDrag();
+          this.earth.enableMapDrag();
           mouseMove();
           mouseUp();
           this.pointLayer?.set({ id: e.id, size: 4, center: fromLonLat(up.position) });

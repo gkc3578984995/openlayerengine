@@ -1,4 +1,4 @@
-import Earth from 'Earth';
+import Earth from '../Earth';
 import { Feature, Map } from 'ol';
 import { Geometry, LineString, Point, Polygon } from 'ol/geom';
 import { Draw } from 'ol/interaction';
@@ -12,12 +12,15 @@ import RenderFeature from 'ol/render/Feature';
 import VectorLayer from 'ol/layer/Vector';
 import { IMeasure, IMeasureEvent } from '../interface';
 import { PointLayer } from '../base';
-import { useEarth } from '../useEarth';
 import { fromLonLat, toLonLat } from 'ol/proj';
 /**
  * 测量类
  */
 export default class Measure {
+  /**
+   * earth实例
+   */
+  private earth: Earth;
   /**
    * map实例
    */
@@ -87,6 +90,7 @@ export default class Measure {
    * @param earth
    */
   constructor(earth: Earth) {
+    this.earth = earth;
     this.map = earth.map;
     this.source = new VectorSource();
     this.layer = new VectorLayer({
@@ -96,7 +100,7 @@ export default class Measure {
       }
     });
     this.map.addLayer(this.layer);
-    this.pointLayer = new PointLayer();
+    this.pointLayer = new PointLayer(this.earth);
   }
   private formatLength(line: LineString): number {
     const length = getLength(line);
@@ -230,7 +234,7 @@ export default class Measure {
    * @param param 参数，详见{@link IMeasure}
    */
   private lineMeasure(param: IMeasure) {
-    useEarth().setMouseStyle('pointer');
+    this.earth.setMouseStyle('pointer');
     const activeTip = '单击继续绘制线 右击退出测量';
     const idleTip = '单击开始测量';
     let tip = idleTip;
@@ -285,14 +289,14 @@ export default class Measure {
       this.measureData.totalDistance = totalDistance;
       param.callback?.call(this, this.measureData);
     });
-    useEarth()
+    this.earth
       .useGlobalEvent()
       .addMouseOnceRightClickEventByGlobal((e) => {
         if (this.draw) {
           this.draw.finishDrawing();
           this.map.removeInteraction(this.draw);
         }
-        useEarth().setMouseStyle('auto');
+        this.earth.setMouseStyle('auto');
       });
     this.map.addInteraction(this.draw);
   }
@@ -321,7 +325,7 @@ export default class Measure {
   lineCenter(param: IMeasure) {
     this.segments = true;
     this.labels = false;
-    useEarth().setMouseStyle('pointer');
+    this.earth.setMouseStyle('pointer');
     const activeTip = '单击继续绘制线 右击退出测量';
     const idleTip = '单击开始测量';
     let tip = idleTip;
@@ -346,9 +350,9 @@ export default class Measure {
       const line = <LineString>e.feature.getGeometry();
       tip = activeTip;
       setTimeout(() => {
-        if (!useEarth().useGlobalEvent().hasGlobalMouseLeftUpEvent()) {
-          useEarth().useGlobalEvent().enableGlobalMouseLeftUpEvent();
-          useEarth()
+        if (!this.earth.useGlobalEvent().hasGlobalMouseLeftUpEvent()) {
+          this.earth.useGlobalEvent().enableGlobalMouseLeftUpEvent();
+          this.earth
             .useGlobalEvent()
             .addMouseLeftUpEventByGlobal(() => {
               if (this.draw) {
@@ -390,17 +394,17 @@ export default class Measure {
         });
       });
     });
-    useEarth()
+    this.earth
       .useGlobalEvent()
       .addMouseOnceRightClickEventByGlobal((e) => {
-        if (useEarth().useGlobalEvent().hasGlobalMouseLeftUpEvent()) {
-          useEarth().useGlobalEvent().disableGlobalMouseLeftUpEvent();
+        if (this.earth.useGlobalEvent().hasGlobalMouseLeftUpEvent()) {
+          this.earth.useGlobalEvent().disableGlobalMouseLeftUpEvent();
         }
         if (this.draw) {
           this.draw.finishDrawing();
           this.map.removeInteraction(this.draw);
         }
-        useEarth().setMouseStyle('auto');
+        this.earth.setMouseStyle('auto');
         param.callback?.call(this, this.measureData);
       });
     this.map.addInteraction(this.draw);
@@ -412,7 +416,7 @@ export default class Measure {
   polygonMeasure(param: IMeasure) {
     this.segments = true;
     this.labels = true;
-    useEarth().setMouseStyle('pointer');
+    this.earth.setMouseStyle('pointer');
     const activeTip = '单击继续绘制线 右击退出测量';
     const idleTip = '单击开始测量';
     let tip = idleTip;
@@ -457,14 +461,14 @@ export default class Measure {
       this.measureData.area = this.formatArea(polygon.getGeometry()!);
       param.callback?.call(this, this.measureData);
     });
-    useEarth()
+    this.earth
       .useGlobalEvent()
       .addMouseOnceRightClickEventByGlobal((e) => {
         if (this.draw) {
           this.draw.finishDrawing();
           this.map.removeInteraction(this.draw);
         }
-        useEarth().setMouseStyle('auto');
+        this.earth.setMouseStyle('auto');
       });
     this.map.addInteraction(this.draw);
   }

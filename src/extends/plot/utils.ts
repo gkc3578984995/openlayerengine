@@ -514,10 +514,11 @@ export function getuuid(noBit = false) {
  * @param obj
  * @returns {*}
  */
-export function stamp(obj: any) {
+export function stamp(obj: Record<string, unknown> | object): string {
   const key = '_event_id_';
-  obj[key] = obj[key] || getuuid();
-  return obj[key];
+  const o = obj as Record<string, unknown>;
+  o[key] = (o[key] as string) || getuuid();
+  return o[key] as string;
 }
 
 /**
@@ -538,7 +539,7 @@ export const splitWords = (str: string) => trim(str).split(/\s+/);
  * @param value
  * @returns {boolean}
  */
-export const isObject = (value: any): value is object => {
+export const isObject = (value: unknown): value is object => {
   const type = typeof value;
   return value !== null && (type === 'object' || type === 'function');
 };
@@ -549,7 +550,7 @@ export const isObject = (value: any): value is object => {
  * @param b
  * @returns {*}
  */
-export function merge(a: any, b: any) {
+export function merge(a: Record<string, any>, b: Record<string, any>): Record<string, any> {
   // eslint-disable-next-line no-restricted-syntax
   for (const key in b) {
     if (isObject(b[key]) && isObject(a[key])) {
@@ -561,18 +562,17 @@ export function merge(a: any, b: any) {
   return a;
 }
 
-export function preventDefault(e: any) {
-  // eslint-disable-next-line no-param-reassign
-  e = e || window.event;
-  if (e.preventDefault) {
-    e.preventDefault();
-  } else {
-    e.returnValue = false;
+export function preventDefault(e: Event | undefined) {
+  const evt = e || window.event;
+  if (evt && evt.preventDefault) {
+    evt.preventDefault();
+  } else if (evt) {
+    (evt as any).returnValue = false;
   }
 }
 
-export function bindAll(fns: any, context: any) {
-  fns.forEach((fn: any) => {
+export function bindAll(fns: string[], context: any) {
+  fns.forEach((fn) => {
     if (!context[fn]) {
       return;
     }

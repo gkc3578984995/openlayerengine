@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { EPlotType } from '../../enum';
 import { useEarth } from '../../useEarth';
+import Earth from '../../Earth';
 import { Feature, Map } from 'ol';
 import { Geometry } from 'ol/geom';
 import AttackArrow from './geom/AttackArrow';
@@ -37,6 +38,10 @@ export type PlotDrawListener = (payload: unknown) => void;
 
 class PlotDraw {
   /**
+   * earth实例
+   */
+  private earth: Earth;
+  /**
    * 地图对象
    */
   private map: Map;
@@ -69,8 +74,9 @@ class PlotDraw {
    */
   private offEvents: any[] = [];
 
-  constructor() {
-    this.map = useEarth().map;
+  constructor(earth?: Earth) {
+    this.earth = earth ?? useEarth();
+    this.map = this.earth.map;
     // 创建图层
     this.layer = this.createLayer();
   }
@@ -180,7 +186,7 @@ class PlotDraw {
       });
       this.offEvents = [];
     }
-    const event = useEarth().useGlobalEvent();
+    const event = this.earth.useGlobalEvent();
     const off = event.addMouseClickEventByGlobal(this.mouseClickEvent.bind(this));
     const offRightClick = event.addMouseRightClickEventByGlobal(this.mouseRightClickEvent.bind(this));
     this.offEvents.push(off, offRightClick);
@@ -209,7 +215,7 @@ class PlotDraw {
       type: this.geom?.getPlotType?.()
     });
     if (this.points.length === 1) {
-      const event = useEarth().useGlobalEvent();
+      const event = this.earth.useGlobalEvent();
       const offMove = event.addMouseMoveEventByGlobal(this.mouseMoveEvent.bind(this));
       this.offEvents.push(offMove);
       // 事件：开始绘制（首点）
@@ -275,7 +281,6 @@ class PlotDraw {
       src?.clear(); // 主动清空要素
       this.map.removeLayer(this.layer);
       this.map.render(); // 可选：强制一次刷新
-      console.log('[PlotDraw] removed dynamic draw layer');
     }
     // 清空状态
     this.points = [];
@@ -292,7 +297,7 @@ class PlotDraw {
       }
     });
     this.offEvents = [];
-    useEarth().setMouseStyle('default');
+    this.earth.setMouseStyle('default');
   }
   /** 初始化帮助提示 */
   private initHelpTooltip(str: string) {
@@ -396,7 +401,7 @@ class PlotDraw {
    * 开始绘制
    */
   public init(type: EPlotType) {
-    useEarth().setMouseStyle('pointer')
+    this.earth.setMouseStyle('pointer')
     this.geom = this.createGeom(type);
     this.feature = new Feature(this.geom);
     this.feature.set('dynamicDraw', true);

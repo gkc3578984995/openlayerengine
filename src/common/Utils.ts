@@ -29,7 +29,7 @@ export default class Utils {
       const projExtent = map.getView().getProjection().getExtent?.();
       if (projExtent) return projExtent[2] - projExtent[0];
     } catch {
-      /* ignore */
+      /* 投影不可用时回退到 undefined */
     }
     return undefined;
   }
@@ -276,13 +276,13 @@ export default class Utils {
     param: IPointParam<T>,
     layer: VectorLayer<VectorSource<Geometry>>
   ): void {
-    const defaultOption = {
+    const options = {
       duration: 1000,
       flashColor: param.flashColor || { R: 255, G: 0, B: 0 },
       isRepeat: true,
-      size: param.size || 6
+      size: param.size || 6,
+      ...param
     };
-    const options = Object.assign(defaultOption, param);
     let start = Date.now();
     const geometry = feature.getGeometry();
     if (geometry) {
@@ -354,7 +354,8 @@ export default class Utils {
   /**
    * 函数节流：在等待窗口期内只执行一次
    *
-   * 委托给 `lodash/throttle` 实现。返回的函数附带 `cancel` / `flush` / `pending` 方法。
+   * 委托给 `lodash/throttle` 实现。返回的函数附带 `cancel` / `flush` 方法。
+   * （注：原自实现版本曾提供 `pending`，lodash throttle 不暴露该方法，已移除。）
    * @param fn 需要节流的函数
    * @param wait 等待时间(ms)，默认100
    * @param options 配置: leading(默认true) / trailing(默认true)

@@ -741,245 +741,131 @@ export default class GlobalEvent {
     }
   }
   /**
-   * 按模块添加鼠标移动事件
-   * @param module 模块名称
-   * @param callback 回调函数，详见{@link ModuleEventCallback}
+   * 按模块追加事件的通用实现：自动启用监听、去重、返回注销函数。
+   * 各 `addXxxEventByModule` 公共方法均为本方法的薄包装。
    */
-  /**
-   * 按模块添加鼠标移动事件（返回注销函数）
-   */
-  addMouseMoveEventByModule(module: string, callback: ModuleEventCallback): () => void {
-    if (module && module !== '') {
-      // 自动启用监听，防止遗忘
-      if (!this.eventKey?.has('moduleMouseMove')) this.enableModuleMouseMoveEvent();
-      if (!this.moduleMouseMoveEvent.get(module)) {
-        this.moduleMouseMoveEvent.set(module, { callback });
-        return () => {
-          const stored = this.moduleMouseMoveEvent.get(module);
-          if (stored && stored.callback === callback) {
-            this.moduleMouseMoveEvent.delete(module);
-            this.tryAutoDisableModuleListener('move');
-          }
-        };
-      } else {
-        console.warn('按模块追加全局鼠标移动事件: module参数重复', module);
-      }
-    } else {
-      console.warn('按模块追加全局鼠标移动事件: module参数不能为空');
+  private addModuleEvent(
+    target: Map<string, { callback: ModuleEventCallback }>,
+    module: string,
+    callback: ModuleEventCallback,
+    ensure: () => void,
+    autoDisable: () => void,
+    label: string
+  ): () => void {
+    if (!module || module === '') {
+      console.warn(`按模块追加${label}事件: module参数不能为空`);
+      return () => void 0;
     }
-    return () => void 0;
+    ensure(); // enable* 方法内部已做幂等判断
+    if (target.get(module)) {
+      console.warn(`按模块追加${label}事件: module参数重复`, module);
+      return () => void 0;
+    }
+    target.set(module, { callback });
+    return () => {
+      const stored = target.get(module);
+      if (stored && stored.callback === callback) {
+        target.delete(module);
+        autoDisable();
+      }
+    };
   }
   /**
-   * 按模块添加鼠标点击事件
+   * 按模块添加鼠标移动事件（返回注销函数）
    * @param module 模块名称
    * @param callback 回调函数，详见{@link ModuleEventCallback}
    */
+  addMouseMoveEventByModule(module: string, callback: ModuleEventCallback): () => void {
+    return this.addModuleEvent(this.moduleMouseMoveEvent, module, callback, () => this.enableModuleMouseMoveEvent(), () => this.tryAutoDisableModuleListener('move'), '鼠标移动');
+  }
   /**
    * 按模块添加鼠标点击事件（返回注销函数）
    */
   addMouseClickEventByModule(module: string, callback: ModuleEventCallback): () => void {
-    if (module && module !== '') {
-      if (!this.eventKey?.has('moduleMouseClick')) this.enableModuleMouseClickEvent();
-      if (!this.moduleMouseClickEvent.get(module)) {
-        this.moduleMouseClickEvent.set(module, { callback });
-        return () => {
-          const stored = this.moduleMouseClickEvent.get(module);
-          if (stored && stored.callback === callback) {
-            this.moduleMouseClickEvent.delete(module);
-            this.tryAutoDisableModuleListener('click');
-          }
-        };
-      } else {
-        console.warn('按模块追加全局鼠标点击事件: module参数重复', module);
-      }
-    } else {
-      console.warn('按模块追加全局鼠标点击事件: module参数不能为空');
-    }
-    return () => void 0;
+    return this.addModuleEvent(this.moduleMouseClickEvent, module, callback, () => this.enableModuleMouseClickEvent(), () => this.tryAutoDisableModuleListener('click'), '鼠标点击');
   }
-  /**
-   * 按模块添加鼠标左键按下事件
-   * @param module 模块名称
-   * @param callback 回调函数，详见{@link ModuleEventCallback}
-   */
   /**
    * 按模块添加鼠标左键按下事件（返回注销函数）
    */
   addMouseLeftDownEventByModule(module: string, callback: ModuleEventCallback): () => void {
-    if (module && module !== '') {
-      if (!this.eventKey?.has('moduleMouseLeftDown')) this.enableModuleMouseLeftDownEvent();
-      if (!this.moduleMouseLeftDownEvent.get(module)) {
-        this.moduleMouseLeftDownEvent.set(module, { callback });
-        return () => {
-          const stored = this.moduleMouseLeftDownEvent.get(module);
-          if (stored && stored.callback === callback) {
-            this.moduleMouseLeftDownEvent.delete(module);
-            this.tryAutoDisableModuleListener('leftDown');
-          }
-        };
-      } else {
-        console.warn('按模块追加全局鼠标左键按下事件: module参数重复', module);
-      }
-    } else {
-      console.warn('按模块追加全局鼠标左键按下事件: module参数不能为空');
-    }
-    return () => void 0;
+    return this.addModuleEvent(this.moduleMouseLeftDownEvent, module, callback, () => this.enableModuleMouseLeftDownEvent(), () => this.tryAutoDisableModuleListener('leftDown'), '鼠标左键按下');
   }
-  /**
-   * 按模块添加鼠标左键抬起事件
-   * @param module 模块名称
-   * @param callback 回调函数，详见{@link ModuleEventCallback}
-   */
   /**
    * 按模块添加鼠标左键抬起事件（返回注销函数）
    */
   addMouseLeftUpEventByModule(module: string, callback: ModuleEventCallback): () => void {
-    if (module && module !== '') {
-      if (!this.eventKey?.has('moduleMouseLeftUp')) this.enableModuleMouseLeftUpEvent();
-      if (!this.moduleMouseLeftUpEvent.get(module)) {
-        this.moduleMouseLeftUpEvent.set(module, { callback });
-        return () => {
-          const stored = this.moduleMouseLeftUpEvent.get(module);
-          if (stored && stored.callback === callback) {
-            this.moduleMouseLeftUpEvent.delete(module);
-            this.tryAutoDisableModuleListener('leftUp');
-          }
-        };
-      } else {
-        console.warn('按模块追加全局鼠标左键抬起事件: module参数重复', module);
-      }
-    } else {
-      console.warn('按模块追加全局鼠标左键抬起事件: module参数不能为空');
-    }
-    return () => void 0;
+    return this.addModuleEvent(this.moduleMouseLeftUpEvent, module, callback, () => this.enableModuleMouseLeftUpEvent(), () => this.tryAutoDisableModuleListener('leftUp'), '鼠标左键抬起');
   }
-  /**
-   * 按模块添加鼠标双击事件
-   * @param module 模块名称
-   * @param callback 回调函数，详见{@link ModuleEventCallback}
-   */
   /**
    * 按模块添加鼠标双击事件（返回注销函数）
    */
   addMouseDblClickEventByModule(module: string, callback: ModuleEventCallback): () => void {
-    if (module && module !== '') {
-      if (!this.eventKey?.has('moduleMouseDblClick')) this.enableModuleMouseDblClickEvent();
-      if (!this.moduleMouseDblClickEvent.get(module)) {
-        this.moduleMouseDblClickEvent.set(module, { callback });
-        return () => {
-          const stored = this.moduleMouseDblClickEvent.get(module);
-          if (stored && stored.callback === callback) {
-            this.moduleMouseDblClickEvent.delete(module);
-            this.tryAutoDisableModuleListener('dblClick');
-          }
-        };
-      } else {
-        console.warn('按模块追加全局鼠标双击事件: module参数重复', module);
-      }
-    } else {
-      console.warn('按模块追加全局鼠标双击事件: module参数不能为空');
-    }
-    return () => void 0;
+    return this.addModuleEvent(this.moduleMouseDblClickEvent, module, callback, () => this.enableModuleMouseDblClickEvent(), () => this.tryAutoDisableModuleListener('dblClick'), '鼠标双击');
   }
-  /**
-   * 按模块添加鼠标右键单击事件
-   * @param module 模块名称
-   * @param callback 回调函数，详见{@link ModuleEventCallback}
-   */
   /**
    * 按模块添加鼠标右键单击事件（返回注销函数）
    */
   addMouseRightClickEventByModule(module: string, callback: ModuleEventCallback): () => void {
-    if (module && module !== '') {
-      if (!this.eventKey?.has('moduleMouseRightClick')) this.enableModuleMouseRightClickEvent();
-      if (!this.moduleMouseRightClickEvent.get(module)) {
-        this.moduleMouseRightClickEvent.set(module, { callback });
-        return () => {
-          const stored = this.moduleMouseRightClickEvent.get(module);
-          if (stored && stored.callback === callback) {
-            this.moduleMouseRightClickEvent.delete(module);
-            this.tryAutoDisableModuleListener('rightClick');
-          }
-        };
-      } else {
-        console.warn('按模块追加全局鼠标右键单击事件: module参数重复', module);
-      }
-    } else {
-      console.warn('按模块追加全局鼠标右键单击事件: module参数不能为空');
-    }
-    return () => void 0;
+    return this.addModuleEvent(this.moduleMouseRightClickEvent, module, callback, () => this.enableModuleMouseRightClickEvent(), () => this.tryAutoDisableModuleListener('rightClick'), '鼠标右键单击');
+  }
+  /**
+   * 按全局追加事件的通用实现：自动启用监听、返回注销函数。
+   * 各 `addXxxEventByGlobal` 公共方法均为本方法的薄包装。
+   */
+  private addGlobalEvent<T extends GlobalEventCallback | GlobalKeyDownEventCallback>(
+    target: Set<T>,
+    callback: T,
+    ensure: () => void,
+    autoDisable: () => void
+  ): () => void {
+    ensure(); // enable* 方法内部已做幂等判断
+    target.add(callback);
+    return () => {
+      target.delete(callback);
+      autoDisable();
+    };
   }
   /**
    * 按全局添加鼠标移动事件
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseMoveEventByGlobal(callback: GlobalEventCallback): () => void {
-    if (!this.eventKey?.has('globalMouseMove')) this.enableGlobalMouseMoveEvent();
-    this.globalMouseMoveEvents.add(callback);
-    return () => {
-      this.globalMouseMoveEvents.delete(callback);
-      this.tryAutoDisableGlobalListener('move');
-    };
+    return this.addGlobalEvent(this.globalMouseMoveEvents, callback, () => this.enableGlobalMouseMoveEvent(), () => this.tryAutoDisableGlobalListener('move'));
   }
   /**
    * 按全局添加鼠标点击事件
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseClickEventByGlobal(callback: GlobalEventCallback): () => void {
-    if (!this.eventKey?.has('globalMouseClick')) this.enableGlobalMouseClickEvent();
-    this.globalMouseClickEvents.add(callback);
-    return () => {
-      this.globalMouseClickEvents.delete(callback);
-      this.tryAutoDisableGlobalListener('click');
-    };
+    return this.addGlobalEvent(this.globalMouseClickEvents, callback, () => this.enableGlobalMouseClickEvent(), () => this.tryAutoDisableGlobalListener('click'));
   }
   /**
    * 按全局添加鼠标左键按下事件
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseLeftDownEventByGlobal(callback: GlobalEventCallback): () => void {
-    if (!this.eventKey?.has('globalMouseLeftDown')) this.enableGlobalMouseLeftDownEvent();
-    this.globalMouseLeftDownEvents.add(callback);
-    return () => {
-      this.globalMouseLeftDownEvents.delete(callback);
-      this.tryAutoDisableGlobalListener('leftDown');
-    };
+    return this.addGlobalEvent(this.globalMouseLeftDownEvents, callback, () => this.enableGlobalMouseLeftDownEvent(), () => this.tryAutoDisableGlobalListener('leftDown'));
   }
   /**
    * 按全局添加鼠标左键抬起事件
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseLeftUpEventByGlobal(callback: GlobalEventCallback): () => void {
-    if (!this.eventKey?.has('globalMouseLeftUp')) this.enableGlobalMouseLeftUpEvent();
-    this.globalMouseLeftUpEvents.add(callback);
-    return () => {
-      this.globalMouseLeftUpEvents.delete(callback);
-      this.tryAutoDisableGlobalListener('leftUp');
-    };
+    return this.addGlobalEvent(this.globalMouseLeftUpEvents, callback, () => this.enableGlobalMouseLeftUpEvent(), () => this.tryAutoDisableGlobalListener('leftUp'));
   }
   /**
    * 按全局添加鼠标双击事件
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseDblClickEventByGlobal(callback: GlobalEventCallback): () => void {
-    if (!this.eventKey?.has('globalMouseDblClick')) this.enableGlobalMouseDblClickEvent();
-    this.globalMouseDblClickEvents.add(callback);
-    return () => {
-      this.globalMouseDblClickEvents.delete(callback);
-      this.tryAutoDisableGlobalListener('dblClick');
-    };
+    return this.addGlobalEvent(this.globalMouseDblClickEvents, callback, () => this.enableGlobalMouseDblClickEvent(), () => this.tryAutoDisableGlobalListener('dblClick'));
   }
   /**
    * 按全局添加鼠标右键单击事件
    * @param callback 回调函数，详见{@link GlobalEventCallback}。可配合{@link Earth}类`getFeatureAtPixel`方法查询该像素位置是否存在feature元素
    */
   addMouseRightClickEventByGlobal(callback: GlobalEventCallback): () => void {
-    if (!this.eventKey?.has('globalMouseRightClick')) this.enableGlobalMouseRightClickEvent();
-    this.globalMouseRightClickEvents.add(callback);
-    return () => {
-      this.globalMouseRightClickEvents.delete(callback);
-      this.tryAutoDisableGlobalListener('rightClick');
-    };
+    return this.addGlobalEvent(this.globalMouseRightClickEvents, callback, () => this.enableGlobalMouseRightClickEvent(), () => this.tryAutoDisableGlobalListener('rightClick'));
   }
   /**
    * 按全局添加键盘按下事件
@@ -987,13 +873,7 @@ export default class GlobalEvent {
    * 可重复添加，返回一个取消当前回调的方法
    */
   addKeyDownEventByGlobal(callback: GlobalKeyDownEventCallback): () => void {
-    if (!this.eventKey?.has('globalKeyDown')) this.enableGlobalKeyDownEvent();
-    this.globalKeyDownEvents.add(callback);
-    // 返回注销函数
-    return () => {
-      this.globalKeyDownEvents.delete(callback);
-      this.tryAutoDisableGlobalListener('keyDown');
-    };
+    return this.addGlobalEvent(this.globalKeyDownEvents, callback, () => this.enableGlobalKeyDownEvent(), () => this.tryAutoDisableGlobalListener('keyDown'));
   }
   /**
    * 按全局添加鼠标点击事件,只执行一次。该方法无需启用事件和删除事件，直接调用即可

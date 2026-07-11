@@ -82,7 +82,7 @@ class FineArrow extends Polygon {
       };
       this.setCoordinates([pList]);
     } catch (e) {
-      console.log(e);
+      /* 静默:几何计算异常，不影响后续绘制 */
     }
   }
 

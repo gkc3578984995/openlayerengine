@@ -8,6 +8,7 @@ import { Style, Stroke, Fill, Text } from 'ol/style';
 import Icon from 'ol/style/Icon';
 import CircleStyle from 'ol/style/Circle';
 import { Utils } from '../common';
+import { FEATURE_KEYS, LAYER_TYPE } from '../common/featureKeys';
 import { EventsKey } from 'ol/events';
 import { unByKey } from 'ol/Observable';
 import cloneDeep from 'lodash/cloneDeep';
@@ -37,6 +38,11 @@ export default class Base {
    * 图层
    */
   public layer: VectorLayer<VectorSource<Geometry>>;
+  /**
+   * feature `change` 事件同步 param 的节流间隔(ms)，默认 33（约 30fps）。
+   * 拖拽高频变更时控制同步开销；在 add 元素前修改可调节粒度，设为 0 则每次变更立即同步。
+   */
+  public syncThrottleMs: number = 33;
   /**
    * 缓存featur的集合
    */
@@ -68,16 +74,12 @@ export default class Base {
    * @returns 返回style实例
    */
   protected setStroke(style: Style, param?: IStroke, width?: number): Style {
-    const stroke = new Stroke(
-      Object.assign(
-        {
-          color: param?.color || style.getStroke()?.getColor() || '#ffcc33',
-          width: width || style.getStroke()?.getWidth() || 2,
-          lineDash: param?.lineDash || style.getStroke()?.getLineDash()
-        },
-        param
-      )
-    );
+    const stroke = new Stroke({
+      color: param?.color || style.getStroke()?.getColor() || '#ffcc33',
+      width: width || style.getStroke()?.getWidth() || 2,
+      lineDash: (param?.lineDash || style.getStroke()?.getLineDash()) ?? undefined,
+      ...param
+    });
     style.setStroke(stroke);
     return style;
   }
@@ -88,14 +90,10 @@ export default class Base {
    * @returns 返回style实例
    */
   protected setFill(style: Style, param?: IFill): Style {
-    const fill = new Fill(
-      Object.assign(
-        {
-          color: param?.color || style.getFill()?.getColor() || '#ffffff57'
-        },
-        param
-      )
-    );
+    const fill = new Fill({
+      color: param?.color || style.getFill()?.getColor() || '#ffffff57',
+      ...param
+    });
     style.setFill(fill);
     return style;
   }
@@ -173,7 +171,7 @@ export default class Base {
    * 文本 offset 已按 rotation 补偿为 OL 本地值，公共值需从此处回读。
    */
   protected getStoredLabelOffset(feature: Feature<Geometry>): { offsetX: number; offsetY: number } | undefined {
-    return feature.get('labelOffset') as { offsetX: number; offsetY: number } | undefined;
+    return feature.get(FEATURE_KEYS.labelOffset) as { offsetX: number; offsetY: number } | undefined;
   }
   /**
    * 设置文本样式并按 label rotation 补偿 offset（屏幕方向为准）。
@@ -209,7 +207,7 @@ export default class Base {
     // setText 已将 param.rotation（度）转为弧度写入 text，这里直接读回弧度用于补偿
     const effRot = text.getRotation() ?? 0;
     this.applyCompensatedLabelOffset(text, effX, effY, effRot);
-    feature.set('labelOffset', { offsetX: effX, offsetY: effY });
+    feature.set(FEATURE_KEYS.labelOffset, { offsetX: effX, offsetY: effY });
     return style;
   }
   /**
@@ -237,12 +235,13 @@ export default class Base {
     if (!target) return;
     const stroke = target.getStroke && target.getStroke();
     if (stroke && typeof stroke.getColor === 'function') {
-      param.stroke = Object.assign({}, param.stroke, {
-        color: stroke.getColor?.() || param.stroke?.color,
+      param.stroke = {
+        ...param.stroke,
+        color: (stroke.getColor?.() || param.stroke?.color) as string | undefined,
         width: stroke.getWidth?.() || param.stroke?.width,
-        lineDash: stroke.getLineDash?.() || param.stroke?.lineDash,
+        lineDash: (stroke.getLineDash?.() || param.stroke?.lineDash) ?? undefined,
         lineDashOffset: stroke.getLineDashOffset?.() || param.stroke?.lineDashOffset
-      });
+      };
     }
     const fill = target.getFill && target.getFill();
     if (fill && typeof fill.getColor === 'function') {
@@ -322,12 +321,27 @@ export default class Base {
     };
   }
   /**
+   * 绑定 feature 的公共属性（id / data / module / layerId / layerType / param）。
+   * 各图层 createFeature 末尾统一调用，避免重复样板。
+   * @param feature 矢量元素
+   * @param param 创建参数（须已确保 id）
+   * @param layerType 图层类型标识
+   */
+  protected bindFeature(feature: Feature<Geometry>, param: { id?: string; data?: unknown; module?: string }, layerType: string): void {
+    feature.setId(param.id);
+    feature.set(FEATURE_KEYS.data, param.data);
+    feature.set(FEATURE_KEYS.module, param.module);
+    feature.set(FEATURE_KEYS.layerId, this.layer.get('id'));
+    feature.set(FEATURE_KEYS.layerType, layerType);
+    feature.set(FEATURE_KEYS.param, param);
+  }
+  /**
    * 往图层添加一个矢量元素
    * @param feature 矢量元素实例
    * @returns 返回矢量元素实例
    */
   protected save(feature: Feature<Geometry>): Feature<Geometry> {
-    feature.set('registryKey', this.registryKey);
+    feature.set(FEATURE_KEYS.registryKey, this.registryKey);
     this.addFeaturelistener(feature);
     this.layer.getSource()?.addFeature(feature);
     return feature;
@@ -341,35 +355,33 @@ export default class Base {
    */
   protected addFeaturelistener(feature: Feature<Geometry>): void {
     const handler = () => {
-      if (feature.get('layerType') === 'Billboard') {
-        // 如果是BillboardLayer，则根据{@link IBillboardParam}同步param参数
+      const layerType = feature.get(FEATURE_KEYS.layerType);
+      if (layerType === LAYER_TYPE.Billboard) {
         this.updateBillboardParam(feature);
-      } else if (feature.get('layerType') === 'Polyline') {
-        // 如果是PolylineLayer，则根据{@link IPolylineParam}同步param参数
+      } else if (layerType === LAYER_TYPE.Polyline) {
         this.updatePolylineParam(feature);
-      } else if (feature.get('layerType') === 'Point') {
-        // 如果是PointLayer，则根据{@link IPointParam}同步param参数
+      } else if (layerType === LAYER_TYPE.Point) {
         this.updatePointParam(feature);
-      } else if (feature.get('layerType') === 'Circle') {
-        // 如果是CircleLayer，则根据{@link ICircleParam}同步param参数
+      } else if (layerType === LAYER_TYPE.Circle) {
         this.updateCircleParam(feature);
-      } else if (feature.get('layerType') === 'Polygon') {
-        // 如果是PolygonLayer，则根据{@link IPolygonParam}同步param参数
+      } else if (layerType === LAYER_TYPE.Polygon) {
         this.updatePolygonParam(feature);
       }
     };
-    const throttled = Utils.throttle(handler, 33);
+    // syncThrottleMs <= 0 时跳过节流，每次 change 立即同步
+    type Throttled = (() => void) & { cancel?: () => void };
+    const throttled: Throttled = this.syncThrottleMs > 0 ? (Utils.throttle(handler, this.syncThrottleMs) as Throttled) : handler;
     const featureChangeListener = feature.on('change', throttled);
     this.featureListenerMap.set(feature.getId() as string, {
       key: featureChangeListener,
-      cancel: throttled.cancel
+      cancel: throttled.cancel ?? (() => void 0)
     });
   }
   /**
    * 更新Billboard图标参数
    */
   protected updateBillboardParam(feature: Feature<Geometry>): void {
-    const param = feature.get('param') as IBillboardParam<unknown> | undefined;
+    const param = feature.get(FEATURE_KEYS.param) as IBillboardParam<unknown> | undefined;
     if (!param) return;
     // 更新中心点（仅 Point 几何）
     const geometry = feature.getGeometry();
@@ -377,7 +389,7 @@ export default class Base {
       try {
         param.center = (geometry as import('ol/geom').Point).getCoordinates();
       } catch {
-        /* ignore */
+        /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
     }
     // 更新图标属性
@@ -390,7 +402,7 @@ export default class Base {
       if (size) param.size = size;
       const color = icon.getColor();
       if (typeof color === 'string') param.color = color;
-      const displacement = <number[] | undefined>feature.get('screenDisplacement');
+      const displacement = <number[] | undefined>feature.get(FEATURE_KEYS.screenDisplacement);
       if (Array.isArray(displacement)) param.displacement = displacement.slice();
       const scaleVal = icon.getScale();
       if (scaleVal) param.scale = scaleVal;
@@ -401,7 +413,7 @@ export default class Base {
     }
     // 同步文本标签
     param.label = this.buildLabelFromText(style?.getText(), param.label, feature);
-    feature.set('param', param);
+    feature.set(FEATURE_KEYS.param, param);
   }
   /**
    * 更新Polyline参数(仅同步可推导的几何/样式字段)
@@ -409,7 +421,7 @@ export default class Base {
    */
   protected updatePolylineParam(feature: Feature<Geometry>): void {
     // 兼容普通 Polyline 与 飞行线 Polyline（IPolylineFlyParam 不继承 IPolylineParam，字段名称也不同: position vs positions）
-    const param = feature.get('param') as (IPolylineParam<unknown> | IPolylineFlyParam<unknown>) | undefined;
+    const param = feature.get(FEATURE_KEYS.param) as (IPolylineParam<unknown> | IPolylineFlyParam<unknown>) | undefined;
     if (!param) return;
     const isNormalPolyline = (p: IPolylineParam<unknown> | IPolylineFlyParam<unknown>): p is IPolylineParam<unknown> => 'positions' in p;
     const isFlyPolyline = (p: IPolylineParam<unknown> | IPolylineFlyParam<unknown>): p is IPolylineFlyParam<unknown> => 'position' in p && !('positions' in p);
@@ -420,7 +432,7 @@ export default class Base {
         if (isNormalPolyline(param)) param.positions = coords;
         if (isFlyPolyline(param)) param.position = coords as number[][];
       } catch {
-        /* ignore */
+        /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
     }
     // 样式同步：仅静态 Style，且仅普通折线（飞行线样式为函数，内部已同步 positions）
@@ -430,14 +442,14 @@ export default class Base {
       if (param.stroke?.width && !param.width) param.width = param.stroke.width;
       param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
-    feature.set('param', param);
+    feature.set(FEATURE_KEYS.param, param);
   }
   /**
    * 更新Point参数(仅同步可推导的几何/样式字段)
    * @param feature Point要素
    */
   protected updatePointParam(feature: Feature<Geometry>): void {
-    const param = feature.get('param') as IPointParam<unknown> | undefined;
+    const param = feature.get(FEATURE_KEYS.param) as IPointParam<unknown> | undefined;
     if (!param) return;
     // 同步几何中心
     const geometry = feature.getGeometry();
@@ -445,7 +457,7 @@ export default class Base {
       try {
         param.center = (geometry as import('ol/geom').Point).getCoordinates();
       } catch {
-        /* ignore */
+        /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
     }
     // 样式同步（仅静态 style）
@@ -462,14 +474,14 @@ export default class Base {
       // label 同步
       param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
-    feature.set('param', param);
+    feature.set(FEATURE_KEYS.param, param);
   }
   /**
    * 更新Circle参数(仅同步可推导的几何/样式字段)
    * @param feature Circle要素
    */
   protected updateCircleParam(feature: Feature<Geometry>): void {
-    const param = feature.get('param') as ICircleParam<unknown> | undefined;
+    const param = feature.get(FEATURE_KEYS.param) as ICircleParam<unknown> | undefined;
     if (!param) return;
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Circle') {
@@ -478,7 +490,7 @@ export default class Base {
         param.center = circle.getCenter();
         param.radius = circle.getRadius();
       } catch {
-        /* ignore */
+        /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
     }
     // 样式同步（静态样式）
@@ -487,21 +499,21 @@ export default class Base {
       this.syncStrokeFillFromStyle(style, param);
       param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
-    feature.set('param', param);
+    feature.set(FEATURE_KEYS.param, param);
   }
   /**
    * 更新Polygon参数(仅同步可推导的几何/样式字段)
    * @param feature Polygon要素
    */
   protected updatePolygonParam(feature: Feature<Geometry>): void {
-    const param = feature.get('param') as IPolygonParam<unknown> | undefined;
+    const param = feature.get(FEATURE_KEYS.param) as IPolygonParam<unknown> | undefined;
     if (!param) return;
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Polygon') {
       try {
         param.positions = (geometry as import('ol/geom').Polygon).getCoordinates();
       } catch {
-        /* ignore */
+        /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
     }
     // 样式同步
@@ -510,18 +522,18 @@ export default class Base {
       this.syncStrokeFillFromStyle(style, param);
       param.label = this.buildLabelFromText(style.getText(), param.label, feature);
     }
-    feature.set('param', param);
+    feature.set(FEATURE_KEYS.param, param);
   }
   /**
-   * 根据 feature 计算出最新的 param（不会回写 feature.set('param', param)）
+   * 根据 feature 计算出最新的 param（不会回写 feature.set(FEATURE_KEYS.param, param)）
    * 使用场景：需要临时获取最新状态用于显示 / 比较 / 自定义撤销等，而不改变要素本身。
    * @param feature 目标要素
    * @returns 复制并更新后的 param；若不存在 param 返回 undefined
    */
   public getUpdatedParam(feature: Feature<Geometry>): AnyParam | undefined {
     if (!feature) return undefined;
-    const layerType = feature.get('layerType');
-    const originParam = feature.get('param');
+    const layerType = feature.get(FEATURE_KEYS.layerType);
+    const originParam = feature.get(FEATURE_KEYS.param);
     if (!originParam) return undefined;
     // 深拷贝，避免修改绑定在 feature 上的原对象；param 为跨类型的动态对象，内部按 any 处理
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -536,7 +548,7 @@ export default class Base {
           const pointGeom = geometry as import('ol/geom').Point;
           param.center = pointGeom.getCoordinates();
         } catch (_) {
-          /* ignore */
+          /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
         }
       }
       if (style) {
@@ -568,7 +580,7 @@ export default class Base {
           if ('positions' in param) param.positions = coords;
           if ('position' in param && !('positions' in param)) param.position = coords as number[][];
         } catch (_) {
-          /* ignore */
+          /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
         }
       }
       if (style && 'positions' in param) {
@@ -583,7 +595,7 @@ export default class Base {
           const point = geometry as import('ol/geom').Point;
           param.center = point.getCoordinates();
         } catch (_) {
-          /* ignore */
+          /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
         }
       }
       if (style) {
@@ -603,7 +615,7 @@ export default class Base {
           param.center = circle.getCenter();
           param.radius = circle.getRadius();
         } catch (_) {
-          /* ignore */
+          /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
         }
       }
       if (style) {
@@ -616,7 +628,7 @@ export default class Base {
           const polygon = geometry as import('ol/geom').Polygon;
           param.positions = polygon.getCoordinates();
         } catch (_) {
-          /* ignore */
+          /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
         }
       }
       if (style) {
@@ -631,10 +643,10 @@ export default class Base {
    * @param feature 矢量元素
    */
   protected unbindFeatureFlash(feature: Feature<Geometry>): void {
-    const listenerKey = feature.get('listenerKey');
+    const listenerKey = feature.get(FEATURE_KEYS.listenerKey);
     if (listenerKey) {
       unByKey(listenerKey);
-      feature.set('listenerKey', null);
+      feature.set(FEATURE_KEYS.listenerKey, null);
     }
   }
   /**

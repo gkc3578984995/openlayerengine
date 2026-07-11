@@ -113,7 +113,7 @@ class DoubleArrow extends Polygon {
         this.setCoordinates([pnts]);
       }
     } catch (e) {
-      console.log(e);
+      /* 静默:几何计算异常，不影响后续绘制 */
     }
   }
 
@@ -176,7 +176,7 @@ class DoubleArrow extends Polygon {
       const neckRight = PlotUtils.getThirdPoint(headPnt, neckEndPnt, PlotUtils.HALF_PI, neckWidth, true);
       return [neckLeft, headLeft, headPnt, headRight, neckRight];
     } catch (e) {
-      console.log(e);
+      /* 静默:几何计算异常，不影响后续绘制 */
     }
   }
 
@@ -249,7 +249,7 @@ class DoubleArrow extends Polygon {
       }
       return symPnt;
     } catch (e) {
-      console.log(e);
+      /* 静默:几何计算异常，不影响后续绘制 */
     }
   }
 

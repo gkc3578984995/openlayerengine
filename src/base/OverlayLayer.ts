@@ -139,40 +139,36 @@ export default class OverlayLayer<T = unknown>{
   }
   /**
    * 移除地图内所有覆盖物
-   * @returns 返回`Overlay`实例数组
    * @example
    * ```
    * const overlayLayer = new OverlayLayer(useEarth());
    * overlayLayer.remove();
    * ```
    */
-  remove(): Overlay[] | Overlay;
+  remove(): void;
   /**
    * 移除指定覆盖物
    * @param id 覆盖物id
-   * @returns 返回`Overlay`实例
    * @example
    * ```
    * const overlayLayer = new OverlayLayer(useEarth());
    * overlayLayer.remove("1");
    * ```
    */
-  remove(id: string): Overlay[] | Overlay;
-  remove(id?: string): Overlay[] | Overlay {
+  remove(id: string): void;
+  remove(id?: string): void {
     if (id) {
       const overlay = this.get(id);
       if (overlay == undefined) {
         console.warn("没有找到元素，请检查ID");
-        return [];
+        return;
       }
       this.map.removeOverlay(overlay);
-      return overlay;
     } else {
       const overlays = this.get();
-      overlays.forEach(item => {
+      overlays.forEach((item) => {
         this.map.removeOverlay(item);
-      })
-      return overlays;
+      });
     }
   }
 }

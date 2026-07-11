@@ -56,21 +56,10 @@ export default defineConfig({
       file: pkg.module,
       format: 'es',
       sourcemap: !isProd
-    },
-    {
-      file: 'dist/index.global.js',
-      name: 'EarthEngine',
-      format: 'iife',
-      sourcemap: !isProd,
-      globals: (id) => {
-        if (id === 'ol' || id.startsWith('ol/')) return 'ol';
-        if (id === '@turf/turf' || id.startsWith('@turf/')) return 'turf';
-        if (id === 'cesium') return 'Cesium';
-        if (id === 'mitt') return 'Mitt';
-        if (id === 'heatmap.js') return 'Heatmap';
-        return id;
-      }
     }
+    // 注：移除 iife 全局构建。ol 改为 external 后，深路径导入（ol/Map 等）无法在
+    // 浏览器全局模式下正确映射到 OL 的 UMD 命名导出，iife 产物不可用。
+    // 消费端请使用 ESM/CJS（已在 package.json exports 中声明）。
   ],
   plugins: [
     // 放在最前，优先截获 *?raw 资源
