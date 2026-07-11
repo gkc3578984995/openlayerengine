@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { DrawType, IDrawEvent, IDrawLine, IDrawPoint, IDrawPolygon, IEditParam, IPointParam, ModifyType } from '../interface';
+import { DrawType, IDrawEvent, IDrawLine, IDrawPoint, IDrawPolygon, IEditParam, IFill, IPointParam, IPolygonFill, ModifyType } from '../interface';
 import { Feature, Map } from 'ol';
 import { Geometry, LineString, Point, Polygon, Circle as CircleGeom } from 'ol/geom';
 import VectorLayer from 'ol/layer/Vector';
@@ -11,6 +11,7 @@ import { fromLonLat, toLonLat } from 'ol/proj';
 import { Fill, Stroke, Style } from 'ol/style';
 import CircleStyle from 'ol/style/Circle';
 import { OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, CircleLayer, Base } from '../base';
+import { isPolygonPatternFill } from '../base/PolygonPatternFill';
 import { unByKey } from 'ol/Observable';
 import { EventsKey } from 'ol/events';
 import { Coordinate } from 'ol/coordinate';
@@ -124,6 +125,23 @@ export default class DynamicDraw {
       return this.circleLayer;
     }
     return undefined;
+  }
+
+  /** 将 DynamicDraw 的兼容参数转换为 PolygonLayer 样式参数 */
+  private buildDrawPolygonStyle(param?: IDrawPolygon): { stroke: { color?: string; width: number }; fill: IPolygonFill } {
+    return {
+      stroke: {
+        width: param?.strokeWidth ?? 2,
+        ...(param?.strokeColor ? { color: param.strokeColor } : {})
+      },
+      fill: param?.fill ?? { color: param?.fillColor ?? 'rgba(255,255,255,0.2)' }
+    };
+  }
+
+  /** 纹理底图可见时，不使用半透明编辑面遮盖其细节 */
+  private getPolygonEditPreviewFill(feature: Feature<Geometry>, isShowUnderlay?: boolean): IFill {
+    const fill = (feature.get('param') as { fill?: IPolygonFill } | undefined)?.fill;
+    return { color: isShowUnderlay && isPolygonPatternFill(fill) ? 'rgba(0,0,0,0)' : '#ffffff61' };
   }
   /**
    * 提示牌初始化方法
@@ -383,11 +401,10 @@ export default class DynamicDraw {
             if (param?.keepGraphics === true || param?.keepGraphics === undefined) {
               const geom = event.feature.getGeometry() as Polygon;
               const coords = geom.getCoordinates();
-              const polygonParam = param as IDrawPolygon;
+              const polygonStyle = this.buildDrawPolygonStyle(param as IDrawPolygon);
               const f = baseLayer.add({
                 positions: coords,
-                stroke: { color: polygonParam?.strokeColor || '#ffcc33', width: polygonParam?.strokeWidth || 2 },
-                fill: { color: polygonParam?.fillColor || 'rgba(255,255,255,0.2)' }
+                ...polygonStyle
               });
               f.set('dynamicDraw', true);
               response.feature = f;
@@ -792,7 +809,7 @@ export default class DynamicDraw {
     const polygon = polygonLayer.add({
       positions: [editRing],
       stroke: { color: '#00aaff', width: 2 },
-      fill: { color: '#ffffff61' }
+      fill: this.getPolygonEditPreviewFill(param.feature, param.isShowUnderlay)
     });
     const modify = new Modify({ source: <VectorSource<Geometry>>polygonLayer.getLayer().getSource() });
     modify.set('dynamicDraw', true);

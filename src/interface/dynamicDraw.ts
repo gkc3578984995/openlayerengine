@@ -2,6 +2,7 @@ import { IPlotEditEventPayload } from '../extends/plot/plotEdit';
 import { Feature } from 'ol';
 import { Coordinate } from 'ol/coordinate';
 import { Geometry, LineString, Polygon } from 'ol/geom';
+import { IPolygonFill } from './default';
 
 export enum DrawType {
   /**
@@ -126,6 +127,10 @@ export interface IDrawPolygon extends IDrawBase {
    * 填充颜色
    */
   fillColor?: string;
+  /**
+   * Polygon 填充样式，优先于 fillColor
+   */
+  fill?: IPolygonFill;
 }
 export interface IEditParam {
   /**
