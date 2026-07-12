@@ -116,4 +116,19 @@ describe('website API presentation', () => {
     expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">flyHome</a></code>');
     expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code>');
   });
+
+  it('labels the Earth instance-method page consistently without changing its route', async () => {
+    const [navigation, layout, globalMethods, router] = await Promise.all([
+      readFile('website/src/config/navigation.ts', 'utf8'),
+      readFile('website/src/layouts/DocsLayout.vue', 'utf8'),
+      readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
+      readFile('website/src/router/index.ts', 'utf8')
+    ]);
+
+    expect(navigation).toContain("{ label: 'Earth 实例方法', to: '/guide/global-methods' }");
+    expect(layout).toContain("return 'Earth 实例方法';");
+    expect(globalMethods).toContain('<h1>Earth 实例方法</h1>');
+    expect(globalMethods).toContain('<PageAnchor title="Earth 实例方法" :items="anchors" />');
+    expect(router).toContain("path: 'guide/global-methods'");
+  });
 });

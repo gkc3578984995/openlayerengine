@@ -82,7 +82,7 @@ const methodRows = [
     <article class="doc-page">
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">快速上手</span>
-        <h1>全局方法</h1>
+        <h1>Earth 实例方法</h1>
         <p>Earth 实例上的公共方法：相机控制、辅助控件、鼠标样式、拖拽、事件与工具等。</p>
       </header>
 
@@ -155,7 +155,7 @@ const methodRows = [
     </article>
 
     <aside class="doc-page-layout__aside">
-      <PageAnchor title="全局方法" :items="anchors" />
+      <PageAnchor title="Earth 实例方法" :items="anchors" />
     </aside>
   </div>
 </template>

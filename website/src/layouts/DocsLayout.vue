@@ -13,7 +13,7 @@ const pageTitle = computed(() => {
     return '地图创建与销毁';
   }
   if (route.path === '/guide/global-methods') {
-    return '全局方法';
+    return 'Earth 实例方法';
   }
   if (route.path === '/components/layer-common') {
     return '图层通用操作';

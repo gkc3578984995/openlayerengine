@@ -19,7 +19,7 @@ export const sideGroups: SideGroup[] = [
     items: [
       { label: '安装与引入', to: '/guide/quick-start' },
       { label: '地图创建与销毁', to: '/guide/earth-create' },
-      { label: '全局方法', to: '/guide/global-methods' }
+      { label: 'Earth 实例方法', to: '/guide/global-methods' }
     ]
   },
   {
