@@ -32,7 +32,12 @@ export const sideGroups: SideGroup[] = [
     title: '基础图层',
     items: [
       { label: '图层通用操作', to: '/components/layer-common' },
-      { label: 'PointLayer 点图层', to: '/components/point-layer' }
+      { label: 'PointLayer 点图层', to: '/components/point-layer' },
+      { label: 'CircleLayer 圆图层', to: '/components/circle-layer' },
+      { label: 'PolygonLayer 面图层', to: '/components/polygon-layer' },
+      { label: 'BillboardLayer 广告牌图层', to: '/components/billboard-layer' },
+      { label: 'OverlayLayer 覆盖物图层', to: '/components/overlay-layer' },
+      { label: 'PolylineLayer 线图层', to: '/components/polyline-layer' }
     ]
   },
   {

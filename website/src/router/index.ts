@@ -3,6 +3,11 @@ import DocsLayout from '../layouts/DocsLayout.vue';
 import HomeView from '../views/HomeView.vue';
 import LayerCommonView from '../views/LayerCommonView.vue';
 import PointLayerView from '../views/PointLayerView.vue';
+import CircleLayerView from '../views/CircleLayerView.vue';
+import PolygonLayerView from '../views/PolygonLayerView.vue';
+import BillboardLayerView from '../views/BillboardLayerView.vue';
+import OverlayLayerView from '../views/OverlayLayerView.vue';
+import PolylineLayerView from '../views/PolylineLayerView.vue';
 import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
 import GlobalMethodsView from '../views/GlobalMethodsView.vue';
@@ -62,6 +67,31 @@ const router = createRouter({
           path: 'components/point-layer',
           name: 'point-layer',
           component: PointLayerView
+        },
+        {
+          path: 'components/circle-layer',
+          name: 'circle-layer',
+          component: CircleLayerView
+        },
+        {
+          path: 'components/polygon-layer',
+          name: 'polygon-layer',
+          component: PolygonLayerView
+        },
+        {
+          path: 'components/billboard-layer',
+          name: 'billboard-layer',
+          component: BillboardLayerView
+        },
+        {
+          path: 'components/overlay-layer',
+          name: 'overlay-layer',
+          component: OverlayLayerView
+        },
+        {
+          path: 'components/polyline-layer',
+          name: 'polyline-layer',
+          component: PolylineLayerView
         },
         {
           path: 'components/global-event',

@@ -99,6 +99,10 @@ describe('base layer documentation pages', () => {
     expect(flightDemoSource).toContain('.setFlightPosition(SAFE_NOOP_FLIGHT_ID');
     expect(flightDemoSource).toContain('.removeFlightLine(SAFE_NOOP_FLIGHT_ID');
     expect(flightDemoSource).toContain('当前公开 API 无法主动解绑飞行线的 postrender 监听');
+    expect(flightDemoSource.match(/\.addFlightLine\(/g)).toHaveLength(1);
+    expect(flightDemoSource).toContain('isRepeat: false');
+    expect(flightDemoSource).toContain("const FLIGHT_ID = 'demo-flight'");
+    expect(flightDemoSource).toContain("const SAFE_NOOP_FLIGHT_ID = 'flight-not-created'");
     expect(flightDemoSource).not.toContain('@click="addFlight"');
   });
 

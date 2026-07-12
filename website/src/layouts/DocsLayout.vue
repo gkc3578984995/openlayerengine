@@ -66,12 +66,16 @@ const pageTitle = computed(() => {
   if (route.path === '/guide/global-methods') {
     return 'Earth 实例方法';
   }
-  if (route.path === '/components/layer-common') {
-    return '图层通用操作';
-  }
-  if (route.path === '/components/point-layer') {
-    return 'PointLayer 点图层';
-  }
+  const layerTitles: Record<string, string> = {
+    '/components/layer-common': '图层通用操作',
+    '/components/point-layer': 'PointLayer 点图层',
+    '/components/circle-layer': 'CircleLayer 圆图层',
+    '/components/polygon-layer': 'PolygonLayer 面图层',
+    '/components/billboard-layer': 'BillboardLayer 广告牌图层',
+    '/components/overlay-layer': 'OverlayLayer 覆盖物图层',
+    '/components/polyline-layer': 'PolylineLayer 线图层'
+  };
+  if (layerTitles[route.path]) return layerTitles[route.path];
   const globalEventTitles: Record<string, string> = {
     '/components/global-event': 'GlobalEvent 概览与初始化',
     '/components/global-event/global-mouse': 'GlobalEvent 全局鼠标事件',
