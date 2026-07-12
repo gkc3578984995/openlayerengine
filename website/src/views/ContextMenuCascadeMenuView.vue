@@ -44,7 +44,7 @@ const anchors = [
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
         <div id="example-nested-menu">
-          <ExampleBlock title="多级子菜单" :description="'右键菜单中的工具项包含两个可执行子菜单。'" :source="nestedSource"
+          <ExampleBlock title="多级子菜单" :description="'车辆操作包含导航叶子项和轨迹子级，轨迹下继续提供实时查看与导出操作。'" :source="nestedSource"
             ><template #preview><ContextMenuNestedMenuDemo /></template
           ></ExampleBlock>
         </div>
