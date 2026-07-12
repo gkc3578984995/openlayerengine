@@ -7,6 +7,7 @@ dist-ssr
 *.local
 *.log
 /docs/
+/website/public/api/
 /ol-docs/
 *.tgz
 .claude/

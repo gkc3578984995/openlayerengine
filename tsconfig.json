@@ -18,5 +18,5 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "exclude": ["vite.config.ts", "vitest.config.ts", "rollup.config.mjs", "typedoc.json", "dist", "node_modules", ".test", "test"]
+  "exclude": ["vite.config.ts", "vitest.config.ts", "rollup.config.mjs", "typedoc.json", "dist", "node_modules", ".test", "test", "website"]
 }
