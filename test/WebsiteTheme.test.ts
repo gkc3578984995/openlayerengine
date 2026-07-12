@@ -59,4 +59,18 @@ describe('website theme', () => {
     expect(layout).toContain('@click="switchTheme"');
     expect(layout).toContain('aria-label');
   });
+
+  it('defines dark site tokens and requires future documentation UI to support both themes', () => {
+    const styles = readFileSync(new URL('../website/src/assets/styles/index.scss', import.meta.url), 'utf8');
+    const rules = readFileSync(new URL('../website/AGENTS.md', import.meta.url), 'utf8');
+
+    expect(styles).toContain('html.dark {');
+    expect(styles).toContain('--doc-bg: #111827;');
+    expect(styles).toContain('--doc-surface: #1f2937;');
+    expect(styles).toContain('background: var(--doc-page-background);');
+    expect(styles).toContain('.docs-header__theme {');
+    expect(rules).toContain('主题适配');
+    expect(rules).toContain('浅色与深色主题');
+    expect(rules).toContain('语义化主题变量');
+  });
 });
