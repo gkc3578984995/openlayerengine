@@ -20,6 +20,7 @@ interface ApiColumn {
   label: string;
   width?: string | number;
   monospace?: boolean;
+  presentation?: 'property' | 'method';
 }
 
 const anchors: AnchorItem[] = [
@@ -45,7 +46,7 @@ const anchors: AnchorItem[] = [
 ];
 
 const attrCols: ApiColumn[] = [
-  { prop: 'name', label: '属性名', width: 160 },
+  { prop: 'name', label: '属性名', width: 160, presentation: 'property' },
   { prop: 'desc', label: '说明', width: 320 },
   { prop: 'type', label: '类型', width: 160, monospace: true },
   { prop: 'options', label: '可选值', width: 130 },
@@ -53,7 +54,7 @@ const attrCols: ApiColumn[] = [
 ];
 
 const methodCols: ApiColumn[] = [
-  { prop: 'name', label: '方法名', width: 260 },
+  { prop: 'name', label: '方法名', width: 260, presentation: 'method' },
   { prop: 'desc', label: '说明', width: 320 },
   { prop: 'params', label: '参数', width: 200, monospace: true },
   { prop: 'returns', label: '返回值', width: 160, monospace: true }
@@ -166,8 +167,10 @@ const methodRows = [
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
 
-        <h3 id="api-constructor" class="doc-h3">构造参数</h3>
-        <p class="doc-prose__hint"><code>new Earth(viewOptions?, options?)</code></p>
+        <div class="api-constructor">
+          <h3 id="api-constructor" class="doc-h3">构造参数</h3>
+          <p class="api-constructor__signature"><code>new Earth(viewOptions?, options?)</code></p>
+        </div>
 
         <h4 class="doc-h4">viewOptions</h4>
         <p class="doc-prose__hint">视图参数，透传自 OpenLayers <code>ViewOptions</code>。常用字段如下：</p>

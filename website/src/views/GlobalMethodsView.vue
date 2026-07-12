@@ -20,6 +20,7 @@ interface ApiColumn {
   label: string;
   width?: string | number;
   monospace?: boolean;
+  presentation?: 'property' | 'method';
 }
 
 const anchors: AnchorItem[] = [
@@ -38,7 +39,7 @@ const anchors: AnchorItem[] = [
 ];
 
 const methodCols: ApiColumn[] = [
-  { prop: 'name', label: '方法名', width: 280 },
+  { prop: 'name', label: '方法名', width: 280, presentation: 'method' },
   { prop: 'desc', label: '说明', width: 340 },
   { prop: 'params', label: '参数', width: 200, monospace: true },
   { prop: 'returns', label: '返回值', width: 160, monospace: true }

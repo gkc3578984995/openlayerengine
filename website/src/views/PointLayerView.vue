@@ -23,6 +23,7 @@ interface ApiColumn {
   label: string;
   width?: string | number;
   monospace?: boolean;
+  presentation?: 'property' | 'method';
 }
 
 const anchors: AnchorItem[] = [
@@ -51,7 +52,7 @@ const anchors: AnchorItem[] = [
 ];
 
 const attrCols: ApiColumn[] = [
-  { prop: 'name', label: '属性名', width: 140 },
+  { prop: 'name', label: '属性名', width: 140, presentation: 'property' },
   { prop: 'desc', label: '说明', width: 300 },
   { prop: 'type', label: '类型', width: 160, monospace: true },
   { prop: 'options', label: '可选值', width: 130 },
@@ -59,14 +60,14 @@ const attrCols: ApiColumn[] = [
 ];
 
 const methodCols: ApiColumn[] = [
-  { prop: 'name', label: '方法名', width: 240 },
+  { prop: 'name', label: '方法名', width: 240, presentation: 'method' },
   { prop: 'desc', label: '说明', width: 280 },
   { prop: 'params', label: '参数', width: 220, monospace: true },
   { prop: 'returns', label: '返回值', width: 160, monospace: true }
 ];
 
 const typeCols: ApiColumn[] = [
-  { prop: 'name', label: '属性', width: 160 },
+  { prop: 'name', label: '属性', width: 160, presentation: 'property' },
   { prop: 'desc', label: '说明', width: 300 },
   { prop: 'type', label: '类型', width: 160, monospace: true },
   { prop: 'default', label: '默认值', width: 120 }
@@ -283,8 +284,10 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
         <h2 class="doc-h2">API</h2>
 
         <!-- 1. 构造参数 -->
-        <h3 id="api-constructor" class="doc-h3">构造参数</h3>
-        <p class="doc-prose__hint"><code>new PointLayer(earth?, options?)</code></p>
+        <div class="api-constructor">
+          <h3 id="api-constructor" class="doc-h3">构造参数</h3>
+          <p class="api-constructor__signature"><code>new PointLayer(earth?, options?)</code></p>
+        </div>
         <ApiTable :columns="attrCols" :rows="constructorRows" />
 
         <!-- 2. 方法 -->
