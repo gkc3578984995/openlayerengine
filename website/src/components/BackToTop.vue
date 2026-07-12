@@ -1,24 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed } from 'vue';
 import { ArrowUp } from '@element-plus/icons-vue';
 
-const visible = ref(false);
+const props = defineProps<{
+  scrollContainer: HTMLElement | null;
+  scrollTop: number;
+}>();
 
-const onScroll = () => {
-  visible.value = window.scrollY > 300;
-};
+const visible = computed(() => props.scrollTop > 300);
 
 const scrollToTop = () => {
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  props.scrollContainer?.scrollTo({ top: 0, behavior: 'smooth' });
 };
-
-onMounted(() => {
-  window.addEventListener('scroll', onScroll, { passive: true });
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener('scroll', onScroll);
-});
 </script>
 
 <template>

@@ -58,7 +58,9 @@ const copy = async (source: string) => {
               复制源代码
             </el-button>
           </div>
-          <CodeBlock :code="source" :lang="lang" />
+          <el-scrollbar class="example-block__code-scrollbar" max-height="520px">
+            <CodeBlock :code="source" :lang="lang" />
+          </el-scrollbar>
         </div>
       </transition>
     </div>

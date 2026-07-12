@@ -1,14 +1,43 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import type { ScrollbarInstance } from 'element-plus';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { sideGroups, topNavItems } from '../config/navigation';
 import BackToTop from '../components/BackToTop.vue';
 
 const route = useRoute();
+const mainScrollbar = ref<ScrollbarInstance>();
+const mainScrollTop = ref(0);
+
+const mainScrollContainer = computed(() => mainScrollbar.value?.wrapRef ?? null);
 
 const isHome = computed(() => route.path === '/');
 
 const isParentActive = (item: { to: string }) => route.path === item.to || route.path.startsWith(`${item.to}/`);
+
+const onMainScroll = ({ scrollTop }: { scrollTop: number }) => {
+  mainScrollTop.value = scrollTop;
+};
+
+const scrollToRoutePosition = async () => {
+  await nextTick();
+
+  if (route.hash) {
+    const target = document.getElementById(decodeURIComponent(route.hash.slice(1)));
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  mainScrollContainer.value?.scrollTo({ top: 0, behavior: 'auto' });
+};
+
+watch(
+  () => route.fullPath,
+  () => void scrollToRoutePosition(),
+  { flush: 'post' }
+);
+
+onMounted(() => void scrollToRoutePosition());
 
 const pageTitle = computed(() => {
   if (route.path === '/guide/earth-create') {
@@ -92,54 +121,60 @@ const pageTitle = computed(() => {
 
     <div class="docs-body" :class="{ 'docs-body--home': isHome }">
       <aside v-if="!isHome" class="docs-sidebar">
-        <div class="docs-sidebar__inner">
-          <div v-for="group in sideGroups" :key="group.title" class="docs-sidebar__group">
-            <p class="docs-sidebar__title">{{ group.title }}</p>
-            <div v-for="item in group.items" :key="item.to + item.label" class="docs-sidebar__item">
-              <RouterLink class="docs-sidebar__link" :class="{ 'is-active': isParentActive(item) }" :to="item.to">
-                {{ item.label }}
-              </RouterLink>
-              <div v-if="item.children" class="docs-sidebar__children">
-                <RouterLink
-                  v-for="child in item.children"
-                  :key="child.to + child.label"
-                  class="docs-sidebar__child-link"
-                  :class="{ 'is-active': route.path === child.to }"
-                  :to="child.to"
-                >
-                  {{ child.label }}
+        <el-scrollbar class="docs-sidebar__scrollbar">
+          <div class="docs-sidebar__inner">
+            <div v-for="group in sideGroups" :key="group.title" class="docs-sidebar__group">
+              <p class="docs-sidebar__title">{{ group.title }}</p>
+              <div v-for="item in group.items" :key="item.to + item.label" class="docs-sidebar__item">
+                <RouterLink class="docs-sidebar__link" :class="{ 'is-active': isParentActive(item) }" :to="item.to">
+                  {{ item.label }}
                 </RouterLink>
+                <div v-if="item.children" class="docs-sidebar__children">
+                  <RouterLink
+                    v-for="child in item.children"
+                    :key="child.to + child.label"
+                    class="docs-sidebar__child-link"
+                    :class="{ 'is-active': route.path === child.to }"
+                    :to="child.to"
+                  >
+                    {{ child.label }}
+                  </RouterLink>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </el-scrollbar>
       </aside>
 
       <main class="docs-main" :class="{ 'docs-main--full': isHome }">
-        <div v-if="pageTitle" class="docs-main__page-title">{{ pageTitle }}</div>
-        <RouterView />
+        <el-scrollbar ref="mainScrollbar" class="docs-main__scrollbar" @scroll="onMainScroll">
+          <div class="docs-main__content">
+            <div v-if="pageTitle" class="docs-main__page-title">{{ pageTitle }}</div>
+            <RouterView />
+          </div>
+
+          <footer v-if="isHome" class="docs-footer">
+            <div class="docs-footer__inner">
+              <div class="docs-footer__col">
+                <h4>链接</h4>
+                <a href="https://openlayers.org/" target="_blank" rel="noopener">OpenLayers</a>
+                <a href="https://element-plus.org/zh-CN/" target="_blank" rel="noopener">Element Plus</a>
+              </div>
+              <div class="docs-footer__col">
+                <h4>社区</h4>
+                <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+                <RouterLink to="/">反馈建议</RouterLink>
+              </div>
+              <div class="docs-footer__col docs-footer__col--license">
+                <p>Released under the MIT License.</p>
+                <p>Made with ❤️ by ol-doc</p>
+              </div>
+            </div>
+          </footer>
+        </el-scrollbar>
       </main>
     </div>
 
-    <footer v-if="isHome" class="docs-footer">
-      <div class="docs-footer__inner">
-        <div class="docs-footer__col">
-          <h4>链接</h4>
-          <a href="https://openlayers.org/" target="_blank" rel="noopener">OpenLayers</a>
-          <a href="https://element-plus.org/zh-CN/" target="_blank" rel="noopener">Element Plus</a>
-        </div>
-        <div class="docs-footer__col">
-          <h4>社区</h4>
-          <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
-          <RouterLink to="/">反馈建议</RouterLink>
-        </div>
-        <div class="docs-footer__col docs-footer__col--license">
-          <p>Released under the MIT License.</p>
-          <p>Made with ❤️ by ol-doc</p>
-        </div>
-      </div>
-    </footer>
-
-    <BackToTop />
+    <BackToTop :scroll-container="mainScrollContainer" :scroll-top="mainScrollTop" />
   </div>
 </template>

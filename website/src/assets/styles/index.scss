@@ -28,12 +28,14 @@
 
 html {
   scroll-behavior: smooth;
+  height: 100%;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
   color: var(--doc-text);
   font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   background:
@@ -51,20 +53,20 @@ code {
 }
 
 #app {
-  min-height: 100vh;
+  height: 100%;
 }
 
 .docs-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 /* ===== 顶部导航 ===== */
 .docs-header {
-  position: sticky;
-  top: 0;
   z-index: 20;
+  flex-shrink: 0;
   height: 64px;
   backdrop-filter: blur(18px);
   background: rgba(255, 255, 255, 0.82);
@@ -136,31 +138,30 @@ code {
 /* ===== 内容区布局 ===== */
 .docs-body {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: 100%;
   margin: 0;
-  padding: 28px 0 56px;
+  padding: 28px 0;
 }
 
 .docs-body--home {
   grid-template-columns: minmax(0, 1fr);
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 28px 32px 56px;
+  padding: 0;
 }
 
 .docs-sidebar {
-  position: sticky;
-  top: 80px;
-  align-self: start;
   border-right: 1px solid var(--el-border-color-lighter, rgba(223, 230, 239, 0.5));
 }
 
 .docs-sidebar__inner {
-  max-height: calc(100vh - 104px);
-  overflow-y: auto;
   padding: 0 16px 20px 32px;
+}
+
+.docs-sidebar__scrollbar {
+  height: 100%;
 }
 
 .docs-sidebar__group + .docs-sidebar__group {
@@ -225,11 +226,25 @@ code {
 
 .docs-main {
   min-width: 0;
-  padding: 0 32px;
+  min-height: 0;
 }
 
 .docs-main--full {
-  padding: 0;
+  min-width: 0;
+}
+
+.docs-main__scrollbar {
+  height: 100%;
+}
+
+.docs-main__content {
+  padding: 0 32px 56px;
+}
+
+.docs-main--full .docs-main__content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 32px 56px;
 }
 
 .docs-main__page-title {
@@ -468,7 +483,6 @@ code {
 
 /* ===== 高亮代码块 (Shiki github-light) ===== */
 .code-block-highlight {
-  overflow: auto;
   font-size: 14px;
   line-height: 1.65;
 }
@@ -476,7 +490,6 @@ code {
 .code-block-highlight pre {
   margin: 0;
   padding: 18px 20px;
-  overflow: auto;
   background: #f6f8fa !important;
   border-radius: 0;
 }
@@ -979,10 +992,6 @@ code {
   letter-spacing: 0.04em;
 }
 
-.example-block__code .code-block-highlight {
-  max-height: 520px;
-}
-
 .example-block__code .code-block-highlight pre {
   background: #f6f8fa !important;
 }
@@ -1061,8 +1070,17 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .docs-body {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
   .docs-sidebar {
     position: static;
+  }
+
+  .docs-sidebar__scrollbar {
+    height: auto;
+    max-height: 40vh;
   }
 }
 
@@ -1090,8 +1108,12 @@ code {
     padding-left: 16px;
   }
 
-  .docs-main {
-    padding: 0 16px;
+  .docs-main__content {
+    padding: 0 16px 32px;
+  }
+
+  .docs-main--full .docs-main__content {
+    padding: 16px 16px 32px;
   }
 
   .doc-page-layout__aside {
