@@ -32,20 +32,20 @@ function linkDocumentedTypes(value: string): string {
 export function getPointLayerMethodRows(rows: MethodRow[]): MethodRow[] {
   const methods = generatedApi.classes.PointLayer?.methods ?? {};
   return rows.map((row) => {
-    const methodName = row.name.slice(0, row.name.indexOf('('));
+    const methodName = row.name.split('(', 1)[0];
     const method = methods[methodName as keyof typeof methods];
     if (!method) throw new Error(`PointLayer method is not documented by TypeDoc: ${methodName}`);
-    return { ...row, params: linkDocumentedTypes(method.params), returns: linkDocumentedTypes(method.returns) };
+    return { ...row, name: methodName, params: linkDocumentedTypes(method.params), returns: linkDocumentedTypes(method.returns) };
   });
 }
 
 export function getBaseMethodRows(rows: MethodRow[]): MethodRow[] {
   const methods = generatedApi.classes.Base?.methods ?? {};
   return rows.map((row) => {
-    const methodName = row.name.slice(0, row.name.indexOf('('));
+    const methodName = row.name.split('(', 1)[0];
     const method = methods[methodName as keyof typeof methods];
     if (!method) throw new Error(`Base method is not documented by TypeDoc: ${methodName}`);
-    return { ...row, params: method.params, returns: method.returns };
+    return { ...row, name: methodName, params: method.params, returns: method.returns };
   });
 }
 

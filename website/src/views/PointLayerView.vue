@@ -42,10 +42,19 @@ const anchors: AnchorItem[] = [
     label: 'API',
     children: [
       { id: 'api-constructor', label: '构造参数' },
-      { id: 'api-methods', label: '方法' },
-      { id: 'api-pointparam', label: 'IPointParam' },
-      { id: 'api-setpointparam', label: 'ISetPointParam' },
-      { id: 'api-types', label: '类型定义' }
+      {
+        id: 'api-types',
+        label: '类型定义',
+        children: [
+          { id: 'api-pointparam', label: 'IPointParam' },
+          { id: 'api-setpointparam', label: 'ISetPointParam' },
+          { id: 'api-type-irgbcolor', label: 'IRgbColor' },
+          { id: 'api-type-ifill', label: 'IFill' },
+          { id: 'api-type-istroke', label: 'IStroke' },
+          { id: 'api-type-ilabel', label: 'ILabel' }
+        ]
+      },
+      { id: 'api-methods', label: '方法' }
     ]
   },
   { id: 'tips', label: '注意事项' }
@@ -290,21 +299,16 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
         </div>
         <ApiTable :columns="attrCols" :rows="constructorRows" />
 
-        <!-- 2. 方法 -->
-        <h3 id="api-methods" class="doc-h3">方法</h3>
-        <ApiTable :columns="methodCols" :rows="methodRows" />
+        <!-- 2. 类型定义 -->
+        <h3 id="api-types" class="doc-h3">类型定义</h3>
 
-        <!-- 3. 方法参数属性 -->
-        <h3 id="api-pointparam" class="doc-h3">IPointParam</h3>
+        <h4 id="api-pointparam" class="doc-h4">IPointParam</h4>
         <p class="doc-prose__hint"><code class="code-fn-inline">add(param)</code> 的参数类型。</p>
         <ApiTable :columns="attrCols" :rows="pointParamRows" />
 
-        <h3 id="api-setpointparam" class="doc-h3">ISetPointParam</h3>
+        <h4 id="api-setpointparam" class="doc-h4">ISetPointParam</h4>
         <p class="doc-prose__hint"><code class="code-fn-inline">set(param)</code> 的参数类型。除 <code>id</code> 外字段均可选。</p>
         <ApiTable :columns="attrCols" :rows="setPointParamRows" />
-
-        <!-- 4. 类型定义 -->
-        <h3 id="api-types" class="doc-h3">类型定义</h3>
 
         <h4 id="api-type-irgbcolor" class="doc-h4">IRgbColor</h4>
         <p class="doc-prose__hint">RGB 颜色对象。</p>
@@ -321,6 +325,10 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
         <h4 id="api-type-ilabel" class="doc-h4">ILabel</h4>
         <p class="doc-prose__hint">文本标签样式。注意 <code>offsetY</code> 正向为屏幕上方（与 OL 原生相反）。</p>
         <ApiTable :columns="typeCols" :rows="labelRows" />
+
+        <!-- 3. 方法 -->
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <ApiTable :columns="methodCols" :rows="methodRows" />
       </section>
 
       <section id="tips" class="doc-prose">

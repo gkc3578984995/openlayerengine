@@ -60,4 +60,22 @@ describe('website API presentation', () => {
     expect(pageAnchor).toContain('class="page-anchor__grandchild"');
     expect(styles).toContain('.page-anchor__grandchild.el-anchor__item {');
   });
+
+  it('orders PointLayer types before methods and exposes every type in the outline', async () => {
+    const [pointLayer, helpers] = await Promise.all([
+      readFile('website/src/views/PointLayerView.vue', 'utf8'),
+      readFile('website/src/docs/pointLayerApi.ts', 'utf8')
+    ]);
+
+    expect(pointLayer.indexOf('<h3 id="api-types"')).toBeLessThan(pointLayer.indexOf('<h3 id="api-methods"'));
+    expect(pointLayer).toContain("id: 'api-types'");
+    expect(pointLayer).toContain("label: '类型定义'");
+    expect(pointLayer).toContain('children: [');
+    for (const id of ['api-pointparam', 'api-setpointparam', 'api-type-irgbcolor', 'api-type-ifill', 'api-type-istroke', 'api-type-ilabel']) {
+      expect(pointLayer).toContain(`{ id: '${id}'`);
+    }
+    expect(helpers).toContain("const methodName = row.name.split('(', 1)[0];");
+    expect(helpers).toContain('return { ...row, name: methodName, params: linkDocumentedTypes(method.params)');
+    expect(helpers).toContain('return { ...row, name: methodName, params: method.params, returns: method.returns };');
+  });
 });
