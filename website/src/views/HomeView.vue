@@ -18,10 +18,16 @@ interface CoreModule {
   to: string;
 }
 
+interface WorkbenchLayer {
+  label: string;
+}
+
 const heroActions: HeroAction[] = [
   { label: '快速开始', to: '/guide/quick-start', primary: true },
   { label: '创建地图', to: '/guide/earth-create', primary: false }
 ];
+
+const workbenchLayers: WorkbenchLayer[] = [{ label: '路线规划' }, { label: '业务区域' }, { label: '基础地图' }];
 
 const capabilityHighlights: CapabilityHighlight[] = [
   {
@@ -109,9 +115,7 @@ const coreModules: CoreModule[] = [
 
             <div class="home-workbench__layers">
               <strong>图层</strong>
-              <span><i></i> 路线规划</span>
-              <span><i></i> 业务区域</span>
-              <span><i></i> 基础地图</span>
+              <span v-for="layer in workbenchLayers" :key="layer.label"><i></i> {{ layer.label }}</span>
             </div>
 
             <div class="home-workbench__zoom">

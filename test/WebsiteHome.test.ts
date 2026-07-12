@@ -21,6 +21,9 @@ describe('website homepage content', () => {
     expect(home).toContain('class="home-hero__copy"');
     expect(home).toContain('class="home-workbench" aria-hidden="true"');
     expect(home).toContain('<svg');
+    expect(home).toMatch(/interface WorkbenchLayer\s*\{/);
+    expect(home).toMatch(/const workbenchLayers: WorkbenchLayer\[\] = \[/);
+    expect(home).toContain('v-for="layer in workbenchLayers"');
     for (const concept of [
       'home-workbench__map',
       'home-workbench__route',
