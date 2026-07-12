@@ -130,7 +130,7 @@ const methodRows = [
         <div id="demo-single">
           <ExampleBlock
             title="单例模式"
-            :description="`创建 <code>Earth</code> 实例并添加由运行时配置提供的 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>createXyzLayer</a></code> 底图。点击「销毁地图」调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>destroy</a></code> 释放所有资源。`"
+            :description="`创建 <code><a href=&quot;#api-constructor&quot;>Earth</a></code> 实例并添加由运行时配置提供的 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>createXyzLayer</a></code> 底图。点击「销毁地图」调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>destroy</a></code> 释放所有资源。`"
             :source="earthCreateSource"
           >
             <template #preview>
@@ -154,7 +154,7 @@ const methodRows = [
         <div id="demo-multi">
           <ExampleBlock
             title="多例模式"
-            :description="`同一页面创建两个独立的 <code class=&quot;code-fn-inline&quot;>Earth</code> 实例，绑定不同 DOM 容器，各自拥有独立的视图和图层。`"
+            :description="`同一页面创建两个独立的 <code><a href=&quot;#api-constructor&quot;>Earth</a></code> 实例，绑定不同 DOM 容器，各自拥有独立的视图和图层。`"
             :source="multiEarthSource"
           >
             <template #preview>

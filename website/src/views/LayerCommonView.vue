@@ -8,7 +8,7 @@ import { getBaseMethodRows } from '../docs/pointLayerApi';
 
 const anchors = [
   { id: 'overview', label: '概述' },
-  { id: 'example-common', label: '代码演示' },
+  { id: 'example-common', label: '代码演示', children: [{ id: 'example-common-operations', label: '查询、显示控制与生命周期' }] },
   { id: 'api', label: 'API', children: [{ id: 'api-methods', label: '方法' }] },
   { id: 'tips', label: '注意事项' }
 ];
@@ -48,15 +48,17 @@ const baseMethodRows = getBaseMethodRows([
 
       <section id="example-common" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
-        <ExampleBlock
-          title="查询、显示控制与生命周期"
-          :description="`使用 <code>get</code>、<code>getUpdatedParam</code>、<code>getLayer</code> 读取状态；通过 <code>hide</code>、<code>show</code>、<code>setLayerOpacity</code>、<code>setLayerIndex</code> 控制显示；最后使用 <code>destroy</code> 销毁并重新创建图层。`"
-          :source="layerCommonSource"
-        >
-          <template #preview>
-            <LayerCommonDemo />
-          </template>
-        </ExampleBlock>
+        <div id="example-common-operations">
+          <ExampleBlock
+            title="查询、显示控制与生命周期"
+            :description="`使用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>get</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>getUpdatedParam</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>getLayer</a></code> 读取状态；通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hide</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>show</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>setLayerOpacity</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>setLayerIndex</a></code> 控制显示；最后使用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>destroy</a></code> 销毁并重新创建图层。`"
+            :source="layerCommonSource"
+          >
+            <template #preview>
+              <LayerCommonDemo />
+            </template>
+          </ExampleBlock>
+        </div>
       </section>
 
       <section id="api" class="doc-prose">

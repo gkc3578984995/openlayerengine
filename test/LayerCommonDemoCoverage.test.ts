@@ -54,4 +54,33 @@ describe('layer method demo coverage', () => {
       expect(commonView).toContain(`name: '${method}(`);
     }
   });
+
+  it('lists every common-layer example in the page anchor and links its API references with the documented styles', async () => {
+    const [commonView, rules] = await Promise.all([
+      readFile('website/src/views/LayerCommonView.vue', 'utf8'),
+      readFile('website/AGENTS.md', 'utf8')
+    ]);
+
+    expect(commonView).toContain("{ id: 'example-common-operations', label: '查询、显示控制与生命周期' }");
+    expect(commonView).toContain('<div id="example-common-operations">');
+    for (const method of ['getUpdatedParam', 'get', 'getLayer', 'hide', 'show', 'setLayerOpacity', 'setLayerIndex', 'destroy']) {
+      expect(commonView).toContain(`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>${method}</a></code>`);
+    }
+    expect(rules).toContain('每个 `ExampleBlock` 的标题必须在右侧锚点中以同名子项显示');
+    expect(rules).toContain('方法使用蓝色可点击的 `code-fn` 样式，属性和类型使用中性可点击代码样式');
+  });
+
+  it('uses clickable method and type references in every existing example description', async () => {
+    const [globalMethodsView, earthCreateView] = await Promise.all([
+      readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
+      readFile('website/src/views/EarthCreateView.vue', 'utf8')
+    ]);
+
+    for (const method of ['flyTo', 'animateFlyTo', 'flyHome', 'setMouseStyleToCrosshair', 'disabledMapDrag']) {
+      expect(globalMethodsView).toContain(`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>${method}</a></code>`);
+    }
+    expect(earthCreateView).toContain('<code><a href=&quot;#api-constructor&quot;>Earth</a></code>');
+    expect(globalMethodsView).not.toContain('code-fn-inline');
+    expect(earthCreateView).not.toContain('code-fn-inline');
+  });
 });

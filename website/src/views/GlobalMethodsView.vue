@@ -101,7 +101,7 @@ const methodRows = [
         <div id="demo-camera">
           <ExampleBlock
             title="相机控制"
-            :description="`<code class=&quot;code-fn-inline&quot;>flyTo</code> 无动画跳转、<code class=&quot;code-fn-inline&quot;>animateFlyTo</code> 带动画过渡、<code class=&quot;code-fn-inline&quot;>flyHome</code> 复位。`"
+            :description="`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>flyTo</a></code> 无动画跳转、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>animateFlyTo</a></code> 带动画过渡、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>flyHome</a></code> 复位。`"
             :source="cameraSource"
           >
             <template #preview>
@@ -125,7 +125,7 @@ const methodRows = [
         <div id="demo-mouse">
           <ExampleBlock
             title="鼠标与拖拽"
-            :description="`<code class=&quot;code-fn-inline&quot;>setMouseStyleToCrosshair</code> 十字准线、<code class=&quot;code-fn-inline&quot;>disabledMapDrag</code> 禁用拖拽。`"
+            :description="`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>setMouseStyleToCrosshair</a></code> 切换为十字准线、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>disabledMapDrag</a></code> 禁用拖拽。`"
             :source="mouseSource"
           >
             <template #preview>
