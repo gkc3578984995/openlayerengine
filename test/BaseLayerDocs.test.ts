@@ -123,4 +123,11 @@ describe('base layer documentation pages', () => {
     expect(navigation).not.toContain('WindLayer');
     expect(router).not.toContain('WindLayerView');
   });
+
+  it('allows documentation grid children to shrink on narrow screens', async () => {
+    const styles = await readFile('website/src/assets/styles/index.scss', 'utf8');
+
+    expect(styles).toMatch(/\.doc-page\s*\{[^}]*min-width:\s*0;/s);
+    expect(styles).toMatch(/\.doc-page-layout__aside\s*\{[^}]*min-width:\s*0;/s);
+  });
 });

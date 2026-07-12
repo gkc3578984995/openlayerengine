@@ -680,7 +680,12 @@ html.dark .code-block-highlight .shiki span {
   gap: 32px;
 }
 
+.doc-page {
+  min-width: 0;
+}
+
 .doc-page-layout__aside {
+  min-width: 0;
   padding-right: 32px;
 }
 
