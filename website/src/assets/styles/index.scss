@@ -394,11 +394,16 @@ code {
 .home-hero__title {
   margin: 0;
   color: var(--doc-text);
-  font-size: clamp(3rem, 5vw, 5.35rem);
+  font-size: clamp(2.75rem, 3.75vw, 3.35rem);
   font-weight: 850;
-  letter-spacing: -0.055em;
+  letter-spacing: -0.045em;
   line-height: 0.98;
-  overflow-wrap: anywhere;
+}
+
+.home-hero__title-scope,
+.home-hero__title-name {
+  display: block;
+  white-space: nowrap;
 }
 
 .home-hero__desc {
@@ -1455,7 +1460,7 @@ html.dark .code-block-highlight .shiki span {
   }
 
   .home-hero__title {
-    font-size: clamp(2.8rem, 10vw, 4.6rem);
+    font-size: clamp(2.4rem, 8vw, 4rem);
   }
 
   .home-workbench {
@@ -1493,7 +1498,7 @@ html.dark .code-block-highlight .shiki span {
   }
 
   .home-hero__title {
-    font-size: clamp(2.35rem, 13vw, 3.35rem);
+    font-size: clamp(1.9rem, 10vw, 2.75rem);
   }
 
   .home-hero__actions {

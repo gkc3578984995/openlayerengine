@@ -3,17 +3,29 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const readHome = () => readFileSync(resolve(process.cwd(), 'website/src/views/HomeView.vue'), 'utf8');
+const readStyles = () => readFileSync(resolve(process.cwd(), 'website/src/assets/styles/index.scss'), 'utf8');
 const readHomeStyles = () => readFileSync(resolve(process.cwd(), 'website/src/assets/styles/index.scss'), 'utf8');
 
 describe('website homepage content', () => {
   it('introduces the library and links every canonical starting point', () => {
     const home = readHome();
 
-    expect(home).toContain('@vrsim/earth-engine-ol');
+    expect(home).toContain('@vrsim/');
+    expect(home).toContain('earth-engine-ol');
     expect(home).toContain('OpenLayers + TypeScript');
     for (const route of ['/guide/quick-start', '/guide/earth-create', '/components/point-layer', '/components/measure', '/components/dynamic-draw']) {
       expect(home).toContain(route);
     }
+  });
+
+  it('keeps both explicit package-title segments intact at responsive widths', () => {
+    const home = readHome();
+    const styles = readStyles();
+
+    expect(home).toContain('<span class="home-hero__title-scope">@vrsim/</span>');
+    expect(home).toContain('<span class="home-hero__title-name">earth-engine-ol</span>');
+    expect(styles).toMatch(/\.home-hero__title-scope,\s*\.home-hero__title-name\s*\{[^}]*display: block;[^}]*white-space: nowrap;/s);
+    expect(styles).toMatch(/\.home-hero__title\s*\{[^}]*font-size: clamp\(/s);
   });
 
   it('provides a decorative map workbench beside the hero content', () => {

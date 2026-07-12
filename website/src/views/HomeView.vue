@@ -81,7 +81,10 @@ const coreModules: CoreModule[] = [
       <div class="home-hero__inner">
         <div class="home-hero__copy">
           <p class="home-hero__eyebrow">OPENLAYERS CAPABILITY ENGINE</p>
-          <h1 class="home-hero__title">@vrsim/earth-engine-ol</h1>
+          <h1 class="home-hero__title">
+            <span class="home-hero__title-scope">@vrsim/</span>
+            <span class="home-hero__title-name">earth-engine-ol</span>
+          </h1>
           <p class="home-hero__desc">面向工程化地图应用的 OpenLayers + TypeScript 地图能力库。</p>
           <div class="home-hero__actions">
             <RouterLink v-for="action in heroActions" :key="action.to" :to="action.to" class="home-hero__action" :class="{ 'is-primary': action.primary }">
