@@ -1,14 +1,10 @@
 <script setup lang="ts">
 import ApiTable from '../components/docs/ApiTable.vue';
-import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
-import MeasureDemo from '../examples/MeasureDemo.vue';
-import measureSource from '../examples/MeasureDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '概述' },
   { id: 'lifecycle', label: '会话与清理' },
-  { id: 'examples', label: '代码演示', children: [{ id: 'example-initialize-measure', label: '初始化测量工具' }] },
   {
     id: 'api',
     label: 'API',
@@ -71,7 +67,7 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
     <article class="doc-page">
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">Measure 测量工具</span>
-        <h1>概览与初始化</h1>
+        <h1>概览</h1>
         <p>在地图上量距离和面积，并通过回调获取完成的测量数据。</p>
       </header>
       <section id="overview" class="doc-prose">
@@ -89,17 +85,6 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
           右键会结束当前测量会话。调用 <code class="code-fn"><a href="#api-methods">clear</a></code> 可中途取消并清空已有结果；销毁 Earth
           时会自动执行同样的清理。
         </p>
-      </section>
-      <section id="examples" class="doc-prose">
-        <h2 class="doc-h2">代码演示</h2>
-        <div id="example-initialize-measure">
-          <ExampleBlock
-            title="初始化测量工具"
-            :description="'通过 <code class=&quot;code-fn&quot;><a href=&quot;/guide/global-methods#api-methods&quot;>earth.useMeasure</a></code> 获取实例；需要清空会话时调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>clear</a></code>。'"
-            :source="measureSource"
-            ><template #preview><MeasureDemo /></template
-          ></ExampleBlock>
-        </div>
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
@@ -129,6 +114,6 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
         </ul>
       </section>
     </article>
-    <aside class="doc-page-layout__aside"><PageAnchor title="概览与初始化" :items="anchors" /></aside>
+    <aside class="doc-page-layout__aside"><PageAnchor title="概览" :items="anchors" /></aside>
   </div>
 </template>

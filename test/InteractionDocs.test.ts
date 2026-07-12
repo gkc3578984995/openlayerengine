@@ -26,7 +26,7 @@ describe('interaction documentation infrastructure', () => {
     for (const [label, path, name, title] of [
       ['ContextMenu 右键菜单', '/components/context-menu', 'context-menu', 'ContextMenu 右键菜单'],
       ['DynamicDraw 动态绘制', '/components/dynamic-draw', 'dynamic-draw', 'DynamicDraw 动态绘制'],
-      ['Measure 测量工具', '/components/measure', 'measure', 'Measure 概览与初始化']
+      ['Measure 测量工具', '/components/measure', 'measure', 'Measure 概览']
     ]) {
       const item = label === 'DynamicDraw 动态绘制' ? `{\n        label: '${label}', to: '${path}', children:` : `{ label: '${label}', to: '${path}' }`;
       const itemIndex =
@@ -41,6 +41,8 @@ describe('interaction documentation infrastructure', () => {
     expect(router).toContain("import ContextMenuOverviewView from '../views/ContextMenuOverviewView.vue';");
     expect(router).toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
     expect(router).toContain("import MeasureView from '../views/MeasureView.vue';");
+    expect(navigation).toContain("{ label: '概览', to: '/components/measure' }");
+    expect(layout).toContain("'/components/measure': 'Measure 概览'");
   });
 
   it('splits GlobalEvent into canonical nested navigation and API pages', async () => {
@@ -681,12 +683,11 @@ describe('interaction documentation infrastructure', () => {
   });
 
   it('assigns Measure APIs to overview, distance, area, and removal pages', async () => {
-    const [overview, distance, area, remove, overviewDemo, distanceDemo, areaDemo, removeDemo] = await Promise.all([
+    const [overview, distance, area, remove, distanceDemo, areaDemo, removeDemo] = await Promise.all([
       readFile('website/src/views/MeasureView.vue', 'utf8'),
       readFile('website/src/views/MeasureDistanceView.vue', 'utf8'),
       readFile('website/src/views/MeasureAreaView.vue', 'utf8'),
       readFile('website/src/views/MeasureRemoveView.vue', 'utf8'),
-      readFile('website/src/examples/MeasureDemo.vue', 'utf8'),
       readFile('website/src/examples/MeasureDistanceDemo.vue', 'utf8'),
       readFile('website/src/examples/MeasureAreaDemo.vue', 'utf8'),
       readFile('website/src/examples/MeasureRemoveDemo.vue', 'utf8')
@@ -701,8 +702,10 @@ describe('interaction documentation infrastructure', () => {
     for (const [method, owner] of Object.entries({ clear: overview, lineSegmentation: distance, lineFirst: distance, lineCenter: distance, polygonMeasure: area })) {
       expect(owner).toMatch(new RegExp(`\\[\\s*'${method}',`));
     }
+    expect(overview).not.toContain('MeasureDemo');
+    expect(overview).not.toContain('ExampleBlock');
+    expect(overview).not.toContain('example-initialize-measure');
     for (const [view, demo, sourceName, exampleId] of [
-      [overview, overviewDemo, 'measureSource', 'example-initialize-measure'],
       [distance, distanceDemo, 'measureDistanceSource', 'example-distance-modes'],
       [area, areaDemo, 'measureAreaSource', 'example-polygon-area'],
       [remove, removeDemo, 'measureRemoveSource', 'example-remove-measurement']

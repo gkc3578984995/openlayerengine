@@ -68,7 +68,7 @@ export const sideGroups: SideGroup[] = [
         label: 'Measure 测量工具',
         to: '/components/measure',
         children: [
-          { label: '概览与初始化', to: '/components/measure' },
+          { label: '概览', to: '/components/measure' },
           { label: '量距离', to: '/components/measure/distance' },
           { label: '量面积', to: '/components/measure/area' },
           { label: '移除测量', to: '/components/measure/remove' }

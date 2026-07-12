@@ -40,7 +40,7 @@ const pageTitle = computed(() => {
   };
   if (contextMenuTitles[route.path]) return contextMenuTitles[route.path];
   const measureTitles: Record<string, string> = {
-    '/components/measure': 'Measure 概览与初始化',
+    '/components/measure': 'Measure 概览',
     '/components/measure/distance': 'Measure 量距离',
     '/components/measure/area': 'Measure 量面积',
     '/components/measure/remove': 'Measure 移除测量'
