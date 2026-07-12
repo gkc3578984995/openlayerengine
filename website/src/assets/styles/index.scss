@@ -528,7 +528,7 @@ code {
 
 /* ===== doc-hero（内页用） ===== */
 
-/* ===== 高亮代码块 (Shiki github-light) ===== */
+/* ===== 高亮代码块 (Shiki light/dark) ===== */
 .code-block-highlight {
   font-size: 14px;
   line-height: 1.65;
@@ -545,6 +545,11 @@ code {
   font-family: 'Cascadia Code', 'Consolas', 'SF Mono', 'Menlo', monospace;
   font-size: 13px;
   line-height: 1.65;
+}
+
+html.dark .code-block-highlight .shiki,
+html.dark .code-block-highlight .shiki span {
+  color: var(--shiki-dark) !important;
 }
 
 /* 覆盖 Shiki 内联背景（强制白色） */

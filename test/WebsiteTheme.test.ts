@@ -73,4 +73,12 @@ describe('website theme', () => {
     expect(rules).toContain('浅色与深色主题');
     expect(rules).toContain('语义化主题变量');
   });
+
+  it('uses matching Shiki token colors in light and dark themes', () => {
+    const highlight = readFileSync(new URL('../website/src/utils/highlight.ts', import.meta.url), 'utf8');
+    const styles = readFileSync(new URL('../website/src/assets/styles/index.scss', import.meta.url), 'utf8');
+
+    expect(highlight).toContain("themes: { light: 'github-light', dark: 'github-dark' }");
+    expect(styles).toMatch(/html\.dark \.code-block-highlight \.shiki span\s*\{[^}]*color: var\(--shiki-dark\) !important;/s);
+  });
 });
