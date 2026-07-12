@@ -21,8 +21,14 @@ const anchors = [
     id: 'api',
     label: 'API',
     children: [
-      { id: 'api-methods', label: '日常注册与状态' },
-      { id: 'api-listener-control', label: '高级：底层监听控制' }
+      {
+        id: 'api-methods',
+        label: '方法',
+        children: [
+          { id: 'api-daily-methods', label: '日常注册与状态' },
+          { id: 'api-listener-control', label: '高级：底层监听控制' }
+        ]
+      }
     ]
   },
   { id: 'tips', label: '注意事项' }
@@ -80,7 +86,10 @@ const listenerMethodRows = listenerMethods.map(([name, desc, params, returns]) =
       </header>
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">概述</h2>
-        <p>回调参数使用概览页定义的 <code><a href="/components/global-event#api-type-globaleventcallback">GlobalEventCallback</a></code>。</p>
+        <p>
+          回调参数使用概览页定义的 <code><a href="/components/global-event#api-type-globaleventcallback">GlobalEventCallback</a></code
+          >。
+        </p>
       </section>
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
@@ -103,9 +112,10 @@ const listenerMethodRows = listenerMethods.map(([name, desc, params, returns]) =
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-methods" class="doc-h3">日常注册与状态</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h4 id="api-daily-methods" class="doc-h4">日常注册与状态</h4>
         <ApiTable :columns="methodCols" :rows="methodRows" />
-        <h3 id="api-listener-control" class="doc-h3">高级：底层监听控制</h3>
+        <h4 id="api-listener-control" class="doc-h4">高级：底层监听控制</h4>
         <p>通常由 <code>add*</code> 自动启用监听。仅当需要整体重置某一鼠标类别时才直接调用 <code>disable*</code>；它会清空该类别的全部回调。</p>
         <pre><code>events.enableGlobalMouseClickEvent();
 // 这会移除该类别全部已注册的回调。

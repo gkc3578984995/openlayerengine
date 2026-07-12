@@ -5,5 +5,5 @@ export { default as Descriptor } from './Descriptor';
 export { default as ContextMenu } from './ContextMenu';
 export { default as Transform } from './Transform';
 
-export type { ModuleEventCallback, GlobalEventCallback, ModuleEventCallbackParams } from './GlobalEvent';
+export type { ModuleEventCallback, GlobalEventCallback, GlobalKeyDownEventCallback, ModuleEventCallbackParams } from './GlobalEvent';
 export type { ContextMenuBefore, ContextMenuCallback, IContextMenuCallbackParam, IContextMenuItem, IContextMenuOption } from './ContextMenu';

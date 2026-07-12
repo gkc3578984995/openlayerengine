@@ -19,7 +19,17 @@ const anchors = [
       { id: 'example-module-menu-callback', label: '模块菜单点击回调' }
     ]
   },
-  { id: 'api', label: 'API', children: [{ id: 'api-methods', label: '模块菜单注册' }] },
+  {
+    id: 'api',
+    label: 'API',
+    children: [
+      {
+        id: 'api-methods',
+        label: '方法',
+        children: [{ id: 'api-module-menu-registration', label: '模块菜单注册' }]
+      }
+    ]
+  },
   { id: 'tips', label: '注意事项' }
 ];
 const columns = [
@@ -32,7 +42,8 @@ const rows = [
   {
     name: 'addModuleMenu',
     desc: '注册或替换指定模块菜单。',
-    params: 'module: string, items: IContextMenuItem[], callback?: ContextMenuCallback, before?: ContextMenuBefore',
+    params:
+      'module: string, items: <a href="/components/context-menu#api-type-icontextmenuitem">IContextMenuItem</a>[], callback?: <a href="/components/context-menu#api-type-contextmenucallback">ContextMenuCallback</a>, before?: <a href="/components/context-menu#api-type-contextmenubefore">ContextMenuBefore</a>',
     returns: 'boolean'
   }
 ];
@@ -69,7 +80,8 @@ const rows = [
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-methods" class="doc-h3">模块菜单注册</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h4 id="api-module-menu-registration" class="doc-h4">模块菜单注册</h4>
         <ApiTable :columns="columns" :rows="rows" />
       </section>
       <section id="tips" class="doc-prose">

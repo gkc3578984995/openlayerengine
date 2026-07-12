@@ -16,7 +16,17 @@ const anchors = [
       { id: 'example-default-menu-callback', label: '全局菜单点击回调' }
     ]
   },
-  { id: 'api', label: 'API', children: [{ id: 'api-methods', label: '菜单注册' }] },
+  {
+    id: 'api',
+    label: 'API',
+    children: [
+      {
+        id: 'api-methods',
+        label: '方法',
+        children: [{ id: 'api-menu-registration', label: '菜单注册' }]
+      }
+    ]
+  },
   { id: 'tips', label: '注意事项' }
 ];
 const columns = [
@@ -64,7 +74,8 @@ const rows = [
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-methods" class="doc-h3">菜单注册</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h4 id="api-menu-registration" class="doc-h4">菜单注册</h4>
         <ApiTable :columns="columns" :rows="rows" />
       </section>
       <section id="tips" class="doc-prose">

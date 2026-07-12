@@ -20,8 +20,14 @@ const anchors = [
     id: 'api',
     label: 'API',
     children: [
-      { id: 'api-menu-removal', label: '菜单移除' },
-      { id: 'api-lifecycle', label: '关闭与销毁' }
+      {
+        id: 'api-methods',
+        label: '方法',
+        children: [
+          { id: 'api-menu-removal', label: '菜单移除' },
+          { id: 'api-lifecycle', label: '关闭与销毁' }
+        ]
+      }
     ]
   },
   { id: 'tips', label: '注意事项' }
@@ -75,9 +81,10 @@ const lifecycleRows = [
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-menu-removal" class="doc-h3">菜单移除</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h4 id="api-menu-removal" class="doc-h4">菜单移除</h4>
         <ApiTable :columns="columns" :rows="removalRows" />
-        <h3 id="api-lifecycle" class="doc-h3">关闭与销毁</h3>
+        <h4 id="api-lifecycle" class="doc-h4">关闭与销毁</h4>
         <ApiTable :columns="columns" :rows="lifecycleRows" />
       </section>
       <section id="tips" class="doc-prose">

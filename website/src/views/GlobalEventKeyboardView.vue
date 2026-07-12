@@ -12,8 +12,14 @@ const anchors = [
     id: 'api',
     label: 'API',
     children: [
-      { id: 'api-methods', label: '日常注册与状态' },
-      { id: 'api-listener-control', label: '高级：底层监听控制' }
+      {
+        id: 'api-methods',
+        label: '方法',
+        children: [
+          { id: 'api-daily-methods', label: '日常注册与状态' },
+          { id: 'api-listener-control', label: '高级：底层监听控制' }
+        ]
+      }
     ]
   },
   { id: 'tips', label: '注意事项' }
@@ -24,8 +30,9 @@ const methodCols = [
   { prop: 'params', label: '参数', width: 250, monospace: true },
   { prop: 'returns', label: '返回值', width: 140, monospace: true }
 ];
+const callback = '<a href="/components/global-event#api-type-globalkeydowneventcallback">GlobalKeyDownEventCallback</a>';
 const methods = [
-  ['addKeyDownEventByGlobal', '注册全局键盘按下回调', 'callback: (event: KeyboardEvent) =&gt; void', '() =&gt; void'],
+  ['addKeyDownEventByGlobal', '注册全局键盘按下回调', 'callback: ' + callback, '() =&gt; void'],
   ['hasGlobalKeyDownEvent', '检查是否存在全局键盘回调', '—', 'boolean']
 ] as const;
 const listenerMethods = [
@@ -61,9 +68,10 @@ const listenerMethodRows = listenerMethods.map(([name, desc, params, returns]) =
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-methods" class="doc-h3">日常注册与状态</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h4 id="api-daily-methods" class="doc-h4">日常注册与状态</h4>
         <ApiTable :columns="methodCols" :rows="methodRows" />
-        <h3 id="api-listener-control" class="doc-h3">高级：底层监听控制</h3>
+        <h4 id="api-listener-control" class="doc-h4">高级：底层监听控制</h4>
         <p>日常注册会自动启用键盘监听。直接调用 <code>disableGlobalKeyDownEvent</code> 会停止底层监听并清空全部已注册的键盘回调。</p>
         <pre><code>events.enableGlobalKeyDownEvent();
 // 这会移除全部已注册的键盘回调。

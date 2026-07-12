@@ -24,7 +24,8 @@ const anchors = [
         children: [
           { id: 'api-type-moduleeventcallbackparams', label: 'ModuleEventCallbackParams' },
           { id: 'api-type-moduleeventcallback', label: 'ModuleEventCallback' },
-          { id: 'api-type-globaleventcallback', label: 'GlobalEventCallback' }
+          { id: 'api-type-globaleventcallback', label: 'GlobalEventCallback' },
+          { id: 'api-type-globalkeydowneventcallback', label: 'GlobalKeyDownEventCallback' }
         ]
       }
     ]
@@ -65,8 +66,8 @@ const callbackParamRows = [
       <section id="listener-management" class="doc-prose">
         <h2 class="doc-h2">重要提示：监听自动管理</h2>
         <p>
-          日常使用无需先调用 <code>enable*</code>：add* 会自动启用对应的底层监听，返回的注销函数只清理本次注册。
-          disable* 会停止对应底层监听并清空该类别的全部回调，属于高级批量控制；模块事件的定向清理请使用对应的 <code>remove*</code> 方法。
+          日常使用无需先调用 <code>enable*</code>：add* 会自动启用对应的底层监听，返回的注销函数只清理本次注册。 disable*
+          会停止对应底层监听并清空该类别的全部回调，属于高级批量控制；模块事件的定向清理请使用对应的 <code>remove*</code> 方法。
         </p>
         <pre><code>const onClick = () =&gt; {};
 const dispose = earth.useGlobalEvent().addMouseClickEventByGlobal(onClick);
@@ -102,6 +103,8 @@ dispose();</code></pre>
         </p>
         <h4 id="api-type-globaleventcallback" class="doc-h4">GlobalEventCallback</h4>
         <p><code>(param: { position: Coordinate; pixel: number[] }) =&gt; void</code></p>
+        <h4 id="api-type-globalkeydowneventcallback" class="doc-h4">GlobalKeyDownEventCallback</h4>
+        <p><code>(param: KeyboardEvent) =&gt; void</code></p>
       </section>
 
       <section id="tips" class="doc-prose">

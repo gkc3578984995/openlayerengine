@@ -137,7 +137,7 @@ code {
 .docs-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 264px minmax(0, 1fr);
   width: 100%;
   margin: 0;
   padding: 28px 0 56px;
@@ -201,6 +201,11 @@ code {
   color: var(--doc-muted);
   font-size: 13px;
   text-decoration: none;
+}
+
+.docs-sidebar__link,
+.docs-sidebar__child-link {
+  white-space: nowrap;
 }
 
 .docs-sidebar__child-link:hover,
@@ -595,7 +600,7 @@ code {
 
 .doc-page-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 200px;
+  grid-template-columns: minmax(0, 1fr) 256px;
   gap: 32px;
 }
 
@@ -702,6 +707,11 @@ code {
   font-weight: 700;
   color: var(--doc-text);
   border-bottom: 1px solid var(--el-border-color-lighter, rgba(223, 230, 239, 0.5));
+}
+
+.page-anchor__title,
+.page-anchor .el-anchor-link__title {
+  white-space: nowrap;
 }
 
 /* 子级：缩进 + 小号字体 + 灰色 */

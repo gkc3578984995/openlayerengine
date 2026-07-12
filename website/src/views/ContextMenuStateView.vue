@@ -23,9 +23,15 @@ const anchors = [
     id: 'api',
     label: 'API',
     children: [
-      { id: 'api-default-menu-state', label: '默认菜单状态' },
-      { id: 'api-module-menu-state', label: '模块菜单状态' },
-      { id: 'api-theme', label: '菜单主题' }
+      {
+        id: 'api-methods',
+        label: '方法',
+        children: [
+          { id: 'api-default-menu-state', label: '默认菜单状态' },
+          { id: 'api-module-menu-state', label: '模块菜单状态' },
+          { id: 'api-theme', label: '菜单主题' }
+        ]
+      }
     ]
   },
   { id: 'tips', label: '注意事项' }
@@ -83,11 +89,12 @@ const themeRows = [
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-default-menu-state" class="doc-h3">默认菜单状态</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h4 id="api-default-menu-state" class="doc-h4">默认菜单状态</h4>
         <ApiTable :columns="columns" :rows="defaultRows" />
-        <h3 id="api-module-menu-state" class="doc-h3">模块菜单状态</h3>
+        <h4 id="api-module-menu-state" class="doc-h4">模块菜单状态</h4>
         <ApiTable :columns="columns" :rows="moduleRows" />
-        <h3 id="api-theme" class="doc-h3">菜单主题</h3>
+        <h4 id="api-theme" class="doc-h4">菜单主题</h4>
         <ApiTable :columns="columns" :rows="themeRows" />
       </section>
       <section id="tips" class="doc-prose">

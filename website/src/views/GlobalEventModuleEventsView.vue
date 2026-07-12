@@ -21,8 +21,14 @@ const anchors = [
     id: 'api',
     label: 'API',
     children: [
-      { id: 'api-methods', label: '日常注册与状态' },
-      { id: 'api-listener-control', label: '高级：底层监听控制' }
+      {
+        id: 'api-methods',
+        label: '方法',
+        children: [
+          { id: 'api-daily-methods', label: '日常注册与状态' },
+          { id: 'api-listener-control', label: '高级：底层监听控制' }
+        ]
+      }
     ]
   },
   { id: 'tips', label: '注意事项' }
@@ -78,7 +84,10 @@ const listenerMethodRows = listenerMethods.map(([name, desc, params, returns]) =
       </header>
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">概述</h2>
-        <p>模块回调参数使用概览页定义的 <code><a href="/components/global-event#api-type-moduleeventcallback">ModuleEventCallback</a></code>。</p>
+        <p>
+          模块回调参数使用概览页定义的 <code><a href="/components/global-event#api-type-moduleeventcallback">ModuleEventCallback</a></code
+          >。
+        </p>
       </section>
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
@@ -101,10 +110,14 @@ const listenerMethodRows = listenerMethods.map(([name, desc, params, returns]) =
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-methods" class="doc-h3">日常注册与状态</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h4 id="api-daily-methods" class="doc-h4">日常注册与状态</h4>
         <ApiTable :columns="methodCols" :rows="methodRows" />
-        <h3 id="api-listener-control" class="doc-h3">高级：底层监听控制</h3>
-        <p><code>add*</code> 会自动管理相应监听。若直接调用 <code>disable*</code>，会停止底层监听并清空所有模块在该事件类别中的回调；它不同于只处理指定模块的 <code>remove*</code>。</p>
+        <h4 id="api-listener-control" class="doc-h4">高级：底层监听控制</h4>
+        <p>
+          <code>add*</code> 会自动管理相应监听。若直接调用 <code>disable*</code>，会停止底层监听并清空所有模块在该事件类别中的回调；它不同于只处理指定模块的
+          <code>remove*</code>。
+        </p>
         <pre><code>events.enableModuleMouseClickEvent();
 // 这会清空所有模块的点击回调。
 events.disableModuleMouseClickEvent();</code></pre>

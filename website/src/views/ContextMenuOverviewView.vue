@@ -14,7 +14,17 @@ const anchors = [
     label: 'API',
     children: [
       { id: 'api-constructor', label: '构造器' },
-      { id: 'api-types', label: '类型定义' }
+      {
+        id: 'api-types',
+        label: '类型定义',
+        children: [
+          { id: 'api-type-icontextmenuoption', label: 'IContextMenuOption' },
+          { id: 'api-type-icontextmenuitem', label: 'IContextMenuItem' },
+          { id: 'api-type-icontextmenucallbackparam', label: 'IContextMenuCallbackParam' },
+          { id: 'api-type-contextmenucallback', label: 'ContextMenuCallback' },
+          { id: 'api-type-contextmenubefore', label: 'ContextMenuBefore' }
+        ]
+      }
     ]
   },
   { id: 'tips', label: '注意事项' }

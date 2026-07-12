@@ -2,6 +2,15 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('interaction documentation infrastructure', () => {
+  it('keeps documentation navigation labels on one line with wider side columns', async () => {
+    const styles = await readFile('website/src/assets/styles/index.scss', 'utf8');
+
+    expect(styles).toContain('grid-template-columns: 264px minmax(0, 1fr);');
+    expect(styles).toContain('grid-template-columns: minmax(0, 1fr) 256px;');
+    expect(styles).toMatch(/\.docs-sidebar__link,\s*\.docs-sidebar__child-link\s*\{\s*white-space: nowrap;/);
+    expect(styles).toMatch(/\.page-anchor__title,\s*\.page-anchor \.el-anchor-link__title\s*\{\s*white-space: nowrap;/);
+  });
+
   it('adds the four interaction routes, navigation entries, and layout titles', async () => {
     const [navigation, router, layout] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
@@ -86,13 +95,14 @@ describe('interaction documentation infrastructure', () => {
       expect(view).toContain('<span class="doc-hero__eyebrow">GlobalEvent 地图事件</span>');
     }
     expect(overview).toContain('id="api-constructor"');
+    expect(source).toContain('export type GlobalKeyDownEventCallback = (param: KeyboardEvent) => void;');
     expect(overview).toContain('new GlobalEvent(earth)');
     expect(overview).toContain('href="/guide/global-methods#api-methods"');
     expect(overview).toContain('<h1>概览与初始化</h1>');
     expect(overview).toContain('<PageAnchor title="概览与初始化"');
     expect(overview).toContain('<code>new GlobalEvent(earth)</code> 也是公开可用的构造方式');
     expect(overview).toMatch(/Earth\s+会缓存同一个共享实例并集中管理其生命周期/);
-    for (const type of ['ModuleEventCallbackParams', 'ModuleEventCallback', 'GlobalEventCallback']) {
+    for (const type of ['ModuleEventCallbackParams', 'ModuleEventCallback', 'GlobalEventCallback', 'GlobalKeyDownEventCallback']) {
       const anchor = `id="api-type-${type.toLowerCase()}"`;
       expect(overview).toContain(anchor);
       for (const child of views.slice(1)) expect(child).not.toContain(anchor);
@@ -104,7 +114,7 @@ describe('interaction documentation infrastructure', () => {
     expect(overview).not.toContain("id: 'api-methods'");
     expect(overview).not.toContain("id: 'api-listener-control'");
     expect(overview).toContain('add* 会自动启用对应的底层监听');
-    expect(overview).toContain('disable* 会停止对应底层监听并清空该类别的全部回调');
+    expect(overview).toMatch(/disable\*\s*会停止对应底层监听并清空该类别的全部回调/);
     expect(overview).toContain('const dispose = earth.useGlobalEvent().addMouseClickEventByGlobal(onClick);');
     expect(overview.indexOf('<section id="examples"')).toBeLessThan(overview.indexOf('<section id="api"'));
     for (const child of views.slice(1)) {
@@ -114,6 +124,12 @@ describe('interaction documentation infrastructure', () => {
     }
     expect(globalMouse).toContain('/components/global-event#api-type-globaleventcallback');
     expect(moduleEvents).toContain('/components/global-event#api-type-moduleeventcallback');
+    expect(keyboard).toContain('/components/global-event#api-type-globalkeydowneventcallback');
+    expect(globalMouse).toMatch(/id: 'api-methods',\s+label: '方法',\s+children: \[/);
+    expect(globalMouse).toContain("{ id: 'api-daily-methods', label: '日常注册与状态' }");
+    expect(globalMouse).toContain("{ id: 'api-listener-control', label: '高级：底层监听控制' }");
+    expect(globalMouse).toContain('<h3 id="api-methods" class="doc-h3">方法</h3>');
+    expect(globalMouse).toContain('<h4 id="api-daily-methods" class="doc-h4">日常注册与状态</h4>');
 
     const globalMouseMethods = [
       'addMouseMoveEventByGlobal',
@@ -187,6 +203,8 @@ describe('interaction documentation infrastructure', () => {
     for (const child of [globalMouse, moduleEvents, keyboard]) {
       expect(child).toContain('id="api-listener-control"');
       expect(child).toContain('高级：底层监听控制');
+      expect(child).toMatch(/id: 'api-methods',\s+label: '方法',\s+children: \[/);
+      expect(child).toContain('id="api-daily-methods"');
     }
     for (const method of listenerMethods) expect(overview).not.toMatch(new RegExp(`\\[\\s*'${method}',`));
     for (const method of keyboardMethods) {
@@ -299,6 +317,27 @@ describe('interaction documentation infrastructure', () => {
       expect(allViews).toContain(method);
     }
     expect(views[0]).toContain('id="api-type-icontextmenuitem"');
+    for (const type of ['IContextMenuOption', 'IContextMenuItem', 'IContextMenuCallbackParam', 'ContextMenuCallback', 'ContextMenuBefore']) {
+      expect(views[0]).toContain(`{ id: 'api-type-${type.toLowerCase()}', label: '${type}' }`);
+    }
+    for (const [type, anchor] of [
+      ['IContextMenuItem', 'api-type-icontextmenuitem'],
+      ['ContextMenuCallback', 'api-type-contextmenucallback'],
+      ['ContextMenuBefore', 'api-type-contextmenubefore']
+    ]) {
+      expect(views[2]).toContain(`<a href="/components/context-menu#${anchor}">${type}</a>`);
+    }
+    for (const [viewIndex, groupAnchors] of [
+      [1, ['api-menu-registration']],
+      [2, ['api-module-menu-registration']],
+      [4, ['api-default-menu-state', 'api-module-menu-state', 'api-theme']],
+      [5, ['api-menu-removal', 'api-lifecycle']]
+    ]) {
+      const view = views[viewIndex];
+      expect(view).toMatch(/id: 'api-methods',\s+label: '方法',\s+children: \[/);
+      expect(view).toContain('<h3 id="api-methods" class="doc-h3">方法</h3>');
+      for (const anchor of groupAnchors) expect(view).toContain(`id="${anchor}"`);
+    }
     expect(views[5]).toContain("{ name: 'destroy'");
   });
 
@@ -555,7 +594,7 @@ describe('interaction documentation infrastructure', () => {
     ];
     expect(overview).toContain('重要提示：监听自动管理');
     expect(overview).toContain('返回的注销函数只清理本次注册');
-    expect(overview).toContain('disable* 会停止对应底层监听并清空该类别的全部回调');
+    expect(overview).toMatch(/disable\*\s*会停止对应底层监听并清空该类别的全部回调/);
     expect(overview).not.toContain('GlobalEventListenerControlDemo');
     expect(overview).not.toContain('example-advanced-listener-control');
     expect(overview).toContain('href=&quot;/guide/global-methods#api-methods&quot;>earth.useGlobalEvent</a>');
