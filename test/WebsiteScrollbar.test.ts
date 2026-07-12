@@ -30,6 +30,18 @@ describe('website scrollbars', () => {
     expect(router).toContain('return false;');
   });
 
+  it('keeps page anchors synchronized with the main scrollbar and uses compact nesting', () => {
+    const layout = readWebsiteSource('website/src/layouts/DocsLayout.vue');
+    const pageAnchor = readWebsiteSource('website/src/components/docs/PageAnchor.vue');
+    const styles = readWebsiteSource('website/src/assets/styles/index.scss');
+
+    expect(layout).toContain("provide('docsMainScrollContainer', mainScrollContainer);");
+    expect(pageAnchor).toContain("inject<Readonly<Ref<HTMLElement | null>>>('docsMainScrollContainer'");
+    expect(pageAnchor).toContain(':container="scrollContainer"');
+    expect(styles).toMatch(/\.page-anchor__child\.el-anchor__item\s*{\s*padding-left: 16px;/);
+    expect(styles).toMatch(/\.page-anchor__grandchild\.el-anchor__item\s*{\s*padding-left: 28px;/);
+  });
+
   it('uses an Element Plus scrollbar for example source code', () => {
     const exampleBlock = readWebsiteSource('website/src/components/docs/ExampleBlock.vue');
     const styles = readWebsiteSource('website/src/assets/styles/index.scss');

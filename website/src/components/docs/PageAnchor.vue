@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import type { Ref } from 'vue';
+import { inject, ref } from 'vue';
+
 interface AnchorItem {
   id: string;
   label: string;
@@ -9,12 +12,15 @@ defineProps<{
   title?: string;
   items: AnchorItem[];
 }>();
+
+const scrollContainer = inject<Readonly<Ref<HTMLElement | null>>>('docsMainScrollContainer', ref(null));
 </script>
 
 <template>
   <el-affix class="page-anchor" :offset="80" target=".docs-main">
     <p v-if="title" class="page-anchor__title">{{ title }}</p>
     <el-anchor
+      :container="scrollContainer"
       :offset="80"
       :bound="24"
       :duration="300"

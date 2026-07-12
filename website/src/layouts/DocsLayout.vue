@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ScrollbarInstance } from 'element-plus';
 import { Moon, Sunny } from '@element-plus/icons-vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { sideGroups, topNavItems } from '../config/navigation';
 import BackToTop from '../components/BackToTop.vue';
@@ -15,6 +15,8 @@ const theme = ref<Theme>(getTheme(window.localStorage));
 const isDark = computed(() => theme.value === 'dark');
 
 const mainScrollContainer = computed(() => mainScrollbar.value?.wrapRef ?? null);
+
+provide('docsMainScrollContainer', mainScrollContainer);
 
 const isHome = computed(() => route.path === '/');
 

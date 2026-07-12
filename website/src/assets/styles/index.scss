@@ -781,7 +781,7 @@ html.dark .code-block-highlight .shiki span {
 
 /* 子级：缩进 + 小号字体 + 灰色 */
 .page-anchor__child.el-anchor__item {
-  padding-left: 28px;
+  padding-left: 16px;
 }
 
 .page-anchor__child .el-anchor-link__title {
@@ -794,7 +794,7 @@ html.dark .code-block-highlight .shiki span {
 }
 
 .page-anchor__grandchild.el-anchor__item {
-  padding-left: 40px;
+  padding-left: 28px;
 }
 
 .page-anchor__grandchild .el-anchor-link__title {
