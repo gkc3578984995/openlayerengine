@@ -129,7 +129,7 @@ const methodRows = [
         <div id="demo-single">
           <ExampleBlock
             title="单例模式"
-            :description="`创建 <code>Earth</code> 实例并添加高德瓦片底图。点击「销毁地图」调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>destroy</a></code> 释放所有资源。`"
+            :description="`创建 <code>Earth</code> 实例并添加由运行时配置提供的 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>createXyzLayer</a></code> 底图。点击「销毁地图」调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>destroy</a></code> 释放所有资源。`"
             :source="earthCreateSource"
           >
             <template #preview>
@@ -141,7 +141,7 @@ const methodRows = [
         <div id="demo-layers">
           <ExampleBlock
             title="管理多个底图"
-            :description="`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addLayer</a></code> 为每个已添加底图返回 UUID 句柄。示例先通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>createOsmLayer</a></code> 添加矢量底图，再通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>createXyzLayer</a></code> 添加卫星底图；使用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeLayer</a></code> 和对应句柄独立移除。卫星图在本示例中设为 65% 透明度，仅为直观展示图层叠加和移除效果。`"
+            :description="`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addLayer</a></code> 为每个已添加底图返回 UUID 句柄。示例通过运行时配置的 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>createXyzLayer</a></code> 分别添加矢量与卫星底图，再使用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeLayer</a></code> 和对应句柄独立移除。卫星图在本示例中设为 65% 透明度，仅为直观展示图层叠加和移除效果。`"
             :source="baseLayerHandleSource"
           >
             <template #preview>
@@ -184,7 +184,7 @@ const methodRows = [
       <section id="tips" class="doc-prose">
         <h2 class="doc-h2">注意事项</h2>
         <ul class="doc-list">
-          <li>默认 OSM 瓦片源（<code>tile.openstreetmap.org</code>）在国内可能无法访问，建议使用国内瓦片服务或自建瓦片源。</li>
+          <li>文档站构建完成后，可直接编辑站点根目录的 <code>/map-sources.json</code> 来替换全部示例的矢量与卫星 XYZ 服务；地址模板必须包含 <code>{z}</code>、<code>{x}</code> 与 <code>{y}</code>。配置无法读取或不合法时，示例会回退到内置默认服务。</li>
           <li>保存 <code class="code-fn"><a href="#api-methods">addLayer</a></code> 返回的 UUID，便于在多个底图共存时调用 <code class="code-fn"><a href="#api-methods">removeLayer</a></code> 精确移除。</li>
           <li>组件卸载时务必调用 <code class="code-fn"><a href="#api-methods">destroy</a></code>，否则残留的地图 DOM 和事件监听可能导致内存泄漏。</li>
           <li>多地图场景下，每个 <code>Earth</code> 实例需绑定不同的 DOM 容器 id。</li>

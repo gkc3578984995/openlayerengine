@@ -12,3 +12,7 @@
 ## 示例要求
 
 示例说明中的 API 名称应链接到其对应文档；运行示例与展示源码必须引用同一份 Vue 示例组件，避免文档代码与实际行为漂移。
+
+## 运行时地图源
+
+所有含底图的运行示例必须通过 `website/src/config/mapSources.ts` 的 `createConfiguredLayer` 创建图层，禁止在 `website/src/examples` 中直接写入瓦片服务 URL。部署人员通过构建产物根目录的 `map-sources.json` 替换矢量或卫星 XYZ 地址；新增配置字段、底图示例或地图源行为时，必须同步更新该 JSON 示例和“地图创建与销毁”页面说明。默认配置、示例和文档不得包含私有 token、账号或内网地址。

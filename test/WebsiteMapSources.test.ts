@@ -54,4 +54,15 @@ describe('website runtime map sources', () => {
 
     expect(contents.join('\n')).not.toMatch(/https:\/\/(tile\.openstreetmap\.org|server\.arcgisonline\.com|webrd\d+\.is\.autonavi\.com)/);
   });
+
+  it('documents deployment-time map-source configuration and contributor rules', async () => {
+    const [earthCreatePage, websiteRules] = await Promise.all([
+      readFile('website/src/views/EarthCreateView.vue', 'utf8'),
+      readFile('website/AGENTS.md', 'utf8')
+    ]);
+
+    expect(earthCreatePage).toContain('/map-sources.json');
+    expect(websiteRules).toContain('map-sources.json');
+    expect(websiteRules).toContain('createConfiguredLayer');
+  });
 });
