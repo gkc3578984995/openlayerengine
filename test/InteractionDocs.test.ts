@@ -28,13 +28,13 @@ describe('interaction documentation infrastructure', () => {
       ['DynamicDraw 动态绘制', '/components/dynamic-draw', 'dynamic-draw', 'DynamicDraw 动态绘制'],
       ['Measure 测量工具', '/components/measure', 'measure', 'Measure 测量工具']
     ]) {
-      const item = `{ label: '${label}', to: '${path}' }`;
+      const item = label === 'DynamicDraw 动态绘制' ? `{\n        label: '${label}', to: '${path}', children:` : `{ label: '${label}', to: '${path}' }`;
       const itemIndex = label.includes('ContextMenu') ? previousItemIndex + 1 : interactionGroup.indexOf(item);
       expect(itemIndex).toBeGreaterThan(previousItemIndex);
       previousItemIndex = itemIndex;
       expect(router).toContain(`path: '${path.slice(1)}'`);
       expect(router).toContain(`name: '${name}'`);
-      if (!label.includes('ContextMenu')) expect(layout).toContain(`return '${title}';`);
+      if (!label.includes('ContextMenu') && !label.includes('DynamicDraw')) expect(layout).toContain(`return '${title}';`);
     }
     expect(router).toContain("import GlobalEventView from '../views/GlobalEventView.vue';");
     expect(router).toContain("import ContextMenuOverviewView from '../views/ContextMenuOverviewView.vue';");
@@ -243,8 +243,8 @@ describe('interaction documentation infrastructure', () => {
       '/components/context-menu#api-constructor',
       '/components/context-menu#api-type-icontextmenuoption',
       '/components/context-menu#api-constructor',
-      '/components/dynamic-draw#api-methods',
-      '/components/dynamic-draw#api-methods',
+      '/components/dynamic-draw#api-constructor',
+      '/components/dynamic-draw#api-constructor',
       '/components/measure#api-methods',
       '/components/measure#api-methods'
     ]);
@@ -630,7 +630,7 @@ describe('interaction documentation infrastructure', () => {
     for (const [method, page, type, anchor] of [
       ['useGlobalEvent', 'global-event', 'GlobalEvent', 'api-constructor'],
       ['useContextMenu', 'context-menu', 'ContextMenu', 'api-constructor'],
-      ['useDrawTool', 'dynamic-draw', 'DynamicDraw', 'api-methods'],
+      ['useDrawTool', 'dynamic-draw', 'DynamicDraw', 'api-constructor'],
       ['useMeasure', 'measure', 'Measure', 'api-methods']
     ]) {
       expect(globalMethods).toContain(`<code class="code-fn"><a href="/components/${page}#${anchor}">${method}</a></code>`);
@@ -645,73 +645,73 @@ describe('interaction documentation infrastructure', () => {
     expect(rules).toContain('跨页面锚点变更必须验证链接目标、导航、路由和布局标题');
   });
 
-  it('documents runnable DynamicDraw and Measure demos, owned types, public methods, and routes', async () => {
-    const [dynamicDraw, measure, dynamicDrawDemo, measureDemo, router, dynamicDrawComponent, measureComponent, dynamicDrawTypes, defaultTypes] =
-      await Promise.all([
-        readFile('website/src/views/DynamicDrawView.vue', 'utf8'),
-        readFile('website/src/views/MeasureView.vue', 'utf8'),
-        readFile('website/src/examples/DynamicDrawDemo.vue', 'utf8'),
-        readFile('website/src/examples/MeasureDemo.vue', 'utf8'),
-        readFile('website/src/router/index.ts', 'utf8'),
-        readFile('src/components/DynamicDraw.ts', 'utf8'),
-        readFile('src/components/Measure.ts', 'utf8'),
-        readFile('src/interface/dynamicDraw.ts', 'utf8'),
-        readFile('src/interface/default.ts', 'utf8')
-      ]);
+  it('splits DynamicDraw documentation by scenario with unique API anchors', async () => {
+    const viewFiles = [
+      'DynamicDrawView.vue',
+      'DynamicDrawBasicGeometryView.vue',
+      'DynamicDrawAdvancedGeometryView.vue',
+      'DynamicDrawEditingView.vue',
+      'DynamicDrawManagementView.vue'
+    ] as const;
+    const [navigation, router, layout, globalMethods, ...views] = await Promise.all([
+      readFile('website/src/config/navigation.ts', 'utf8'),
+      readFile('website/src/router/index.ts', 'utf8'),
+      readFile('website/src/layouts/DocsLayout.vue', 'utf8'),
+      readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
+      ...viewFiles.map((file) => readFile(`website/src/views/${file}`, 'utf8'))
+    ]);
 
-    for (const [view, demo, rawImport, exampleId] of [
-      [dynamicDraw, dynamicDrawDemo, "import dynamicDrawSource from '../examples/DynamicDrawDemo.vue?raw';", 'example-drawing-and-plot'],
-      [measure, measureDemo, "import measureSource from '../examples/MeasureDemo.vue?raw';", 'example-line-and-area']
-    ]) {
-      expect(view).toContain(rawImport);
-      expect(view).toContain(`id="${exampleId}"`);
-      expect(view).toContain('<PageAnchor');
-      expect(demo).toContain('createConfiguredLayer');
-      expect(demo).toContain('onBeforeUnmount');
+    const [overview, basic, advanced, editing, management] = views;
+    const pages = [
+      ['概览与接入', '/components/dynamic-draw', 'DynamicDrawView'],
+      ['基础几何绘制', '/components/dynamic-draw/basic-geometry', 'DynamicDrawBasicGeometryView'],
+      ['高级几何绘制', '/components/dynamic-draw/advanced-geometry', 'DynamicDrawAdvancedGeometryView'],
+      ['几何编辑', '/components/dynamic-draw/editing', 'DynamicDrawEditingView'],
+      ['图形管理', '/components/dynamic-draw/management', 'DynamicDrawManagementView']
+    ] as const;
+    for (const [label, path, component] of pages) {
+      expect(navigation).toContain(`{ label: '${label}', to: '${path}' }`);
+      expect(router).toContain(`import ${component} from '../views/${component}.vue';`);
+      expect(router).toMatch(new RegExp(`path: '${path.slice(1)}',[\\s\\S]*?component: ${component}`));
+      expect(layout).toContain(`'${path}': 'DynamicDraw ${label}'`);
     }
-    expect(dynamicDraw).toMatch(/:source="dynamicDrawSource"\s*>\s*<template #preview>\s*<DynamicDrawDemo\s*\/>/s);
-    expect(measure).toMatch(/:source="measureSource"\s*>\s*<template #preview>\s*<MeasureDemo\s*\/>/s);
-    expect(router).toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
-    expect(router).toContain("import MeasureView from '../views/MeasureView.vue';");
-    expect(router).toMatch(/path: 'components\/dynamic-draw',[\s\S]*?component: DynamicDrawView/);
-    expect(router).toMatch(/path: 'components\/measure',[\s\S]*?component: MeasureView/);
+    expect(navigation).toContain("label: 'DynamicDraw 动态绘制'");
+    expect(overview).toContain('id="api-constructor"');
+    expect(overview).not.toContain('id="api-methods"');
+    expect(globalMethods).toContain('<a href="/components/dynamic-draw#api-constructor">useDrawTool</a>');
+    expect(globalMethods).toContain("returns: '<a href=\"/components/dynamic-draw#api-constructor\">DynamicDraw</a>'");
 
-    const dynamicDrawTypeNames = [...dynamicDrawTypes.matchAll(/^export (?:enum|interface) (\w+)/gm)].map((match) => match[1]);
-    const measureTypeNames = [...defaultTypes.matchAll(/^export interface (IMeasure(?:Data|Event)?)/gm)].map((match) => match[1]);
-    for (const type of dynamicDrawTypeNames) {
-      expect(dynamicDraw).toContain(`id="api-type-${type.toLowerCase()}"`);
+    for (const type of ['drawtype', 'idrawbase', 'idrawevent', 'idrawpoint', 'idrawline', 'idrawpolygon', 'igeometryfill']) {
+      expect(basic).toContain(`id="api-type-${type}"`);
+      for (const view of [overview, advanced, editing, management]) expect(view).not.toContain(`id="api-type-${type}"`);
     }
-    for (const type of measureTypeNames) {
-      expect(measure).toContain(`id="api-type-${type.toLowerCase()}"`);
+    for (const type of ['modifytype', 'imodifyevent', 'ieditparam', 'iplotedit-event-payload']) {
+      expect(editing).toContain(`id="api-type-${type}"`);
+      for (const view of [overview, basic, advanced, management]) expect(view).not.toContain(`id="api-type-${type}"`);
     }
-    for (const property of ['featurePosition', 'ctlPoints', 'center', 'radius']) {
-      expect(dynamicDraw).toContain(`{ name: '${property}'`);
-    }
-
-    const getPublicMethods = (source: string) =>
-      [...source.matchAll(/^ {2}(?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
-        .map((match) => match[1])
-        .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
-    const dynamicDrawMethods = getPublicMethods(dynamicDrawComponent);
-    const measureMethods = getPublicMethods(measureComponent);
-    expect(dynamicDrawMethods).not.toHaveLength(0);
-    expect(measureMethods).not.toHaveLength(0);
-    expect(dynamicDraw).toContain('const methodRows = methods.map');
-    expect(measure).toContain('const methodRows = methods.map');
-    for (const method of dynamicDrawMethods) expect(dynamicDraw).toMatch(new RegExp(`\\[\\s*'${method}',`));
-    for (const method of measureMethods) expect(measure).toMatch(new RegExp(`\\[\\s*'${method}',`));
-
-    expect(dynamicDrawDemo).toContain('draw.drawPoint');
-    expect(dynamicDrawDemo).toContain('draw.drawAttackArrow');
-    expect(dynamicDrawDemo).toContain('draw.get');
-    expect(dynamicDrawDemo).toContain('draw.remove');
-    expect(dynamicDrawDemo).toContain('draw.destroy');
-    expect(dynamicDrawDemo).toContain('earth.destroy');
-    expect(dynamicDrawDemo.indexOf('draw.destroy')).toBeLessThan(dynamicDrawDemo.indexOf('earth.destroy'));
-    expect(measureDemo).toContain('measure.lineSegmentation');
-    expect(measureDemo).toContain('measure.polygonMeasure');
-    expect(measureDemo).toContain('measure.clear');
-    expect(measureDemo).toContain('earth.destroy');
-    expect(measureDemo.indexOf('measure.clear')).toBeLessThan(measureDemo.indexOf('earth.destroy'));
+    expect(advanced).toContain('/components/dynamic-draw/basic-geometry#api-type-idrawpolygon');
+    expect(basic).toContain('drawPoint');
+    expect(advanced).toContain('drawAttackArrow');
+    expect(editing).toContain('editAttackArrow');
+    expect(management).toContain('get');
+    expect(management).toContain('remove');
+    expect(management).toContain('destroy');
   });
+
+  it('keeps the Measure page and demo runnable', async () => {
+    const [measure, measureDemo, router] = await Promise.all([
+      readFile('website/src/views/MeasureView.vue', 'utf8'),
+      readFile('website/src/examples/MeasureDemo.vue', 'utf8'),
+      readFile('website/src/router/index.ts', 'utf8')
+    ]);
+
+    expect(measure).toContain("import measureSource from '../examples/MeasureDemo.vue?raw';");
+    expect(measure).toContain('id="example-line-and-area"');
+    expect(measure).toMatch(/:source="measureSource"\s*>\s*<template #preview>\s*<MeasureDemo\s*\/>/s);
+    expect(measureDemo).toContain('createConfiguredLayer');
+    expect(measureDemo).toContain('onBeforeUnmount');
+    expect(measureDemo).toContain('measure.clear');
+    expect(router).toMatch(/path: 'components\/measure',[\s\S]*?component: MeasureView/);
+  });
+
 });

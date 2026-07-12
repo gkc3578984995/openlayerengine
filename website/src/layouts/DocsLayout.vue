@@ -39,9 +39,14 @@ const pageTitle = computed(() => {
     '/components/context-menu/cleanup': 'ContextMenu 菜单移除与清理'
   };
   if (contextMenuTitles[route.path]) return contextMenuTitles[route.path];
-  if (route.path === '/components/dynamic-draw') {
-    return 'DynamicDraw 动态绘制';
-  }
+  const dynamicDrawTitles: Record<string, string> = {
+    '/components/dynamic-draw': 'DynamicDraw 概览与接入',
+    '/components/dynamic-draw/basic-geometry': 'DynamicDraw 基础几何绘制',
+    '/components/dynamic-draw/advanced-geometry': 'DynamicDraw 高级几何绘制',
+    '/components/dynamic-draw/editing': 'DynamicDraw 几何编辑',
+    '/components/dynamic-draw/management': 'DynamicDraw 图形管理'
+  };
+  if (dynamicDrawTitles[route.path]) return dynamicDrawTitles[route.path];
   if (route.path === '/components/measure') {
     return 'Measure 测量工具';
   }

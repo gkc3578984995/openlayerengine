@@ -55,7 +55,15 @@ export const sideGroups: SideGroup[] = [
           { label: '菜单移除与清理', to: '/components/context-menu/cleanup' }
         ]
       },
-      { label: 'DynamicDraw 动态绘制', to: '/components/dynamic-draw' },
+      {
+        label: 'DynamicDraw 动态绘制', to: '/components/dynamic-draw', children: [
+          { label: '概览与接入', to: '/components/dynamic-draw' },
+          { label: '基础几何绘制', to: '/components/dynamic-draw/basic-geometry' },
+          { label: '高级几何绘制', to: '/components/dynamic-draw/advanced-geometry' },
+          { label: '几何编辑', to: '/components/dynamic-draw/editing' },
+          { label: '图形管理', to: '/components/dynamic-draw/management' }
+        ]
+      },
       { label: 'Measure 测量工具', to: '/components/measure' }
     ]
   }
