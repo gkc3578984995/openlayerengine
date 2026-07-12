@@ -5,6 +5,7 @@
     "./src"
   ],
   "out": "./website/public/api",
+  "json": "./.cache/typedoc.json",
   "plugin": [
     "typedoc-plugin-markdown"
   ]

@@ -24,8 +24,10 @@
     "copy": "copyfiles -u 1 src/**/*.glsl earth-engine",
     "tsc": "npm run clean && tsc && npm run copy",
     "doc": "typedoc --options ./typedoc.json",
-    "docs:dev": "npm run build && npm run dev --workspace=ol-doc",
-    "docs:build": "npm run build && npm run doc && npm run build --workspace=ol-doc",
+    "api:sync": "npm run doc && node scripts/docs/api-docs.mjs",
+    "api:check": "node scripts/docs/check-api-coverage.mjs",
+    "docs:dev": "npm run build && npm run api:sync && npm run dev --workspace=ol-doc",
+    "docs:build": "npm run build && npm run api:sync && npm run api:check && npm run build --workspace=ol-doc",
     "pack:offline": "npm pack",
     "test": "vitest run",
     "test:watch": "vitest"

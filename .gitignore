@@ -8,6 +8,8 @@ dist-ssr
 *.log
 /docs/
 /website/public/api/
+/.cache/
+/website/src/generated/
 /ol-docs/
 *.tgz
 .claude/

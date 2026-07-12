@@ -10,6 +10,7 @@ import pointBasicSource from '../examples/PointLayerBasicDemo.vue?raw';
 import pointStyleSource from '../examples/PointLayerStyleDemo.vue?raw';
 import pointFlashSource from '../examples/PointLayerFlashDemo.vue?raw';
 import pointUpdateSource from '../examples/PointLayerUpdateDemo.vue?raw';
+import { getPointLayerMethodRows } from '../docs/pointLayerApi';
 
 interface AnchorItem {
   id: string;
@@ -77,7 +78,7 @@ const constructorRows = [
   { name: 'options.wrapX', desc: '是否允许要素在 180° 经线换行显示', type: 'boolean', options: 'true / false', default: '—' }
 ];
 
-const methodRows = [
+const manualMethodRows = [
   {
     name: 'add(param)',
     desc: '新增点要素',
@@ -115,6 +116,8 @@ const methodRows = [
     returns: 'void'
   }
 ];
+
+const methodRows = getPointLayerMethodRows(manualMethodRows);
 
 const pointParamRows = [
   { name: 'id', desc: '点唯一标识', type: 'string', options: '—', default: '—' },
