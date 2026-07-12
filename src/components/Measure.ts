@@ -509,8 +509,8 @@ export default class Measure {
       this.map.removeInteraction(this.draw);
       this.draw = undefined;
     }
-    this.map.removeLayer(this.layer);
-    this.pointLayer.destroy();
+    this.source.clear();
+    this.pointLayer.remove();
     this.measureData = { data: [] };
     this.segmentStyles = [];
   }

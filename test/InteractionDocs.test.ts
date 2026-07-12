@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('interaction documentation infrastructure', () => {
-  it('adds the four interaction routes, navigation entries, and layout titles without importing future pages', async () => {
+  it('adds the four interaction routes, navigation entries, and layout titles', async () => {
     const [navigation, router, layout] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
@@ -34,23 +34,19 @@ describe('interaction documentation infrastructure', () => {
     }
     expect(router).toContain("import GlobalEventView from '../views/GlobalEventView.vue';");
     expect(router).toContain("import ContextMenuView from '../views/ContextMenuView.vue';");
-    expect(router).not.toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
-    expect(router).not.toContain("import MeasureView from '../views/MeasureView.vue';");
+    expect(router).toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
+    expect(router).toContain("import MeasureView from '../views/MeasureView.vue';");
   });
 
   it('provides reachable page anchors for every Earth cross-page interaction link', async () => {
-    const [globalMethods, router, globalEvent, contextMenu] = await Promise.all([
+    const [globalMethods, router, globalEvent, contextMenu, dynamicDraw, measure] = await Promise.all([
       readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
       readFile('website/src/views/GlobalEventView.vue', 'utf8'),
-      readFile('website/src/views/ContextMenuView.vue', 'utf8')
+      readFile('website/src/views/ContextMenuView.vue', 'utf8'),
+      readFile('website/src/views/DynamicDrawView.vue', 'utf8'),
+      readFile('website/src/views/MeasureView.vue', 'utf8')
     ]);
-
-    const placeholders = {
-      globalEvent: 'const InteractionPlaceholderView = { template: \'<section><h2 id="api-methods">API 方法</h2></section>\' };',
-      contextMenu:
-        'const ContextMenuPlaceholderView = { template: \'<section><h2 id="api-methods">API 方法</h2><h3 id="api-type-icontextmenuoption">IContextMenuOption</h3></section>\' };'
-    };
     expect(router).not.toContain('const ContextMenuPlaceholderView');
     expect(globalEvent).toContain('id="api-methods"');
     expect(contextMenu).toContain('id="api-methods"');
@@ -59,8 +55,8 @@ describe('interaction documentation infrastructure', () => {
     const targetOwner: Record<string, string> = {
       '/components/global-event': globalEvent,
       '/components/context-menu': contextMenu,
-      '/components/dynamic-draw': placeholders.globalEvent,
-      '/components/measure': placeholders.globalEvent
+      '/components/dynamic-draw': dynamicDraw,
+      '/components/measure': measure
     };
     const hrefs = [...globalMethods.matchAll(/href="(\/components\/(?:global-event|context-menu|dynamic-draw|measure)#[^"]+)"/g)].map((match) => match[1]);
     expect(hrefs).toEqual([
@@ -239,5 +235,75 @@ describe('interaction documentation infrastructure', () => {
     expect(rules).toContain('OpenLayers 外部类型既不是库类型定义，也不是根导出');
     expect(rules).toContain('工具示例覆盖核心流程及清理');
     expect(rules).toContain('跨页面锚点变更必须验证链接目标、导航、路由和布局标题');
+  });
+
+  it('documents runnable DynamicDraw and Measure demos, owned types, public methods, and routes', async () => {
+    const [dynamicDraw, measure, dynamicDrawDemo, measureDemo, router, dynamicDrawComponent, measureComponent, dynamicDrawTypes, defaultTypes] =
+      await Promise.all([
+        readFile('website/src/views/DynamicDrawView.vue', 'utf8'),
+        readFile('website/src/views/MeasureView.vue', 'utf8'),
+        readFile('website/src/examples/DynamicDrawDemo.vue', 'utf8'),
+        readFile('website/src/examples/MeasureDemo.vue', 'utf8'),
+        readFile('website/src/router/index.ts', 'utf8'),
+        readFile('src/components/DynamicDraw.ts', 'utf8'),
+        readFile('src/components/Measure.ts', 'utf8'),
+        readFile('src/interface/dynamicDraw.ts', 'utf8'),
+        readFile('src/interface/default.ts', 'utf8')
+      ]);
+
+    for (const [view, demo, rawImport, exampleId] of [
+      [dynamicDraw, dynamicDrawDemo, "import dynamicDrawSource from '../examples/DynamicDrawDemo.vue?raw';", 'example-drawing-and-plot'],
+      [measure, measureDemo, "import measureSource from '../examples/MeasureDemo.vue?raw';", 'example-line-and-area']
+    ]) {
+      expect(view).toContain(rawImport);
+      expect(view).toContain(`id="${exampleId}"`);
+      expect(view).toContain('<PageAnchor');
+      expect(demo).toContain('createConfiguredLayer');
+      expect(demo).toContain('onBeforeUnmount');
+    }
+    expect(dynamicDraw).toMatch(/:source="dynamicDrawSource"\s*>\s*<template #preview>\s*<DynamicDrawDemo\s*\/>/s);
+    expect(measure).toMatch(/:source="measureSource"\s*>\s*<template #preview>\s*<MeasureDemo\s*\/>/s);
+    expect(router).toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
+    expect(router).toContain("import MeasureView from '../views/MeasureView.vue';");
+    expect(router).toMatch(/path: 'components\/dynamic-draw',[\s\S]*?component: DynamicDrawView/);
+    expect(router).toMatch(/path: 'components\/measure',[\s\S]*?component: MeasureView/);
+
+    const dynamicDrawTypeNames = [...dynamicDrawTypes.matchAll(/^export (?:enum|interface) (\w+)/gm)].map((match) => match[1]);
+    const measureTypeNames = [...defaultTypes.matchAll(/^export interface (IMeasure(?:Data|Event)?)/gm)].map((match) => match[1]);
+    for (const type of dynamicDrawTypeNames) {
+      expect(dynamicDraw).toContain(`id="api-type-${type.toLowerCase()}"`);
+    }
+    for (const type of measureTypeNames) {
+      expect(measure).toContain(`id="api-type-${type.toLowerCase()}"`);
+    }
+    for (const property of ['featurePosition', 'ctlPoints', 'center', 'radius']) {
+      expect(dynamicDraw).toContain(`{ name: '${property}'`);
+    }
+
+    const getPublicMethods = (source: string) =>
+      [...source.matchAll(/^  (?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
+        .map((match) => match[1])
+        .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
+    const dynamicDrawMethods = getPublicMethods(dynamicDrawComponent);
+    const measureMethods = getPublicMethods(measureComponent);
+    expect(dynamicDrawMethods).not.toHaveLength(0);
+    expect(measureMethods).not.toHaveLength(0);
+    expect(dynamicDraw).toContain('const methodRows = methods.map');
+    expect(measure).toContain('const methodRows = methods.map');
+    for (const method of dynamicDrawMethods) expect(dynamicDraw).toMatch(new RegExp(`\\[\\s*'${method}',`));
+    for (const method of measureMethods) expect(measure).toMatch(new RegExp(`\\[\\s*'${method}',`));
+
+    expect(dynamicDrawDemo).toContain('draw.drawPoint');
+    expect(dynamicDrawDemo).toContain('draw.drawAttackArrow');
+    expect(dynamicDrawDemo).toContain('draw.get');
+    expect(dynamicDrawDemo).toContain('draw.remove');
+    expect(dynamicDrawDemo).toContain('draw.destroy');
+    expect(dynamicDrawDemo).toContain('earth.destroy');
+    expect(dynamicDrawDemo.indexOf('draw.destroy')).toBeLessThan(dynamicDrawDemo.indexOf('earth.destroy'));
+    expect(measureDemo).toContain('measure.lineSegmentation');
+    expect(measureDemo).toContain('measure.polygonMeasure');
+    expect(measureDemo).toContain('measure.clear');
+    expect(measureDemo).toContain('earth.destroy');
+    expect(measureDemo.indexOf('measure.clear')).toBeLessThan(measureDemo.indexOf('earth.destroy'));
   });
 });

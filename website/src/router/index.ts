@@ -8,8 +8,8 @@ import EarthCreateView from '../views/EarthCreateView.vue';
 import GlobalMethodsView from '../views/GlobalMethodsView.vue';
 import GlobalEventView from '../views/GlobalEventView.vue';
 import ContextMenuView from '../views/ContextMenuView.vue';
-
-const InteractionPlaceholderView = { template: '<section><h2 id="api-methods">API 方法</h2></section>' };
+import DynamicDrawView from '../views/DynamicDrawView.vue';
+import MeasureView from '../views/MeasureView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -61,12 +61,12 @@ const router = createRouter({
         {
           path: 'components/dynamic-draw',
           name: 'dynamic-draw',
-          component: InteractionPlaceholderView
+          component: DynamicDrawView
         },
         {
           path: 'components/measure',
           name: 'measure',
-          component: InteractionPlaceholderView
+          component: MeasureView
         }
       ]
     }
