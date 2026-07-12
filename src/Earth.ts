@@ -4,7 +4,7 @@ import { defaults } from 'ol/control/defaults';
 import { Coordinate } from 'ol/coordinate';
 import BaseLayer from 'ol/layer/Base';
 import TileLayer from 'ol/layer/Tile';
-import Graticule from 'ol/layer/Graticule';
+import Graticule, { Options as GraticuleOptions } from 'ol/layer/Graticule';
 import { fromLonLat } from 'ol/proj';
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
@@ -18,7 +18,7 @@ import { Geometry } from 'ol/geom';
 import { Layer } from 'ol/layer';
 import { Source } from 'ol/source';
 import LayerRenderer from 'ol/renderer/Layer';
-import ScaleLine from 'ol/control/ScaleLine';
+import ScaleLine, { Options as ScaleLineOptions } from 'ol/control/ScaleLine';
 import { Camera, Controls } from './modules';
 import Utils from './common/Utils';
 
@@ -509,9 +509,11 @@ export default class Earth {
   }
   /**
    * 启用网格线
+   * @param options OpenLayers Graticule 配置；重复调用时会销毁旧网格并按新配置重建
+   * @returns 新创建的网格图层
    */
-  enableGraticule() {
-    this.controls.enableGraticule();
+  enableGraticule(options?: GraticuleOptions): Graticule {
+    return this.controls.enableGraticule(options);
   }
   /**
    * 禁用网格线
@@ -521,9 +523,11 @@ export default class Earth {
   }
   /**
    * 启用比例尺
+   * @param options OpenLayers ScaleLine 配置；重复调用时会销毁旧比例尺并按新配置重建
+   * @returns 新创建的比例尺控件
    */
-  enableScaleLine() {
-    this.controls.enableScaleLine();
+  enableScaleLine(options?: ScaleLineOptions): ScaleLine {
+    return this.controls.enableScaleLine(options);
   }
   /**
    * 禁用比例尺

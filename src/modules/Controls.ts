@@ -1,6 +1,6 @@
 import Map from 'ol/Map';
-import Graticule from 'ol/layer/Graticule';
-import ScaleLine from 'ol/control/ScaleLine';
+import Graticule, { Options as GraticuleOptions } from 'ol/layer/Graticule';
+import ScaleLine, { Options as ScaleLineOptions } from 'ol/control/ScaleLine';
 import { Stroke } from 'ol/style';
 
 /**
@@ -19,8 +19,11 @@ export default class Controls {
 
   /**
    * 启用网格线
+   * @param options OpenLayers Graticule 配置；重复调用时会销毁旧网格并按新配置重建
+   * @returns 新创建的网格图层
    */
-  enableGraticule(): void {
+  enableGraticule(options: GraticuleOptions = {}): Graticule {
+    this.disableGraticule();
     const graticule = new Graticule({
       strokeStyle: new Stroke({
         color: 'rgba(0, 0, 0, 0.3)',
@@ -30,13 +33,16 @@ export default class Controls {
       wrapX: true,
       lonLabelPosition: 0.985,
       latLabelPosition: 0.985,
+      ...options,
       properties: {
+        ...options.properties,
         layerType: 'graticule'
       }
     });
-    graticule.setZIndex(9999);
+    graticule.setZIndex(options.zIndex ?? 9999);
     this.graticule = graticule;
     this.map.addLayer(graticule);
+    return graticule;
   }
 
   /**
@@ -51,15 +57,19 @@ export default class Controls {
 
   /**
    * 启用比例尺
+   * @param options OpenLayers ScaleLine 配置；重复调用时会销毁旧比例尺并按新配置重建
+   * @returns 新创建的比例尺控件
    */
-  enableScaleLine(): void {
-    if (this.scaleLine) return;
+  enableScaleLine(options: ScaleLineOptions = {}): ScaleLine {
+    this.disableScaleLine();
     this.scaleLine = new ScaleLine({
       bar: true,
       text: true,
-      minWidth: 100
+      minWidth: 100,
+      ...options
     });
     this.map.addControl(this.scaleLine);
+    return this.scaleLine;
   }
 
   /**
