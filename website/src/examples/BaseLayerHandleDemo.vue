@@ -10,25 +10,25 @@ const earthRef = shallowRef<Earth | null>(null);
 const vectorLayerId = ref<string | null>(null);
 const satelliteLayerId = ref<string | null>(null);
 
-const createAmapLayer = (earth: Earth, style: 6 | 8, opacity = 1) => {
+const createSatelliteLayer = (earth: Earth) => {
   const layer = earth.createXyzLayer(([z, x, y]) => {
-    return `https://webrd0${(x % 4) + 1}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=${style}&x=${x}&y=${y}&z=${z}`;
+    return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
   });
-  layer.setOpacity(opacity);
+  layer.setOpacity(0.65);
   return layer;
 };
 
 const createMap = () => {
   if (earthRef.value) return;
   const earth = new Earth({ center: BEIJING, zoom: 5 }, { target: mapId });
-  vectorLayerId.value = earth.addLayer(createAmapLayer(earth, 8));
+  vectorLayerId.value = earth.addLayer(earth.createOsmLayer());
   earthRef.value = earth;
 };
 
 const addSatelliteLayer = () => {
   const earth = earthRef.value;
   if (!earth || satelliteLayerId.value) return;
-  satelliteLayerId.value = earth.addLayer(createAmapLayer(earth, 6, 0.65));
+  satelliteLayerId.value = earth.addLayer(createSatelliteLayer(earth));
 };
 
 const removeVectorLayer = () => {
