@@ -7,7 +7,7 @@ describe('website API presentation', () => {
 
     expect(apiTable).toContain("presentation?: 'property' | 'method';");
     expect(apiTable).toContain(':class="col.presentation ? `api-table__${col.presentation}` : undefined"');
-    expect(apiTable).toContain("v-html=\"row[col.prop] || '—'\"");
+    expect(apiTable).toContain('v-html="row[col.prop] || \'—\'"');
   });
 
   it('marks all API name columns and constructor sections with semantic presentation', async () => {
@@ -31,10 +31,7 @@ describe('website API presentation', () => {
   });
 
   it('defines the shared visual hierarchy and documents it for contributors', async () => {
-    const [styles, rules] = await Promise.all([
-      readFile('website/src/assets/styles/index.scss', 'utf8'),
-      readFile('website/AGENTS.md', 'utf8')
-    ]);
+    const [styles, rules] = await Promise.all([readFile('website/src/assets/styles/index.scss', 'utf8'), readFile('website/AGENTS.md', 'utf8')]);
 
     expect(styles).toContain('.api-constructor {');
     expect(styles).toContain('.api-constructor__signature code {');
@@ -67,10 +64,7 @@ describe('website API presentation', () => {
   });
 
   it('uses only the parent menu name in the PointLayer eyebrow', async () => {
-    const [pointLayer, rules] = await Promise.all([
-      readFile('website/src/views/PointLayerView.vue', 'utf8'),
-      readFile('website/AGENTS.md', 'utf8')
-    ]);
+    const [pointLayer, rules] = await Promise.all([readFile('website/src/views/PointLayerView.vue', 'utf8'), readFile('website/AGENTS.md', 'utf8')]);
 
     expect(pointLayer).toContain('<span class="doc-hero__eyebrow">基础图层</span>');
     expect(pointLayer).not.toContain('API 自动同步');
@@ -130,7 +124,7 @@ describe('website API presentation', () => {
     }
     for (const [method, path, anchor] of [
       ['useGlobalEvent', '/components/global-event', 'api-constructor'],
-      ['useContextMenu', '/components/context-menu', 'api-methods'],
+      ['useContextMenu', '/components/context-menu', 'api-constructor'],
       ['useDrawTool', '/components/dynamic-draw', 'api-methods'],
       ['useMeasure', '/components/measure', 'api-methods']
     ]) {
@@ -165,7 +159,7 @@ describe('website API presentation', () => {
     ]);
 
     expect(globalMethods).toContain('<code class="code-fn"><a href="/components/global-event#api-constructor">useGlobalEvent</a></code>');
-    expect(globalMethods).toContain('<code class="code-fn"><a href="/components/context-menu#api-methods">useContextMenu</a></code>');
+    expect(globalMethods).toContain('<code class="code-fn"><a href="/components/context-menu#api-constructor">useContextMenu</a></code>');
     expect(styles).toMatch(/\.api-table__method \.code-fn a\s*\{[^}]*color: inherit;/s);
   });
 });

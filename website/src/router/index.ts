@@ -10,7 +10,12 @@ import GlobalEventView from '../views/GlobalEventView.vue';
 import GlobalEventGlobalMouseView from '../views/GlobalEventGlobalMouseView.vue';
 import GlobalEventModuleEventsView from '../views/GlobalEventModuleEventsView.vue';
 import GlobalEventKeyboardView from '../views/GlobalEventKeyboardView.vue';
-import ContextMenuView from '../views/ContextMenuView.vue';
+import ContextMenuOverviewView from '../views/ContextMenuOverviewView.vue';
+import ContextMenuDefaultMenuView from '../views/ContextMenuDefaultMenuView.vue';
+import ContextMenuModuleMenuView from '../views/ContextMenuModuleMenuView.vue';
+import ContextMenuCascadeMenuView from '../views/ContextMenuCascadeMenuView.vue';
+import ContextMenuStateView from '../views/ContextMenuStateView.vue';
+import ContextMenuCleanupView from '../views/ContextMenuCleanupView.vue';
 import DynamicDrawView from '../views/DynamicDrawView.vue';
 import MeasureView from '../views/MeasureView.vue';
 
@@ -74,7 +79,32 @@ const router = createRouter({
         {
           path: 'components/context-menu',
           name: 'context-menu',
-          component: ContextMenuView
+          component: ContextMenuOverviewView
+        },
+        {
+          path: 'components/context-menu/default-menu',
+          name: 'context-menu-default-menu',
+          component: ContextMenuDefaultMenuView
+        },
+        {
+          path: 'components/context-menu/module-menu',
+          name: 'context-menu-module-menu',
+          component: ContextMenuModuleMenuView
+        },
+        {
+          path: 'components/context-menu/cascade-menu',
+          name: 'context-menu-cascade-menu',
+          component: ContextMenuCascadeMenuView
+        },
+        {
+          path: 'components/context-menu/menu-state',
+          name: 'context-menu-menu-state',
+          component: ContextMenuStateView
+        },
+        {
+          path: 'components/context-menu/cleanup',
+          name: 'context-menu-cleanup',
+          component: ContextMenuCleanupView
         },
         {
           path: 'components/dynamic-draw',
