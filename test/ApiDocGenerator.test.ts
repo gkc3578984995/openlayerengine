@@ -25,6 +25,11 @@ describe('extractApiModel', () => {
               signatures: [{ parameters: [{ name: 'id', flags: { isOptional: true }, type: { type: 'intrinsic', name: 'string' } }], type: { type: 'intrinsic', name: 'void' } }]
             }
           ]
+        },
+        {
+          kindString: 'Interface',
+          name: 'IPointParam',
+          children: [{ kindString: 'Property', name: 'id', type: { type: 'intrinsic', name: 'string' } }]
         }
       ]
     };
@@ -37,7 +42,8 @@ describe('extractApiModel', () => {
             remove: { params: 'id?: string', returns: 'void' }
           }
         }
-      }
+      },
+      interfaces: { IPointParam: { properties: { id: { type: 'string' } } } }
     });
   });
 });

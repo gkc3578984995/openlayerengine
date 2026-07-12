@@ -33,6 +33,7 @@ function methodSignature(method) {
 
 export function extractApiModel(document) {
   const classes = {};
+  const interfaces = {};
   for (const reflection of findReflections(document, (item) => isKind(item, 'Class', 128))) {
     const methods = {};
     for (const member of reflection.children ?? []) {
@@ -40,7 +41,14 @@ export function extractApiModel(document) {
     }
     classes[reflection.name] = { methods };
   }
-  return { classes };
+  for (const reflection of findReflections(document, (item) => isKind(item, 'Interface', 256))) {
+    const properties = {};
+    for (const member of reflection.children ?? []) {
+      if (isKind(member, 'Property', 1024)) properties[member.name] = { type: renderType(member.type) };
+    }
+    interfaces[reflection.name] = { properties };
+  }
+  return { classes, interfaces };
 }
 
 async function generate() {

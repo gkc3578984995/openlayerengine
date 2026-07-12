@@ -186,7 +186,7 @@ const labelRows = [
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">基础图层</span>
+        <span class="doc-hero__eyebrow">基础图层 · API 自动同步</span>
         <h1>PointLayer 点图层</h1>
         <p>用于快速创建、更新、闪烁和清理点要素，是构建地图标记、监测点和轻量图层交互的基础能力。</p>
       </header>
