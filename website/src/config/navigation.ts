@@ -9,25 +9,6 @@ export interface SideGroup {
   items: NavItem[];
 }
 
-export const deriveExpandedParentRoutes = (groups: SideGroup[], currentPath: string): Set<string> => {
-  const expanded = new Set<string>();
-  for (const group of groups) {
-    for (const item of group.items) {
-      if (item.children && (item.to === currentPath || item.children.some((child) => child.to === currentPath))) {
-        expanded.add(item.to);
-      }
-    }
-  }
-  return expanded;
-};
-
-export const toggleExpandedRoute = (expanded: ReadonlySet<string>, to: string): Set<string> => {
-  const next = new Set(expanded);
-  if (next.has(to)) next.delete(to);
-  else next.add(to);
-  return next;
-};
-
 export const topNavItems: NavItem[] = [
   { label: '指南', to: '/' },
   { label: '组件', to: '/components/point-layer' }

@@ -1,25 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { deriveExpandedParentRoutes, sideGroups, toggleExpandedRoute, topNavItems } from '../config/navigation';
+import { sideGroups, topNavItems } from '../config/navigation';
 import BackToTop from '../components/BackToTop.vue';
 
 const route = useRoute();
 
 const isHome = computed(() => route.path === '/');
-const expandedItems = ref(new Set<string>());
-
-watch(
-  () => route.path,
-  (path) => {
-    expandedItems.value = deriveExpandedParentRoutes(sideGroups, path);
-  },
-  { immediate: true }
-);
-
-const toggleItem = (to: string) => {
-  expandedItems.value = toggleExpandedRoute(expandedItems.value, to);
-};
 
 const isParentActive = (item: { to: string }) => route.path === item.to || route.path.startsWith(`${item.to}/`);
 
@@ -95,22 +82,10 @@ const pageTitle = computed(() => {
           <div v-for="group in sideGroups" :key="group.title" class="docs-sidebar__group">
             <p class="docs-sidebar__title">{{ group.title }}</p>
             <div v-for="item in group.items" :key="item.to + item.label" class="docs-sidebar__item">
-              <div class="docs-sidebar__item-row">
-                <RouterLink class="docs-sidebar__link" :class="{ 'is-active': isParentActive(item) }" :to="item.to">
-                  {{ item.label }}
-                </RouterLink>
-                <button
-                  v-if="item.children"
-                  class="docs-sidebar__toggle"
-                  type="button"
-                  :aria-expanded="expandedItems.has(item.to)"
-                  :aria-label="`${expandedItems.has(item.to) ? '收起' : '展开'}${item.label}`"
-                  @click="toggleItem(item.to)"
-                >
-                  <span aria-hidden="true">{{ expandedItems.has(item.to) ? '−' : '+' }}</span>
-                </button>
-              </div>
-              <div v-if="item.children && expandedItems.has(item.to)" class="docs-sidebar__children">
+              <RouterLink class="docs-sidebar__link" :class="{ 'is-active': isParentActive(item) }" :to="item.to">
+                {{ item.label }}
+              </RouterLink>
+              <div v-if="item.children" class="docs-sidebar__children">
                 <RouterLink
                   v-for="child in item.children"
                   :key="child.to + child.label"

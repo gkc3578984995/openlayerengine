@@ -4,11 +4,11 @@
 
 `GlobalEvent` 当前在单页中维护构造说明、3 个类型和 58 个公开方法。继续在同一页面补充示例会使页面过长，也会让事件注册、底层监听控制、状态检查和资源清理等不同语义混在一起。
 
-本次将 `GlobalEvent 全局事件` 调整为左侧导航中的可展开父菜单，并按用户使用场景拆分子页面。拆分只改变文档组织，不修改 `GlobalEvent` 公共 API 或运行时行为。
+本次将 `GlobalEvent 全局事件` 调整为左侧导航中的父菜单，并按用户使用场景拆分子页面。拆分只改变文档组织，不修改 `GlobalEvent` 公共 API 或运行时行为。
 
 ## 信息架构
 
-左侧“地图交互”导航中的 `GlobalEvent 全局事件` 成为可折叠父菜单。进入任意 GlobalEvent 路由时自动展开，子页面为：
+左侧“地图交互”导航中的 `GlobalEvent 全局事件` 成为父菜单，子页面始终直接显示，不提供折叠或展开控件。子页面为：
 
 1. `概览与初始化`：`/components/global-event`
 2. `全局鼠标事件`：`/components/global-event/global-mouse`
@@ -16,7 +16,7 @@
 4. `键盘事件`：`/components/global-event/keyboard`
 5. `监听控制`：`/components/global-event/listener-control`
 
-父菜单负责展开和收起；`概览与初始化` 保留现有 `/components/global-event` 地址，使外部链接和历史书签继续有效。布局顶部标题和页面眉标题根据当前子页面显示，眉标题统一使用父级菜单名称 `GlobalEvent 全局事件`。
+`概览与初始化` 保留现有 `/components/global-event` 地址，使外部链接和历史书签继续有效。布局顶部标题和页面眉标题根据当前子页面显示，眉标题统一使用父级菜单名称 `GlobalEvent 全局事件`。
 
 导航数据结构增加可选 `children`，实现为可复用的通用嵌套导航能力，不写死 GlobalEvent。父菜单及其子页面命中当前路由时均具有明确的激活状态。
 

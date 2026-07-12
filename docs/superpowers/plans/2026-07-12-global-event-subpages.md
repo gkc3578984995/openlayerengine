@@ -4,7 +4,7 @@
 
 **Goal:** Split the 58-method GlobalEvent guide into five navigable pages with four focused runnable examples while preserving the existing overview route and deep link.
 
-**Architecture:** Extend the generic sidebar model with nested children and render an accessible collapsible parent. Keep `/components/global-event` as the overview and method index, then give each public method exactly one canonical child-page table. Each behavior page owns one runnable Vue example and links shared callback types back to the overview.
+**Architecture:** Extend the generic sidebar model with nested children and always render child links without collapse controls. Keep `/components/global-event` as the overview and method index, then give each public method exactly one canonical child-page table. Each behavior page owns one runnable Vue example and links shared callback types back to the overview.
 
 **Tech Stack:** Vue 3, Vue Router, TypeScript, Element Plus, Vitest, VitePress-style custom documentation components.
 
@@ -54,7 +54,7 @@ const globalEventPages = [
 ] as const;
 ```
 
-Assert `NavItem` has `children?: NavItem[]`, the layout renders child links and toggles a parent, the active GlobalEvent route expands its parent, and every route maps to its named component.
+Assert `NavItem` has `children?: NavItem[]`, the layout always renders child links without toggle state, and every route maps to its named component.
 
 Define the exact canonical method sets:
 
@@ -110,7 +110,7 @@ export interface NavItem {
 }
 ```
 
-Change the GlobalEvent navigation item to a parent whose children are the five exact route/label pairs from Step 1. In `DocsLayout.vue`, maintain expanded item routes in a `Set<string>`, automatically add `/components/global-event` whenever the current route matches it or a descendant, and render a button with `aria-expanded` plus indented `RouterLink` children. Parent active state uses exact match or `route.path.startsWith(`${item.to}/`)`; child active state uses exact match. Add focused `.docs-sidebar__item-row`, `__toggle`, `__children`, and `__child-link` styles.
+Change the GlobalEvent navigation item to a parent whose children are the five exact route/label pairs from Step 1. In `DocsLayout.vue`, always render indented `RouterLink` children whenever `item.children` exists, without expansion state or a toggle button. Parent active state uses exact match or `route.path.startsWith(`${item.to}/`)`; child active state uses exact match. Add focused `__children` and `__child-link` styles.
 
 - [ ] **Step 4: Implement routes and page titles**
 

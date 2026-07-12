@@ -187,31 +187,6 @@ code {
   transition: all 0.15s ease;
 }
 
-.docs-sidebar__item-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.docs-sidebar__item-row .docs-sidebar__link {
-  flex: 1;
-}
-
-.docs-sidebar__toggle {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--doc-muted);
-  background: transparent;
-  cursor: pointer;
-}
-
-.docs-sidebar__toggle:hover {
-  color: var(--doc-primary-deep);
-  background: #ecf5ff;
-}
-
 .docs-sidebar__children {
   display: grid;
   gap: 2px;

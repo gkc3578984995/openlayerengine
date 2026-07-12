@@ -1,46 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import * as navigationConfig from '../website/src/config/navigation';
 
 describe('interaction documentation infrastructure', () => {
-  it('derives and toggles expansion for arbitrary nested navigation', () => {
-    const deriveExpandedParentRoutes = Reflect.get(navigationConfig, 'deriveExpandedParentRoutes');
-    const toggleExpandedRoute = Reflect.get(navigationConfig, 'toggleExpandedRoute');
-
-    expect(deriveExpandedParentRoutes).toBeTypeOf('function');
-    expect(toggleExpandedRoute).toBeTypeOf('function');
-
-    const groups = [
-      {
-        title: 'Artificial group',
-        items: [
-          {
-            label: 'Artificial parent',
-            to: '/artificial',
-            children: [{ label: 'Artificial child', to: '/artificial/child' }]
-          },
-          { label: 'Leaf', to: '/leaf' }
-        ]
-      }
-    ];
-
-    expect(deriveExpandedParentRoutes(groups, '/artificial')).toEqual(new Set(['/artificial']));
-    expect(deriveExpandedParentRoutes(groups, '/artificial/child')).toEqual(new Set(['/artificial']));
-    expect(deriveExpandedParentRoutes(groups, '/artificial/child/deeper')).toEqual(new Set());
-    expect(deriveExpandedParentRoutes(groups, '/missing')).toEqual(new Set());
-
-    const closed = new Set<string>();
-    const opened = toggleExpandedRoute(closed, '/artificial');
-    expect(opened).toEqual(new Set(['/artificial']));
-    expect(opened).not.toBe(closed);
-    expect(closed).toEqual(new Set());
-
-    const reclosed = toggleExpandedRoute(opened, '/artificial');
-    expect(reclosed).toEqual(new Set());
-    expect(reclosed).not.toBe(opened);
-    expect(opened).toEqual(new Set(['/artificial']));
-  });
-
   it('adds the four interaction routes, navigation entries, and layout titles', async () => {
     const [navigation, router, layout] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
@@ -106,13 +67,14 @@ describe('interaction documentation infrastructure', () => {
       expect(router).toContain(`import ${component} from '../views/${component}.vue';`);
       expect(router).toMatch(new RegExp(`path: '${path.slice(1)}',[\\s\\S]*?component: ${component}`));
     }
-    expect(layout).toContain('aria-expanded');
     expect(layout).toContain('item.children');
     expect(layout).toContain('docs-sidebar__child-link');
-    expect(layout).toContain('expandedItems');
-    expect(layout).toContain('deriveExpandedParentRoutes');
-    expect(layout).toContain('toggleExpandedRoute');
-    expect(layout).not.toMatch(/path === ['"]\/components\/global-event['"]|path\.startsWith\(['"]\/components\/global-event\//);
+    expect(layout).toContain('<div v-if="item.children" class="docs-sidebar__children">');
+    expect(layout).not.toContain('aria-expanded');
+    expect(layout).not.toContain('docs-sidebar__toggle');
+    expect(layout).not.toContain('expandedItems');
+    expect(layout).not.toContain('deriveExpandedParentRoutes');
+    expect(layout).not.toContain('toggleExpandedRoute');
     expect(layout).toContain('route.path.startsWith(`${item.to}/`)');
     expect(layout).toContain(':class="{ \'is-active\': route.path === child.to }"');
 
