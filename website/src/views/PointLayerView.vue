@@ -150,17 +150,17 @@ const manualSetPointParamRows = [
 const pointParamRows = getPointLayerInterfaceRows('IPointParam', manualPointParamRows);
 const setPointParamRows = getPointLayerInterfaceRows('ISetPointParam', manualSetPointParamRows);
 
-const rgbColorRows = [
+const manualRgbColorRows = [
   { name: 'R', desc: '红色通道（0-255）', type: 'number', default: '—' },
   { name: 'G', desc: '绿色通道（0-255）', type: 'number', default: '—' },
   { name: 'B', desc: '蓝色通道（0-255）', type: 'number', default: '—' }
 ];
 
-const fillRows = [
+const manualFillRows = [
   { name: 'color', desc: '填充颜色', type: 'string', default: '—' }
 ];
 
-const strokeRows = [
+const manualStrokeRows = [
   { name: 'color', desc: '描边颜色', type: 'string', default: '—' },
   { name: 'width', desc: '描边宽度', type: 'number', default: '—' },
   { name: 'lineDash', desc: '虚线样式，如 <code>[20, 20, 20, 20]</code>', type: 'number[]', default: '—' },
@@ -168,7 +168,7 @@ const strokeRows = [
   { name: 'fitPatternOnce', desc: '是否将 lineDash 视为等比模式，单次适配整条线', type: 'boolean', default: '—' }
 ];
 
-const labelRows = [
+const manualLabelRows = [
   { name: 'text', desc: '文本内容', type: 'string', default: '—' },
   { name: 'font', desc: 'CSS 字体，如 <code>\'bold 13px sans-serif\'</code>', type: 'string', default: '—' },
   { name: 'offsetX', desc: '水平偏移（px），正值向右', type: 'number', default: '—' },
@@ -183,6 +183,10 @@ const labelRows = [
   { name: 'padding', desc: '文本内边距', type: 'number[]', default: '—' },
   { name: 'rotation', desc: '顺时针旋转角度（0-360）', type: 'number', default: '—' }
 ];
+const rgbColorRows = getPointLayerInterfaceRows('IRgbColor', manualRgbColorRows);
+const fillRows = getPointLayerInterfaceRows('IFill', manualFillRows);
+const strokeRows = getPointLayerInterfaceRows('IStroke', manualStrokeRows);
+const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
 </script>
 
 <template>

@@ -11,8 +11,6 @@ interface AttributeRow extends Record<string, string> {
   name: string;
   desc: string;
   type: string;
-  options: string;
-  default: string;
 }
 
 export function getPointLayerMethodRows(rows: MethodRow[]): MethodRow[] {
