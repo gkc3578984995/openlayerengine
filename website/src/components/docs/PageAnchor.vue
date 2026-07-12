@@ -22,13 +22,10 @@ defineProps<{
     >
       <template v-for="item in items" :key="item.id">
         <el-anchor-link :href="`#${item.id}`" :title="item.label" />
-        <el-anchor-link
-          v-for="child in item.children"
-          :key="child.id"
-          :href="`#${child.id}`"
-          :title="child.label"
-          class="page-anchor__child"
-        />
+        <template v-for="child in item.children" :key="child.id">
+          <el-anchor-link :href="`#${child.id}`" :title="child.label" class="page-anchor__child" />
+          <el-anchor-link v-for="grandchild in child.children" :key="grandchild.id" :href="`#${grandchild.id}`" :title="grandchild.label" class="page-anchor__grandchild" />
+        </template>
       </template>
     </el-anchor>
   </el-affix>

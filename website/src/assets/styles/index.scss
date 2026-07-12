@@ -699,6 +699,19 @@ code {
   color: var(--doc-primary-deep);
 }
 
+.page-anchor__grandchild.el-anchor__item {
+  padding-left: 40px;
+}
+
+.page-anchor__grandchild .el-anchor-link__title {
+  font-size: 12px;
+  color: var(--doc-muted);
+}
+
+.page-anchor__grandchild.is-active .el-anchor-link__title {
+  color: var(--doc-primary-deep);
+}
+
 .demo-card {
   border: 1px solid var(--el-border-color-light, rgba(223, 230, 239, 0.7));
   border-radius: 12px;

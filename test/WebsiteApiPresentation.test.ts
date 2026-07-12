@@ -49,4 +49,15 @@ describe('website API presentation', () => {
     expect(rules).toContain('浅灰背景的深灰代码块');
     expect(rules).toContain('api-constructor__signature');
   });
+
+  it('renders third-level API outline entries with a distinct style', async () => {
+    const [pageAnchor, styles] = await Promise.all([
+      readFile('website/src/components/docs/PageAnchor.vue', 'utf8'),
+      readFile('website/src/assets/styles/index.scss', 'utf8')
+    ]);
+
+    expect(pageAnchor).toContain('v-for="grandchild in child.children"');
+    expect(pageAnchor).toContain('class="page-anchor__grandchild"');
+    expect(styles).toContain('.page-anchor__grandchild.el-anchor__item {');
+  });
 });
