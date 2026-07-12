@@ -6,9 +6,10 @@ import PointLayerView from '../views/PointLayerView.vue';
 import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
 import GlobalMethodsView from '../views/GlobalMethodsView.vue';
+import GlobalEventView from '../views/GlobalEventView.vue';
+import ContextMenuView from '../views/ContextMenuView.vue';
 
 const InteractionPlaceholderView = { template: '<section><h2 id="api-methods">API 方法</h2></section>' };
-const ContextMenuPlaceholderView = { template: '<section><h2 id="api-methods">API 方法</h2><h3 id="api-type-icontextmenuoption">IContextMenuOption</h3></section>' };
 
 const router = createRouter({
   history: createWebHistory(),
@@ -50,12 +51,12 @@ const router = createRouter({
         {
           path: 'components/global-event',
           name: 'global-event',
-          component: InteractionPlaceholderView
+          component: GlobalEventView
         },
         {
           path: 'components/context-menu',
           name: 'context-menu',
-          component: ContextMenuPlaceholderView
+          component: ContextMenuView
         },
         {
           path: 'components/dynamic-draw',

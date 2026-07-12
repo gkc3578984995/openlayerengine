@@ -32,16 +32,18 @@ describe('interaction documentation infrastructure', () => {
       expect(router).toContain(`name: '${name}'`);
       expect(layout).toContain(`return '${title}';`);
     }
-    expect(router).not.toContain("import GlobalEventView from '../views/GlobalEventView.vue';");
-    expect(router).not.toContain("import ContextMenuView from '../views/ContextMenuView.vue';");
+    expect(router).toContain("import GlobalEventView from '../views/GlobalEventView.vue';");
+    expect(router).toContain("import ContextMenuView from '../views/ContextMenuView.vue';");
     expect(router).not.toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
     expect(router).not.toContain("import MeasureView from '../views/MeasureView.vue';");
   });
 
-  it('provides a reachable placeholder anchor for every Earth cross-page interaction link', async () => {
-    const [globalMethods, router] = await Promise.all([
+  it('provides reachable page anchors for every Earth cross-page interaction link', async () => {
+    const [globalMethods, router, globalEvent, contextMenu] = await Promise.all([
       readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
-      readFile('website/src/router/index.ts', 'utf8')
+      readFile('website/src/router/index.ts', 'utf8'),
+      readFile('website/src/views/GlobalEventView.vue', 'utf8'),
+      readFile('website/src/views/ContextMenuView.vue', 'utf8')
     ]);
 
     const placeholders = {
@@ -49,12 +51,14 @@ describe('interaction documentation infrastructure', () => {
       contextMenu:
         'const ContextMenuPlaceholderView = { template: \'<section><h2 id="api-methods">API 方法</h2><h3 id="api-type-icontextmenuoption">IContextMenuOption</h3></section>\' };'
     };
-    expect(router).toContain(placeholders.globalEvent);
-    expect(router).toContain(placeholders.contextMenu);
+    expect(router).not.toContain('const ContextMenuPlaceholderView');
+    expect(globalEvent).toContain('id="api-methods"');
+    expect(contextMenu).toContain('id="api-methods"');
+    expect(contextMenu).toContain('id="api-type-icontextmenuoption"');
 
     const targetOwner: Record<string, string> = {
-      '/components/global-event': placeholders.globalEvent,
-      '/components/context-menu': placeholders.contextMenu,
+      '/components/global-event': globalEvent,
+      '/components/context-menu': contextMenu,
       '/components/dynamic-draw': placeholders.globalEvent,
       '/components/measure': placeholders.globalEvent
     };
@@ -77,11 +81,142 @@ describe('interaction documentation infrastructure', () => {
     }
   });
 
-  it('defines the Earth-owned feature hit type and links all interaction references to their owner pages', async () => {
-    const [globalMethods, rules] = await Promise.all([
-      readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
-      readFile('website/AGENTS.md', 'utf8')
+  it('documents runnable GlobalEvent and ContextMenu demos, owned types, and public methods', async () => {
+    const [globalEvent, contextMenu, globalDemo, contextDemo, router] = await Promise.all([
+      readFile('website/src/views/GlobalEventView.vue', 'utf8'),
+      readFile('website/src/views/ContextMenuView.vue', 'utf8'),
+      readFile('website/src/examples/GlobalEventDemo.vue', 'utf8'),
+      readFile('website/src/examples/ContextMenuDemo.vue', 'utf8'),
+      readFile('website/src/router/index.ts', 'utf8')
     ]);
+
+    for (const [view, demo, rawImport, exampleId] of [
+      [globalEvent, globalDemo, "import globalEventSource from '../examples/GlobalEventDemo.vue?raw';", 'example-global-events'],
+      [contextMenu, contextDemo, "import contextMenuSource from '../examples/ContextMenuDemo.vue?raw';", 'example-default-and-module']
+    ]) {
+      expect(view).toContain(rawImport);
+      expect(view).toContain(`id="${exampleId}"`);
+      expect(view).toContain('<PageAnchor');
+      expect(demo).toContain('createConfiguredLayer');
+      expect(demo).toContain('onBeforeUnmount');
+      expect(demo).toContain('.destroy()');
+    }
+    expect(globalEvent).toMatch(/:source="globalEventSource"\s*>\s*<template #preview>\s*<GlobalEventDemo\s*\/>/s);
+    expect(contextMenu).toMatch(/:source="contextMenuSource"\s*>\s*<template #preview>\s*<ContextMenuDemo\s*\/>/s);
+    expect(router).toMatch(/path: 'components\/global-event',[\s\S]*?component: GlobalEventView/);
+    expect(router).toMatch(/path: 'components\/context-menu',[\s\S]*?component: ContextMenuView/);
+
+    for (const type of ['ModuleEventCallbackParams', 'ModuleEventCallback', 'GlobalEventCallback']) {
+      expect(globalEvent).toContain(`id="api-type-${type.toLowerCase()}"`);
+    }
+    expect(globalEvent).not.toContain('GlobalKeyDownEventCallback');
+    const globalEventMethods = [
+      'enableModuleMouseMoveEvent',
+      'enableModuleMouseClickEvent',
+      'enableModuleMouseLeftDownEvent',
+      'enableModuleMouseLeftUpEvent',
+      'enableModuleMouseDblClickEvent',
+      'enableModuleMouseRightClickEvent',
+      'enableGlobalMouseMoveEvent',
+      'enableGlobalMouseClickEvent',
+      'enableGlobalMouseLeftDownEvent',
+      'enableGlobalMouseLeftUpEvent',
+      'enableGlobalMouseDblClickEvent',
+      'enableGlobalMouseRightClickEvent',
+      'enableGlobalKeyDownEvent',
+      'disableModuleMouseMoveEvent',
+      'disableModuleMouseClickEvent',
+      'disableModuleMouseLeftDownEvent',
+      'disableModuleMouseLeftUpEvent',
+      'disableModuleMouseDblClickEvent',
+      'disableModuleMouseRightClickEvent',
+      'disableGlobalMouseMoveEvent',
+      'disableGlobalMouseClickEvent',
+      'disableGlobalMouseLeftDownEvent',
+      'disableGlobalMouseLeftUpEvent',
+      'disableGlobalMouseDblClickEvent',
+      'disableGlobalMouseRightClickEvent',
+      'disableGlobalKeyDownEvent',
+      'addMouseMoveEventByModule',
+      'addMouseClickEventByModule',
+      'addMouseLeftDownEventByModule',
+      'addMouseLeftUpEventByModule',
+      'addMouseDblClickEventByModule',
+      'addMouseRightClickEventByModule',
+      'addMouseMoveEventByGlobal',
+      'addMouseClickEventByGlobal',
+      'addMouseLeftDownEventByGlobal',
+      'addMouseLeftUpEventByGlobal',
+      'addMouseDblClickEventByGlobal',
+      'addMouseRightClickEventByGlobal',
+      'addKeyDownEventByGlobal',
+      'addMouseOnceClickEventByGlobal',
+      'addCancelableMouseOnceClickEventByGlobal',
+      'addMouseOnceRightClickEventByGlobal',
+      'addCancelableMouseOnceRightClickEventByGlobal',
+      'hasModuleMouseMoveEvent',
+      'hasModuleMouseClickEvent',
+      'hasModuleMouseLeftDownEvent',
+      'hasModuleMouseLeftUpEvent',
+      'hasModuleMouseDblClickEvent',
+      'hasModuleMouseRightClickEvent',
+      'hasGlobalMouseMoveEvent',
+      'hasGlobalMouseClickEvent',
+      'hasGlobalMouseLeftDownEvent',
+      'hasGlobalMouseLeftUpEvent',
+      'hasGlobalMouseDblClickEvent',
+      'hasGlobalMouseRightClickEvent',
+      'hasGlobalKeyDownEvent',
+      'removeModuleEvent',
+      'removeAllModuleEvents'
+    ];
+    expect(globalEventMethods).toHaveLength(58);
+    expect(globalEvent).toContain('const methodRows = methods.map');
+    for (const method of globalEventMethods) {
+      expect(globalEvent).toMatch(new RegExp(`\\[\\s*'${method}',`));
+    }
+
+    for (const type of ['IContextMenuOption', 'IContextMenuItem', 'IContextMenuCallbackParam', 'ContextMenuCallback', 'ContextMenuBefore']) {
+      expect(contextMenu).toContain(`id="api-type-${type.toLowerCase()}"`);
+    }
+    const contextMenuMethods = [
+      'addDefaultMenu',
+      'addModuleMenu',
+      'removeDefaultMenu',
+      'removeModuleMenu',
+      'clearModuleMenuState',
+      'getDefaultMenuState',
+      'setDefaultMenuState',
+      'toggleDefaultMenuState',
+      'getModuleMenuState',
+      'setModuleMenuState',
+      'toggleModuleMenuState',
+      'setTheme',
+      'toggleTheme',
+      'close',
+      'remove',
+      'destroy',
+      'destory'
+    ];
+    expect(contextMenuMethods).toHaveLength(17);
+    expect(contextMenu).toContain('const methodRows = methods.map');
+    for (const method of contextMenuMethods) {
+      expect(contextMenu).toMatch(new RegExp(`\\[\\s*'${method}',`));
+    }
+    expect(contextMenu).toContain('deprecated');
+    expect(contextDemo).toContain('addDefaultMenu');
+    expect(contextDemo).toContain('addModuleMenu');
+    expect(contextDemo).toContain('toggleTheme');
+    expect(globalDemo).toContain('disposers.splice(0).forEach');
+    expect(globalDemo).toContain('earthRef.value?.destroy()');
+    expect(globalDemo.indexOf('disposers.splice(0).forEach')).toBeLessThan(globalDemo.indexOf('earthRef.value?.destroy()'));
+    expect(contextDemo).toContain('earth?.useContextMenu().destroy()');
+    expect(contextDemo).toContain('earth?.destroy()');
+    expect(contextDemo.indexOf('earth?.useContextMenu().destroy()')).toBeLessThan(contextDemo.indexOf('earth?.destroy()'));
+  });
+
+  it('defines the Earth-owned feature hit type and links all interaction references to their owner pages', async () => {
+    const [globalMethods, rules] = await Promise.all([readFile('website/src/views/GlobalMethodsView.vue', 'utf8'), readFile('website/AGENTS.md', 'utf8')]);
 
     expect(globalMethods).toContain("{ id: 'api-type-ifeatureatpixel', label: 'IFeatureAtPixel' }");
     expect(globalMethods.indexOf('id="api-type-ifeatureatpixel"')).toBeLessThan(globalMethods.indexOf('id="api-methods"'));
