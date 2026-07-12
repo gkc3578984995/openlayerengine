@@ -21,6 +21,18 @@ const pageTitle = computed(() => {
   if (route.path === '/components/point-layer') {
     return 'PointLayer 点图层';
   }
+  if (route.path === '/components/global-event') {
+    return 'GlobalEvent 全局事件';
+  }
+  if (route.path === '/components/context-menu') {
+    return 'ContextMenu 右键菜单';
+  }
+  if (route.path === '/components/dynamic-draw') {
+    return 'DynamicDraw 动态绘制';
+  }
+  if (route.path === '/components/measure') {
+    return 'Measure 测量工具';
+  }
   if (route.path === '/guide/quick-start') {
     return '安装与引入';
   }

@@ -28,5 +28,14 @@ export const sideGroups: SideGroup[] = [
       { label: '图层通用操作', to: '/components/layer-common' },
       { label: 'PointLayer 点图层', to: '/components/point-layer' }
     ]
+  },
+  {
+    title: '地图交互',
+    items: [
+      { label: 'GlobalEvent 全局事件', to: '/components/global-event' },
+      { label: 'ContextMenu 右键菜单', to: '/components/context-menu' },
+      { label: 'DynamicDraw 动态绘制', to: '/components/dynamic-draw' },
+      { label: 'Measure 测量工具', to: '/components/measure' }
+    ]
   }
 ];

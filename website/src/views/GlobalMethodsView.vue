@@ -34,7 +34,14 @@ const anchors: AnchorItem[] = [
       { id: 'demo-mouse', label: '鼠标与拖拽' }
     ]
   },
-  { id: 'api-methods', label: '方法' },
+  {
+    id: 'api',
+    label: 'API',
+    children: [
+      { id: 'api-type-ifeatureatpixel', label: 'IFeatureAtPixel' },
+      { id: 'api-methods', label: '方法' }
+    ]
+  },
   { id: 'tips', label: '注意事项' }
 ];
 
@@ -43,6 +50,20 @@ const methodCols: ApiColumn[] = [
   { prop: 'desc', label: '说明', width: 340 },
   { prop: 'params', label: '参数', width: 200, monospace: true },
   { prop: 'returns', label: '返回值', width: 160, monospace: true }
+];
+
+const typeCols: ApiColumn[] = [
+  { prop: 'name', label: '属性', width: 180, presentation: 'property' },
+  { prop: 'desc', label: '说明', width: 300 },
+  { prop: 'type', label: '类型', width: 260, monospace: true }
+];
+
+const featureAtPixelRows = [
+  { name: 'isExists', desc: '是否命中要素', type: 'boolean' },
+  { name: 'id', desc: '命中要素的 id', type: 'string?' },
+  { name: 'module', desc: '命中要素所属模块', type: 'string?' },
+  { name: 'feature', desc: '命中的 OpenLayers 要素', type: 'Feature&lt;Geometry&gt;?' },
+  { name: 'layer', desc: '命中要素所在的 OpenLayers 图层', type: 'Layer&lt;Source, LayerRenderer&lt;any&gt;&gt;?' }
 ];
 
 const methodRows = [
@@ -68,12 +89,37 @@ const methodRows = [
   { name: 'setMouseStyleToDefault', desc: '恢复鼠标默认样式', params: '—', returns: 'void' },
   { name: 'disabledMapDrag', desc: '禁用地图拖拽平移', params: '—', returns: 'void' },
   { name: 'enableMapDrag', desc: '启用地图拖拽平移', params: '—', returns: 'void' },
-  { name: 'getFeatureAtPixel', desc: '根据像素坐标获取该位置的 feature 信息', params: 'number[]', returns: 'IFeatureAtPixel' },
+  {
+    name: 'getFeatureAtPixel',
+    desc: '根据像素坐标获取该位置的 <a href="#api-type-ifeatureatpixel">IFeatureAtPixel</a> 信息',
+    params: 'number[]',
+    returns: '<a href="#api-type-ifeatureatpixel">IFeatureAtPixel</a>'
+  },
   { name: 'getLayerAtFeature', desc: '根据 feature 获取其所属图层', params: 'Feature&lt;Geometry&gt;', returns: 'Layer | undefined' },
-  { name: 'useGlobalEvent', desc: '获取全局事件管理器', params: '—', returns: 'GlobalEvent' },
-  { name: 'useContextMenu', desc: '启用/配置右键菜单', params: 'IContextMenuOption?', returns: 'ContextMenu' },
-  { name: 'useDrawTool', desc: '获取动态绘制工具', params: '—', returns: 'DynamicDraw' },
-  { name: 'useMeasure', desc: '获取测量工具', params: '—', returns: 'Measure' }
+  {
+    name: '<code class="code-fn"><a href="/components/global-event#api-methods">useGlobalEvent</a></code>',
+    desc: '获取全局事件管理器',
+    params: '—',
+    returns: '<a href="/components/global-event#api-methods">GlobalEvent</a>'
+  },
+  {
+    name: '<code class="code-fn"><a href="/components/context-menu#api-methods">useContextMenu</a></code>',
+    desc: '启用/配置右键菜单',
+    params: '<a href="/components/context-menu#api-type-icontextmenuoption">IContextMenuOption</a>?',
+    returns: '<a href="/components/context-menu#api-methods">ContextMenu</a>'
+  },
+  {
+    name: '<code class="code-fn"><a href="/components/dynamic-draw#api-methods">useDrawTool</a></code>',
+    desc: '获取动态绘制工具',
+    params: '—',
+    returns: '<a href="/components/dynamic-draw#api-methods">DynamicDraw</a>'
+  },
+  {
+    name: '<code class="code-fn"><a href="/components/measure#api-methods">useMeasure</a></code>',
+    desc: '获取测量工具',
+    params: '—',
+    returns: '<a href="/components/measure#api-methods">Measure</a>'
+  }
 ];
 </script>
 
@@ -135,8 +181,14 @@ const methodRows = [
         </div>
       </section>
 
-      <section id="api-methods" class="doc-prose">
-        <h2 class="doc-h2">方法</h2>
+      <section id="api" class="doc-prose">
+        <h2 class="doc-h2">API</h2>
+
+        <h3 id="api-type-ifeatureatpixel" class="doc-h3">IFeatureAtPixel</h3>
+        <p class="doc-prose__hint"><code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code> 返回的像素命中信息。</p>
+        <ApiTable :columns="typeCols" :rows="featureAtPixelRows" />
+
+        <h3 id="api-methods" class="doc-h3">方法</h3>
         <ApiTable :columns="methodCols" :rows="methodRows" />
       </section>
 

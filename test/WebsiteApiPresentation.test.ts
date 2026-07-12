@@ -103,12 +103,38 @@ describe('website API presentation', () => {
     const earthScript = earthCreate.split('</script>', 1)[0];
     const globalScript = globalMethods.split('</script>', 1)[0];
 
-    for (const [source, methods] of [
-      [earthScript, ['addLayer', 'removeLayer', 'createOsmLayer', 'createXyzLayer', 'flyTo', 'animateFlyTo', 'destroy']],
-      [globalScript, ['flyTo', 'animateFlyTo', 'flyHome', 'enableGraticule', 'disableGraticule', 'enableScaleLine', 'disableScaleLine', 'setMouseStyle', 'setMouseStyleToCrosshair', 'setMouseStyleToDefault', 'disabledMapDrag', 'enableMapDrag', 'getFeatureAtPixel', 'getLayerAtFeature', 'useGlobalEvent', 'useContextMenu', 'useDrawTool', 'useMeasure']]
-    ] as const) {
+    for (const source of [earthScript, globalScript]) {
       expect(source).not.toMatch(/name:\s*['"][^'"]*\(/);
-      for (const method of methods) expect(source).toContain(`name: '${method}'`);
+    }
+
+    for (const method of ['addLayer', 'removeLayer', 'createOsmLayer', 'createXyzLayer', 'flyTo', 'animateFlyTo', 'destroy']) {
+      expect(earthScript).toContain(`name: '${method}'`);
+    }
+    for (const method of [
+      'flyTo',
+      'animateFlyTo',
+      'flyHome',
+      'enableGraticule',
+      'disableGraticule',
+      'enableScaleLine',
+      'disableScaleLine',
+      'setMouseStyle',
+      'setMouseStyleToCrosshair',
+      'setMouseStyleToDefault',
+      'disabledMapDrag',
+      'enableMapDrag',
+      'getFeatureAtPixel',
+      'getLayerAtFeature'
+    ]) {
+      expect(globalScript).toContain(`name: '${method}'`);
+    }
+    for (const [method, path] of [
+      ['useGlobalEvent', '/components/global-event'],
+      ['useContextMenu', '/components/context-menu'],
+      ['useDrawTool', '/components/dynamic-draw'],
+      ['useMeasure', '/components/measure']
+    ]) {
+      expect(globalScript).toContain(`name: '<code class="code-fn"><a href="${path}#api-methods">${method}</a></code>'`);
     }
 
     expect(earthCreate).toContain('<code><a href="#api-constructor">Earth</a></code> 是所有图层能力的入口');
@@ -130,5 +156,16 @@ describe('website API presentation', () => {
     expect(globalMethods).toContain('<h1>Earth 实例方法</h1>');
     expect(globalMethods).toContain('<PageAnchor title="Earth 实例方法" :items="anchors" />');
     expect(router).toContain("path: 'guide/global-methods'");
+  });
+
+  it('keeps linked Earth method names in the API-table method presentation', async () => {
+    const [globalMethods, styles] = await Promise.all([
+      readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
+      readFile('website/src/assets/styles/index.scss', 'utf8')
+    ]);
+
+    expect(globalMethods).toContain('<code class="code-fn"><a href="/components/global-event#api-methods">useGlobalEvent</a></code>');
+    expect(globalMethods).toContain('<code class="code-fn"><a href="/components/context-menu#api-methods">useContextMenu</a></code>');
+    expect(styles).toMatch(/\.api-table__method \.code-fn a\s*\{[^}]*color: inherit;/s);
   });
 });
