@@ -10,7 +10,7 @@ import pointBasicSource from '../examples/PointLayerBasicDemo.vue?raw';
 import pointStyleSource from '../examples/PointLayerStyleDemo.vue?raw';
 import pointFlashSource from '../examples/PointLayerFlashDemo.vue?raw';
 import pointUpdateSource from '../examples/PointLayerUpdateDemo.vue?raw';
-import { getPointLayerInterfaceRows, getPointLayerMethodRows } from '../docs/pointLayerApi';
+import { getBaseMethodRows, getPointLayerInterfaceRows, getPointLayerMethodRows } from '../docs/pointLayerApi';
 
 interface AnchorItem {
   id: string;
@@ -42,6 +42,7 @@ const anchors: AnchorItem[] = [
     children: [
       { id: 'api-constructor', label: '构造参数' },
       { id: 'api-methods', label: '方法' },
+      { id: 'api-inherited', label: '通用图层操作' },
       { id: 'api-pointparam', label: 'IPointParam' },
       { id: 'api-setpointparam', label: 'ISetPointParam' },
       { id: 'api-types', label: '类型定义' }
@@ -118,6 +119,17 @@ const manualMethodRows = [
 ];
 
 const methodRows = getPointLayerMethodRows(manualMethodRows);
+
+const inheritedMethodRows = getBaseMethodRows([
+  { name: 'getUpdatedParam(feature)', desc: '读取要素的最新状态并返回参数快照。', params: '', returns: '' },
+  { name: 'get(id?)', desc: '获取全部要素，或按 id 获取指定要素。', params: '', returns: '' },
+  { name: 'hide(id?)', desc: '隐藏整个图层，或隐藏指定要素。', params: '', returns: '' },
+  { name: 'show(id?)', desc: '显示整个图层，或恢复指定要素。', params: '', returns: '' },
+  { name: 'setLayerOpacity(opacity)', desc: '设置图层透明度。', params: '', returns: '' },
+  { name: 'setLayerIndex(index)', desc: '设置图层层级。', params: '', returns: '' },
+  { name: 'getLayer()', desc: '获取底层 OpenLayers VectorLayer。', params: '', returns: '' },
+  { name: 'destroy()', desc: '销毁图层并清理资源。', params: '', returns: '' }
+]);
 
 const manualPointParamRows = [
   { name: 'id', desc: '点唯一标识', type: 'string', options: '—', default: '—' },
@@ -277,6 +289,10 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
         <!-- 2. 方法 -->
         <h3 id="api-methods" class="doc-h3">方法</h3>
         <ApiTable :columns="methodCols" :rows="methodRows" />
+
+        <h3 id="api-inherited" class="doc-h3">通用图层操作（继承自 Base）</h3>
+        <p class="doc-prose__hint">这些方法适用于所有基于 <code>Base</code> 的图层；<code>remove</code> 由 PointLayer 重写，已在上方方法表展示。</p>
+        <ApiTable :columns="methodCols" :rows="inheritedMethodRows" />
 
         <!-- 3. 方法参数属性 -->
         <h3 id="api-pointparam" class="doc-h3">IPointParam</h3>

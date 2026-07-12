@@ -23,6 +23,16 @@ export function getPointLayerMethodRows(rows: MethodRow[]): MethodRow[] {
   });
 }
 
+export function getBaseMethodRows(rows: MethodRow[]): MethodRow[] {
+  const methods = generatedApi.classes.Base?.methods ?? {};
+  return rows.map((row) => {
+    const methodName = row.name.slice(0, row.name.indexOf('('));
+    const method = methods[methodName as keyof typeof methods];
+    if (!method) throw new Error(`Base method is not documented by TypeDoc: ${methodName}`);
+    return { ...row, params: method.params, returns: method.returns };
+  });
+}
+
 export function getPointLayerInterfaceRows(interfaceName: keyof typeof generatedApi.interfaces, rows: AttributeRow[]): AttributeRow[] {
   const properties = (generatedApi.interfaces[interfaceName]?.properties ?? {}) as Record<string, { type: string }>;
   return rows.map((row) => {
