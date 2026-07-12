@@ -4,6 +4,7 @@ interface ApiColumn {
   label: string;
   width?: string | number;
   monospace?: boolean;
+  presentation?: 'property' | 'method';
 }
 
 defineProps<{
@@ -23,7 +24,7 @@ defineProps<{
     >
       <template #default="{ row }">
         <code v-if="col.monospace" class="api-table__code" v-html="row[col.prop]"></code>
-        <span v-else v-html="row[col.prop]"></span>
+        <span v-else :class="col.presentation ? `api-table__${col.presentation}` : undefined" v-html="row[col.prop]"></span>
       </template>
     </el-table-column>
   </el-table>
