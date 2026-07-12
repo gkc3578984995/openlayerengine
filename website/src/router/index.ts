@@ -25,7 +25,6 @@ import MeasureView from '../views/MeasureView.vue';
 import MeasureDistanceView from '../views/MeasureDistanceView.vue';
 import MeasureAreaView from '../views/MeasureAreaView.vue';
 import MeasureRemoveView from '../views/MeasureRemoveView.vue';
-import { getDocumentTitle } from '../utils/documentTitle';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -165,10 +164,6 @@ const router = createRouter({
   scrollBehavior() {
     return false;
   }
-});
-
-router.afterEach((to) => {
-  document.title = getDocumentTitle(to.path);
 });
 
 export default router;
