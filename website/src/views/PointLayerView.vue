@@ -10,7 +10,7 @@ import pointBasicSource from '../examples/PointLayerBasicDemo.vue?raw';
 import pointStyleSource from '../examples/PointLayerStyleDemo.vue?raw';
 import pointFlashSource from '../examples/PointLayerFlashDemo.vue?raw';
 import pointUpdateSource from '../examples/PointLayerUpdateDemo.vue?raw';
-import { getPointLayerMethodRows } from '../docs/pointLayerApi';
+import { getPointLayerInterfaceRows, getPointLayerMethodRows } from '../docs/pointLayerApi';
 
 interface AnchorItem {
   id: string;
@@ -119,7 +119,7 @@ const manualMethodRows = [
 
 const methodRows = getPointLayerMethodRows(manualMethodRows);
 
-const pointParamRows = [
+const manualPointParamRows = [
   { name: 'id', desc: '点唯一标识', type: 'string', options: '—', default: '—' },
   { name: 'center', desc: '点坐标（地图投影坐标系）', type: 'Coordinate', options: '—', default: '—' },
   { name: 'size', desc: '点大小（像素）', type: 'number', options: '—', default: '—' },
@@ -132,7 +132,7 @@ const pointParamRows = [
   { name: 'isRepeat', desc: '是否重复闪烁（<code>isFlash</code> 为 <code>true</code> 时生效）', type: 'boolean', options: 'true / false', default: 'true' }
 ];
 
-const setPointParamRows = [
+const manualSetPointParamRows = [
   { name: 'id', desc: '点唯一标识（必填）', type: 'string', options: '—', default: '—' },
   { name: 'center', desc: '更新点坐标', type: 'Coordinate', options: '—', default: '—' },
   { name: 'size', desc: '更新点大小', type: 'number', options: '—', default: '—' },
@@ -146,6 +146,9 @@ const setPointParamRows = [
 ];
 
 /* ===== 类型定义 ===== */
+
+const pointParamRows = getPointLayerInterfaceRows('IPointParam', manualPointParamRows);
+const setPointParamRows = getPointLayerInterfaceRows('ISetPointParam', manualSetPointParamRows);
 
 const rgbColorRows = [
   { name: 'R', desc: '红色通道（0-255）', type: 'number', default: '—' },
