@@ -300,7 +300,6 @@ export default class Earth {
    * - 传入 `layer` 时移除该图层
    * - 传入 `id` 时移除持有该唯一句柄的图层
    * - 不传时移除所有通过 {@link Earth.createOsmLayer} 或 {@link Earth.createXyzLayer} 创建的底图，返回最后一个被移除的图层
-   * @param layerOrId 图层、图层唯一句柄或空
    * @returns 被移除的图层；无匹配时为 undefined
    */
   removeLayer(layer: BaseLayer): BaseLayer | undefined;

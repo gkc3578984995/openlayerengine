@@ -501,6 +501,24 @@ code {
   text-decoration: underline;
 }
 
+/* API 表格中的方法引用延续示例说明的蓝色样式。 */
+.api-table code.code-fn {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(64, 158, 255, 0.1);
+  color: var(--doc-primary-deep);
+  font-family: "Cascadia Code", "Consolas", monospace;
+}
+
+.api-table code.code-fn a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.api-table code.code-fn a:hover {
+  text-decoration: underline;
+}
+
 /* 文本中引用方法名的灰色背景 code */
 .code-fn-inline {
   padding: 2px 6px;
