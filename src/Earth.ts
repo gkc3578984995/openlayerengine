@@ -20,11 +20,14 @@ import { Source } from 'ol/source';
 import LayerRenderer from 'ol/renderer/Layer';
 import ScaleLine from 'ol/control/ScaleLine';
 import { Camera, Controls } from './modules';
+import Utils from './common/Utils';
 
 /**
- * 底图图层的固定标识（{@link Earth.createXyzLayer} 写入、{@link Earth.removeLayer} 无参时识别）
+ * Earth 创建的底图标识（供 {@link Earth.removeLayer} 无参时识别）
  */
-const IMAGE_PROVIDER_ID = 'imageProvider';
+const BASE_LAYER_MARKER = 'olEngineBaseLayer';
+/** Earth 分配给图层的唯一句柄属性 */
+const ENGINE_LAYER_ID = 'olEngineLayerId';
 /**
  * 地图基类
  */
@@ -235,6 +238,9 @@ export default class Earth {
    */
   createOsmLayer(): TileLayer<OSM> {
     return new TileLayer({
+      properties: {
+        [BASE_LAYER_MARKER]: true
+      },
       source: new OSM()
     });
   }
@@ -269,7 +275,7 @@ export default class Earth {
         };
     return new TileLayer({
       properties: {
-        id: IMAGE_PROVIDER_ID
+        [BASE_LAYER_MARKER]: true
       },
       source: new XYZ({
         tileUrlFunction,
@@ -280,28 +286,40 @@ export default class Earth {
   /**
    * 添加图层
    * @param layer `layer`图层
+   * @returns 图层唯一句柄，可传入 {@link Earth.removeLayer} 精确移除
    */
-  addLayer(layer: BaseLayer): void {
+  addLayer(layer: BaseLayer): string {
+    const id = Utils.GetGUID();
+    layer.set(ENGINE_LAYER_ID, id);
     this.map.addLayer(layer);
+    return id;
   }
   /**
    * 移除图层
    *
    * - 传入 `layer` 时移除该图层
-   * - 不传时移除所有底图标识为 `imageProvider` 的图层，返回最后一个被移除的图层
-   * @param layer `layer`图层，`可选的`
+   * - 传入 `id` 时移除持有该唯一句柄的图层
+   * - 不传时移除所有通过 {@link Earth.createOsmLayer} 或 {@link Earth.createXyzLayer} 创建的底图，返回最后一个被移除的图层
+   * @param layerOrId 图层、图层唯一句柄或空
    * @returns 被移除的图层；无匹配时为 undefined
    */
-  removeLayer(layer?: BaseLayer): BaseLayer | undefined {
-    if (layer) {
-      return this.map.removeLayer(layer);
+  removeLayer(layer: BaseLayer): BaseLayer | undefined;
+  removeLayer(id: string): BaseLayer | undefined;
+  removeLayer(): BaseLayer | undefined;
+  removeLayer(layerOrId?: BaseLayer | string): BaseLayer | undefined {
+    if (typeof layerOrId === 'string') {
+      const layer = this.map.getAllLayers().find((item) => item.get(ENGINE_LAYER_ID) === layerOrId);
+      return layer ? this.map.removeLayer(layer) : undefined;
+    }
+    if (layerOrId) {
+      return this.map.removeLayer(layerOrId);
     }
     // getAllLayers() 返回快照，遍历快照移除是安全的；反向遍历避免潜在的索引错位
     const layers = this.map.getAllLayers();
     let removed: BaseLayer | undefined;
     for (let i = layers.length - 1; i >= 0; i--) {
       const item = layers[i];
-      if (item.get('id') === IMAGE_PROVIDER_ID) {
+      if (item.get(BASE_LAYER_MARKER) === true) {
         const r = this.map.removeLayer(item);
         if (r) removed = r;
       }
