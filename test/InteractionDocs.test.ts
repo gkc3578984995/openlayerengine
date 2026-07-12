@@ -19,7 +19,6 @@ describe('interaction documentation infrastructure', () => {
     const interactionGroup = navigation.slice(navigation.indexOf("title: '地图交互'"));
     let previousItemIndex = -1;
     for (const [label, path, name, title] of [
-      ['GlobalEvent 全局事件', '/components/global-event', 'global-event', 'GlobalEvent 全局事件'],
       ['ContextMenu 右键菜单', '/components/context-menu', 'context-menu', 'ContextMenu 右键菜单'],
       ['DynamicDraw 动态绘制', '/components/dynamic-draw', 'dynamic-draw', 'DynamicDraw 动态绘制'],
       ['Measure 测量工具', '/components/measure', 'measure', 'Measure 测量工具']
@@ -36,6 +35,136 @@ describe('interaction documentation infrastructure', () => {
     expect(router).toContain("import ContextMenuView from '../views/ContextMenuView.vue';");
     expect(router).toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
     expect(router).toContain("import MeasureView from '../views/MeasureView.vue';");
+  });
+
+  it('splits GlobalEvent into canonical nested navigation and API pages', async () => {
+    const viewFiles = [
+      'website/src/views/GlobalEventView.vue',
+      'website/src/views/GlobalEventGlobalMouseView.vue',
+      'website/src/views/GlobalEventModuleEventsView.vue',
+      'website/src/views/GlobalEventKeyboardView.vue',
+      'website/src/views/GlobalEventListenerControlView.vue'
+    ] as const;
+    const [navigation, layout, router, source, ...views] = await Promise.all([
+      readFile('website/src/config/navigation.ts', 'utf8'),
+      readFile('website/src/layouts/DocsLayout.vue', 'utf8'),
+      readFile('website/src/router/index.ts', 'utf8'),
+      readFile('src/components/GlobalEvent.ts', 'utf8'),
+      ...viewFiles.map((file) => readFile(file, 'utf8'))
+    ]);
+
+    const globalEventPages = [
+      ['概览与初始化', '/components/global-event', 'GlobalEventView'],
+      ['全局鼠标事件', '/components/global-event/global-mouse', 'GlobalEventGlobalMouseView'],
+      ['模块要素事件', '/components/global-event/module-events', 'GlobalEventModuleEventsView'],
+      ['键盘事件', '/components/global-event/keyboard', 'GlobalEventKeyboardView'],
+      ['监听控制', '/components/global-event/listener-control', 'GlobalEventListenerControlView']
+    ] as const;
+
+    expect(navigation).toMatch(/export interface NavItem \{[\s\S]*?children\?: NavItem\[\];[\s\S]*?\}/);
+    for (const [label, path, component] of globalEventPages) {
+      expect(navigation).toContain(`{ label: '${label}', to: '${path}' }`);
+      expect(router).toContain(`import ${component} from '../views/${component}.vue';`);
+      expect(router).toMatch(new RegExp(`path: '${path.slice(1)}',[\\s\\S]*?component: ${component}`));
+    }
+    expect(layout).toContain('aria-expanded');
+    expect(layout).toContain('item.children');
+    expect(layout).toContain('docs-sidebar__child-link');
+    expect(layout).toContain('expandedItems');
+    expect(layout).toContain("'/components/global-event'");
+    expect(layout).toContain('route.path.startsWith(`${item.to}/`)');
+
+    const [overview, globalMouse, moduleEvents, keyboard, listenerControl] = views;
+    expect(overview).toContain('id="api-constructor"');
+    expect(overview).toContain('new GlobalEvent(earth)');
+    expect(overview).toContain('href="/guide/global-methods#api-methods"');
+    for (const type of ['ModuleEventCallbackParams', 'ModuleEventCallback', 'GlobalEventCallback']) {
+      const anchor = `id="api-type-${type.toLowerCase()}"`;
+      expect(overview).toContain(anchor);
+      for (const child of views.slice(1)) expect(child).not.toContain(anchor);
+    }
+    for (const path of globalEventPages.slice(1).map(([, path]) => path)) {
+      expect(overview).toContain(`href="${path}#api-methods"`);
+    }
+    for (const child of views.slice(1)) {
+      expect(child).toContain("presentation: 'method'");
+      expect(child).toContain('<PageAnchor');
+      expect(child).toContain('id="tips"');
+    }
+    expect(globalMouse).toContain('/components/global-event#api-type-globaleventcallback');
+    expect(moduleEvents).toContain('/components/global-event#api-type-moduleeventcallback');
+
+    const globalMouseMethods = [
+      'addMouseMoveEventByGlobal',
+      'addMouseClickEventByGlobal',
+      'addMouseLeftDownEventByGlobal',
+      'addMouseLeftUpEventByGlobal',
+      'addMouseDblClickEventByGlobal',
+      'addMouseRightClickEventByGlobal',
+      'addMouseOnceClickEventByGlobal',
+      'addCancelableMouseOnceClickEventByGlobal',
+      'addMouseOnceRightClickEventByGlobal',
+      'addCancelableMouseOnceRightClickEventByGlobal',
+      'hasGlobalMouseMoveEvent',
+      'hasGlobalMouseClickEvent',
+      'hasGlobalMouseLeftDownEvent',
+      'hasGlobalMouseLeftUpEvent',
+      'hasGlobalMouseDblClickEvent',
+      'hasGlobalMouseRightClickEvent'
+    ];
+    const moduleMethods = [
+      'addMouseMoveEventByModule',
+      'addMouseClickEventByModule',
+      'addMouseLeftDownEventByModule',
+      'addMouseLeftUpEventByModule',
+      'addMouseDblClickEventByModule',
+      'addMouseRightClickEventByModule',
+      'hasModuleMouseMoveEvent',
+      'hasModuleMouseClickEvent',
+      'hasModuleMouseLeftDownEvent',
+      'hasModuleMouseLeftUpEvent',
+      'hasModuleMouseDblClickEvent',
+      'hasModuleMouseRightClickEvent',
+      'removeModuleEvent',
+      'removeAllModuleEvents'
+    ];
+    const keyboardMethods = ['addKeyDownEventByGlobal', 'enableGlobalKeyDownEvent', 'disableGlobalKeyDownEvent', 'hasGlobalKeyDownEvent'];
+    const listenerMethods = [
+      'enableModuleMouseMoveEvent',
+      'enableModuleMouseClickEvent',
+      'enableModuleMouseLeftDownEvent',
+      'enableModuleMouseLeftUpEvent',
+      'enableModuleMouseDblClickEvent',
+      'enableModuleMouseRightClickEvent',
+      'enableGlobalMouseMoveEvent',
+      'enableGlobalMouseClickEvent',
+      'enableGlobalMouseLeftDownEvent',
+      'enableGlobalMouseLeftUpEvent',
+      'enableGlobalMouseDblClickEvent',
+      'enableGlobalMouseRightClickEvent',
+      'disableModuleMouseMoveEvent',
+      'disableModuleMouseClickEvent',
+      'disableModuleMouseLeftDownEvent',
+      'disableModuleMouseLeftUpEvent',
+      'disableModuleMouseDblClickEvent',
+      'disableModuleMouseRightClickEvent',
+      'disableGlobalMouseMoveEvent',
+      'disableGlobalMouseClickEvent',
+      'disableGlobalMouseLeftDownEvent',
+      'disableGlobalMouseLeftUpEvent',
+      'disableGlobalMouseDblClickEvent',
+      'disableGlobalMouseRightClickEvent'
+    ];
+    const canonicalMethods = [...globalMouseMethods, ...moduleMethods, ...keyboardMethods, ...listenerMethods];
+    const sourceMethods = [...source.matchAll(/^  (?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
+      .map((match) => match[1])
+      .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
+    expect(canonicalMethods).toHaveLength(58);
+    expect(new Set(canonicalMethods)).toEqual(new Set(sourceMethods));
+    const allPages = views.join('\n');
+    for (const method of sourceMethods) {
+      expect([...allPages.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
+    }
   });
 
   it('provides reachable page anchors for every Earth cross-page interaction link', async () => {
@@ -106,72 +235,6 @@ describe('interaction documentation infrastructure', () => {
       expect(globalEvent).toContain(`id="api-type-${type.toLowerCase()}"`);
     }
     expect(globalEvent).not.toContain('GlobalKeyDownEventCallback');
-    const globalEventMethods = [
-      'enableModuleMouseMoveEvent',
-      'enableModuleMouseClickEvent',
-      'enableModuleMouseLeftDownEvent',
-      'enableModuleMouseLeftUpEvent',
-      'enableModuleMouseDblClickEvent',
-      'enableModuleMouseRightClickEvent',
-      'enableGlobalMouseMoveEvent',
-      'enableGlobalMouseClickEvent',
-      'enableGlobalMouseLeftDownEvent',
-      'enableGlobalMouseLeftUpEvent',
-      'enableGlobalMouseDblClickEvent',
-      'enableGlobalMouseRightClickEvent',
-      'enableGlobalKeyDownEvent',
-      'disableModuleMouseMoveEvent',
-      'disableModuleMouseClickEvent',
-      'disableModuleMouseLeftDownEvent',
-      'disableModuleMouseLeftUpEvent',
-      'disableModuleMouseDblClickEvent',
-      'disableModuleMouseRightClickEvent',
-      'disableGlobalMouseMoveEvent',
-      'disableGlobalMouseClickEvent',
-      'disableGlobalMouseLeftDownEvent',
-      'disableGlobalMouseLeftUpEvent',
-      'disableGlobalMouseDblClickEvent',
-      'disableGlobalMouseRightClickEvent',
-      'disableGlobalKeyDownEvent',
-      'addMouseMoveEventByModule',
-      'addMouseClickEventByModule',
-      'addMouseLeftDownEventByModule',
-      'addMouseLeftUpEventByModule',
-      'addMouseDblClickEventByModule',
-      'addMouseRightClickEventByModule',
-      'addMouseMoveEventByGlobal',
-      'addMouseClickEventByGlobal',
-      'addMouseLeftDownEventByGlobal',
-      'addMouseLeftUpEventByGlobal',
-      'addMouseDblClickEventByGlobal',
-      'addMouseRightClickEventByGlobal',
-      'addKeyDownEventByGlobal',
-      'addMouseOnceClickEventByGlobal',
-      'addCancelableMouseOnceClickEventByGlobal',
-      'addMouseOnceRightClickEventByGlobal',
-      'addCancelableMouseOnceRightClickEventByGlobal',
-      'hasModuleMouseMoveEvent',
-      'hasModuleMouseClickEvent',
-      'hasModuleMouseLeftDownEvent',
-      'hasModuleMouseLeftUpEvent',
-      'hasModuleMouseDblClickEvent',
-      'hasModuleMouseRightClickEvent',
-      'hasGlobalMouseMoveEvent',
-      'hasGlobalMouseClickEvent',
-      'hasGlobalMouseLeftDownEvent',
-      'hasGlobalMouseLeftUpEvent',
-      'hasGlobalMouseDblClickEvent',
-      'hasGlobalMouseRightClickEvent',
-      'hasGlobalKeyDownEvent',
-      'removeModuleEvent',
-      'removeAllModuleEvents'
-    ];
-    expect(globalEventMethods).toHaveLength(58);
-    expect(globalEvent).toContain('const methodRows = methods.map');
-    for (const method of globalEventMethods) {
-      expect(globalEvent).toMatch(new RegExp(`\\[\\s*'${method}',`));
-    }
-
     for (const type of ['IContextMenuOption', 'IContextMenuItem', 'IContextMenuCallbackParam', 'ContextMenuCallback', 'ContextMenuBefore']) {
       expect(contextMenu).toContain(`id="api-type-${type.toLowerCase()}"`);
     }

@@ -35,14 +35,9 @@ body {
   min-width: 320px;
   min-height: 100vh;
   color: var(--doc-text);
-  font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   background:
-    radial-gradient(
-      circle at top left,
-      rgba(64, 158, 255, 0.14),
-      transparent 28%
-    ),
-    linear-gradient(180deg, #f7fbff 0%, var(--doc-bg) 42%, #eef3f9 100%);
+    radial-gradient(circle at top left, rgba(64, 158, 255, 0.14), transparent 28%), linear-gradient(180deg, #f7fbff 0%, var(--doc-bg) 42%, #eef3f9 100%);
 }
 
 a {
@@ -52,7 +47,7 @@ a {
 
 pre,
 code {
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
 #app {
@@ -190,6 +185,53 @@ code {
   font-size: 14px;
   text-decoration: none;
   transition: all 0.15s ease;
+}
+
+.docs-sidebar__item-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.docs-sidebar__item-row .docs-sidebar__link {
+  flex: 1;
+}
+
+.docs-sidebar__toggle {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--doc-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.docs-sidebar__toggle:hover {
+  color: var(--doc-primary-deep);
+  background: #ecf5ff;
+}
+
+.docs-sidebar__children {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 6px 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--doc-border);
+}
+
+.docs-sidebar__child-link {
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--doc-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.docs-sidebar__child-link:hover,
+.docs-sidebar__child-link.is-active {
+  color: var(--doc-primary-deep);
+  background: #ecf5ff;
 }
 
 .docs-sidebar__link:hover {
@@ -351,7 +393,9 @@ code {
   background: #fff;
   text-decoration: none;
   color: inherit;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .home-feature-card:hover {
@@ -458,7 +502,7 @@ code {
 }
 
 .code-block-highlight code {
-  font-family: "Cascadia Code", "Consolas", "SF Mono", "Menlo", monospace;
+  font-family: 'Cascadia Code', 'Consolas', 'SF Mono', 'Menlo', monospace;
   font-size: 13px;
   line-height: 1.65;
 }
@@ -475,7 +519,7 @@ code {
   background: var(--el-fill-color, #f0f2f5);
   color: var(--doc-text);
   font-size: 13px;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
 .example-block__desc code a {
@@ -508,7 +552,7 @@ code {
   background: var(--el-fill-color, #f0f2f5);
   color: var(--doc-text);
   font-size: 13px;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
 .api-constructor {
@@ -552,7 +596,7 @@ code {
   border-radius: 4px;
   background: var(--el-fill-color, #f0f2f5);
   color: var(--el-text-color-primary, #303133);
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
   font-size: 13px;
   font-weight: 600;
 }
@@ -735,7 +779,6 @@ code {
   font-size: 13px;
 }
 
-
 .example-stage {
   height: 420px;
   border-radius: 18px;
@@ -853,7 +896,7 @@ code {
   color: var(--el-text-color-regular, var(--doc-muted));
   font-size: 13px;
   line-height: 1.7;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
 /* ===== 示例运行区 ===== */
@@ -982,7 +1025,7 @@ code {
   border-radius: 4px;
   background: var(--el-fill-color, #f0f2f5);
   color: var(--doc-text);
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
   font-size: 13px;
 }
 
@@ -1003,7 +1046,9 @@ code {
   color: var(--doc-muted);
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .back-to-top:hover {
@@ -1014,7 +1059,9 @@ code {
 
 .btt-fade-enter-active,
 .btt-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
 }
 
 .btt-fade-enter-from,

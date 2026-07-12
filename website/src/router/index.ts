@@ -7,6 +7,10 @@ import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
 import GlobalMethodsView from '../views/GlobalMethodsView.vue';
 import GlobalEventView from '../views/GlobalEventView.vue';
+import GlobalEventGlobalMouseView from '../views/GlobalEventGlobalMouseView.vue';
+import GlobalEventModuleEventsView from '../views/GlobalEventModuleEventsView.vue';
+import GlobalEventKeyboardView from '../views/GlobalEventKeyboardView.vue';
+import GlobalEventListenerControlView from '../views/GlobalEventListenerControlView.vue';
 import ContextMenuView from '../views/ContextMenuView.vue';
 import DynamicDrawView from '../views/DynamicDrawView.vue';
 import MeasureView from '../views/MeasureView.vue';
@@ -52,6 +56,26 @@ const router = createRouter({
           path: 'components/global-event',
           name: 'global-event',
           component: GlobalEventView
+        },
+        {
+          path: 'components/global-event/global-mouse',
+          name: 'global-event-global-mouse',
+          component: GlobalEventGlobalMouseView
+        },
+        {
+          path: 'components/global-event/module-events',
+          name: 'global-event-module-events',
+          component: GlobalEventModuleEventsView
+        },
+        {
+          path: 'components/global-event/keyboard',
+          name: 'global-event-keyboard',
+          component: GlobalEventKeyboardView
+        },
+        {
+          path: 'components/global-event/listener-control',
+          name: 'global-event-listener-control',
+          component: GlobalEventListenerControlView
         },
         {
           path: 'components/context-menu',

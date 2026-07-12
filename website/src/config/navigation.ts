@@ -1,6 +1,7 @@
 export interface NavItem {
   label: string;
   to: string;
+  children?: NavItem[];
 }
 
 export interface SideGroup {
@@ -32,7 +33,17 @@ export const sideGroups: SideGroup[] = [
   {
     title: '地图交互',
     items: [
-      { label: 'GlobalEvent 全局事件', to: '/components/global-event' },
+      {
+        label: 'GlobalEvent 全局事件',
+        to: '/components/global-event',
+        children: [
+          { label: '概览与初始化', to: '/components/global-event' },
+          { label: '全局鼠标事件', to: '/components/global-event/global-mouse' },
+          { label: '模块要素事件', to: '/components/global-event/module-events' },
+          { label: '键盘事件', to: '/components/global-event/keyboard' },
+          { label: '监听控制', to: '/components/global-event/listener-control' }
+        ]
+      },
       { label: 'ContextMenu 右键菜单', to: '/components/context-menu' },
       { label: 'DynamicDraw 动态绘制', to: '/components/dynamic-draw' },
       { label: 'Measure 测量工具', to: '/components/measure' }
