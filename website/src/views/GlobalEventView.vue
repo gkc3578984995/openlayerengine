@@ -124,8 +124,12 @@ const listenerMethodRows = listenerMethods.map(([name, desc, params, returns]) =
           <li><a href="#api-listener-control">监听控制</a>：显式启用或停用模块与全局鼠标监听。</li>
         </ul>
         <h3 id="api-listener-control" class="doc-h3">高级：底层监听控制</h3>
-        <p>常规代码使用 add* 注册回调，并保存其返回的注销函数以取消单次注册。</p>
-        <p>disable* 会停用对应的底层监听，并清空该事件类别的全部回调。</p>
+        <p>
+          常规代码使用 add* 注册回调，并保存返回的注销函数；返回的注销函数只移除一次注册。
+          <code class="code-fn"><a href="/components/global-event/module-events#api-methods">removeModuleEvent</a></code> 移除某个模块的一种事件类别；
+          <code class="code-fn"><a href="/components/global-event/module-events#api-methods">removeAllModuleEvents</a></code> 移除某个模块的全部事件类别；
+          <code>disable*</code> 则清空底层对应事件类别的全部注册。
+        </p>
         <ApiTable :columns="methodCols" :rows="listenerMethodRows" />
       </section>
       <section id="examples" class="doc-prose">
@@ -133,7 +137,7 @@ const listenerMethodRows = listenerMethods.map(([name, desc, params, returns]) =
         <div id="example-minimal-lifecycle">
           <ExampleBlock
             title="最小完整生命周期"
-            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>earth.useGlobalEvent</a></code> 获取实例，调用 add* 注册回调、保存返回的注销函数，并在卸载前执行它。`"
+            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;/guide/global-methods#api-methods&quot;>earth.useGlobalEvent</a></code> 获取实例，调用 add* 注册回调、保存返回的注销函数，并在卸载前执行它。`"
             :source="globalEventLifecycleSource"
             ><template #preview><GlobalEventLifecycleDemo /></template
           ></ExampleBlock>

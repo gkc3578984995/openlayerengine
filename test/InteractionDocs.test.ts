@@ -369,6 +369,14 @@ describe('interaction documentation infrastructure', () => {
     expect(overview).toContain('常规代码使用');
     expect(overview).toContain('批量清空');
     expect(overview).toContain('href="#api-listener-control"');
+    expect(overview).toContain('返回的注销函数只移除一次注册');
+    expect(overview).toContain('href="/components/global-event/module-events#api-methods">removeModuleEvent</a>');
+    expect(overview).toContain('href="/components/global-event/module-events#api-methods">removeAllModuleEvents</a>');
+    expect(overview).toContain('移除某个模块的一种事件类别');
+    expect(overview).toContain('移除某个模块的全部事件类别');
+    expect(overview).toContain('<code>disable*</code> 则清空底层对应事件类别的全部注册');
+    expect(overview).toContain('href=&quot;/guide/global-methods#api-methods&quot;>earth.useGlobalEvent</a>');
+    expect(overview).not.toContain('href=&quot;#api-methods&quot;>earth.useGlobalEvent</a>');
     expect(demos.GlobalEventLifecycleDemo).toContain('addMouseClickEventByGlobal');
     expect(demos.GlobalEventOnceDemo).toContain('addCancelableMouseOnceClickEventByGlobal');
     expect(demos.GlobalEventOnceDemo).toContain('addCancelableMouseOnceRightClickEventByGlobal');
