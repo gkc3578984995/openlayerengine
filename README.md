@@ -68,7 +68,7 @@ npm run verify
 npm run doc
 ```
 
-TypeDoc 输出目录为 `docs`。
+TypeDoc 输出目录为 `website/public/api`，由文档站点作为静态资源发布。
 
 ## 打包发布
 
