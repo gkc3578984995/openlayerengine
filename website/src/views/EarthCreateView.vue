@@ -141,7 +141,7 @@ const methodRows = [
         <div id="demo-layers">
           <ExampleBlock
             title="管理多个底图"
-            :description="`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addLayer</a></code> 为每个已添加底图返回 UUID 句柄。示例添加矢量与卫星两张底图后，使用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeLayer</a></code> 和对应句柄独立移除。`"
+            :description="`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addLayer</a></code> 为每个已添加底图返回 UUID 句柄。示例添加矢量与卫星两张底图后，使用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeLayer</a></code> 和对应句柄独立移除。卫星图在本示例中设为 65% 透明度，仅为直观展示图层叠加和移除效果。`"
             :source="baseLayerHandleSource"
           >
             <template #preview>

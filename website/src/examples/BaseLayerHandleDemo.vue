@@ -10,10 +10,12 @@ const earthRef = shallowRef<Earth | null>(null);
 const vectorLayerId = ref<string | null>(null);
 const satelliteLayerId = ref<string | null>(null);
 
-const createAmapLayer = (earth: Earth, style: 6 | 8) => {
-  return earth.createXyzLayer(([z, x, y]) => {
+const createAmapLayer = (earth: Earth, style: 6 | 8, opacity = 1) => {
+  const layer = earth.createXyzLayer(([z, x, y]) => {
     return `https://webrd0${(x % 4) + 1}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=${style}&x=${x}&y=${y}&z=${z}`;
   });
+  layer.setOpacity(opacity);
+  return layer;
 };
 
 const createMap = () => {
@@ -26,7 +28,7 @@ const createMap = () => {
 const addSatelliteLayer = () => {
   const earth = earthRef.value;
   if (!earth || satelliteLayerId.value) return;
-  satelliteLayerId.value = earth.addLayer(createAmapLayer(earth, 6));
+  satelliteLayerId.value = earth.addLayer(createAmapLayer(earth, 6, 0.65));
 };
 
 const removeVectorLayer = () => {
@@ -62,6 +64,7 @@ onBeforeUnmount(destroyMap);
       <el-button type="danger" plain @click="destroyMap">销毁地图</el-button>
     </div>
     <p class="example-demo__hint">矢量底图：{{ vectorLayerId ? '已添加' : '已移除' }}；卫星底图：{{ satelliteLayerId ? '已添加' : '未添加或已移除' }}</p>
+    <p class="example-demo__hint">卫星图以 65% 透明度叠加，便于直观看到任一底图被移除后的变化。</p>
     <div :id="mapId" class="example-stage"></div>
   </div>
 </template>
