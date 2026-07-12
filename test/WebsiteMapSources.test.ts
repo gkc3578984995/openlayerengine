@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_MAP_SOURCES, createTileUrl, getMapSource, loadMapSources, setMapSources } from '../website/src/config/mapSources';
 
@@ -35,5 +36,13 @@ describe('website runtime map sources', () => {
     expect(getMapSource('vector')).toEqual(DEFAULT_MAP_SOURCES.vector);
     expect(warning).toHaveBeenCalledOnce();
     warning.mockRestore();
+  });
+
+  it('ships editable vector and satellite URL templates', async () => {
+    const raw = await readFile('website/public/map-sources.json', 'utf8');
+    const mapSources = JSON.parse(raw);
+
+    expect(mapSources.vector.urlTemplate).toMatch(/\{z\}.*\{x\}.*\{y\}|\{z\}.*\{y\}.*\{x\}/);
+    expect(mapSources.satellite.urlTemplate).toMatch(/\{z\}.*\{x\}.*\{y\}|\{z\}.*\{y\}.*\{x\}/);
   });
 });

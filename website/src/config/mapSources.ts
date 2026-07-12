@@ -1,6 +1,6 @@
 import type { Earth } from '@vrsim/earth-engine-ol';
 import type TileLayer from 'ol/layer/Tile';
-import type TileCoord from 'ol/tilecoord';
+import type { TileCoord } from 'ol/tilecoord';
 import type XYZ from 'ol/source/XYZ';
 
 export type MapSourceName = 'vector' | 'satellite';
@@ -56,7 +56,7 @@ export const setMapSources = (value: unknown): void => {
 export const getMapSource = (name: MapSourceName): MapSourceConfig => mapSources[name];
 
 export const createTileUrl = (template: string, [z, x, y]: TileCoord): string => {
-  return template.replaceAll('{z}', String(z)).replaceAll('{x}', String(x)).replaceAll('{y}', String(y));
+  return template.split('{z}').join(String(z)).split('{x}').join(String(x)).split('{y}').join(String(y));
 };
 
 export const createConfiguredLayer = (earth: Earth, name: MapSourceName): TileLayer<XYZ> => {
