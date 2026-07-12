@@ -26,4 +26,15 @@ describe('website top menu', () => {
     expect(layout).toContain('void router.push(target.to);');
     expect(layout).not.toContain('class="docs-header__nav-item"');
   });
+
+  it('styles the Element menu with semantic light and dark theme tokens', () => {
+    const styles = readSource('website/src/assets/styles/index.scss');
+
+    expect(styles).toContain('.docs-header__nav.el-menu--horizontal');
+    expect(styles).toContain('--el-menu-bg-color: transparent;');
+    expect(styles).toContain('--el-menu-text-color: var(--doc-muted);');
+    expect(styles).toContain('--el-menu-active-color: var(--doc-primary-deep);');
+    expect(styles).toContain('--el-menu-hover-bg-color: var(--doc-surface-soft);');
+    expect(styles).not.toContain('.docs-header__nav-item');
+  });
 });

@@ -117,26 +117,20 @@ code {
   flex: 1;
 }
 
-.docs-header__nav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.docs-header__nav.el-menu--horizontal {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--doc-muted);
+  --el-menu-hover-bg-color: var(--doc-surface-soft);
+  --el-menu-active-color: var(--doc-primary-deep);
+  --el-menu-horizontal-height: 40px;
+
+  border-bottom: 0;
 }
 
-.docs-header__nav-item {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 14px;
+.docs-header__nav.el-menu--horizontal > .el-menu-item {
+  padding: 0 14px;
   border-radius: 8px;
-  color: var(--doc-muted);
   font-size: 14px;
-  text-decoration: none;
-  transition: all 0.15s ease;
-}
-
-.docs-header__nav-item:hover,
-.docs-header__nav-item.is-active {
-  color: var(--doc-primary-deep);
 }
 
 .docs-header__gh {
