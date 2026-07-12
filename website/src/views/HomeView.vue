@@ -1,102 +1,154 @@
 <script setup lang="ts">
-import { ArrowRight, Guide, Box, FolderOpened } from '@element-plus/icons-vue';
+interface HeroAction {
+  label: string;
+  to: string;
+  primary: boolean;
+}
 
-const features = [
+interface CapabilityHighlight {
+  eyebrow: string;
+  title: string;
+  description: string;
+}
+
+interface CoreModule {
+  name: string;
+  title: string;
+  description: string;
+  to: string;
+}
+
+const heroActions: HeroAction[] = [
+  { label: '快速开始', to: '/guide/quick-start', primary: true },
+  { label: '创建地图', to: '/guide/earth-create', primary: false }
+];
+
+const capabilityHighlights: CapabilityHighlight[] = [
   {
-    icon: Guide,
-    bg: 'linear-gradient(135deg, #409eff 0%, #337ecc 100%)',
-    title: '指南',
-    description: '了解设计理念，帮助你快速上手地图引擎文档站的结构与约定。',
-    to: '/'
+    eyebrow: 'TYPE FIRST',
+    title: '类型安全',
+    description: '完整的 TypeScript 类型贯穿地图创建、图层配置与交互流程。'
   },
   {
-    icon: Box,
-    bg: 'linear-gradient(135deg, #67c23a 0%, #529b2e 100%)',
-    title: '组件',
-    description: '基于真实打包产物的交互式示例，提供可直接拷贝的代码与详细的 API 说明。',
-    to: '/components/point-layer'
+    eyebrow: 'COMPOSABLE',
+    title: '模块化能力',
+    description: '按需组合图层、绘制与测量模块，让业务能力保持清晰边界。'
   },
   {
-    icon: FolderOpened,
-    bg: 'linear-gradient(135deg, #e6a23c 0%, #d48806 100%)',
-    title: '资源',
-    description: '下载 Sketch / Figma 设计资源，或获取引擎类型定义辅助 IDE 智能提示。',
-    to: '/'
+    eyebrow: 'LEARN BY DOING',
+    title: '可运行示例',
+    description: '文档示例与真实组件同步，复制代码即可开始验证地图场景。'
   }
 ];
 
-const sponsors = {
-  platinum: [
-    {
-      name: 'VRSIM 引擎团队',
-      logo: null,
-      description: '提供 earth-engine-ol 核心库与持续迭代',
-      tag: 'CORE'
-    },
-    {
-      name: 'OpenLayers',
-      logo: null,
-      description: '底层地图渲染与投影变换基础设施',
-      tag: 'FOUNDATION'
-    }
-  ]
-};
+const coreModules: CoreModule[] = [
+  {
+    name: '01 / FOUNDATION',
+    title: 'Earth 创建',
+    description: '初始化地图实例、视图与基础图层。',
+    to: '/guide/earth-create'
+  },
+  {
+    name: '02 / LAYER',
+    title: 'PointLayer',
+    description: '以类型化参数管理点位、样式与状态。',
+    to: '/components/point-layer'
+  },
+  {
+    name: '03 / TOOL',
+    title: 'Measure',
+    description: '构建距离、面积与连续测量流程。',
+    to: '/components/measure'
+  },
+  {
+    name: '04 / INTERACTION',
+    title: 'DynamicDraw',
+    description: '组合动态绘制、编辑与清理能力。',
+    to: '/components/dynamic-draw'
+  }
+];
 </script>
 
 <template>
   <div class="home">
-    <!-- Hero -->
     <section class="home-hero">
       <div class="home-hero__inner">
-        <h1 class="home-hero__title">ol-doc</h1>
-        <p class="home-hero__desc">
-          基于 Vue 3 + TypeScript + Element Plus，面向地图业务的引擎文档站原型。
-        </p>
-        <div class="home-hero__actions">
-          <el-button type="primary" size="large" round @click="$router.push('/components/point-layer')">
-            快速开始
-            <el-icon class="el-icon--right"><ArrowRight /></el-icon>
-          </el-button>
-          <el-button size="large" round>设计资源</el-button>
+        <div class="home-hero__copy">
+          <p class="home-hero__eyebrow">OPENLAYERS CAPABILITY ENGINE</p>
+          <h1 class="home-hero__title">@vrsim/earth-engine-ol</h1>
+          <p class="home-hero__desc">面向工程化地图应用的 OpenLayers + TypeScript 地图能力库。</p>
+          <div class="home-hero__actions">
+            <RouterLink v-for="action in heroActions" :key="action.to" :to="action.to" class="home-hero__action" :class="{ 'is-primary': action.primary }">
+              {{ action.label }}
+              <span aria-hidden="true">→</span>
+            </RouterLink>
+          </div>
+        </div>
+
+        <div class="home-workbench" aria-hidden="true">
+          <div class="home-workbench__toolbar">
+            <span></span>
+            <span></span>
+            <span></span>
+            <strong>MAP WORKBENCH</strong>
+          </div>
+          <div class="home-workbench__stage">
+            <svg class="home-workbench__map" viewBox="0 0 640 400" role="presentation">
+              <path class="home-workbench__water" d="M-30 88 C120 35 164 142 282 105 S470 30 680 104 L680 -20 L-30 -20 Z" />
+              <path class="home-workbench__area" d="M340 95 L535 135 L488 292 L302 248 Z" />
+              <path class="home-workbench__route" d="M42 328 C132 252 177 317 248 226 S380 192 452 120 S555 94 610 42" />
+              <g class="home-workbench__marker" transform="translate(248 226)">
+                <path d="M0 -18 C-11 -18 -17 -10 -17 0 C-17 13 0 28 0 28 C0 28 17 13 17 0 C17 -10 11 -18 0 -18 Z" />
+                <circle cy="-1" r="5" />
+              </g>
+              <g class="home-workbench__marker" transform="translate(452 120)">
+                <path d="M0 -18 C-11 -18 -17 -10 -17 0 C-17 13 0 28 0 28 C0 28 17 13 17 0 C17 -10 11 -18 0 -18 Z" />
+                <circle cy="-1" r="5" />
+              </g>
+            </svg>
+
+            <div class="home-workbench__layers">
+              <strong>图层</strong>
+              <span><i></i> 路线规划</span>
+              <span><i></i> 业务区域</span>
+              <span><i></i> 基础地图</span>
+            </div>
+
+            <div class="home-workbench__zoom">
+              <span>+</span>
+              <span>−</span>
+            </div>
+            <code class="home-workbench__coordinates">120.1536° E · 30.2875° N</code>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- Sponsors -->
-    <section class="home-sponsors">
-      <div class="home-sponsors__inner">
-        <h2 class="home-section-title">赞助商</h2>
-        <div class="home-sponsors__tier">
-          <div
-            v-for="s in sponsors.platinum"
-            :key="s.name"
-            class="home-sponsor-card home-sponsor-card--platinum"
-          >
-            <span class="home-sponsor-card__tag">{{ s.tag }}</span>
-            <h3>{{ s.name }}</h3>
-            <p>{{ s.description }}</p>
-          </div>
-        </div>
-        <div class="home-sponsors__cta">
-          <el-link type="primary" :underline="false">成为赞助商！</el-link>
-        </div>
+    <section class="home-capabilities" aria-labelledby="home-capabilities-title">
+      <div class="home-section-heading">
+        <p>WHY EARTH ENGINE OL</p>
+        <h2 id="home-capabilities-title">从类型到交互，专注地图业务交付</h2>
+      </div>
+      <div class="home-capabilities__grid">
+        <article v-for="capability in capabilityHighlights" :key="capability.title" class="home-capability-card">
+          <span>{{ capability.eyebrow }}</span>
+          <h3>{{ capability.title }}</h3>
+          <p>{{ capability.description }}</p>
+        </article>
       </div>
     </section>
 
-    <!-- Features -->
-    <section class="home-features">
-      <div class="home-features__grid">
-        <RouterLink
-          v-for="f in features"
-          :key="f.title"
-          :to="f.to"
-          class="home-feature-card"
-        >
-          <div class="home-feature-card__icon" :style="{ background: f.bg }">
-            <el-icon :size="24" color="#fff"><component :is="f.icon" /></el-icon>
-          </div>
-          <h3>{{ f.title }}</h3>
-          <p>{{ f.description }}</p>
+    <section class="home-modules" aria-labelledby="home-modules-title">
+      <div class="home-section-heading">
+        <p>CORE MODULES</p>
+        <h2 id="home-modules-title">沿着核心路径开始构建</h2>
+      </div>
+      <div class="home-modules__grid">
+        <RouterLink v-for="module in coreModules" :key="module.to" :to="module.to" class="home-module-card">
+          <span>{{ module.name }}</span>
+          <h3>{{ module.title }}</h3>
+          <p>{{ module.description }}</p>
+          <strong>查看文档 →</strong>
         </RouterLink>
       </div>
     </section>
