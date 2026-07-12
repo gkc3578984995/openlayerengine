@@ -380,7 +380,7 @@ describe('interaction documentation infrastructure', () => {
         'refresh-data'
       ],
       ContextMenuMutexMenuDemo: ['show-label', 'hide-label', 'enable-follow', 'stop-follow'],
-      ContextMenuVisibilityDemo: ['save-current', 'export-current', 'open-history'],
+      ContextMenuVisibilityDemo: ['save-current', 'hide-export-station', 'open-history'],
       ContextMenuStateToggleDemo: ['toggle-track', 'locate-vehicle', 'show-vehicle-track'],
       ContextMenuThemeDemo: ['locate-command-center', 'locate-vehicle-depot', 'locate-inspection-site'],
       ContextMenuRemoveDefaultDemo: ['add-review-marker', 'add-warning-marker', 'clear-markers'],
@@ -448,12 +448,16 @@ describe('interaction documentation infrastructure', () => {
     }
     const visibilityCallback = await readFile('website/src/examples/ContextMenuVisibilityDemo.vue', 'utf8');
     expect(visibilityCallback).toMatch(/addDefaultMenu\(items, \(\{ menu, position \}\) => \{[\s\S]*?setVisibility\(false\)/);
+    expect(visibilityCallback).toContain("menu.key === 'hide-export-station'");
     const stateCallback = await readFile('website/src/examples/ContextMenuStateToggleDemo.vue', 'utf8');
     expect(stateCallback).toMatch(/addModuleMenu\(MODULE, items, \(\{ menu, featureId, position \}\) => \{[\s\S]*?toggleTrack\(featureId\)/);
     expect(stateCallback).toMatch(/addModuleMenu\(MODULE, items,[\s\S]*?trackLayer\.show\(featureId\)/);
     expect(stateCallback).toMatch(/trackLayer\.add\(\{\s+id: FIRST_ID,\s+module: MODULE,[\s\S]*?trackLayer\.add\(\{\s+id: SECOND_ID,\s+module: MODULE/);
     const cleanupCallback = await readFile('website/src/examples/ContextMenuRemoveModuleDemo.vue', 'utf8');
     expect(cleanupCallback).toMatch(/trackLayer\.add\(\{ id: VEHICLE_ID, module: MODULE,/);
+    expect(cleanupCallback).toMatch(
+      /item\.key === 'show-vehicle-track'\) \{[\s\S]*?trackVisible\.value = true;[\s\S]*?setModuleMenuState\(MODULE, VEHICLE_ID, 'toggle-track', true\)/
+    );
     const contextViews = await Promise.all(
       [
         'ContextMenuOverviewView.vue',

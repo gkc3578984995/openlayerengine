@@ -12,12 +12,12 @@ const HISTORY_POSITION = fromLonLat([116.44, 39.89]);
 const mapId = useId();
 const earthRef = shallowRef<Earth | null>(null);
 const featureLayerRef = shallowRef<PointLayer | null>(null);
-const feedback = ref('隐藏“导出当前站点”时，地图中的导出站点也会同步隐藏。');
+const feedback = ref('隐藏“导出站点”菜单项时，地图中的导出站点也会同步隐藏。');
 const exportVisible = ref(true);
 const stateLabel = computed(() => (exportVisible.value ? '菜单与站点均可见' : '菜单与站点均隐藏'));
 const items: IContextMenuItem[] = [
   { key: 'save-current', label: '保存当前站点' },
-  { key: 'export-current', label: '导出当前站点' },
+  { key: 'hide-export-station', label: '隐藏导出站点' },
   { key: 'open-history', label: '查看巡检历史' }
 ];
 
@@ -25,11 +25,11 @@ const setVisibility = (visible: boolean) => {
   const menu = earthRef.value?.useContextMenu();
   const featureLayer = featureLayerRef.value;
   if (!menu || !featureLayer) return;
-  menu.setDefaultMenuState('export-current', visible);
-  exportVisible.value = menu.getDefaultMenuState('export-current');
+  menu.setDefaultMenuState('hide-export-station', visible);
+  exportVisible.value = menu.getDefaultMenuState('hide-export-station');
   if (exportVisible.value) featureLayer.show(EXPORT_FEATURE_ID);
   else featureLayer.hide(EXPORT_FEATURE_ID);
-  feedback.value = `“导出当前站点”及其地图对象已${exportVisible.value ? '显示' : '隐藏'}。`;
+  feedback.value = `“隐藏导出站点”菜单项及其地图对象已${exportVisible.value ? '显示' : '隐藏'}。`;
 };
 
 onMounted(() => {
@@ -54,7 +54,7 @@ onMounted(() => {
   });
   featureLayer.hide(HISTORY_FEATURE_ID);
   earth.useContextMenu().addDefaultMenu(items, ({ menu, position }) => {
-    if (menu.key === 'export-current') {
+    if (menu.key === 'hide-export-station') {
       setVisibility(false);
       return;
     }

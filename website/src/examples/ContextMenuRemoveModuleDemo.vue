@@ -58,7 +58,11 @@ onMounted(() => {
       return;
     }
     earth.flyTo(fromLonLat(position), item.key === 'locate-vehicle' ? 12 : 10);
-    if (item.key === 'show-vehicle-track') trackLayer.show();
+    if (item.key === 'show-vehicle-track') {
+      trackVisible.value = true;
+      menu.setModuleMenuState(MODULE, VEHICLE_ID, 'toggle-track', true);
+      trackLayer.show();
+    }
     feedback.value = item.key === 'locate-vehicle' ? '已定位车辆。' : '已展示车辆与完整轨迹。';
   });
   menu.setModuleMenuState(MODULE, VEHICLE_ID, 'toggle-track', false);
