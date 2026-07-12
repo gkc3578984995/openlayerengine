@@ -294,13 +294,24 @@ describe('interaction documentation infrastructure', () => {
       'toggleTheme',
       'close',
       'remove',
-      'destroy',
-      'destory'
+      'destroy'
     ]) {
       expect(allViews).toContain(method);
     }
     expect(views[0]).toContain('id="api-type-icontextmenuitem"');
-    expect(views[5]).toContain('deprecated');
+    expect(views[5]).toContain("{ name: 'destroy'");
+  });
+
+  it('removes the deprecated ContextMenu destory alias from source and documentation', async () => {
+    const [source, cleanupView] = await Promise.all([
+      readFile('src/components/ContextMenu.ts', 'utf8'),
+      readFile('website/src/views/ContextMenuCleanupView.vue', 'utf8')
+    ]);
+
+    expect(source).toContain('destroy(): void');
+    expect(source).not.toContain('destory(): void');
+    expect(cleanupView).toContain("{ name: 'destroy'");
+    expect(cleanupView).not.toContain('destory');
   });
 
   it('keeps every ContextMenu example self-contained and scoped to its documented behavior', async () => {

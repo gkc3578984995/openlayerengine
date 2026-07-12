@@ -40,8 +40,7 @@ const removalRows = [
 ];
 const lifecycleRows = [
   { name: 'close', desc: '关闭当前显示的菜单。', params: '—', returns: 'void' },
-  { name: 'destroy', desc: '销毁菜单 DOM、状态和事件监听。', params: '—', returns: 'void' },
-  { name: 'destory', desc: '@deprecated 已废弃，请使用 destroy。', params: '—', returns: 'void' }
+  { name: 'destroy', desc: '销毁菜单 DOM、状态和事件监听。', params: '—', returns: 'void' }
 ];
 </script>
 <template>
@@ -85,7 +84,7 @@ const lifecycleRows = [
         <h2 class="doc-h2">注意事项</h2>
         <p>
           组件卸载前调用 <code class="code-fn"><a href="#api-lifecycle">destroy</a></code
-          >；不要使用拼写错误的废弃方法 <code>destory</code>。
+          >清理菜单实例，再销毁 Earth。
         </p>
       </section>
     </article>
