@@ -11,6 +11,10 @@ defineProps<{
   columns: ApiColumn[];
   rows: Array<Record<string, string>>;
 }>();
+
+function formatCellValue(column: ApiColumn, value: string) {
+  return column.prop === 'desc' ? value.replace(/[。.]$/u, '') : value;
+}
 </script>
 
 <template>
@@ -24,7 +28,7 @@ defineProps<{
     >
       <template #default="{ row }">
         <code v-if="col.monospace" class="api-table__code" v-html="row[col.prop] || '—'"></code>
-        <span v-else :class="col.presentation ? `api-table__${col.presentation}` : undefined" v-html="row[col.prop]"></span>
+        <span v-else :class="col.presentation ? `api-table__${col.presentation}` : undefined" v-html="formatCellValue(col, row[col.prop])"></span>
       </template>
     </el-table-column>
   </el-table>

@@ -707,7 +707,7 @@ describe('interaction documentation infrastructure', () => {
     expect(editingDemo).toContain(':disabled="isInteractionActive"');
     expect(editingDemo).toContain(':disabled="!canEdit"');
     expect(editingView).toContain('editableDynamicDrawGeometries');
-    expect(geometries).toContain('调整圆心和半径。');
+    expect(geometries).toContain('调整圆心和半径');
     expect(editingView).toContain('editDescription: desc');
     expect(editingView).not.toContain("desc: '编辑对应的已绘制图形。'");
   });

@@ -17,11 +17,11 @@ async function getDocumentationFiles(directory: string): Promise<string[]> {
 
 describe('website API descriptions', () => {
   it('does not end property or method descriptions with a sentence period', async () => {
-    const files = await Promise.all(['website/src/docs', 'website/src/views'].map(getDocumentationFiles));
+    const files = await Promise.all(['website/src/config', 'website/src/docs', 'website/src/views'].map(getDocumentationFiles));
 
     for (const file of files.flat()) {
       const source = await readFile(file, 'utf8');
-      expect(source, file).not.toMatch(/\bdesc:\s*(?:'[^']*[。.\.]'|`[^`]*[。.\.]`)/s);
+      expect(source, file).not.toMatch(/\b(?:desc|editDescription):\s*(?:'[^']*[。.\.]'|`[^`]*[。.\.]`)/s);
     }
   });
 });

@@ -8,6 +8,9 @@ describe('website API presentation', () => {
     expect(apiTable).toContain("presentation?: 'property' | 'method';");
     expect(apiTable).toContain(':class="col.presentation ? `api-table__${col.presentation}` : undefined"');
     expect(apiTable).toContain('v-html="row[col.prop] || \'—\'"');
+    expect(apiTable).toContain('function formatCellValue(column: ApiColumn, value: string) {');
+    expect(apiTable).toContain("return column.prop === 'desc' ? value.replace(/[。.]$/u, '') : value;");
+    expect(apiTable).toContain('v-html="formatCellValue(col, row[col.prop])"');
   });
 
   it('marks all API name columns and constructor sections with semantic presentation', async () => {
