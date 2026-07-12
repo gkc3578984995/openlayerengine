@@ -229,3 +229,73 @@ Check in the browser:
 Run: `git status --short --branch`
 
 Expected: branch `codex/fix-docs-top-menu` with no uncommitted files. Generated `dist/` changes, if any, must not be committed.
+
+### Task 4: Simplify the active menu presentation
+
+**Files:**
+- Modify: `test/WebsiteTopMenu.test.ts`
+- Modify: `website/src/assets/styles/index.scss:136-153`
+
+**Interfaces:**
+- Consumes: Element Plus horizontal menu variables and its native `2px` active bottom border.
+- Produces: text-only hover feedback and active text plus underline feedback, without rounded or filled menu items.
+
+- [ ] **Step 1: Change the style regression test to the approved presentation**
+
+In `test/WebsiteTopMenu.test.ts`, replace the existing hover-background assertion and add a scoped rounded-item prohibition:
+
+```ts
+expect(styles).toContain('--el-menu-hover-text-color: var(--doc-primary-deep);');
+expect(styles).toContain('--el-menu-hover-bg-color: transparent;');
+expect(styles).toContain('--el-menu-active-color: var(--doc-primary-deep);');
+expect(styles).not.toMatch(/\.docs-header__nav\.el-menu--horizontal > \.el-menu-item\s*{[^}]*border-radius:/s);
+```
+
+- [ ] **Step 2: Run the focused test and verify RED**
+
+Run: `npx vitest run test/WebsiteTopMenu.test.ts`
+
+Expected: FAIL because `--el-menu-hover-bg-color` is still `var(--doc-surface-soft)`, the hover text token is absent, and the menu item still has `border-radius: 8px`.
+
+- [ ] **Step 3: Apply the minimal Element Plus variable override**
+
+Update the header menu blocks in `website/src/assets/styles/index.scss` to:
+
+```scss
+.docs-header__nav.el-menu--horizontal {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--doc-muted);
+  --el-menu-hover-text-color: var(--doc-primary-deep);
+  --el-menu-hover-bg-color: transparent;
+  --el-menu-active-color: var(--doc-primary-deep);
+  --el-menu-horizontal-height: 40px;
+
+  border-bottom: 0;
+}
+
+.docs-header__nav.el-menu--horizontal > .el-menu-item {
+  padding: 0 14px;
+  font-size: 14px;
+}
+```
+
+Element Plus already defines a transparent `2px` bottom border on horizontal items and changes it to `--el-menu-active-color` for `.is-active`, so no custom pseudo-element or template wrapper is added.
+
+- [ ] **Step 4: Run the focused test and verify GREEN**
+
+Run: `npx vitest run test/WebsiteTopMenu.test.ts`
+
+Expected: all 3 tests PASS.
+
+- [ ] **Step 5: Run complete verification and inspect the page**
+
+Run: `npm test && npm run docs:build`
+
+Expected: all tests and the production documentation build PASS. In the browser, confirm light and dark themes show no menu-item fill or rounded block, the active item has blue text and a `2px` underline, and the header controls do not overlap at 375px width.
+
+- [ ] **Step 6: Commit the refinement**
+
+```bash
+git add test/WebsiteTopMenu.test.ts website/src/assets/styles/index.scss
+git commit -m "style: simplify documentation top menu"
+```

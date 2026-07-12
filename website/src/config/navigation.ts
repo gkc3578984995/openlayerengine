@@ -84,7 +84,9 @@ export const sideGroups: SideGroup[] = [
           { label: '量面积', to: '/components/measure/area' },
           { label: '移除测量', to: '/components/measure/remove' }
         ]
-      }
+      },
+      { label: 'Transform 图形变换', to: '/components/transform' },
+      { label: 'Descriptor 标牌', to: '/components/descriptor' }
     ]
   }
 ];

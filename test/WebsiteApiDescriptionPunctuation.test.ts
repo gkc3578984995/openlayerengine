@@ -21,7 +21,7 @@ describe('website API descriptions', () => {
 
     for (const file of files.flat()) {
       const source = await readFile(file, 'utf8');
-      expect(source, file).not.toMatch(/\b(?:desc|editDescription):\s*(?:'[^']*[。.\.]'|`[^`]*[。.\.]`)/s);
+      expect(source, file).not.toMatch(/\b(?:desc|editDescription):\s*(?:'[^']*[。.]'|`[^`]*[。.]`)/s);
     }
   });
 });
