@@ -5,75 +5,64 @@ import PageAnchor from '../components/docs/PageAnchor.vue';
 import MeasureDemo from '../examples/MeasureDemo.vue';
 import measureSource from '../examples/MeasureDemo.vue?raw';
 
-interface ApiColumn {
-  prop: string;
-  label: string;
-  width?: number;
-  monospace?: boolean;
-  presentation?: 'property' | 'method';
-}
-
 const anchors = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'examples', label: 'Examples', children: [{ id: 'example-line-and-area', label: 'Line and area' }] },
+  { id: 'overview', label: '概述' },
+  { id: 'lifecycle', label: '会话与清理' },
+  { id: 'examples', label: '代码演示', children: [{ id: 'example-initialize-measure', label: '初始化测量工具' }] },
   {
     id: 'api',
     label: 'API',
     children: [
+      { id: 'api-constructor', label: '构造器' },
       {
         id: 'api-types',
-        label: 'Types',
+        label: '类型定义',
         children: [
           { id: 'api-type-imeasure', label: 'IMeasure' },
           { id: 'api-type-imeasuredata', label: 'IMeasureData' },
           { id: 'api-type-imeasureevent', label: 'IMeasureEvent' }
         ]
       },
-      { id: 'api-methods', label: 'Methods' }
+      { id: 'api-methods', label: '方法' }
     ]
   },
-  { id: 'tips', label: 'Tips' }
+  { id: 'tips', label: '注意事项' }
 ];
-const propertyCols: ApiColumn[] = [
-  { prop: 'name', label: 'Property', width: 190, presentation: 'property' },
-  { prop: 'desc', label: 'Description', width: 310 },
-  { prop: 'type', label: 'Type', width: 300, monospace: true }
+
+const propertyCols = [
+  { prop: 'name', label: '属性名', width: 190, presentation: 'property' as const },
+  { prop: 'desc', label: '说明', width: 330 },
+  { prop: 'type', label: '类型', width: 290, monospace: true }
 ];
-const methodCols: ApiColumn[] = [
-  { prop: 'name', label: 'Method', width: 250, presentation: 'method' },
-  { prop: 'desc', label: 'Description', width: 320 },
-  { prop: 'params', label: 'Parameters', width: 300, monospace: true },
-  { prop: 'returns', label: 'Returns', width: 150, monospace: true }
+const methodCols = [
+  { prop: 'name', label: '方法名', width: 230, presentation: 'method' as const },
+  { prop: 'desc', label: '说明', width: 390 },
+  { prop: 'params', label: '参数', width: 250, monospace: true },
+  { prop: 'returns', label: '返回值', width: 120, monospace: true }
 ];
 const measureRows = [
-  { name: 'lineColor', desc: 'Measurement line colour.', type: 'string?' },
-  { name: 'lineWidth', desc: 'Measurement line width.', type: 'number?' },
-  { name: 'pointShow', desc: 'Show vertices for completed measurements.', type: 'boolean?' },
-  { name: 'pointColor', desc: 'Vertex colour.', type: 'string?' },
-  { name: 'pointSzie', desc: 'Vertex size. The spelling follows the public API.', type: 'number?' },
-  { name: 'textColor', desc: 'Label text colour.', type: 'string?' },
-  { name: 'textSize', desc: 'Label text size.', type: 'number?' },
-  { name: 'textBackgroundColor', desc: 'Label background colour.', type: 'string?' },
-  { name: 'isShowTotalDistance', desc: 'Show total distance label.', type: 'boolean?' },
-  { name: 'callback', desc: 'Receives measurement data.', type: '(event: <a href="#api-type-imeasureevent">IMeasureEvent</a>) =&gt; void' }
+  { name: 'lineColor', desc: '测量线颜色。', type: 'string?' },
+  { name: 'lineWidth', desc: '测量线宽度（像素）。', type: 'number?' },
+  { name: 'pointShow', desc: '是否显示完成测量的顶点标记。', type: 'boolean?' },
+  { name: 'pointColor', desc: '顶点标记颜色。', type: 'string?' },
+  { name: 'pointSzie', desc: '顶点标记大小（像素）；拼写与现有公开 API 保持一致。', type: 'number?' },
+  { name: 'textColor', desc: '距离和面积标签文字颜色。', type: 'string?' },
+  { name: 'textSize', desc: '当前版本尚未用于标签渲染。', type: 'number?' },
+  { name: 'textBackgroundColor', desc: '距离和面积标签背景色。', type: 'string?' },
+  { name: 'isShowTotalDistance', desc: '当前版本尚未参与标签显示。', type: 'boolean?' },
+  { name: 'callback', desc: '接收本次测量会话的数据。', type: '(event: <a href="#api-type-imeasureevent">IMeasureEvent</a>) =&gt; void' }
 ];
 const measureDataRows = [
-  { name: 'startP', desc: 'Segment start coordinate.', type: 'Coordinate' },
-  { name: 'endP', desc: 'Segment end coordinate.', type: 'Coordinate' },
-  { name: 'distance', desc: 'Segment distance in kilometres.', type: 'number' }
+  { name: 'startP', desc: '分段起点经纬度坐标。', type: 'Coordinate' },
+  { name: 'endP', desc: '分段终点经纬度坐标。', type: 'Coordinate' },
+  { name: 'distance', desc: '分段距离（km）。', type: 'number' }
 ];
 const measureEventRows = [
-  { name: 'data', desc: 'Segment data or polygon coordinates.', type: '<a href="#api-type-imeasuredata">IMeasureData</a>[] | any' },
-  { name: 'totalDistance', desc: 'Line measurement total in kilometres.', type: 'number?' },
-  { name: 'area', desc: 'Polygon area in square kilometres.', type: 'number?' }
+  { name: 'data', desc: '线测量为分段数据；面积测量为顶点经纬度坐标。', type: '<a href="#api-type-imeasuredata">IMeasureData</a>[] | Coordinate[]' },
+  { name: 'totalDistance', desc: '线测量总距离（km）。', type: 'number?' },
+  { name: 'area', desc: '面积测量结果（km²）。', type: 'number?' }
 ];
-const methods = [
-  ['lineSegmentation', 'Measure a line and display segment distances.', 'param: <a href="#api-type-imeasure">IMeasure</a>', 'void'],
-  ['lineFirst', 'Measure a line and show its first-point total.', 'param: <a href="#api-type-imeasure">IMeasure</a>', 'void'],
-  ['lineCenter', 'Measure a line from its centre.', 'param: <a href="#api-type-imeasure">IMeasure</a>', 'void'],
-  ['polygonMeasure', 'Measure a polygon area.', 'param: <a href="#api-type-imeasure">IMeasure</a>', 'void'],
-  ['clear', 'Remove active measurement interactions and graphics.', '—', 'void']
-] as const;
+const methods = [['clear', '取消当前测量会话，并移除测量图形、顶点标记和缓存数据。', '—', 'void']] as const;
 const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc, params, returns }));
 </script>
 
@@ -81,24 +70,32 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">Map interactions</span>
-        <h1>Measure</h1>
-        <p>Measure line distance and polygon area directly on the map, with callbacks that expose the completed data.</p>
+        <span class="doc-hero__eyebrow">Measure 测量工具</span>
+        <h1>概览与初始化</h1>
+        <p>在地图上量距离和面积，并通过回调获取完成的测量数据。</p>
       </header>
       <section id="overview" class="doc-prose">
-        <h2 class="doc-h2">Overview</h2>
+        <h2 class="doc-h2">概述</h2>
         <p>
-          <code>Earth.useMeasure()</code> provides line and area workflows. Configure each session with
-          <code><a href="#api-type-imeasure">IMeasure</a></code> and consume results through <code><a href="#api-type-imeasureevent">IMeasureEvent</a></code
-          >.
+          推荐通过 <a href="/guide/global-methods#api-methods"><code class="code-fn">earth.useMeasure()</code></a> 获取由 Earth 缓存的实例。距离测量请进入
+          <a href="/components/measure/distance#api-methods"><code class="code-fn">量距离</code></a
+          >，面积测量请进入 <a href="/components/measure/area#api-methods"><code class="code-fn">量面积</code></a
+          >。
+        </p>
+      </section>
+      <section id="lifecycle" class="doc-prose">
+        <h2 class="doc-h2">会话与清理</h2>
+        <p>
+          右键会结束当前测量会话。调用 <code class="code-fn"><a href="#api-methods">clear</a></code> 可中途取消并清空已有结果；销毁 Earth
+          时会自动执行同样的清理。
         </p>
       </section>
       <section id="examples" class="doc-prose">
-        <h2 class="doc-h2">Examples</h2>
-        <div id="example-line-and-area">
+        <h2 class="doc-h2">代码演示</h2>
+        <div id="example-initialize-measure">
           <ExampleBlock
-            title="Line and area measurement"
-            :description="`Start <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>lineSegmentation</a></code> or <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>polygonMeasure</a></code> and inspect callback values. Use <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>clear</a></code> to release the current measurement.`"
+            title="初始化测量工具"
+            :description="'通过 <code class=&quot;code-fn&quot;><a href=&quot;/guide/global-methods#api-methods&quot;>earth.useMeasure</a></code> 获取实例；需要清空会话时调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>clear</a></code>。'"
             :source="measureSource"
             ><template #preview><MeasureDemo /></template
           ></ExampleBlock>
@@ -106,26 +103,32 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>
-        <h3 id="api-types" class="doc-h3">Types</h3>
+        <div id="api-constructor" class="api-constructor">
+          <span class="api-constructor__label">构造器</span>
+          <code class="api-constructor__signature">new Measure(earth)</code>
+          <p><code>earth: Earth</code> — 地图实例。通常优先使用 <code>earth.useMeasure()</code>。</p>
+        </div>
+        <h3 id="api-types" class="doc-h3">类型定义</h3>
         <h4 id="api-type-imeasure" class="doc-h4">IMeasure</h4>
         <ApiTable :columns="propertyCols" :rows="measureRows" />
         <h4 id="api-type-imeasuredata" class="doc-h4">IMeasureData</h4>
         <ApiTable :columns="propertyCols" :rows="measureDataRows" />
         <h4 id="api-type-imeasureevent" class="doc-h4">IMeasureEvent</h4>
         <ApiTable :columns="propertyCols" :rows="measureEventRows" />
-        <h3 id="api-methods" class="doc-h3">Methods</h3>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
         <ApiTable :columns="methodCols" :rows="methodRows" />
       </section>
       <section id="tips" class="doc-prose">
-        <h2 class="doc-h2">Tips</h2>
+        <h2 class="doc-h2">注意事项</h2>
         <ul class="doc-list">
-          <li>Right-click exits the active measurement session; the callback then receives completed data.</li>
+          <li>绘制输入使用地图投影坐标；回调中的坐标为经纬度坐标。</li>
           <li>
-            Call <code class="code-fn"><a href="#api-methods">clear</a></code> before destroying its <code>Earth</code> instance.
+            组件卸载时可直接销毁 Earth；若实例需要继续复用，请先调用 <code class="code-fn"><a href="#api-methods">clear</a></code
+            >。
           </li>
         </ul>
       </section>
     </article>
-    <aside class="doc-page-layout__aside"><PageAnchor title="Measure" :items="anchors" /></aside>
+    <aside class="doc-page-layout__aside"><PageAnchor title="概览与初始化" :items="anchors" /></aside>
   </div>
 </template>
