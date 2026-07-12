@@ -34,13 +34,13 @@ export const sideGroups: SideGroup[] = [
     title: '地图交互',
     items: [
       {
-        label: 'GlobalEvent 全局事件',
+        label: 'GlobalEvent 地图事件',
         to: '/components/global-event',
         children: [
           { label: '概览与初始化', to: '/components/global-event' },
           { label: '全局鼠标事件', to: '/components/global-event/global-mouse' },
-          { label: '模块要素事件', to: '/components/global-event/module-events' },
-          { label: '键盘事件', to: '/components/global-event/keyboard' }
+          { label: '模块鼠标事件', to: '/components/global-event/module-events' },
+          { label: '全局键盘事件', to: '/components/global-event/keyboard' }
         ]
       },
       { label: 'ContextMenu 右键菜单', to: '/components/context-menu' },

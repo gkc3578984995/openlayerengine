@@ -53,8 +53,8 @@ describe('interaction documentation infrastructure', () => {
     const globalEventPages = [
       ['概览与初始化', '/components/global-event', 'GlobalEventView'],
       ['全局鼠标事件', '/components/global-event/global-mouse', 'GlobalEventGlobalMouseView'],
-      ['模块要素事件', '/components/global-event/module-events', 'GlobalEventModuleEventsView'],
-      ['键盘事件', '/components/global-event/keyboard', 'GlobalEventKeyboardView']
+      ['模块鼠标事件', '/components/global-event/module-events', 'GlobalEventModuleEventsView'],
+      ['全局键盘事件', '/components/global-event/keyboard', 'GlobalEventKeyboardView']
     ] as const;
 
     expect(navigation).toMatch(/export interface NavItem \{[\s\S]*?children\?: NavItem\[\];[\s\S]*?\}/);
@@ -68,6 +68,10 @@ describe('interaction documentation infrastructure', () => {
       expect(router).not.toContain(obsoleteEntry);
       expect(layout).not.toContain(obsoleteEntry);
     }
+    expect(navigation).toContain("label: 'GlobalEvent 地图事件'");
+    expect(layout).toContain("'/components/global-event/global-mouse': 'GlobalEvent 全局鼠标事件'");
+    expect(layout).toContain("'/components/global-event/module-events': 'GlobalEvent 模块鼠标事件'");
+    expect(layout).toContain("'/components/global-event/keyboard': 'GlobalEvent 全局键盘事件'");
     expect(layout).toContain('item.children');
     expect(layout).toContain('docs-sidebar__child-link');
     expect(layout).toContain('<div v-if="item.children" class="docs-sidebar__children">');
@@ -81,11 +85,9 @@ describe('interaction documentation infrastructure', () => {
 
     const [overview, globalMouse, moduleEvents, keyboard] = views;
     for (const view of views) {
-      expect(view).toContain('<span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>');
+      expect(view).toContain('<span class="doc-hero__eyebrow">GlobalEvent 地图事件</span>');
     }
     expect(overview).toContain('id="api-constructor"');
-    expect(overview).toContain('id="api-listener-control"');
-    expect(overview).toContain("presentation: 'method'");
     expect(overview).toContain('new GlobalEvent(earth)');
     expect(overview).toContain('href="/guide/global-methods#api-methods"');
     expect(overview).toContain('<h1>概览与初始化</h1>');
@@ -97,10 +99,16 @@ describe('interaction documentation infrastructure', () => {
       expect(overview).toContain(anchor);
       for (const child of views.slice(1)) expect(child).not.toContain(anchor);
     }
-    for (const path of globalEventPages.slice(1).map(([, path]) => path)) {
-      expect(overview).toContain(`href="${path}#api-methods"`);
-    }
-    expect(overview).toContain('href="#api-listener-control"');
+    expect(overview.indexOf("id: 'overview'")).toBeLessThan(overview.indexOf("id: 'listener-management'"));
+    expect(overview.indexOf("id: 'listener-management'")).toBeLessThan(overview.indexOf("id: 'examples'"));
+    expect(overview.indexOf("id: 'examples'")).toBeLessThan(overview.indexOf("id: 'api'"));
+    expect(overview.indexOf("id: 'api'")).toBeLessThan(overview.indexOf("id: 'tips'"));
+    expect(overview).not.toContain("id: 'api-methods'");
+    expect(overview).not.toContain("id: 'api-listener-control'");
+    expect(overview).toContain('add* 会自动启用对应的底层监听');
+    expect(overview).toContain('disable* 会停止对应底层监听并清空该类别的全部回调');
+    expect(overview).toContain('const dispose = earth.useGlobalEvent().addMouseClickEventByGlobal(onClick);');
+    expect(overview.indexOf('<section id="examples"')).toBeLessThan(overview.indexOf('<section id="api"'));
     for (const child of views.slice(1)) {
       expect(child).toContain("presentation: 'method'");
       expect(child).toContain('<PageAnchor');
@@ -178,12 +186,11 @@ describe('interaction documentation infrastructure', () => {
       .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
     expect(canonicalMethods).toHaveLength(58);
     expect(new Set(canonicalMethods)).toEqual(new Set(sourceMethods));
-    for (const method of listenerMethods) {
-      expect([...overview.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
-      for (const child of [globalMouse, moduleEvents, keyboard]) {
-        expect(child).not.toMatch(new RegExp(`\\[\\s*'${method}',`));
-      }
+    for (const child of [globalMouse, moduleEvents, keyboard]) {
+      expect(child).toContain('id="api-listener-control"');
+      expect(child).toContain('高级：底层监听控制');
     }
+    for (const method of listenerMethods) expect(overview).not.toMatch(new RegExp(`\\[\\s*'${method}',`));
     for (const method of keyboardMethods) {
       expect([...keyboard.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
     }
@@ -203,7 +210,7 @@ describe('interaction documentation infrastructure', () => {
       readFile('website/src/views/MeasureView.vue', 'utf8')
     ]);
     expect(router).not.toContain('const ContextMenuPlaceholderView');
-    expect(globalEvent).toContain('id="api-methods"');
+    expect(globalEvent).toContain('id="api-constructor"');
     expect(contextMenu).toContain('id="api-methods"');
     expect(contextMenu).toContain('id="api-type-icontextmenuoption"');
 
@@ -215,8 +222,8 @@ describe('interaction documentation infrastructure', () => {
     };
     const hrefs = [...globalMethods.matchAll(/href="(\/components\/(?:global-event|context-menu|dynamic-draw|measure)#[^"]+)"/g)].map((match) => match[1]);
     expect(hrefs).toEqual([
-      '/components/global-event#api-methods',
-      '/components/global-event#api-methods',
+      '/components/global-event#api-constructor',
+      '/components/global-event#api-constructor',
       '/components/context-menu#api-methods',
       '/components/context-menu#api-type-icontextmenuoption',
       '/components/context-menu#api-methods',
@@ -290,10 +297,9 @@ describe('interaction documentation infrastructure', () => {
     expect(contextDemo.indexOf('earth?.useContextMenu().destroy()')).toBeLessThan(contextDemo.indexOf('earth?.destroy()'));
   });
 
-  it('documents seven GlobalEvent lifecycle demos and their maintenance rules', async () => {
+  it('documents six GlobalEvent lifecycle demos and their maintenance rules', async () => {
     const examples = [
       ['GlobalEventView.vue', '最小完整生命周期', 'example-minimal-lifecycle', 'GlobalEventLifecycleDemo'],
-      ['GlobalEventView.vue', '高级：手动监听控制', 'example-advanced-listener-control', 'GlobalEventListenerControlDemo'],
       ['GlobalEventGlobalMouseView.vue', '持续全局事件', 'example-persistent-global-events', 'GlobalEventDemo'],
       ['GlobalEventGlobalMouseView.vue', '一次性事件与取消', 'example-once-events', 'GlobalEventOnceDemo'],
       ['GlobalEventModuleEventsView.vue', '模块回调生命周期', 'example-module-lifecycle', 'GlobalEventModuleDemo'],
@@ -302,7 +308,6 @@ describe('interaction documentation infrastructure', () => {
     ] as const;
     const sourceNames = {
       GlobalEventLifecycleDemo: 'globalEventLifecycleSource',
-      GlobalEventListenerControlDemo: 'globalEventListenerControlSource',
       GlobalEventDemo: 'globalEventSource',
       GlobalEventOnceDemo: 'globalEventOnceSource',
       GlobalEventModuleDemo: 'globalEventModuleSource',
@@ -333,7 +338,6 @@ describe('interaction documentation infrastructure', () => {
 
     const cleanupCalls = {
       GlobalEventLifecycleDemo: ['clickDisposer?.()'],
-      GlobalEventListenerControlDemo: ['clickDisposer?.()'],
       GlobalEventDemo: ['moveDisposer?.()', 'clickDisposer?.()'],
       GlobalEventOnceDemo: ['cancelOnceClick?.()', 'cancelOnceRightClick?.()'],
       GlobalEventModuleDemo: ['clickDisposer?.()', 'dblClickDisposer?.()'],
@@ -351,7 +355,7 @@ describe('interaction documentation infrastructure', () => {
       }
     }
 
-    const dailyDemos = examples.filter(([, , , component]) => component !== 'GlobalEventListenerControlDemo').map(([, , , component]) => demos[component]);
+    const dailyDemos = examples.map(([, , , component]) => demos[component]);
     for (const demo of dailyDemos) {
       expect(demo).toMatch(/add[A-Za-z]*Event/);
       expect(demo).toMatch(/(?:disposers|[A-Za-z]+Disposer|cancel[A-Za-z]*)/);
@@ -364,15 +368,11 @@ describe('interaction documentation infrastructure', () => {
       views['GlobalEventModuleEventsView.vue'],
       views['GlobalEventKeyboardView.vue']
     ];
-    expect(overview).toContain('常规代码使用');
-    expect(overview).toContain('批量清空');
-    expect(overview).toContain('href="#api-listener-control"');
-    expect(overview).toContain('返回的注销函数只移除一次注册');
-    expect(overview).toContain('href="/components/global-event/module-events#api-methods">removeModuleEvent</a>');
-    expect(overview).toContain('href="/components/global-event/module-events#api-methods">removeAllModuleEvents</a>');
-    expect(overview).toContain('移除某个模块的一种事件类别');
-    expect(overview).toContain('移除某个模块的全部事件类别');
-    expect(overview).toContain('<code>disable*</code> 则清空底层对应事件类别的全部注册');
+    expect(overview).toContain('重要提示：监听自动管理');
+    expect(overview).toContain('返回的注销函数只清理本次注册');
+    expect(overview).toContain('disable* 会停止对应底层监听并清空该类别的全部回调');
+    expect(overview).not.toContain('GlobalEventListenerControlDemo');
+    expect(overview).not.toContain('example-advanced-listener-control');
     expect(overview).toContain('href=&quot;/guide/global-methods#api-methods&quot;>earth.useGlobalEvent</a>');
     expect(overview).not.toContain('href=&quot;#api-methods&quot;>earth.useGlobalEvent</a>');
     expect(demos.GlobalEventLifecycleDemo).toContain('addMouseClickEventByGlobal');
@@ -403,14 +403,14 @@ describe('interaction documentation infrastructure', () => {
     expect(globalMethods).toContain('returns: \'<a href="#api-type-ifeatureatpixel">IFeatureAtPixel</a>\'');
     expect(globalMethods).toContain('params: \'<a href="/components/context-menu#api-type-icontextmenuoption">IContextMenuOption</a>?\'');
 
-    for (const [method, page, type] of [
-      ['useGlobalEvent', 'global-event', 'GlobalEvent'],
-      ['useContextMenu', 'context-menu', 'ContextMenu'],
-      ['useDrawTool', 'dynamic-draw', 'DynamicDraw'],
-      ['useMeasure', 'measure', 'Measure']
+    for (const [method, page, type, anchor] of [
+      ['useGlobalEvent', 'global-event', 'GlobalEvent', 'api-constructor'],
+      ['useContextMenu', 'context-menu', 'ContextMenu', 'api-methods'],
+      ['useDrawTool', 'dynamic-draw', 'DynamicDraw', 'api-methods'],
+      ['useMeasure', 'measure', 'Measure', 'api-methods']
     ]) {
-      expect(globalMethods).toContain(`<code class="code-fn"><a href="/components/${page}#api-methods">${method}</a></code>`);
-      expect(globalMethods).toContain(`returns: '<a href="/components/${page}#api-methods">${type}</a>'`);
+      expect(globalMethods).toContain(`<code class="code-fn"><a href="/components/${page}#${anchor}">${method}</a></code>`);
+      expect(globalMethods).toContain(`returns: '<a href="/components/${page}#${anchor}">${type}</a>'`);
     }
 
     expect(rules).toContain('公共类型只在其归属页面定义');

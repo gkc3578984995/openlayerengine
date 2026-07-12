@@ -26,8 +26,8 @@ const pageTitle = computed(() => {
   const globalEventTitles: Record<string, string> = {
     '/components/global-event': 'GlobalEvent 概览与初始化',
     '/components/global-event/global-mouse': 'GlobalEvent 全局鼠标事件',
-    '/components/global-event/module-events': 'GlobalEvent 模块要素事件',
-    '/components/global-event/keyboard': 'GlobalEvent 键盘事件'
+    '/components/global-event/module-events': 'GlobalEvent 模块鼠标事件',
+    '/components/global-event/keyboard': 'GlobalEvent 全局键盘事件'
   };
   if (globalEventTitles[route.path]) return globalEventTitles[route.path];
   if (route.path === '/components/context-menu') {

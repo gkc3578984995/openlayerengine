@@ -97,10 +97,10 @@ const methodRows = [
   },
   { name: 'getLayerAtFeature', desc: '根据 feature 获取其所属图层', params: 'Feature&lt;Geometry&gt;', returns: 'Layer | undefined' },
   {
-    name: '<code class="code-fn"><a href="/components/global-event#api-methods">useGlobalEvent</a></code>',
+    name: '<code class="code-fn"><a href="/components/global-event#api-constructor">useGlobalEvent</a></code>',
     desc: '获取全局事件管理器',
     params: '—',
-    returns: '<a href="/components/global-event#api-methods">GlobalEvent</a>'
+    returns: '<a href="/components/global-event#api-constructor">GlobalEvent</a>'
   },
   {
     name: '<code class="code-fn"><a href="/components/context-menu#api-methods">useContextMenu</a></code>',

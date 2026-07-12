@@ -128,13 +128,13 @@ describe('website API presentation', () => {
     ]) {
       expect(globalScript).toContain(`name: '${method}'`);
     }
-    for (const [method, path] of [
-      ['useGlobalEvent', '/components/global-event'],
-      ['useContextMenu', '/components/context-menu'],
-      ['useDrawTool', '/components/dynamic-draw'],
-      ['useMeasure', '/components/measure']
+    for (const [method, path, anchor] of [
+      ['useGlobalEvent', '/components/global-event', 'api-constructor'],
+      ['useContextMenu', '/components/context-menu', 'api-methods'],
+      ['useDrawTool', '/components/dynamic-draw', 'api-methods'],
+      ['useMeasure', '/components/measure', 'api-methods']
     ]) {
-      expect(globalScript).toContain(`name: '<code class="code-fn"><a href="${path}#api-methods">${method}</a></code>'`);
+      expect(globalScript).toContain(`name: '<code class="code-fn"><a href="${path}#${anchor}">${method}</a></code>'`);
     }
 
     expect(earthCreate).toContain('<code><a href="#api-constructor">Earth</a></code> 是所有图层能力的入口');
@@ -164,7 +164,7 @@ describe('website API presentation', () => {
       readFile('website/src/assets/styles/index.scss', 'utf8')
     ]);
 
-    expect(globalMethods).toContain('<code class="code-fn"><a href="/components/global-event#api-methods">useGlobalEvent</a></code>');
+    expect(globalMethods).toContain('<code class="code-fn"><a href="/components/global-event#api-constructor">useGlobalEvent</a></code>');
     expect(globalMethods).toContain('<code class="code-fn"><a href="/components/context-menu#api-methods">useContextMenu</a></code>');
     expect(styles).toMatch(/\.api-table__method \.code-fn a\s*\{[^}]*color: inherit;/s);
   });
