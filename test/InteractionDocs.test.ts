@@ -647,7 +647,13 @@ describe('interaction documentation infrastructure', () => {
   });
 
   it('splits DynamicDraw documentation by scenario with unique API anchors', async () => {
-    const viewFiles = ['DynamicDrawView.vue', 'DynamicDrawBasicGeometryView.vue', 'DynamicDrawAdvancedGeometryView.vue', 'DynamicDrawEditingView.vue', 'DynamicDrawManagementView.vue'] as const;
+    const viewFiles = [
+      'DynamicDrawView.vue',
+      'DynamicDrawBasicGeometryView.vue',
+      'DynamicDrawAdvancedGeometryView.vue',
+      'DynamicDrawEditingView.vue',
+      'DynamicDrawManagementView.vue'
+    ] as const;
     const [navigation, router, layout, globalMethods, ...views] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
@@ -727,7 +733,13 @@ describe('interaction documentation infrastructure', () => {
       expect(area).not.toContain(`id="api-type-${type}"`);
       expect(remove).not.toContain(`id="api-type-${type}"`);
     }
-    for (const [method, owner] of Object.entries({ clear: overview, lineSegmentation: distance, lineFirst: distance, lineCenter: distance, polygonMeasure: area })) {
+    for (const [method, owner] of Object.entries({
+      clear: overview,
+      lineSegmentation: distance,
+      lineFirst: distance,
+      lineCenter: distance,
+      polygonMeasure: area
+    })) {
       expect(owner).toMatch(new RegExp(`\\[\\s*'${method}',`));
     }
     expect(overview).not.toContain('MeasureDemo');
@@ -745,5 +757,4 @@ describe('interaction documentation infrastructure', () => {
       expect(demo).toContain('earth.destroy');
     }
   });
-
 });
