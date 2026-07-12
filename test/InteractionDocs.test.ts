@@ -42,8 +42,7 @@ describe('interaction documentation infrastructure', () => {
       'website/src/views/GlobalEventView.vue',
       'website/src/views/GlobalEventGlobalMouseView.vue',
       'website/src/views/GlobalEventModuleEventsView.vue',
-      'website/src/views/GlobalEventKeyboardView.vue',
-      'website/src/views/GlobalEventListenerControlView.vue'
+      'website/src/views/GlobalEventKeyboardView.vue'
     ] as const;
     const [navigation, layout, router, source, ...views] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
@@ -57,8 +56,7 @@ describe('interaction documentation infrastructure', () => {
       ['概览与初始化', '/components/global-event', 'GlobalEventView'],
       ['全局鼠标事件', '/components/global-event/global-mouse', 'GlobalEventGlobalMouseView'],
       ['模块要素事件', '/components/global-event/module-events', 'GlobalEventModuleEventsView'],
-      ['键盘事件', '/components/global-event/keyboard', 'GlobalEventKeyboardView'],
-      ['监听控制', '/components/global-event/listener-control', 'GlobalEventListenerControlView']
+      ['键盘事件', '/components/global-event/keyboard', 'GlobalEventKeyboardView']
     ] as const;
 
     expect(navigation).toMatch(/export interface NavItem \{[\s\S]*?children\?: NavItem\[\];[\s\S]*?\}/);
@@ -66,6 +64,11 @@ describe('interaction documentation infrastructure', () => {
       expect(navigation).toContain(`{ label: '${label}', to: '${path}' }`);
       expect(router).toContain(`import ${component} from '../views/${component}.vue';`);
       expect(router).toMatch(new RegExp(`path: '${path.slice(1)}',[\\s\\S]*?component: ${component}`));
+    }
+    for (const obsoleteEntry of ['listener-control', 'GlobalEventListenerControlView']) {
+      expect(navigation).not.toContain(obsoleteEntry);
+      expect(router).not.toContain(obsoleteEntry);
+      expect(layout).not.toContain(obsoleteEntry);
     }
     expect(layout).toContain('item.children');
     expect(layout).toContain('docs-sidebar__child-link');
@@ -78,11 +81,13 @@ describe('interaction documentation infrastructure', () => {
     expect(layout).toContain('route.path.startsWith(`${item.to}/`)');
     expect(layout).toContain(':class="{ \'is-active\': route.path === child.to }"');
 
-    const [overview, globalMouse, moduleEvents, keyboard, listenerControl] = views;
+    const [overview, globalMouse, moduleEvents, keyboard] = views;
     for (const view of views) {
       expect(view).toContain('<span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>');
     }
     expect(overview).toContain('id="api-constructor"');
+    expect(overview).toContain('id="api-listener-control"');
+    expect(overview).toContain("presentation: 'method'");
     expect(overview).toContain('new GlobalEvent(earth)');
     expect(overview).toContain('href="/guide/global-methods#api-methods"');
     expect(overview).toContain('<h1>概览与初始化</h1>');
@@ -97,6 +102,7 @@ describe('interaction documentation infrastructure', () => {
     for (const path of globalEventPages.slice(1).map(([, path]) => path)) {
       expect(overview).toContain(`href="${path}#api-methods"`);
     }
+    expect(overview).toContain('href="#api-listener-control"');
     for (const child of views.slice(1)) {
       expect(child).toContain("presentation: 'method'");
       expect(child).toContain('<PageAnchor');
@@ -104,8 +110,6 @@ describe('interaction documentation infrastructure', () => {
     }
     expect(globalMouse).toContain('/components/global-event#api-type-globaleventcallback');
     expect(moduleEvents).toContain('/components/global-event#api-type-moduleeventcallback');
-    expect(listenerControl).toContain('href=&quot;/components/global-event/global-mouse#api-methods&quot;>addMouseClickEventByGlobal');
-    expect(listenerControl).toContain('href=&quot;/components/global-event/global-mouse#api-methods&quot;>hasGlobalMouseClickEvent');
 
     const globalMouseMethods = [
       'addMouseMoveEventByGlobal',
@@ -141,7 +145,7 @@ describe('interaction documentation infrastructure', () => {
       'removeModuleEvent',
       'removeAllModuleEvents'
     ];
-    const keyboardMethods = ['addKeyDownEventByGlobal', 'enableGlobalKeyDownEvent', 'disableGlobalKeyDownEvent', 'hasGlobalKeyDownEvent'];
+    const keyboardMethods = ['addKeyDownEventByGlobal', 'hasGlobalKeyDownEvent'];
     const listenerMethods = [
       'enableModuleMouseMoveEvent',
       'enableModuleMouseClickEvent',
@@ -166,7 +170,9 @@ describe('interaction documentation infrastructure', () => {
       'disableGlobalMouseLeftDownEvent',
       'disableGlobalMouseLeftUpEvent',
       'disableGlobalMouseDblClickEvent',
-      'disableGlobalMouseRightClickEvent'
+      'disableGlobalMouseRightClickEvent',
+      'enableGlobalKeyDownEvent',
+      'disableGlobalKeyDownEvent'
     ];
     const canonicalMethods = [...globalMouseMethods, ...moduleMethods, ...keyboardMethods, ...listenerMethods];
     const sourceMethods = [...source.matchAll(/^ {2}(?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
@@ -174,6 +180,15 @@ describe('interaction documentation infrastructure', () => {
       .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
     expect(canonicalMethods).toHaveLength(58);
     expect(new Set(canonicalMethods)).toEqual(new Set(sourceMethods));
+    for (const method of listenerMethods) {
+      expect([...overview.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
+      for (const child of [globalMouse, moduleEvents, keyboard]) {
+        expect(child).not.toMatch(new RegExp(`\\[\\s*'${method}',`));
+      }
+    }
+    for (const method of keyboardMethods) {
+      expect([...keyboard.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
+    }
     const allPages = views.join('\n');
     for (const method of sourceMethods) {
       expect([...allPages.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
@@ -277,18 +292,16 @@ describe('interaction documentation infrastructure', () => {
     expect(contextDemo.indexOf('earth?.useContextMenu().destroy()')).toBeLessThan(contextDemo.indexOf('earth?.destroy()'));
   });
 
-  it('documents four focused GlobalEvent demos and their maintenance rules', async () => {
+  it('documents three focused GlobalEvent demos and their maintenance rules', async () => {
     const demos = [
       ['GlobalEventGlobalMouseView.vue', 'GlobalEventDemo.vue', 'example-global-mouse-events'],
       ['GlobalEventModuleEventsView.vue', 'GlobalEventModuleDemo.vue', 'example-module-feature-events'],
-      ['GlobalEventKeyboardView.vue', 'GlobalEventKeyboardDemo.vue', 'example-keyboard-events'],
-      ['GlobalEventListenerControlView.vue', 'GlobalEventListenerControlDemo.vue', 'example-listener-control']
+      ['GlobalEventKeyboardView.vue', 'GlobalEventKeyboardDemo.vue', 'example-keyboard-events']
     ] as const;
     const exampleDetails = {
       'example-global-mouse-events': { title: '全局移动与点击', sourceName: 'globalEventSource' },
       'example-module-feature-events': { title: '模块要素点击', sourceName: 'moduleEventSource' },
-      'example-keyboard-events': { title: '键盘注册与取消', sourceName: 'keyboardEventSource' },
-      'example-listener-control': { title: '监听启停与重新注册', sourceName: 'listenerControlSource' }
+      'example-keyboard-events': { title: '键盘注册与取消', sourceName: 'keyboardEventSource' }
     } as const;
 
     const pairs = await Promise.all(
@@ -314,13 +327,11 @@ describe('interaction documentation infrastructure', () => {
       expect(view).toMatch(new RegExp(`:source="${sourceName}"\\s*>\\s*<template #preview>\\s*<${componentName}\\s*\\/>`, 's'));
       expect(example, `${exampleFile} should use the configured map source`).toContain('createConfiguredLayer');
       expect(example, `${exampleFile} should destroy Earth`).toContain('earthRef.value?.destroy()');
-      if (exampleFile !== 'GlobalEventListenerControlDemo.vue') {
-        expect(example, `${exampleFile} should clean up registrations`).toContain('disposers.splice(0).forEach');
-        expect(example.indexOf('disposers.splice(0).forEach'), `${exampleFile} cleanup order`).toBeLessThan(example.indexOf('earthRef.value?.destroy()'));
-      }
+      expect(example, `${exampleFile} should clean up registrations`).toContain('disposers.splice(0).forEach');
+      expect(example.indexOf('disposers.splice(0).forEach'), `${exampleFile} cleanup order`).toBeLessThan(example.indexOf('earthRef.value?.destroy()'));
     }
 
-    const [[, globalMouseDemo], [, moduleDemo], [, keyboardDemo], [, listenerDemo]] = pairs;
+    const [[, globalMouseDemo], [, moduleDemo], [, keyboardDemo]] = pairs;
     expect(globalMouseDemo).toContain('addMouseMoveEventByGlobal');
     expect(globalMouseDemo).toContain('addMouseClickEventByGlobal');
     expect(globalMouseDemo).toContain('hasGlobalMouseClickEvent');
@@ -330,17 +341,6 @@ describe('interaction documentation infrastructure', () => {
     expect(moduleDemo).toContain('removeAllModuleEvents');
     expect(keyboardDemo).toContain('addKeyDownEventByGlobal');
     expect(keyboardDemo).toContain('hasGlobalKeyDownEvent');
-    expect(listenerDemo).toContain('enableGlobalMouseClickEvent');
-    expect(listenerDemo).toContain('disableGlobalMouseClickEvent');
-    expect(listenerDemo).toContain('let clickDisposer: (() => void) | null = null;');
-    expect(listenerDemo).not.toContain('const disposers: Array<() => void>');
-    expect(listenerDemo).toMatch(/if \(clickDisposer\) return;/);
-    expect(listenerDemo).toMatch(/if \(!events\.hasGlobalMouseClickEvent\(\)\) \{[\s\S]*?events\.enableGlobalMouseClickEvent\(\)/);
-    expect(listenerDemo).toMatch(/if \(events\.hasGlobalMouseClickEvent\(\)\) \{[\s\S]*?events\.disableGlobalMouseClickEvent\(\)/);
-    expect(listenerDemo).toMatch(/disableGlobalMouseClickEvent\(\);[\s\S]*?clickDisposer = null;/);
-    expect(listenerDemo).toMatch(/if \(events\.hasGlobalMouseClickEvent\(\) && !clickDisposer\) \{[\s\S]*?events\.disableGlobalMouseClickEvent\(\)/);
-    expect(listenerDemo.indexOf('clickDisposer?.()')).toBeLessThan(listenerDemo.indexOf('earthRef.value?.destroy()'));
-
     const moduleEventsView = pairs[1][0];
     for (const method of ['add*EventByModule', 'addMouseClickEventByModule', 'removeModuleEvent', 'removeAllModuleEvents']) {
       expect(moduleEventsView).toMatch(new RegExp(`<code class="code-fn"><a href="#api-methods">${method.replace('*', '\\*')}</a></code\\s*>`));

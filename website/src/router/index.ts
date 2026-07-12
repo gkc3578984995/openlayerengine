@@ -10,7 +10,6 @@ import GlobalEventView from '../views/GlobalEventView.vue';
 import GlobalEventGlobalMouseView from '../views/GlobalEventGlobalMouseView.vue';
 import GlobalEventModuleEventsView from '../views/GlobalEventModuleEventsView.vue';
 import GlobalEventKeyboardView from '../views/GlobalEventKeyboardView.vue';
-import GlobalEventListenerControlView from '../views/GlobalEventListenerControlView.vue';
 import ContextMenuView from '../views/ContextMenuView.vue';
 import DynamicDrawView from '../views/DynamicDrawView.vue';
 import MeasureView from '../views/MeasureView.vue';
@@ -71,11 +70,6 @@ const router = createRouter({
           path: 'components/global-event/keyboard',
           name: 'global-event-keyboard',
           component: GlobalEventKeyboardView
-        },
-        {
-          path: 'components/global-event/listener-control',
-          name: 'global-event-listener-control',
-          component: GlobalEventListenerControlView
         },
         {
           path: 'components/context-menu',

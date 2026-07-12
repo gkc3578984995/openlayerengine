@@ -19,8 +19,6 @@ const methodCols = [
 ];
 const methods = [
   ['addKeyDownEventByGlobal', '注册全局键盘按下回调', 'callback: (event: KeyboardEvent) =&gt; void', '() =&gt; void'],
-  ['enableGlobalKeyDownEvent', '启用全局键盘监听', '—', 'void'],
-  ['disableGlobalKeyDownEvent', '停用全局键盘监听并清空回调', '—', 'void'],
   ['hasGlobalKeyDownEvent', '检查是否存在全局键盘回调', '—', 'boolean']
 ] as const;
 const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc, params, returns }));
