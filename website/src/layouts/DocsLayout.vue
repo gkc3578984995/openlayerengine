@@ -11,6 +11,7 @@ const route = useRoute();
 const mainScrollbar = ref<ScrollbarInstance>();
 const mainScrollTop = ref(0);
 const theme = ref<Theme>(getTheme(window.localStorage));
+const docVersion = __OL_DOC_VERSION__;
 
 const isDark = computed(() => theme.value === 'dark');
 
@@ -105,8 +106,9 @@ const pageTitle = computed(() => {
   <div class="docs-shell">
     <header class="docs-header">
       <div class="docs-header__inner">
-        <RouterLink class="docs-header__logo" to="/">
-          <span class="docs-header__logo-text">ol-doc</span>
+        <RouterLink class="docs-header__logo" to="/" :aria-label="`OL-DOC v${docVersion}`">
+          <span class="docs-header__logo-text">OL-DOC</span>
+          <span class="docs-header__version">v{{ docVersion }}</span>
         </RouterLink>
         <div class="docs-header__spacer" />
         <nav class="docs-header__nav">
