@@ -86,6 +86,22 @@ describe('base layer documentation pages', () => {
     }
   });
 
+  it('PolylineLayer documents current flow and flight cleanup limitations', async () => {
+    const [viewSource, flightDemoSource] = await Promise.all([
+      readFile('website/src/views/PolylineLayerView.vue', 'utf8'),
+      readFile('website/src/examples/PolylineLayerFlightDemo.vue', 'utf8')
+    ]);
+
+    expect(viewSource).toContain('透明要素');
+    expect(viewSource).toContain('不会解绑飞行线的 postrender 监听');
+    expect(viewSource).toContain('流动线不能通过 hide(id) / show(id) 保留并恢复动画');
+    expect(flightDemoSource).toContain('SAFE_NOOP_FLIGHT_ID');
+    expect(flightDemoSource).toContain('.setFlightPosition(SAFE_NOOP_FLIGHT_ID');
+    expect(flightDemoSource).toContain('.removeFlightLine(SAFE_NOOP_FLIGHT_ID');
+    expect(flightDemoSource).toContain('当前公开 API 无法主动解绑飞行线的 postrender 监听');
+    expect(flightDemoSource).not.toContain('@click="addFlight"');
+  });
+
   it('registers all five pages without adding WindLayer', async () => {
     const [navigation, router, layout] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),

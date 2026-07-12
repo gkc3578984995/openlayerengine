@@ -82,12 +82,27 @@ const manualMethodRows = [
   { name: 'add(param)', desc: '添加普通线、箭头线或流动虚线', params: '', returns: '' },
   { name: 'addFlightLine(param)', desc: '添加一条曲线飞行动画', params: '', returns: '' },
   { name: 'setPosition(id, position)', desc: '更新普通线、箭头线或流动线坐标', params: '', returns: '' },
-  { name: 'remove(id?)', desc: '移除指定线并清理其流动动画；不传 id 时清空全部普通线', params: '', returns: '' },
-  { name: 'setFlightPosition(id, position)', desc: '更新指定飞行线的起终点坐标', params: '', returns: '' },
-  { name: 'removeFlightLine(id?)', desc: '移除指定飞行线；不传 id 时清空全部飞行线', params: '', returns: '' },
+  {
+    name: 'remove(id?)',
+    desc: '普通线/箭头线按 id 删除；流动线传 id 时只停止动画并留下透明要素，须用无参 remove() 清空后重建',
+    params: '',
+    returns: ''
+  },
+  {
+    name: 'setFlightPosition(id, position)',
+    desc: '更新飞行线坐标，但当前实现会重新注册 postrender 监听；避免对同一实例重复调用',
+    params: '',
+    returns: ''
+  },
+  {
+    name: 'removeFlightLine(id?)',
+    desc: '移除飞行要素与缓存，但当前实现不会解绑飞行线的 postrender 监听',
+    params: '',
+    returns: ''
+  },
   { name: 'set(param)', desc: '更新非飞行线的坐标、样式或行为配置', params: '', returns: '' },
-  { name: 'hide(id?)', desc: '隐藏指定线；不传 id 时隐藏整个线图层', params: '', returns: '' },
-  { name: 'show(id?)', desc: '恢复指定线；不传 id 时显示整个线图层', params: '', returns: '' }
+  { name: 'hide(id?)', desc: '普通线/箭头线可按 id 隐藏；流动线按 id 隐藏无法保留动画状态；无参时隐藏图层', params: '', returns: '' },
+  { name: 'show(id?)', desc: '恢复普通线/箭头线或显示图层；流动线不能通过 hide(id) / show(id) 保留并恢复动画', params: '', returns: '' }
 ];
 
 const methodRows = getPolylineLayerMethodRows(manualMethodRows);
@@ -211,7 +226,7 @@ const polylineFlyParamRows = getPolylineLayerInterfaceRows('IPolylineFlyParam', 
         <div id="example-flight">
           <ExampleBlock
             title="飞行线"
-            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addFlightLine</a></code> 创建动画，使用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>setFlightPosition</a></code> 更新终点，并以 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeFlightLine</a></code> 清理飞行线资源。`"
+            :description="`限制演示：只用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addFlightLine</a></code> 实际创建一次非循环飞行线；<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>setFlightPosition</a></code> 与 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeFlightLine</a></code> 使用不存在的 id 执行一次安全空操作，避免当前实现累积无法公开解绑的监听。`"
             :source="polylineFlightSource"
           >
             <template #preview><PolylineLayerFlightDemo /></template>
@@ -269,11 +284,16 @@ const polylineFlyParamRows = getPolylineLayerInterfaceRows('IPolylineFlyParam', 
             >；飞行线的 <code><a href="#api-polylineflyparam">width</a></code> 仍然有效。
           </li>
           <li>
-            流动线持有渲染监听，删除时应调用 <code class="code-fn"><a href="#api-methods">remove</a></code
-            >；飞行线应单独调用 <code class="code-fn"><a href="#api-methods">removeFlightLine</a></code
-            >。
+            流动线调用 <code class="code-fn"><a href="#api-methods">remove</a></code
+            ><code>(id)</code> 时只注销动画 key，仍会在数据源留下透明要素；请保存参数，调用无参
+            <code class="code-fn"><a href="#api-methods">remove</a></code> 清空图层后再重建需要保留的线。
           </li>
-          <li>页面销毁时先清理飞行线与线图层，再销毁 <code>Earth</code>，避免动画和地图资源残留。</li>
+          <li>流动线不能通过 hide(id) / show(id) 保留并恢复动画；需要显隐整个图层时使用无参调用，需要单线显隐时采用“无参 remove → 按保存参数重建”。</li>
+          <li>
+            当前 <code class="code-fn"><a href="#api-methods">setFlightPosition</a></code> 会重新注册监听，而
+            <code class="code-fn"><a href="#api-methods">removeFlightLine</a></code> 不会解绑飞行线的 postrender
+            监听。页面应避免重复创建或更新飞行线；卸载时仍按“移除飞行要素 → 销毁图层 → 销毁 Earth”收尾，但不要将其描述为完整监听清理。
+          </li>
         </ul>
       </section>
     </article>
