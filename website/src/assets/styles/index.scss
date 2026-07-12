@@ -11,6 +11,17 @@
   --doc-radius: 20px;
 }
 
+.api-table__tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #ecf5ff;
+  color: #409eff;
+  font-size: 12px;
+  line-height: 18px;
+}
+
 * {
   box-sizing: border-box;
 }

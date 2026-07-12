@@ -42,7 +42,6 @@ const anchors: AnchorItem[] = [
     children: [
       { id: 'api-constructor', label: '构造参数' },
       { id: 'api-methods', label: '方法' },
-      { id: 'api-inherited', label: '通用图层操作' },
       { id: 'api-pointparam', label: 'IPointParam' },
       { id: 'api-setpointparam', label: 'ISetPointParam' },
       { id: 'api-types', label: '类型定义' }
@@ -118,7 +117,7 @@ const manualMethodRows = [
   }
 ];
 
-const methodRows = getPointLayerMethodRows(manualMethodRows);
+const pointLayerMethodRows = getPointLayerMethodRows(manualMethodRows);
 
 const inheritedMethodRows = getBaseMethodRows([
   { name: 'getUpdatedParam(feature)', desc: '读取要素的最新状态并返回参数快照。', params: '', returns: '' },
@@ -129,7 +128,9 @@ const inheritedMethodRows = getBaseMethodRows([
   { name: 'setLayerIndex(index)', desc: '设置图层层级。', params: '', returns: '' },
   { name: 'getLayer()', desc: '获取底层 OpenLayers VectorLayer。', params: '', returns: '' },
   { name: 'destroy()', desc: '销毁图层并清理资源。', params: '', returns: '' }
-]);
+]).map((row) => ({ ...row, name: `${row.name} <span class="api-table__tag">继承</span>` }));
+
+const methodRows = [...pointLayerMethodRows, ...inheritedMethodRows];
 
 const manualPointParamRows = [
   { name: 'id', desc: '点唯一标识', type: 'string', options: '—', default: '—' },
@@ -289,10 +290,6 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
         <!-- 2. 方法 -->
         <h3 id="api-methods" class="doc-h3">方法</h3>
         <ApiTable :columns="methodCols" :rows="methodRows" />
-
-        <h3 id="api-inherited" class="doc-h3">通用图层操作（继承自 Base）</h3>
-        <p class="doc-prose__hint">这些方法适用于所有基于 <code>Base</code> 的图层；<code>remove</code> 由 PointLayer 重写，已在上方方法表展示。</p>
-        <ApiTable :columns="methodCols" :rows="inheritedMethodRows" />
 
         <!-- 3. 方法参数属性 -->
         <h3 id="api-pointparam" class="doc-h3">IPointParam</h3>
