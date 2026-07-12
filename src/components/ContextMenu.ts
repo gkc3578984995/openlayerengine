@@ -225,11 +225,6 @@ export default class ContextMenu {
     this.anchorCoordinate = undefined;
   }
 
-  /** @deprecated 请使用 {@link destroy}。 */
-  destory(): void {
-    this.destroy();
-  }
-
   private watchContextMenu(): void {
     const viewport = this.earth.map.getViewport?.();
     viewport?.addEventListener('contextmenu', this.handleContextMenu);
