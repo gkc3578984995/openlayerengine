@@ -303,6 +303,121 @@ describe('interaction documentation infrastructure', () => {
     expect(views[5]).toContain('deprecated');
   });
 
+  it('keeps every ContextMenu example self-contained and scoped to its documented behavior', async () => {
+    const examples = [
+      ['ContextMenuLifecycleDemo', 'addDefaultMenu'],
+      ['ContextMenuDefaultMenuDemo', 'addDefaultMenu'],
+      ['ContextMenuDefaultMenuCallbackDemo', 'addDefaultMenu'],
+      ['ContextMenuModuleMenuDemo', 'addModuleMenu'],
+      ['ContextMenuModuleMenuGuardDemo', 'addModuleMenu'],
+      ['ContextMenuModuleMenuCallbackDemo', 'addModuleMenu'],
+      ['ContextMenuNestedMenuDemo', 'child:'],
+      ['ContextMenuMutexMenuDemo', 'mutexKey'],
+      ['ContextMenuVisibilityDemo', 'setDefaultMenuState'],
+      ['ContextMenuStateToggleDemo', 'toggleModuleMenuState'],
+      ['ContextMenuThemeDemo', 'setTheme'],
+      ['ContextMenuRemoveDefaultDemo', 'removeDefaultMenu'],
+      ['ContextMenuRemoveModuleDemo', 'clearModuleMenuState']
+    ] as const;
+    for (const obsolete of ['ContextMenuScenarioDemo.vue', 'ContextMenuDemo.vue']) {
+      expect(await readFile(`website/src/examples/${obsolete}`, 'utf8').catch(() => '')).toBe('');
+    }
+    const globalExamples = new Set([
+      'ContextMenuLifecycleDemo',
+      'ContextMenuDefaultMenuDemo',
+      'ContextMenuDefaultMenuCallbackDemo',
+      'ContextMenuNestedMenuDemo',
+      'ContextMenuMutexMenuDemo',
+      'ContextMenuVisibilityDemo',
+      'ContextMenuThemeDemo',
+      'ContextMenuRemoveDefaultDemo'
+    ]);
+    const moduleExamples = new Set([
+      'ContextMenuModuleMenuDemo',
+      'ContextMenuModuleMenuGuardDemo',
+      'ContextMenuModuleMenuCallbackDemo',
+      'ContextMenuStateToggleDemo',
+      'ContextMenuRemoveModuleDemo'
+    ]);
+    for (const [name, api] of examples) {
+      const source = await readFile(`website/src/examples/${name}.vue`, 'utf8');
+      expect(source).toContain('new Earth');
+      expect(source).toContain('createConfiguredLayer');
+      expect(source).toContain('onBeforeUnmount');
+      expect(source).toContain(api);
+      expect([...source.matchAll(/key:\s*'/g)].length).toBeGreaterThanOrEqual(3);
+      if (globalExamples.has(name)) expect(source).not.toContain('addModuleMenu');
+      if (moduleExamples.has(name)) expect(source).not.toContain('addDefaultMenu');
+    }
+    const visibility = await readFile('website/src/examples/ContextMenuVisibilityDemo.vue', 'utf8');
+    expect(visibility).toContain('setVisibility(true)');
+    expect(visibility).toContain('setVisibility(false)');
+    expect(visibility).toContain('getDefaultMenuState');
+    const theme = await readFile('website/src/examples/ContextMenuThemeDemo.vue', 'utf8');
+    expect(theme).toContain('setTheme(dark)');
+    expect(theme).toContain('toggleTheme()');
+    const callback = await readFile('website/src/examples/ContextMenuModuleMenuCallbackDemo.vue', 'utf8');
+    expect(callback).toContain("feature.set('param'");
+    for (const file of ['ContextMenuRemoveDefaultDemo.vue', 'ContextMenuRemoveModuleDemo.vue']) {
+      expect(await readFile(`website/src/examples/${file}`, 'utf8')).not.toContain('registered.value = !(');
+    }
+    const expectedKeys: Record<string, string[]> = {
+      ContextMenuLifecycleDemo: ['mark-location', 'copy-coordinate', 'reset-view'],
+      ContextMenuDefaultMenuDemo: ['locate', 'measure', 'clear-marks'],
+      ContextMenuDefaultMenuCallbackDemo: ['save-location', 'report-problem', 'share-position'],
+      ContextMenuModuleMenuDemo: ['locate-vehicle', 'view-track', 'view-detail'],
+      ContextMenuModuleMenuGuardDemo: ['vehicle-detail', 'edit-vehicle', 'delete-vehicle'],
+      ContextMenuModuleMenuCallbackDemo: ['dispatch', 'contact-driver', 'open-work-order'],
+      ContextMenuNestedMenuDemo: [
+        'vehicle-actions',
+        'navigate',
+        'track',
+        'track-live',
+        'track-export',
+        'alarm-actions',
+        'alarm-list',
+        'alarm-confirm',
+        'refresh-data'
+      ],
+      ContextMenuMutexMenuDemo: ['show-label', 'hide-label', 'enable-follow', 'stop-follow'],
+      ContextMenuVisibilityDemo: ['save-current', 'export-current', 'open-history'],
+      ContextMenuStateToggleDemo: ['view-track', 'locate-vehicle', 'vehicle-detail'],
+      ContextMenuThemeDemo: ['open-panel', 'save-view', 'share-view'],
+      ContextMenuRemoveDefaultDemo: ['save-map', 'copy-link', 'reset-map'],
+      ContextMenuRemoveModuleDemo: ['view-track', 'locate-vehicle', 'vehicle-detail']
+    };
+    for (const [name, keys] of Object.entries(expectedKeys)) {
+      const source = await readFile(`website/src/examples/${name}.vue`, 'utf8');
+      expect([...source.matchAll(/key:\s*'([^']+)'/g)].map((match) => match[1])).toEqual(keys);
+    }
+    const guard = await readFile('website/src/examples/ContextMenuModuleMenuGuardDemo.vue', 'utf8');
+    expect(guard).toContain('const canEdit = ref(false)');
+    expect(guard).toContain("menu.key === 'vehicle-detail' || canEdit.value");
+    const cleanup = await readFile('website/src/examples/ContextMenuRemoveModuleDemo.vue', 'utf8');
+    for (const api of ['setModuleMenuState', 'clearModuleMenuState', 'getModuleMenuState', 'removeModuleMenu']) expect(cleanup).toContain(api);
+    const componentViews: Record<string, string> = {
+      ContextMenuLifecycleDemo: 'ContextMenuOverviewView.vue',
+      ContextMenuDefaultMenuDemo: 'ContextMenuDefaultMenuView.vue',
+      ContextMenuDefaultMenuCallbackDemo: 'ContextMenuDefaultMenuView.vue',
+      ContextMenuModuleMenuDemo: 'ContextMenuModuleMenuView.vue',
+      ContextMenuModuleMenuGuardDemo: 'ContextMenuModuleMenuView.vue',
+      ContextMenuModuleMenuCallbackDemo: 'ContextMenuModuleMenuView.vue',
+      ContextMenuNestedMenuDemo: 'ContextMenuCascadeMenuView.vue',
+      ContextMenuMutexMenuDemo: 'ContextMenuCascadeMenuView.vue',
+      ContextMenuVisibilityDemo: 'ContextMenuStateView.vue',
+      ContextMenuStateToggleDemo: 'ContextMenuStateView.vue',
+      ContextMenuThemeDemo: 'ContextMenuStateView.vue',
+      ContextMenuRemoveDefaultDemo: 'ContextMenuCleanupView.vue',
+      ContextMenuRemoveModuleDemo: 'ContextMenuCleanupView.vue'
+    };
+    for (const [component, viewFile] of Object.entries(componentViews)) {
+      const view = await readFile(`website/src/views/${viewFile}`, 'utf8');
+      const rawImport = new RegExp(`import (\\w+) from '../examples/${component}\\.vue\\?raw';`).exec(view);
+      expect(rawImport, `${component} should have a raw source import`).not.toBeNull();
+      expect(view).toMatch(new RegExp(`:source="${rawImport?.[1]}"\\s*>\\s*<template #preview>\\s*<${component}\\s*/>`, 's'));
+    }
+  });
+
   it('documents six GlobalEvent lifecycle demos and their maintenance rules', async () => {
     const examples = [
       ['GlobalEventView.vue', '最小完整生命周期', 'example-minimal-lifecycle', 'GlobalEventLifecycleDemo'],

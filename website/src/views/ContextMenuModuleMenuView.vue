@@ -57,7 +57,10 @@ const rows = [
           ></ExampleBlock>
         </div>
         <div id="example-module-menu-guard">
-          <ExampleBlock title="模块菜单守卫" :description="'before 返回 false 或抛出异常时，对应叶子菜单项禁用。'" :source="guardSource"
+          <ExampleBlock
+            title="模块菜单守卫"
+            :description="'before 根据当前权限返回 false 时，对应叶子菜单项禁用；切换权限后重新右键即可观察变化。'"
+            :source="guardSource"
             ><template #preview><ContextMenuModuleMenuGuardDemo /></template
           ></ExampleBlock>
         </div>
