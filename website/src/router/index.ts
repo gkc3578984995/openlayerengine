@@ -17,6 +17,10 @@ import ContextMenuCascadeMenuView from '../views/ContextMenuCascadeMenuView.vue'
 import ContextMenuStateView from '../views/ContextMenuStateView.vue';
 import ContextMenuCleanupView from '../views/ContextMenuCleanupView.vue';
 import DynamicDrawView from '../views/DynamicDrawView.vue';
+import DynamicDrawBasicGeometryView from '../views/DynamicDrawBasicGeometryView.vue';
+import DynamicDrawAdvancedGeometryView from '../views/DynamicDrawAdvancedGeometryView.vue';
+import DynamicDrawEditingView from '../views/DynamicDrawEditingView.vue';
+import DynamicDrawManagementView from '../views/DynamicDrawManagementView.vue';
 import MeasureView from '../views/MeasureView.vue';
 import MeasureDistanceView from '../views/MeasureDistanceView.vue';
 import MeasureAreaView from '../views/MeasureAreaView.vue';
@@ -113,6 +117,26 @@ const router = createRouter({
           path: 'components/dynamic-draw',
           name: 'dynamic-draw',
           component: DynamicDrawView
+        },
+        {
+          path: 'components/dynamic-draw/basic-geometry',
+          name: 'dynamic-draw-basic-geometry',
+          component: DynamicDrawBasicGeometryView
+        },
+        {
+          path: 'components/dynamic-draw/advanced-geometry',
+          name: 'dynamic-draw-advanced-geometry',
+          component: DynamicDrawAdvancedGeometryView
+        },
+        {
+          path: 'components/dynamic-draw/editing',
+          name: 'dynamic-draw-editing',
+          component: DynamicDrawEditingView
+        },
+        {
+          path: 'components/dynamic-draw/management',
+          name: 'dynamic-draw-management',
+          component: DynamicDrawManagementView
         },
         {
           path: 'components/measure',

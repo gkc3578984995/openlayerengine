@@ -39,9 +39,6 @@ const pageTitle = computed(() => {
     '/components/context-menu/cleanup': 'ContextMenu 菜单移除与清理'
   };
   if (contextMenuTitles[route.path]) return contextMenuTitles[route.path];
-  if (route.path === '/components/dynamic-draw') {
-    return 'DynamicDraw 动态绘制';
-  }
   const measureTitles: Record<string, string> = {
     '/components/measure': 'Measure 概览与初始化',
     '/components/measure/distance': 'Measure 量距离',
@@ -49,6 +46,14 @@ const pageTitle = computed(() => {
     '/components/measure/remove': 'Measure 移除测量'
   };
   if (measureTitles[route.path]) return measureTitles[route.path];
+  const dynamicDrawTitles: Record<string, string> = {
+    '/components/dynamic-draw': 'DynamicDraw 概览与接入',
+    '/components/dynamic-draw/basic-geometry': 'DynamicDraw 基础几何绘制',
+    '/components/dynamic-draw/advanced-geometry': 'DynamicDraw 高级几何绘制',
+    '/components/dynamic-draw/editing': 'DynamicDraw 几何编辑',
+    '/components/dynamic-draw/management': 'DynamicDraw 图形管理'
+  };
+  if (dynamicDrawTitles[route.path]) return dynamicDrawTitles[route.path];
   if (route.path === '/guide/quick-start') {
     return '安装与引入';
   }

@@ -125,7 +125,7 @@ describe('website API presentation', () => {
     for (const [method, path, anchor] of [
       ['useGlobalEvent', '/components/global-event', 'api-constructor'],
       ['useContextMenu', '/components/context-menu', 'api-constructor'],
-      ['useDrawTool', '/components/dynamic-draw', 'api-methods'],
+      ['useDrawTool', '/components/dynamic-draw', 'api-constructor'],
       ['useMeasure', '/components/measure', 'api-methods']
     ]) {
       expect(globalScript).toContain(`name: '<code class="code-fn"><a href="${path}#${anchor}">${method}</a></code>'`);

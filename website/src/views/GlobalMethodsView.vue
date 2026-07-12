@@ -109,10 +109,10 @@ const methodRows = [
     returns: '<a href="/components/context-menu#api-constructor">ContextMenu</a>'
   },
   {
-    name: '<code class="code-fn"><a href="/components/dynamic-draw#api-methods">useDrawTool</a></code>',
+    name: '<code class="code-fn"><a href="/components/dynamic-draw#api-constructor">useDrawTool</a></code>',
     desc: '获取动态绘制工具',
     params: '—',
-    returns: '<a href="/components/dynamic-draw#api-methods">DynamicDraw</a>'
+    returns: '<a href="/components/dynamic-draw#api-constructor">DynamicDraw</a>'
   },
   {
     name: '<code class="code-fn"><a href="/components/measure#api-methods">useMeasure</a></code>',
