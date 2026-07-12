@@ -1,14 +1,35 @@
 <script setup lang="ts">
+import ApiTable from '../components/docs/ApiTable.vue';
 import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
 import LayerCommonDemo from '../examples/LayerCommonDemo.vue';
 import layerCommonSource from '../examples/LayerCommonDemo.vue?raw';
+import { getBaseMethodRows } from '../docs/pointLayerApi';
 
 const anchors = [
   { id: 'overview', label: '概述' },
   { id: 'example-common', label: '代码演示' },
-  { id: 'coverage', label: '方法覆盖' }
+  { id: 'api', label: 'API', children: [{ id: 'api-methods', label: '方法' }] },
+  { id: 'tips', label: '注意事项' }
 ];
+
+const methodCols = [
+  { prop: 'name', label: '方法名', width: 220, presentation: 'method' as const },
+  { prop: 'desc', label: '说明', width: 320 },
+  { prop: 'params', label: '参数', width: 220, monospace: true },
+  { prop: 'returns', label: '返回值', width: 180, monospace: true }
+];
+
+const baseMethodRows = getBaseMethodRows([
+  { name: 'getUpdatedParam(feature)', desc: '读取要素的最新参数快照。', params: '', returns: '' },
+  { name: 'get(id?)', desc: '获取全部要素，或按 id 获取指定要素。', params: '', returns: '' },
+  { name: 'hide(id?)', desc: '隐藏整个图层，或隐藏指定要素。', params: '', returns: '' },
+  { name: 'show(id?)', desc: '显示整个图层，或恢复指定要素。', params: '', returns: '' },
+  { name: 'setLayerOpacity(opacity)', desc: '设置图层透明度。', params: '', returns: '' },
+  { name: 'setLayerIndex(index)', desc: '设置图层层级。', params: '', returns: '' },
+  { name: 'getLayer()', desc: '获取底层 OpenLayers VectorLayer。', params: '', returns: '' },
+  { name: 'destroy()', desc: '销毁图层并释放资源。', params: '', returns: '' }
+]);
 </script>
 
 <template>
@@ -38,12 +59,18 @@ const anchors = [
         </ExampleBlock>
       </section>
 
-      <section id="coverage" class="doc-prose">
-        <h2 class="doc-h2">方法覆盖</h2>
+      <section id="api" class="doc-prose">
+        <h2 class="doc-h2">API</h2>
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <ApiTable :columns="methodCols" :rows="baseMethodRows" />
+      </section>
+
+      <section id="tips" class="doc-prose">
+        <h2 class="doc-h2">注意事项</h2>
         <ul class="doc-list">
-          <li>查询：<code>get</code>、<code>getUpdatedParam</code>、<code>getLayer</code></li>
-          <li>显示与层级：<code>hide</code>、<code>show</code>、<code>setLayerOpacity</code>、<code>setLayerIndex</code></li>
-          <li>生命周期：<code>destroy</code>。销毁后不能恢复原图层，应创建新的图层实例。</li>
+          <li><code>hide</code> 与 <code>show</code> 不传 id 时作用于整个图层；传入 id 时只影响对应要素。</li>
+          <li><code>setLayerOpacity</code> 的范围为 0 到 100；<code>setLayerIndex</code> 会影响图层叠放顺序。</li>
+          <li><code>destroy</code> 销毁后不可恢复，后续需要使用时应重新创建图层实例。</li>
         </ul>
       </section>
     </article>
