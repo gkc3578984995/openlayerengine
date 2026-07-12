@@ -24,6 +24,7 @@
   --home-map-marker: #ef5b5b;
   --home-elevated-shadow: 0 28px 70px rgba(15, 23, 42, 0.2);
   --home-accent-soft: rgba(64, 158, 255, 0.12);
+  --home-focus-ring: #1d4ed8;
   --home-status: #16a06a;
   --home-status-soft: rgba(22, 160, 106, 0.14);
 }
@@ -53,6 +54,7 @@ html.dark {
   --home-map-marker: #ff8585;
   --home-elevated-shadow: 0 30px 74px rgba(0, 0, 0, 0.46);
   --home-accent-soft: rgba(121, 187, 255, 0.14);
+  --home-focus-ring: #a0cfff;
   --home-status: #5ee6a8;
   --home-status-soft: rgba(94, 230, 168, 0.14);
 }
@@ -457,7 +459,7 @@ code {
 
 .home-hero__action:focus-visible,
 .home-module-card:focus-visible {
-  outline: 3px solid var(--home-accent-soft);
+  outline: 3px solid var(--home-focus-ring);
   outline-offset: 3px;
 }
 

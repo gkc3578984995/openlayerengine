@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 
 const readHome = () => readFileSync(resolve(process.cwd(), 'website/src/views/HomeView.vue'), 'utf8');
 const readStyles = () => readFileSync(resolve(process.cwd(), 'website/src/assets/styles/index.scss'), 'utf8');
-const readHomeStyles = () => readFileSync(resolve(process.cwd(), 'website/src/assets/styles/index.scss'), 'utf8');
 
 describe('website homepage content', () => {
   it('introduces the library and links every canonical starting point', () => {
@@ -16,6 +15,8 @@ describe('website homepage content', () => {
     for (const route of ['/guide/quick-start', '/guide/earth-create', '/components/point-layer', '/components/measure', '/components/dynamic-draw']) {
       expect(home).toContain(route);
     }
+    expect(home).toContain("{ label: '浏览组件', to: '/components/point-layer', primary: false }");
+    expect(home).not.toContain("{ label: '创建地图', to: '/guide/earth-create', primary: false }");
   });
 
   it('keeps both explicit package-title segments intact at responsive widths', () => {
@@ -74,20 +75,26 @@ describe('website homepage content', () => {
   });
 
   it('provides a theme-aware and responsive homepage visual system', () => {
-    const styles = readHomeStyles();
+    const styles = readStyles();
     const rootTokens = styles.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
     const darkTokens = styles.match(/html\.dark\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
 
     expect(rootTokens).toContain('--home-workbench-surface:');
     expect(darkTokens).toContain('--home-workbench-surface:');
+    expect(rootTokens).toContain('--home-focus-ring: #1d4ed8;');
+    expect(darkTokens).toContain('--home-focus-ring: #a0cfff;');
 
     for (const selector of ['.home-hero__inner', '.home-workbench', '.home-capabilities__grid', '.home-modules__grid', '.home-module-card']) {
       expect(styles).toContain(selector);
     }
 
+    expect(styles).toMatch(/@media \(max-width: 1180px\)\s*\{[\s\S]*?\.home(?:-hero__inner|-capabilities|-modules)/);
     expect(styles).toMatch(/@media \(max-width: 860px\)\s*\{[\s\S]*?\.home-hero__inner/);
     expect(styles).toMatch(/@media \(max-width: 560px\)\s*\{[\s\S]*?\.home-hero__actions/);
     expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.home-/);
+    expect(styles).toMatch(
+      /\.home-hero__action:focus-visible,\s*\.home-module-card:focus-visible\s*\{[^}]*outline:\s*3px solid var\(--home-focus-ring\);[^}]*outline-offset:\s*3px;/s
+    );
     expect(styles).not.toMatch(/\.home-module-card:focus-visible\s*\{[^}]*outline:\s*none/);
     expect(styles).not.toContain('.home-sponsors');
   });
