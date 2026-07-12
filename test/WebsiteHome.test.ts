@@ -76,6 +76,7 @@ describe('website homepage content', () => {
     expect(styles).toMatch(/@media \(max-width: 860px\)\s*\{[\s\S]*?\.home-hero__inner/);
     expect(styles).toMatch(/@media \(max-width: 560px\)\s*\{[\s\S]*?\.home-hero__actions/);
     expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.home-/);
+    expect(styles).not.toMatch(/\.home-module-card:focus-visible\s*\{[^}]*outline:\s*none/);
     expect(styles).not.toContain('.home-sponsors');
   });
 });
