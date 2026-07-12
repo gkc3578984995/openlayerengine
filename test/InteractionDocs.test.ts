@@ -363,8 +363,8 @@ describe('interaction documentation infrastructure', () => {
     }
     const expectedKeys: Record<string, string[]> = {
       ContextMenuLifecycleDemo: ['mark-location', 'copy-coordinate', 'reset-view'],
-      ContextMenuDefaultMenuDemo: ['locate', 'measure', 'clear-marks'],
-      ContextMenuDefaultMenuCallbackDemo: ['save-location', 'report-problem', 'share-position'],
+      ContextMenuDefaultMenuDemo: ['add-task', 'add-warning', 'clear-marks'],
+      ContextMenuDefaultMenuCallbackDemo: ['save-location', 'focus-position', 'coordinate-label'],
       ContextMenuModuleMenuDemo: ['locate-vehicle', 'view-track', 'view-detail'],
       ContextMenuModuleMenuGuardDemo: ['vehicle-detail', 'edit-vehicle', 'delete-vehicle'],
       ContextMenuModuleMenuCallbackDemo: ['dispatch', 'contact-driver', 'open-work-order'],
@@ -416,6 +416,43 @@ describe('interaction documentation infrastructure', () => {
       expect(rawImport, `${component} should have a raw source import`).not.toBeNull();
       expect(view).toMatch(new RegExp(`:source="${rawImport?.[1]}"\\s*>\\s*<template #preview>\\s*<${component}\\s*/>`, 's'));
     }
+  });
+
+  it('connects every ContextMenu example to observable map interactions without teaching auxiliary APIs', async () => {
+    const requiredMutations: Record<string, string[]> = {
+      ContextMenuLifecycleDemo: ['markerLayer.add', 'markerLayer.remove', 'earth.flyHome'],
+      ContextMenuDefaultMenuDemo: ['markerLayer.add', 'markerLayer.remove'],
+      ContextMenuDefaultMenuCallbackDemo: ['markerLayer.add', 'earth.flyTo'],
+      ContextMenuModuleMenuDemo: ['earth.flyTo', 'vehicles.setPosition', 'vehicles.remove'],
+      ContextMenuModuleMenuGuardDemo: ['vehicles.setPosition', 'vehicles.remove'],
+      ContextMenuModuleMenuCallbackDemo: ['taskLayer.add', 'statusLayer.add'],
+      ContextMenuNestedMenuDemo: ['vehicleLayer', 'trackLayer', 'alarmLayer'],
+      ContextMenuMutexMenuDemo: ['labelLayer.show', 'labelLayer.hide', 'trackLayer.show', 'trackLayer.hide'],
+      ContextMenuVisibilityDemo: ['featureLayer.show', 'featureLayer.hide'],
+      ContextMenuStateToggleDemo: ['trackLayer.show', 'trackLayer.hide'],
+      ContextMenuThemeDemo: ['sceneLayer.add', 'earth.flyTo'],
+      ContextMenuRemoveDefaultDemo: ['markerLayer.add'],
+      ContextMenuRemoveModuleDemo: ['trackLayer.show', 'trackLayer.hide']
+    };
+    for (const [name, mutations] of Object.entries(requiredMutations)) {
+      const source = await readFile(`website/src/examples/${name}.vue`, 'utf8');
+      for (const mutation of mutations) expect(source, `${name} should perform ${mutation}`).toContain(mutation);
+    }
+    for (const name of ['ContextMenuModuleMenuDemo', 'ContextMenuModuleMenuGuardDemo']) {
+      const source = await readFile(`website/src/examples/${name}.vue`, 'utf8');
+      expect(source, `${name} should narrow the optional feature id before map mutations`).toContain('if (!featureId) return;');
+    }
+    const contextViews = await Promise.all(
+      [
+        'ContextMenuOverviewView.vue',
+        'ContextMenuDefaultMenuView.vue',
+        'ContextMenuModuleMenuView.vue',
+        'ContextMenuCascadeMenuView.vue',
+        'ContextMenuStateView.vue',
+        'ContextMenuCleanupView.vue'
+      ].map((file) => readFile(`website/src/views/${file}`, 'utf8'))
+    );
+    for (const view of contextViews) expect(view).not.toMatch(/PointLayer|PolylineLayer|Base\.|Earth\.flyTo/);
   });
 
   it('documents six GlobalEvent lifecycle demos and their maintenance rules', async () => {

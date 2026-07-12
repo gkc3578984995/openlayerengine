@@ -66,17 +66,17 @@ const themeRows = [
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
         <div id="example-menu-visibility">
-          <ExampleBlock title="菜单项显示与隐藏" :description="'通过 setDefaultMenuState 隐藏指定默认菜单项。'" :source="visibilitySource"
+          <ExampleBlock title="菜单项显示与隐藏" :description="'切换功能可用性后，对应菜单项和地图对象会同步显示或隐藏。'" :source="visibilitySource"
             ><template #preview><ContextMenuVisibilityDemo /></template
           ></ExampleBlock>
         </div>
         <div id="example-menu-state-toggle">
-          <ExampleBlock title="菜单项状态切换" :description="'通过 toggleModuleMenuState 切换某个模块要素的菜单项。'" :source="toggleSource"
+          <ExampleBlock title="菜单项状态切换" :description="'分别控制两辆车的轨迹状态，观察每辆车的菜单与轨迹互不影响。'" :source="toggleSource"
             ><template #preview><ContextMenuStateToggleDemo /></template
           ></ExampleBlock>
         </div>
         <div id="example-menu-theme">
-          <ExampleBlock title="菜单主题切换" :description="'初始化时可使用 isDarkTheme；运行时使用 setTheme 或 toggleTheme。'" :source="themeSource"
+          <ExampleBlock title="菜单主题切换" :description="'在指挥中心、车辆仓库和巡检现场之间定位，并切换深浅菜单主题观察显示效果。'" :source="themeSource"
             ><template #preview><ContextMenuThemeDemo /></template
           ></ExampleBlock>
         </div>

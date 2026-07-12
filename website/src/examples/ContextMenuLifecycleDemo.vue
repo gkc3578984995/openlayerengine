@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
-import { Earth, type IContextMenuItem } from '@vrsim/earth-engine-ol';
+import { Earth, PointLayer, type IContextMenuItem } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/dist/index.es.css';
 import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
@@ -17,8 +17,24 @@ const items: IContextMenuItem[] = [
 onMounted(() => {
   const earth = new Earth({ center: fromLonLat([116.4074, 39.9042]), zoom: 5 }, { target: mapId });
   earth.addLayer(createConfiguredLayer(earth, 'vector'));
+  const markerLayer = new PointLayer(earth, { register: false });
   earth.useContextMenu().addDefaultMenu(items, ({ menu, position }) => {
-    feedback.value = `已执行“${menu.label}”，位置：${position.map((value) => value.toFixed(4)).join(', ')}`;
+    const center = fromLonLat(position);
+    if (menu.key === 'mark-location') {
+      markerLayer.add({ id: `mark-${Date.now()}`, center, size: 9, fill: { color: '#409eff' }, stroke: { color: '#ffffff', width: 2 } });
+      feedback.value = `已在 ${position.map((value) => value.toFixed(4)).join(', ')} 添加临时标记。`;
+      return;
+    }
+    if (menu.key === 'copy-coordinate') {
+      markerLayer.remove('copied-position');
+      markerLayer.add({ id: 'copied-position', center, size: 8, fill: { color: '#67c23a' }, label: { text: '已复制坐标', offsetY: 20 } });
+      void navigator.clipboard?.writeText(position.map((value) => value.toFixed(6)).join(', ')).catch(() => undefined);
+      feedback.value = '坐标已复制，绿色标记表示最近一次复制的位置。';
+      return;
+    }
+    markerLayer.remove();
+    earth.flyHome();
+    feedback.value = '临时标记已清除，地图已返回初始视图。';
   });
   earthRef.value = earth;
 });

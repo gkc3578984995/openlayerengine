@@ -61,12 +61,15 @@ const lifecycleRows = [
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
         <div id="example-remove-default-menu">
-          <ExampleBlock title="移除全局菜单" :description="'调用 removeDefaultMenu 后，空白区域不再显示默认菜单。'" :source="defaultSource"
+          <ExampleBlock title="移除全局菜单" :description="'菜单可用时右键能够添加标记；移除后不再响应，重新注册即可恢复。'" :source="defaultSource"
             ><template #preview><ContextMenuRemoveDefaultDemo /></template
           ></ExampleBlock>
         </div>
         <div id="example-remove-module-menu-state">
-          <ExampleBlock title="移除模块菜单与清理要素状态" :description="'先清理一个要素状态，再移除整个模块菜单。'" :source="moduleSource"
+          <ExampleBlock
+            title="移除模块菜单与清理要素状态"
+            :description="'先建立并清理车辆轨迹状态，再移除模块菜单；车辆仍保留在地图中。'"
+            :source="moduleSource"
             ><template #preview><ContextMenuRemoveModuleDemo /></template
           ></ExampleBlock>
         </div>

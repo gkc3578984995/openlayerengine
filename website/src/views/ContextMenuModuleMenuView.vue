@@ -52,20 +52,17 @@ const rows = [
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
         <div id="example-add-module-menu">
-          <ExampleBlock title="添加模块菜单" :description="'右键蓝色要素以命中模块菜单。'" :source="moduleSource"
+          <ExampleBlock title="添加模块菜单" :description="'右键车辆可定位、移动或移除当前车辆，地图会立即反映操作结果。'" :source="moduleSource"
             ><template #preview><ContextMenuModuleMenuDemo /></template
           ></ExampleBlock>
         </div>
         <div id="example-module-menu-guard">
-          <ExampleBlock
-            title="模块菜单守卫"
-            :description="'before 根据当前权限返回 false 时，对应叶子菜单项禁用；切换权限后重新右键即可观察变化。'"
-            :source="guardSource"
+          <ExampleBlock title="模块菜单守卫" :description="'无编辑权限时车辆移动与删除项不可用；切换权限后重新右键即可执行对应地图操作。'" :source="guardSource"
             ><template #preview><ContextMenuModuleMenuGuardDemo /></template
           ></ExampleBlock>
         </div>
         <div id="example-module-menu-callback">
-          <ExampleBlock title="模块菜单点击回调" :description="'点击回调读取命中要素的 featureId。'" :source="callbackSource"
+          <ExampleBlock title="模块菜单点击回调" :description="'针对命中的车辆，可创建调度任务点、状态标记或工单位置。'" :source="callbackSource"
             ><template #preview><ContextMenuModuleMenuCallbackDemo /></template
           ></ExampleBlock>
         </div>

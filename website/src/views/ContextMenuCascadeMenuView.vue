@@ -44,12 +44,15 @@ const anchors = [
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
         <div id="example-nested-menu">
-          <ExampleBlock title="多级子菜单" :description="'车辆操作包含导航叶子项和轨迹子级，轨迹下继续提供实时查看与导出操作。'" :source="nestedSource"
+          <ExampleBlock
+            title="多级子菜单"
+            :description="'车辆、轨迹和告警操作按层级展开；选择叶子项后，对应对象会在地图中定位、显示或隐藏。'"
+            :source="nestedSource"
             ><template #preview><ContextMenuNestedMenuDemo /></template
           ></ExampleBlock>
         </div>
         <div id="example-mutex-menu">
-          <ExampleBlock title="互斥菜单项" :description="'点击显示或隐藏后，互斥菜单项会交替出现。'" :source="mutexSource"
+          <ExampleBlock title="互斥菜单项" :description="'车辆标签和行驶轨迹各有一组显示、隐藏操作；执行后地图内容与互斥菜单项同步切换。'" :source="mutexSource"
             ><template #preview><ContextMenuMutexMenuDemo /></template
           ></ExampleBlock>
         </div>
