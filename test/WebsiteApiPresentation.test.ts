@@ -41,10 +41,12 @@ describe('website API presentation', () => {
     expect(styles).toContain('.api-table__property a {');
     expect(styles).toContain('.api-table__method {');
     expect(styles).toContain('.api-table__method .code-fn {');
+    expect(styles).toMatch(/\.api-table__method\s*\{[^}]*background: var\(--el-fill-color, #f0f2f5\);[^}]*font-family:/s);
     expect(styles).not.toContain('.api-table code.code-fn {');
     expect(rules).toContain('API 表格中的构造器、属性名和方法名使用固定视觉层级');
     expect(rules).toContain('api-table__property');
     expect(rules).toContain('api-table__method');
+    expect(rules).toContain('浅灰背景的深灰代码块');
     expect(rules).toContain('api-constructor__signature');
   });
 });

@@ -8,7 +8,7 @@ API 表格中的构造器、属性名和方法名使用固定视觉层级：
 
 - 构造器必须使用 `api-constructor` 容器和 `api-constructor__signature` 签名样式，作为 API 区域最明显的入口。
 - 属性名列必须声明 `presentation: 'property'`，由 `api-table__property` 显示为浅灰色。
-- 方法名列必须声明 `presentation: 'method'`，由 `api-table__method` 显示为深灰色；即使方法名包含可点击锚点，也不得使用蓝色的 API 表格样式。
+- 方法名列必须声明 `presentation: 'method'`，由 `api-table__method` 显示为浅灰背景的深灰代码块；即使方法名包含可点击锚点，也不得使用蓝色的 API 表格样式。
 - 正文和示例说明中的可点击方法引用继续使用蓝色 `code-fn` 样式，用于与 API 定义表区分。
 
 - 属性和类型引用使用默认的中性代码样式：`<code><a href="#api-property">propertyOrType</a></code>`。
