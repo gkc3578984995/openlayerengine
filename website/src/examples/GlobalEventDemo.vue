@@ -10,29 +10,29 @@ const earthRef = shallowRef<Earth | null>(null);
 const moveState = ref('在地图上移动鼠标');
 const clickState = ref('等待地图点击');
 const clickRegistered = ref(false);
-const disposers: Array<() => void> = [];
+let moveDisposer: (() => void) | null = null;
+let clickDisposer: (() => void) | null = null;
 const center = fromLonLat([116.4074, 39.9042]);
 
 onMounted(() => {
   const earth = new Earth({ center, zoom: 5 }, { target: mapId });
   earth.addLayer(createConfiguredLayer(earth, 'vector'));
   const events = earth.useGlobalEvent();
-  disposers.push(
-    events.addMouseMoveEventByGlobal(({ position }) => {
-      const [longitude, latitude] = position.map((value) => value.toFixed(4));
-      moveState.value = `移动：${longitude}, ${latitude}`;
-    }),
-    events.addMouseClickEventByGlobal(({ position, pixel }) => {
-      const [longitude, latitude] = position.map((value) => value.toFixed(4));
-      clickState.value = `点击：${longitude}, ${latitude}（像素 ${pixel.join(', ')}）`;
-    })
-  );
+  moveDisposer = events.addMouseMoveEventByGlobal(({ position }) => {
+    const [longitude, latitude] = position.map((value) => value.toFixed(4));
+    moveState.value = `移动：${longitude}, ${latitude}`;
+  });
+  clickDisposer = events.addMouseClickEventByGlobal(({ position, pixel }) => {
+    const [longitude, latitude] = position.map((value) => value.toFixed(4));
+    clickState.value = `点击：${longitude}, ${latitude}（像素 ${pixel.join(', ')}）`;
+  });
   clickRegistered.value = events.hasGlobalMouseClickEvent();
   earthRef.value = earth;
 });
 
 onBeforeUnmount(() => {
-  disposers.splice(0).forEach((dispose) => dispose());
+  moveDisposer?.();
+  clickDisposer?.();
   earthRef.value?.destroy();
 });
 </script>

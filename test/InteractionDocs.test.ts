@@ -333,6 +333,26 @@ describe('interaction documentation infrastructure', () => {
       expect(demo.indexOf('onBeforeUnmount'), `${component} cleanup should precede destroy`).toBeLessThan(demo.indexOf('earthRef.value?.destroy()'));
     }
 
+    const cleanupCalls = {
+      GlobalEventLifecycleDemo: ['clickDisposer?.()'],
+      GlobalEventListenerControlDemo: ['clickDisposer?.()'],
+      GlobalEventDemo: ['moveDisposer?.()', 'clickDisposer?.()'],
+      GlobalEventOnceDemo: ['cancelOnceClick?.()', 'cancelOnceRightClick?.()'],
+      GlobalEventModuleDemo: ['clickDisposer?.()', 'dblClickDisposer?.()'],
+      GlobalEventModuleCleanupDemo: ['clickDisposer?.()', 'dblClickDisposer?.()'],
+      GlobalEventKeyboardDemo: ['cancelKeyDown?.()']
+    } as const;
+    for (const [component, calls] of Object.entries(cleanupCalls)) {
+      const demo = demos[component as keyof typeof demos];
+      const cleanupStart = demo.indexOf('onBeforeUnmount(() => {');
+      const destroy = demo.indexOf('earthRef.value?.destroy()');
+      for (const call of calls) {
+        const callIndex = demo.indexOf(call, cleanupStart);
+        expect(callIndex, `${component} should call ${call} during unmount cleanup`).toBeGreaterThan(cleanupStart);
+        expect(callIndex, `${component} should call ${call} before destroying Earth`).toBeLessThan(destroy);
+      }
+    }
+
     const dailyDemos = examples.filter(([, , , component]) => component !== 'GlobalEventListenerControlDemo').map(([, , , component]) => demos[component]);
     for (const demo of dailyDemos) {
       expect(demo).toMatch(/add[A-Za-z]*Event/);
