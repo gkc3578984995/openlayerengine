@@ -28,7 +28,7 @@ describe('interaction documentation infrastructure', () => {
       ['DynamicDraw 动态绘制', '/components/dynamic-draw', 'dynamic-draw', 'DynamicDraw 动态绘制'],
       ['Measure 测量工具', '/components/measure', 'measure', 'Measure 概览与初始化']
     ]) {
-      const item = label === 'DynamicDraw 动态绘制' ? `{\n        label: '${label}', to: '${path}', children:` : `{ label: '${label}', to: '${path}' }`;
+      const item = label === 'DynamicDraw 动态绘制' ? `label: '${label}', to: '${path}', children:` : `{ label: '${label}', to: '${path}' }`;
       const itemIndex =
         label.includes('ContextMenu') || label.includes('Measure') ? interactionGroup.indexOf(`label: '${label}'`) : interactionGroup.indexOf(item);
       expect(itemIndex).toBeGreaterThan(previousItemIndex);
@@ -677,7 +677,37 @@ describe('interaction documentation infrastructure', () => {
       expect(editing).toContain(`id="api-type-${type}"`);
     }
     expect(advanced).toContain('/components/dynamic-draw/basic-geometry#api-type-idrawpolygon');
+    expect(advanced).toContain('advancedDynamicDrawGeometries.map');
+    expect(advanced).toContain('从选择器选择高级图形');
+    expect(editing).toContain('选择图形后先完成绘制');
     expect(management).toContain('destroy');
+  });
+
+  it('drives DynamicDraw selector examples and edit descriptions from shared geometry metadata', async () => {
+    const [geometries, advancedDemo, editingDemo, editingView] = await Promise.all([
+      readFile('website/src/config/dynamicDrawGeometries.ts', 'utf8'),
+      readFile('website/src/examples/DynamicDrawAdvancedGeometryDemo.vue', 'utf8'),
+      readFile('website/src/examples/DynamicDrawEditingDemo.vue', 'utf8'),
+      readFile('website/src/views/DynamicDrawEditingView.vue', 'utf8')
+    ]);
+
+    expect(geometries).toContain('export const advancedDynamicDrawGeometries');
+    expect(geometries).toContain('const dynamicDrawEditMethods =');
+    expect(geometries.match(/value: '/g)).toHaveLength(20);
+    expect(advancedDemo).toContain('advancedDynamicDrawGeometries');
+    expect(advancedDemo).toContain('<el-select v-model="selectedGeometry">');
+    expect(editingDemo).toContain('editableDynamicDrawGeometries');
+    expect(editingDemo).toContain('<el-select v-model="selectedGeometry" :disabled="isInteractionActive">');
+    expect(editingDemo).toContain('const featureGeometry = ref<string | null>(null);');
+    expect(editingDemo).toContain('const lastValidSelection = ref(selectedGeometry.value);');
+    expect(editingDemo).toContain('const isInteractionActive = computed');
+    expect(editingDemo).toContain('if (selectedGeometry.value !== geometry.value) return;');
+    expect(editingDemo).toContain(':disabled="isInteractionActive"');
+    expect(editingDemo).toContain(':disabled="!canEdit"');
+    expect(editingView).toContain('editableDynamicDrawGeometries');
+    expect(geometries).toContain('调整圆心和半径。');
+    expect(editingView).toContain('editDescription: desc');
+    expect(editingView).not.toContain("desc: '编辑对应的已绘制图形。'");
   });
 
   it('assigns Measure APIs to overview, distance, area, and removal pages', async () => {
