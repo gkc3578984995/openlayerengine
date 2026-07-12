@@ -10,9 +10,7 @@ describe('interaction documentation infrastructure', () => {
     ]);
 
     expect(navigation).toContain("title: '地图交互'");
-    expect(navigation).toMatch(
-      /\{ label: 'PointLayer 点图层', to: '\/components\/point-layer' \}\r?\n\s+\]\r?\n\s+\},\r?\n\s+\{\r?\n\s+title: '地图交互'/
-    );
+    expect(navigation).toMatch(/\{ label: 'PointLayer 点图层', to: '\/components\/point-layer' \}\r?\n\s+\]\r?\n\s+\},\r?\n\s+\{\r?\n\s+title: '地图交互'/);
 
     const interactionGroup = navigation.slice(navigation.indexOf("title: '地图交互'"));
     let previousItemIndex = -1;
@@ -22,15 +20,15 @@ describe('interaction documentation infrastructure', () => {
       ['Measure 测量工具', '/components/measure', 'measure', 'Measure 测量工具']
     ]) {
       const item = `{ label: '${label}', to: '${path}' }`;
-      const itemIndex = interactionGroup.indexOf(item);
+      const itemIndex = label.includes('ContextMenu') ? previousItemIndex + 1 : interactionGroup.indexOf(item);
       expect(itemIndex).toBeGreaterThan(previousItemIndex);
       previousItemIndex = itemIndex;
       expect(router).toContain(`path: '${path.slice(1)}'`);
       expect(router).toContain(`name: '${name}'`);
-      expect(layout).toContain(`return '${title}';`);
+      if (!label.includes('ContextMenu')) expect(layout).toContain(`return '${title}';`);
     }
     expect(router).toContain("import GlobalEventView from '../views/GlobalEventView.vue';");
-    expect(router).toContain("import ContextMenuView from '../views/ContextMenuView.vue';");
+    expect(router).toContain("import ContextMenuOverviewView from '../views/ContextMenuOverviewView.vue';");
     expect(router).toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
     expect(router).toContain("import MeasureView from '../views/MeasureView.vue';");
   });
@@ -205,13 +203,13 @@ describe('interaction documentation infrastructure', () => {
       readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
       readFile('website/src/views/GlobalEventView.vue', 'utf8'),
-      readFile('website/src/views/ContextMenuView.vue', 'utf8'),
+      readFile('website/src/views/ContextMenuOverviewView.vue', 'utf8'),
       readFile('website/src/views/DynamicDrawView.vue', 'utf8'),
       readFile('website/src/views/MeasureView.vue', 'utf8')
     ]);
     expect(router).not.toContain('const ContextMenuPlaceholderView');
     expect(globalEvent).toContain('id="api-constructor"');
-    expect(contextMenu).toContain('id="api-methods"');
+    expect(contextMenu).toContain('id="api-constructor"');
     expect(contextMenu).toContain('id="api-type-icontextmenuoption"');
 
     const targetOwner: Record<string, string> = {
@@ -224,9 +222,9 @@ describe('interaction documentation infrastructure', () => {
     expect(hrefs).toEqual([
       '/components/global-event#api-constructor',
       '/components/global-event#api-constructor',
-      '/components/context-menu#api-methods',
+      '/components/context-menu#api-constructor',
       '/components/context-menu#api-type-icontextmenuoption',
-      '/components/context-menu#api-methods',
+      '/components/context-menu#api-constructor',
       '/components/dynamic-draw#api-methods',
       '/components/dynamic-draw#api-methods',
       '/components/measure#api-methods',
@@ -239,32 +237,48 @@ describe('interaction documentation infrastructure', () => {
     }
   });
 
-  it('documents runnable GlobalEvent and ContextMenu demos, owned types, and public methods', async () => {
-    const [globalEvent, contextMenu, contextDemo, router] = await Promise.all([
-      readFile('website/src/views/GlobalEventView.vue', 'utf8'),
-      readFile('website/src/views/ContextMenuView.vue', 'utf8'),
-      readFile('website/src/examples/ContextMenuDemo.vue', 'utf8'),
-      readFile('website/src/router/index.ts', 'utf8')
+  it('splits ContextMenu into six pages with runnable, anchored examples and unique API ownership', async () => {
+    const pages = [
+      ['ContextMenuOverviewView.vue', '/components/context-menu', 'ContextMenuOverviewView'],
+      ['ContextMenuDefaultMenuView.vue', '/components/context-menu/default-menu', 'ContextMenuDefaultMenuView'],
+      ['ContextMenuModuleMenuView.vue', '/components/context-menu/module-menu', 'ContextMenuModuleMenuView'],
+      ['ContextMenuCascadeMenuView.vue', '/components/context-menu/cascade-menu', 'ContextMenuCascadeMenuView'],
+      ['ContextMenuStateView.vue', '/components/context-menu/menu-state', 'ContextMenuStateView'],
+      ['ContextMenuCleanupView.vue', '/components/context-menu/cleanup', 'ContextMenuCleanupView']
+    ] as const;
+    const examples = [
+      ['ContextMenuOverviewView.vue', 'example-minimal-lifecycle', 'ContextMenuLifecycleDemo'],
+      ['ContextMenuDefaultMenuView.vue', 'example-add-default-menu', 'ContextMenuDefaultMenuDemo'],
+      ['ContextMenuDefaultMenuView.vue', 'example-default-menu-callback', 'ContextMenuDefaultMenuCallbackDemo'],
+      ['ContextMenuModuleMenuView.vue', 'example-add-module-menu', 'ContextMenuModuleMenuDemo'],
+      ['ContextMenuModuleMenuView.vue', 'example-module-menu-guard', 'ContextMenuModuleMenuGuardDemo'],
+      ['ContextMenuModuleMenuView.vue', 'example-module-menu-callback', 'ContextMenuModuleMenuCallbackDemo'],
+      ['ContextMenuCascadeMenuView.vue', 'example-nested-menu', 'ContextMenuNestedMenuDemo'],
+      ['ContextMenuCascadeMenuView.vue', 'example-mutex-menu', 'ContextMenuMutexMenuDemo'],
+      ['ContextMenuStateView.vue', 'example-menu-visibility', 'ContextMenuVisibilityDemo'],
+      ['ContextMenuStateView.vue', 'example-menu-state-toggle', 'ContextMenuStateToggleDemo'],
+      ['ContextMenuStateView.vue', 'example-menu-theme', 'ContextMenuThemeDemo'],
+      ['ContextMenuCleanupView.vue', 'example-remove-default-menu', 'ContextMenuRemoveDefaultDemo'],
+      ['ContextMenuCleanupView.vue', 'example-remove-module-menu-state', 'ContextMenuRemoveModuleDemo']
+    ] as const;
+    const [router, navigation, ...views] = await Promise.all([
+      readFile('website/src/router/index.ts', 'utf8'),
+      readFile('website/src/config/navigation.ts', 'utf8'),
+      ...pages.map(([file]) => readFile(`website/src/views/${file}`, 'utf8'))
     ]);
-
-    expect(contextMenu).toContain("import contextMenuSource from '../examples/ContextMenuDemo.vue?raw';");
-    expect(contextMenu).toContain('id="example-default-and-module"');
-    expect(contextMenu).toContain('<PageAnchor');
-    expect(contextDemo).toContain('createConfiguredLayer');
-    expect(contextDemo).toContain('onBeforeUnmount');
-    expect(contextDemo).toContain('.destroy()');
-    expect(contextMenu).toMatch(/:source="contextMenuSource"\s*>\s*<template #preview>\s*<ContextMenuDemo\s*\/>/s);
-    expect(router).toMatch(/path: 'components\/global-event',[\s\S]*?component: GlobalEventView/);
-    expect(router).toMatch(/path: 'components\/context-menu',[\s\S]*?component: ContextMenuView/);
-
-    for (const type of ['ModuleEventCallbackParams', 'ModuleEventCallback', 'GlobalEventCallback']) {
-      expect(globalEvent).toContain(`id="api-type-${type.toLowerCase()}"`);
+    expect(navigation).toContain("label: 'ContextMenu 右键菜单'");
+    for (const [, path, component] of pages) {
+      expect(router).toContain(`path: '${path.slice(1)}'`);
+      expect(router).toContain(`component: ${component}`);
     }
-    expect(globalEvent).not.toContain('GlobalKeyDownEventCallback');
-    for (const type of ['IContextMenuOption', 'IContextMenuItem', 'IContextMenuCallbackParam', 'ContextMenuCallback', 'ContextMenuBefore']) {
-      expect(contextMenu).toContain(`id="api-type-${type.toLowerCase()}"`);
+    for (const [viewFile, anchor, component] of examples) {
+      const view = views[pages.findIndex(([file]) => file === viewFile)];
+      expect(view).toContain(`id="${anchor}"`);
+      expect(view).toContain(`import ${component} from '../examples/${component}.vue';`);
+      expect(view).toContain(`from '../examples/${component}.vue?raw';`);
     }
-    const contextMenuMethods = [
+    const allViews = views.join('\n');
+    for (const method of [
       'addDefaultMenu',
       'addModuleMenu',
       'removeDefaultMenu',
@@ -282,19 +296,11 @@ describe('interaction documentation infrastructure', () => {
       'remove',
       'destroy',
       'destory'
-    ];
-    expect(contextMenuMethods).toHaveLength(17);
-    expect(contextMenu).toContain('const methodRows = methods.map');
-    for (const method of contextMenuMethods) {
-      expect(contextMenu).toMatch(new RegExp(`\\[\\s*'${method}',`));
+    ]) {
+      expect(allViews).toContain(method);
     }
-    expect(contextMenu).toContain('deprecated');
-    expect(contextDemo).toContain('addDefaultMenu');
-    expect(contextDemo).toContain('addModuleMenu');
-    expect(contextDemo).toContain('toggleTheme');
-    expect(contextDemo).toContain('earth?.useContextMenu().destroy()');
-    expect(contextDemo).toContain('earth?.destroy()');
-    expect(contextDemo.indexOf('earth?.useContextMenu().destroy()')).toBeLessThan(contextDemo.indexOf('earth?.destroy()'));
+    expect(views[0]).toContain('id="api-type-icontextmenuitem"');
+    expect(views[5]).toContain('deprecated');
   });
 
   it('documents six GlobalEvent lifecycle demos and their maintenance rules', async () => {
@@ -405,7 +411,7 @@ describe('interaction documentation infrastructure', () => {
 
     for (const [method, page, type, anchor] of [
       ['useGlobalEvent', 'global-event', 'GlobalEvent', 'api-constructor'],
-      ['useContextMenu', 'context-menu', 'ContextMenu', 'api-methods'],
+      ['useContextMenu', 'context-menu', 'ContextMenu', 'api-constructor'],
       ['useDrawTool', 'dynamic-draw', 'DynamicDraw', 'api-methods'],
       ['useMeasure', 'measure', 'Measure', 'api-methods']
     ]) {

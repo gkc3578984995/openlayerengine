@@ -103,10 +103,10 @@ const methodRows = [
     returns: '<a href="/components/global-event#api-constructor">GlobalEvent</a>'
   },
   {
-    name: '<code class="code-fn"><a href="/components/context-menu#api-methods">useContextMenu</a></code>',
+    name: '<code class="code-fn"><a href="/components/context-menu#api-constructor">useContextMenu</a></code>',
     desc: '启用/配置右键菜单',
     params: '<a href="/components/context-menu#api-type-icontextmenuoption">IContextMenuOption</a>?',
-    returns: '<a href="/components/context-menu#api-methods">ContextMenu</a>'
+    returns: '<a href="/components/context-menu#api-constructor">ContextMenu</a>'
   },
   {
     name: '<code class="code-fn"><a href="/components/dynamic-draw#api-methods">useDrawTool</a></code>',
@@ -185,7 +185,9 @@ const methodRows = [
         <h2 class="doc-h2">API</h2>
 
         <h3 id="api-type-ifeatureatpixel" class="doc-h3">IFeatureAtPixel</h3>
-        <p class="doc-prose__hint"><code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code> 返回的像素命中信息。</p>
+        <p class="doc-prose__hint">
+          <code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code> 返回的像素命中信息。
+        </p>
         <ApiTable :columns="typeCols" :rows="featureAtPixelRows" />
 
         <h3 id="api-methods" class="doc-h3">方法</h3>
@@ -195,13 +197,17 @@ const methodRows = [
       <section id="tips" class="doc-prose">
         <h2 class="doc-h2">注意事项</h2>
         <ul class="doc-list">
-          <li><code class="code-fn"><a href="#api-methods">flyHome</a></code> 将相机移动到构造 <code>Earth</code> 时所设的中心点和缩放级别。</li>
+          <li>
+            <code class="code-fn"><a href="#api-methods">flyHome</a></code> 将相机移动到构造 <code>Earth</code> 时所设的中心点和缩放级别。
+          </li>
           <li>
             重复调用 <code class="code-fn"><a href="#api-methods">enableGraticule</a></code> 或
             <code class="code-fn"><a href="#api-methods">enableScaleLine</a></code> 会使用新参数重建实例；无需手动调用禁用方法。
           </li>
           <li>右键菜单、绘制工具、测量工具需单独调用对应方法初始化，首次调用后缓存实例。</li>
-          <li><code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code> 接收的是屏幕像素坐标（相对于地图容器），非地理坐标。</li>
+          <li>
+            <code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code> 接收的是屏幕像素坐标（相对于地图容器），非地理坐标。
+          </li>
         </ul>
       </section>
     </article>

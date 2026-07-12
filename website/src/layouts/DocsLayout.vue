@@ -30,9 +30,15 @@ const pageTitle = computed(() => {
     '/components/global-event/keyboard': 'GlobalEvent 全局键盘事件'
   };
   if (globalEventTitles[route.path]) return globalEventTitles[route.path];
-  if (route.path === '/components/context-menu') {
-    return 'ContextMenu 右键菜单';
-  }
+  const contextMenuTitles: Record<string, string> = {
+    '/components/context-menu': 'ContextMenu 概览与初始化',
+    '/components/context-menu/default-menu': 'ContextMenu 全局菜单',
+    '/components/context-menu/module-menu': 'ContextMenu 模块菜单',
+    '/components/context-menu/cascade-menu': 'ContextMenu 级联菜单',
+    '/components/context-menu/menu-state': 'ContextMenu 菜单状态',
+    '/components/context-menu/cleanup': 'ContextMenu 菜单移除与清理'
+  };
+  if (contextMenuTitles[route.path]) return contextMenuTitles[route.path];
   if (route.path === '/components/dynamic-draw') {
     return 'DynamicDraw 动态绘制';
   }

@@ -43,7 +43,18 @@ export const sideGroups: SideGroup[] = [
           { label: '全局键盘事件', to: '/components/global-event/keyboard' }
         ]
       },
-      { label: 'ContextMenu 右键菜单', to: '/components/context-menu' },
+      {
+        label: 'ContextMenu 右键菜单',
+        to: '/components/context-menu',
+        children: [
+          { label: '概览与初始化', to: '/components/context-menu' },
+          { label: '全局菜单', to: '/components/context-menu/default-menu' },
+          { label: '模块菜单', to: '/components/context-menu/module-menu' },
+          { label: '级联菜单', to: '/components/context-menu/cascade-menu' },
+          { label: '菜单状态', to: '/components/context-menu/menu-state' },
+          { label: '菜单移除与清理', to: '/components/context-menu/cleanup' }
+        ]
+      },
       { label: 'DynamicDraw 动态绘制', to: '/components/dynamic-draw' },
       { label: 'Measure 测量工具', to: '/components/measure' }
     ]
