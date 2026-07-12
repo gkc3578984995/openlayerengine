@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import type { ScrollbarInstance } from 'element-plus';
+import { Moon, Sunny } from '@element-plus/icons-vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { sideGroups, topNavItems } from '../config/navigation';
 import BackToTop from '../components/BackToTop.vue';
+import { getTheme, toggleTheme, type Theme } from '../utils/theme';
 
 const route = useRoute();
 const mainScrollbar = ref<ScrollbarInstance>();
 const mainScrollTop = ref(0);
+const theme = ref<Theme>(getTheme(window.localStorage));
+
+const isDark = computed(() => theme.value === 'dark');
 
 const mainScrollContainer = computed(() => mainScrollbar.value?.wrapRef ?? null);
 
@@ -17,6 +22,10 @@ const isParentActive = (item: { to: string }) => route.path === item.to || route
 
 const onMainScroll = ({ scrollTop }: { scrollTop: number }) => {
   mainScrollTop.value = scrollTop;
+};
+
+const switchTheme = () => {
+  theme.value = toggleTheme(theme.value, window.localStorage, document.documentElement);
 };
 
 const scrollToRoutePosition = async () => {
@@ -109,6 +118,15 @@ const pageTitle = computed(() => {
             {{ item.label }}
           </RouterLink>
         </nav>
+        <button
+          class="docs-header__theme"
+          type="button"
+          :aria-label="isDark ? '切换为浅色主题' : '切换为深色主题'"
+          :title="isDark ? '切换为浅色主题' : '切换为深色主题'"
+          @click="switchTheme"
+        >
+          <el-icon :size="20"><Sunny v-if="isDark" /><Moon v-else /></el-icon>
+        </button>
         <a class="docs-header__gh" href="https://github.com" target="_blank" rel="noopener" title="GitHub">
           <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor">
             <path

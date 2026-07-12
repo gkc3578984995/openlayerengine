@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { applyTheme, getTheme, toggleTheme } from '../website/src/utils/theme';
 
 const createStorage = (initial: Record<string, string> = {}) => {
@@ -45,5 +46,17 @@ describe('website theme', () => {
     expect(toggleTheme('light', storage, target)).toBe('dark');
     expect(storage.values.get('ol-doc-theme')).toBe('dark');
     expect(target.classes.has('dark')).toBe(true);
+  });
+
+  it('applies the saved theme before mounting and provides an accessible header switch', () => {
+    const main = readFileSync(new URL('../website/src/main.ts', import.meta.url), 'utf8');
+    const layout = readFileSync(new URL('../website/src/layouts/DocsLayout.vue', import.meta.url), 'utf8');
+
+    expect(main).toContain("import 'element-plus/theme-chalk/dark/css-vars.css';");
+    expect(main).toContain('applyTheme(getTheme(window.localStorage), document.documentElement);');
+    expect(main.indexOf('applyTheme(getTheme(window.localStorage), document.documentElement);')).toBeLessThan(main.indexOf('createApp(App)'));
+    expect(layout).toContain('class="docs-header__theme"');
+    expect(layout).toContain('@click="switchTheme"');
+    expect(layout).toContain('aria-label');
   });
 });
