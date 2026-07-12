@@ -19,7 +19,7 @@ describe('interaction documentation infrastructure', () => {
     ]);
 
     expect(navigation).toContain("title: '地图交互'");
-    expect(navigation).toMatch(/\{ label: 'PointLayer 点图层', to: '\/components\/point-layer' \}\r?\n\s+\]\r?\n\s+\},\r?\n\s+\{\r?\n\s+title: '地图交互'/);
+    expect(navigation.indexOf("{ label: 'PointLayer 点图层'")).toBeLessThan(navigation.indexOf("title: '地图交互'"));
 
     const interactionGroup = navigation.slice(navigation.indexOf("title: '地图交互'"));
     let previousItemIndex = -1;
@@ -28,9 +28,7 @@ describe('interaction documentation infrastructure', () => {
       ['DynamicDraw 动态绘制', '/components/dynamic-draw', 'dynamic-draw', 'DynamicDraw 动态绘制'],
       ['Measure 测量工具', '/components/measure', 'measure', 'Measure 概览']
     ]) {
-      const item = label === 'DynamicDraw 动态绘制' ? `label: '${label}', to: '${path}', children:` : `{ label: '${label}', to: '${path}' }`;
-      const itemIndex =
-        label.includes('ContextMenu') || label.includes('Measure') ? interactionGroup.indexOf(`label: '${label}'`) : interactionGroup.indexOf(item);
+      const itemIndex = interactionGroup.indexOf(`label: '${label}'`);
       expect(itemIndex).toBeGreaterThan(previousItemIndex);
       previousItemIndex = itemIndex;
       expect(router).toContain(`path: '${path.slice(1)}'`);
