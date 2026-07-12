@@ -7,6 +7,7 @@ describe('website API presentation', () => {
 
     expect(apiTable).toContain("presentation?: 'property' | 'method';");
     expect(apiTable).toContain(':class="col.presentation ? `api-table__${col.presentation}` : undefined"');
+    expect(apiTable).toContain("v-html=\"row[col.prop] || '—'\"");
   });
 
   it('marks all API name columns and constructor sections with semantic presentation', async () => {
@@ -51,6 +52,7 @@ describe('website API presentation', () => {
     expect(rules).toContain('相关类型定义应位于构造参数之后、方法之前');
     expect(rules).toContain('每个类型定义必须拥有独立的右侧锚点');
     expect(rules).toContain('方法名列只展示方法名称');
+    expect(rules).toContain('无参数的方法在参数列中使用 `—`');
   });
 
   it('renders third-level API outline entries with a distinct style', async () => {

@@ -23,7 +23,7 @@ defineProps<{
       :min-width="col.width ?? 160"
     >
       <template #default="{ row }">
-        <code v-if="col.monospace" class="api-table__code" v-html="row[col.prop]"></code>
+        <code v-if="col.monospace" class="api-table__code" v-html="row[col.prop] || '—'"></code>
         <span v-else :class="col.presentation ? `api-table__${col.presentation}` : undefined" v-html="row[col.prop]"></span>
       </template>
     </el-table-column>
