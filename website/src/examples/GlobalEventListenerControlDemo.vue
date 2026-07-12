@@ -10,20 +10,29 @@ const earthRef = shallowRef<Earth | null>(null);
 const eventsRef = shallowRef<ReturnType<Earth['useGlobalEvent']> | null>(null);
 const feedback = ref('点击“重新注册回调”后在地图上单击');
 const clickRegistered = ref(false);
-const disposers: Array<() => void> = [];
+let clickDisposer: (() => void) | null = null;
 
 const updateStatus = () => {
   clickRegistered.value = eventsRef.value?.hasGlobalMouseClickEvent() ?? false;
 };
 
 const enableListener = () => {
-  eventsRef.value?.enableGlobalMouseClickEvent();
+  const events = eventsRef.value;
+  if (!events) return;
+  if (!events.hasGlobalMouseClickEvent()) {
+    events.enableGlobalMouseClickEvent();
+  }
   feedback.value = '底层点击监听已启用；若此前停用过，仍需重新注册回调';
   updateStatus();
 };
 
 const disableListener = () => {
-  eventsRef.value?.disableGlobalMouseClickEvent();
+  const events = eventsRef.value;
+  if (!events) return;
+  if (events.hasGlobalMouseClickEvent()) {
+    events.disableGlobalMouseClickEvent();
+  }
+  clickDisposer = null;
   feedback.value = '监听已停用且回调已清空，请重新注册';
   updateStatus();
 };
@@ -31,12 +40,14 @@ const disableListener = () => {
 const registerCallback = () => {
   const events = eventsRef.value;
   if (!events) return;
-  disposers.push(
-    events.addMouseClickEventByGlobal(({ position }) => {
-      const [longitude, latitude] = position.map((value) => value.toFixed(4));
-      feedback.value = `回调触发：${longitude}, ${latitude}`;
-    })
-  );
+  if (clickDisposer) return;
+  if (events.hasGlobalMouseClickEvent() && !clickDisposer) {
+    events.disableGlobalMouseClickEvent();
+  }
+  clickDisposer = events.addMouseClickEventByGlobal(({ position }) => {
+    const [longitude, latitude] = position.map((value) => value.toFixed(4));
+    feedback.value = `回调触发：${longitude}, ${latitude}`;
+  });
   feedback.value = '点击回调已重新注册';
   updateStatus();
 };
@@ -49,7 +60,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  disposers.splice(0).forEach((dispose) => dispose());
+  clickDisposer?.();
   earthRef.value?.destroy();
 });
 </script>

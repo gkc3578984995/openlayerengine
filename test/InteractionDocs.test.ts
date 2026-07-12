@@ -1,7 +1,46 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import * as navigationConfig from '../website/src/config/navigation';
 
 describe('interaction documentation infrastructure', () => {
+  it('derives and toggles expansion for arbitrary nested navigation', () => {
+    const deriveExpandedParentRoutes = Reflect.get(navigationConfig, 'deriveExpandedParentRoutes');
+    const toggleExpandedRoute = Reflect.get(navigationConfig, 'toggleExpandedRoute');
+
+    expect(deriveExpandedParentRoutes).toBeTypeOf('function');
+    expect(toggleExpandedRoute).toBeTypeOf('function');
+
+    const groups = [
+      {
+        title: 'Artificial group',
+        items: [
+          {
+            label: 'Artificial parent',
+            to: '/artificial',
+            children: [{ label: 'Artificial child', to: '/artificial/child' }]
+          },
+          { label: 'Leaf', to: '/leaf' }
+        ]
+      }
+    ];
+
+    expect(deriveExpandedParentRoutes(groups, '/artificial')).toEqual(new Set(['/artificial']));
+    expect(deriveExpandedParentRoutes(groups, '/artificial/child')).toEqual(new Set(['/artificial']));
+    expect(deriveExpandedParentRoutes(groups, '/artificial/child/deeper')).toEqual(new Set());
+    expect(deriveExpandedParentRoutes(groups, '/missing')).toEqual(new Set());
+
+    const closed = new Set<string>();
+    const opened = toggleExpandedRoute(closed, '/artificial');
+    expect(opened).toEqual(new Set(['/artificial']));
+    expect(opened).not.toBe(closed);
+    expect(closed).toEqual(new Set());
+
+    const reclosed = toggleExpandedRoute(opened, '/artificial');
+    expect(reclosed).toEqual(new Set());
+    expect(reclosed).not.toBe(opened);
+    expect(opened).toEqual(new Set(['/artificial']));
+  });
+
   it('adds the four interaction routes, navigation entries, and layout titles', async () => {
     const [navigation, router, layout] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
@@ -71,8 +110,11 @@ describe('interaction documentation infrastructure', () => {
     expect(layout).toContain('item.children');
     expect(layout).toContain('docs-sidebar__child-link');
     expect(layout).toContain('expandedItems');
-    expect(layout).toContain("'/components/global-event'");
+    expect(layout).toContain('deriveExpandedParentRoutes');
+    expect(layout).toContain('toggleExpandedRoute');
+    expect(layout).not.toMatch(/path === ['"]\/components\/global-event['"]|path\.startsWith\(['"]\/components\/global-event\//);
     expect(layout).toContain('route.path.startsWith(`${item.to}/`)');
+    expect(layout).toContain(':class="{ \'is-active\': route.path === child.to }"');
 
     const [overview, globalMouse, moduleEvents, keyboard, listenerControl] = views;
     for (const view of views) {
@@ -81,6 +123,10 @@ describe('interaction documentation infrastructure', () => {
     expect(overview).toContain('id="api-constructor"');
     expect(overview).toContain('new GlobalEvent(earth)');
     expect(overview).toContain('href="/guide/global-methods#api-methods"');
+    expect(overview).toContain('<h1>概览与初始化</h1>');
+    expect(overview).toContain('<PageAnchor title="概览与初始化"');
+    expect(overview).toContain('<code>new GlobalEvent(earth)</code> 也是公开可用的构造方式');
+    expect(overview).toMatch(/Earth\s+会缓存同一个共享实例并集中管理其生命周期/);
     for (const type of ['ModuleEventCallbackParams', 'ModuleEventCallback', 'GlobalEventCallback']) {
       const anchor = `id="api-type-${type.toLowerCase()}"`;
       expect(overview).toContain(anchor);
@@ -96,12 +142,8 @@ describe('interaction documentation infrastructure', () => {
     }
     expect(globalMouse).toContain('/components/global-event#api-type-globaleventcallback');
     expect(moduleEvents).toContain('/components/global-event#api-type-moduleeventcallback');
-    expect(listenerControl).toContain(
-      'href=&quot;/components/global-event/global-mouse#api-methods&quot;>addMouseClickEventByGlobal'
-    );
-    expect(listenerControl).toContain(
-      'href=&quot;/components/global-event/global-mouse#api-methods&quot;>hasGlobalMouseClickEvent'
-    );
+    expect(listenerControl).toContain('href=&quot;/components/global-event/global-mouse#api-methods&quot;>addMouseClickEventByGlobal');
+    expect(listenerControl).toContain('href=&quot;/components/global-event/global-mouse#api-methods&quot;>hasGlobalMouseClickEvent');
 
     const globalMouseMethods = [
       'addMouseMoveEventByGlobal',
@@ -309,9 +351,11 @@ describe('interaction documentation infrastructure', () => {
       expect(view).toContain(`title="${title}"`);
       expect(view).toMatch(new RegExp(`:source="${sourceName}"\\s*>\\s*<template #preview>\\s*<${componentName}\\s*\\/>`, 's'));
       expect(example, `${exampleFile} should use the configured map source`).toContain('createConfiguredLayer');
-      expect(example, `${exampleFile} should clean up registrations`).toContain('disposers.splice(0).forEach');
       expect(example, `${exampleFile} should destroy Earth`).toContain('earthRef.value?.destroy()');
-      expect(example.indexOf('disposers.splice(0).forEach'), `${exampleFile} cleanup order`).toBeLessThan(example.indexOf('earthRef.value?.destroy()'));
+      if (exampleFile !== 'GlobalEventListenerControlDemo.vue') {
+        expect(example, `${exampleFile} should clean up registrations`).toContain('disposers.splice(0).forEach');
+        expect(example.indexOf('disposers.splice(0).forEach'), `${exampleFile} cleanup order`).toBeLessThan(example.indexOf('earthRef.value?.destroy()'));
+      }
     }
 
     const [[, globalMouseDemo], [, moduleDemo], [, keyboardDemo], [, listenerDemo]] = pairs;
@@ -326,6 +370,23 @@ describe('interaction documentation infrastructure', () => {
     expect(keyboardDemo).toContain('hasGlobalKeyDownEvent');
     expect(listenerDemo).toContain('enableGlobalMouseClickEvent');
     expect(listenerDemo).toContain('disableGlobalMouseClickEvent');
+    expect(listenerDemo).toContain('let clickDisposer: (() => void) | null = null;');
+    expect(listenerDemo).not.toContain('const disposers: Array<() => void>');
+    expect(listenerDemo).toMatch(/if \(clickDisposer\) return;/);
+    expect(listenerDemo).toMatch(/if \(!events\.hasGlobalMouseClickEvent\(\)\) \{[\s\S]*?events\.enableGlobalMouseClickEvent\(\)/);
+    expect(listenerDemo).toMatch(/if \(events\.hasGlobalMouseClickEvent\(\)\) \{[\s\S]*?events\.disableGlobalMouseClickEvent\(\)/);
+    expect(listenerDemo).toMatch(/disableGlobalMouseClickEvent\(\);[\s\S]*?clickDisposer = null;/);
+    expect(listenerDemo).toMatch(/if \(events\.hasGlobalMouseClickEvent\(\) && !clickDisposer\) \{[\s\S]*?events\.disableGlobalMouseClickEvent\(\)/);
+    expect(listenerDemo.indexOf('clickDisposer?.()')).toBeLessThan(listenerDemo.indexOf('earthRef.value?.destroy()'));
+
+    const moduleEventsView = pairs[1][0];
+    for (const method of ['add*EventByModule', 'addMouseClickEventByModule', 'removeModuleEvent', 'removeAllModuleEvents']) {
+      expect(moduleEventsView).toMatch(new RegExp(`<code class="code-fn"><a href="#api-methods">${method.replace('*', '\\*')}</a></code\\s*>`));
+    }
+    expect(moduleEventsView).toContain('返回的注销函数只移除本次注册的回调，不影响其他事件类别');
+    expect(moduleEventsView).toContain('只移除该模块指定名称的一类事件');
+    expect(moduleEventsView).toContain('移除该模块已注册的全部事件类别');
+    expect(moduleEventsView).toContain('命中要素的 <code>module</code> 属性');
 
     expect(rules).toContain('导出的可构造工具必须先展示公共构造函数');
     expect(rules).toContain('存在 Earth `use*` 入口时优先使用');

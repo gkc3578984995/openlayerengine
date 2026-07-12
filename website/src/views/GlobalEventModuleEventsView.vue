@@ -52,6 +52,13 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
           >，其参数结构见 <code><a href="/components/global-event#api-type-moduleeventcallbackparams">ModuleEventCallbackParams</a></code
           >。
         </p>
+        <p>
+          匹配时读取命中要素的 <code>module</code> 属性。<code class="code-fn"><a href="#api-methods">add*EventByModule</a></code
+          >（例如 <code class="code-fn"><a href="#api-methods">addMouseClickEventByModule</a></code
+          >）返回的注销函数只移除本次注册的回调，不影响其他事件类别；<code class="code-fn"><a href="#api-methods">removeModuleEvent</a></code>
+          只移除该模块指定名称的一类事件；<code class="code-fn"><a href="#api-methods">removeAllModuleEvents</a></code>
+          移除该模块已注册的全部事件类别。
+        </p>
       </section>
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>

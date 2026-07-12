@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { sideGroups, topNavItems } from '../config/navigation';
+import { deriveExpandedParentRoutes, sideGroups, toggleExpandedRoute, topNavItems } from '../config/navigation';
 import BackToTop from '../components/BackToTop.vue';
 
 const route = useRoute();
@@ -12,18 +12,13 @@ const expandedItems = ref(new Set<string>());
 watch(
   () => route.path,
   (path) => {
-    if (path === '/components/global-event' || path.startsWith('/components/global-event/')) {
-      expandedItems.value.add('/components/global-event');
-    }
+    expandedItems.value = deriveExpandedParentRoutes(sideGroups, path);
   },
   { immediate: true }
 );
 
 const toggleItem = (to: string) => {
-  const next = new Set(expandedItems.value);
-  if (next.has(to)) next.delete(to);
-  else next.add(to);
-  expandedItems.value = next;
+  expandedItems.value = toggleExpandedRoute(expandedItems.value, to);
 };
 
 const isParentActive = (item: { to: string }) => route.path === item.to || route.path.startsWith(`${item.to}/`);

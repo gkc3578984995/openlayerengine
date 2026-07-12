@@ -40,14 +40,15 @@ const callbackParamRows = [
     <article class="doc-page">
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>
-        <h1>GlobalEvent 概览与初始化</h1>
+        <h1>概览与初始化</h1>
         <p>统一管理地图范围和指定模块的鼠标、键盘事件，并通过注销函数安全释放回调。</p>
       </header>
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">概述</h2>
         <p>
-          推荐通过 <a href="/guide/global-methods#api-methods"><code>earth.useGlobalEvent()</code></a> 获取由 Earth
-          管理的实例。全局回调提供坐标和像素；模块回调只在命中对应 <code>module</code> 的要素时触发。
+          <code>new GlobalEvent(earth)</code> 也是公开可用的构造方式；推荐通过
+          <a href="/guide/global-methods#api-methods"><code>earth.useGlobalEvent()</code></a> 获取实例，因为 Earth
+          会缓存同一个共享实例并集中管理其生命周期。全局回调提供坐标和像素；模块回调只在命中对应 <code>module</code> 的要素时触发。
         </p>
       </section>
       <section id="api" class="doc-prose">
@@ -82,6 +83,6 @@ const callbackParamRows = [
         </ul>
       </section>
     </article>
-    <aside class="doc-page-layout__aside"><PageAnchor title="GlobalEvent 概览与初始化" :items="anchors" /></aside>
+    <aside class="doc-page-layout__aside"><PageAnchor title="概览与初始化" :items="anchors" /></aside>
   </div>
 </template>
