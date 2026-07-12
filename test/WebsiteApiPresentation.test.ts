@@ -66,6 +66,17 @@ describe('website API presentation', () => {
     expect(styles).toContain('.page-anchor__grandchild.el-anchor__item {');
   });
 
+  it('uses only the parent menu name in the PointLayer eyebrow', async () => {
+    const [pointLayer, rules] = await Promise.all([
+      readFile('website/src/views/PointLayerView.vue', 'utf8'),
+      readFile('website/AGENTS.md', 'utf8')
+    ]);
+
+    expect(pointLayer).toContain('<span class="doc-hero__eyebrow">基础图层</span>');
+    expect(pointLayer).not.toContain('API 自动同步');
+    expect(rules).toContain('顶部眉标题只展示父级菜单名称');
+  });
+
   it('orders PointLayer types before methods and exposes every type in the outline', async () => {
     const [pointLayer, helpers] = await Promise.all([
       readFile('website/src/views/PointLayerView.vue', 'utf8'),
