@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const readHome = () => readFileSync(resolve(process.cwd(), 'website/src/views/HomeView.vue'), 'utf8');
+const readHomeStyles = () => readFileSync(resolve(process.cwd(), 'website/src/assets/styles/index.scss'), 'utf8');
 
 describe('website homepage content', () => {
   it('introduces the library and links every canonical starting point', () => {
@@ -58,5 +59,23 @@ describe('website homepage content', () => {
     for (const obsolete of ['home-sponsors', '赞助商', '成为赞助商', '设计资源', "to: '/'", 'linear-gradient(']) {
       expect(home).not.toContain(obsolete);
     }
+  });
+
+  it('provides a theme-aware and responsive homepage visual system', () => {
+    const styles = readHomeStyles();
+    const rootTokens = styles.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+    const darkTokens = styles.match(/html\.dark\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+    expect(rootTokens).toContain('--home-workbench-surface:');
+    expect(darkTokens).toContain('--home-workbench-surface:');
+
+    for (const selector of ['.home-hero__inner', '.home-workbench', '.home-capabilities__grid', '.home-modules__grid', '.home-module-card']) {
+      expect(styles).toContain(selector);
+    }
+
+    expect(styles).toMatch(/@media \(max-width: 860px\)\s*\{[\s\S]*?\.home-hero__inner/);
+    expect(styles).toMatch(/@media \(max-width: 560px\)\s*\{[\s\S]*?\.home-hero__actions/);
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.home-/);
+    expect(styles).not.toContain('.home-sponsors');
   });
 });
