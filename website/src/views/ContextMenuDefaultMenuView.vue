@@ -38,7 +38,7 @@ const columns = [
 const rows = [
   {
     name: 'addDefaultMenu',
-    desc: '注册或替换全局菜单。',
+    desc: '注册或替换全局菜单',
     params:
       'items: <a href="/components/context-menu#api-type-icontextmenuitem">IContextMenuItem</a>[], callback?: <a href="/components/context-menu#api-type-contextmenucallback">ContextMenuCallback</a>',
     returns: 'boolean'

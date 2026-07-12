@@ -37,26 +37,26 @@ const methodCols = [
   { prop: 'returns', label: '返回值', width: 120, monospace: true }
 ];
 const measureRows = [
-  { name: 'lineColor', desc: '测量线颜色。', type: 'string?' },
-  { name: 'lineWidth', desc: '测量线宽度（像素）。', type: 'number?' },
-  { name: 'pointShow', desc: '是否显示完成测量的顶点标记。', type: 'boolean?' },
-  { name: 'pointColor', desc: '顶点标记颜色。', type: 'string?' },
-  { name: 'pointSzie', desc: '顶点标记大小（像素）；拼写与现有公开 API 保持一致。', type: 'number?' },
-  { name: 'textColor', desc: '距离和面积标签文字颜色。', type: 'string?' },
-  { name: 'textSize', desc: '当前版本尚未用于标签渲染。', type: 'number?' },
-  { name: 'textBackgroundColor', desc: '距离和面积标签背景色。', type: 'string?' },
-  { name: 'isShowTotalDistance', desc: '当前版本尚未参与标签显示。', type: 'boolean?' },
-  { name: 'callback', desc: '接收本次测量会话的数据。', type: '(event: <a href="#api-type-imeasureevent">IMeasureEvent</a>) =&gt; void' }
+  { name: 'lineColor', desc: '测量线颜色', type: 'string?' },
+  { name: 'lineWidth', desc: '测量线宽度（像素）', type: 'number?' },
+  { name: 'pointShow', desc: '是否显示完成测量的顶点标记', type: 'boolean?' },
+  { name: 'pointColor', desc: '顶点标记颜色', type: 'string?' },
+  { name: 'pointSzie', desc: '顶点标记大小（像素）；拼写与现有公开 API 保持一致', type: 'number?' },
+  { name: 'textColor', desc: '距离和面积标签文字颜色', type: 'string?' },
+  { name: 'textSize', desc: '当前版本尚未用于标签渲染', type: 'number?' },
+  { name: 'textBackgroundColor', desc: '距离和面积标签背景色', type: 'string?' },
+  { name: 'isShowTotalDistance', desc: '当前版本尚未参与标签显示', type: 'boolean?' },
+  { name: 'callback', desc: '接收本次测量会话的数据', type: '(event: <a href="#api-type-imeasureevent">IMeasureEvent</a>) =&gt; void' }
 ];
 const measureDataRows = [
-  { name: 'startP', desc: '分段起点经纬度坐标。', type: 'Coordinate' },
-  { name: 'endP', desc: '分段终点经纬度坐标。', type: 'Coordinate' },
-  { name: 'distance', desc: '分段距离（km）。', type: 'number' }
+  { name: 'startP', desc: '分段起点经纬度坐标', type: 'Coordinate' },
+  { name: 'endP', desc: '分段终点经纬度坐标', type: 'Coordinate' },
+  { name: 'distance', desc: '分段距离（km）', type: 'number' }
 ];
 const measureEventRows = [
-  { name: 'data', desc: '线测量为分段数据；面积测量为顶点经纬度坐标。', type: '<a href="#api-type-imeasuredata">IMeasureData</a>[] | Coordinate[]' },
-  { name: 'totalDistance', desc: '线测量总距离（km）。', type: 'number?' },
-  { name: 'area', desc: '面积测量结果（km²）。', type: 'number?' }
+  { name: 'data', desc: '线测量为分段数据；面积测量为顶点经纬度坐标', type: '<a href="#api-type-imeasuredata">IMeasureData</a>[] | Coordinate[]' },
+  { name: 'totalDistance', desc: '线测量总距离（km）', type: 'number?' },
+  { name: 'area', desc: '面积测量结果（km²）', type: 'number?' }
 ];
 const methods = [['clear', '取消当前测量会话，并移除测量图形、顶点标记和缓存数据。', '—', 'void']] as const;
 const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc, params, returns }));

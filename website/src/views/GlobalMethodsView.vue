@@ -72,14 +72,14 @@ const methodRows = [
   { name: 'flyHome', desc: '移动相机到构造时所设的默认位置', params: '—', returns: 'void' },
   {
     name: 'enableGraticule',
-    desc: '使用 <code>GraticuleOptions</code> 启用网格线；每次调用会移除旧网格并按新参数重建。',
+    desc: '使用 <code>GraticuleOptions</code> 启用网格线；每次调用会移除旧网格并按新参数重建',
     params: 'GraticuleOptions?',
     returns: 'Graticule'
   },
   { name: 'disableGraticule', desc: '禁用网格线控件', params: '—', returns: 'void' },
   {
     name: 'enableScaleLine',
-    desc: '使用 <code>ScaleLineOptions</code> 启用比例尺；每次调用会移除旧比例尺并按新参数重建。',
+    desc: '使用 <code>ScaleLineOptions</code> 启用比例尺；每次调用会移除旧比例尺并按新参数重建',
     params: 'ScaleLineOptions?',
     returns: 'ScaleLine'
   },

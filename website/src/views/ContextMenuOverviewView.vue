@@ -34,14 +34,14 @@ const columns = [
   { prop: 'desc', label: '说明', width: 300 },
   { prop: 'type', label: '类型', width: 260, monospace: true }
 ];
-const optionRows = [{ name: 'isDarkTheme', desc: '初始化时是否使用深色主题。', type: 'boolean?' }];
+const optionRows = [{ name: 'isDarkTheme', desc: '初始化时是否使用深色主题', type: 'boolean?' }];
 const itemRows = [
-  { name: 'key', desc: '同一菜单树内唯一的菜单项标识。', type: 'string' },
-  { name: 'label', desc: '菜单项显示文本。', type: 'string' },
-  { name: 'visible', desc: '初始可见状态。', type: 'boolean?' },
-  { name: 'disabled', desc: '叶子菜单项是否禁用。', type: 'boolean?' },
-  { name: 'mutexKey', desc: '与当前叶子项互斥的菜单项 key。', type: 'string?' },
-  { name: 'child', desc: '级联子菜单。', type: '<a href="#api-type-icontextmenuitem">IContextMenuItem</a>[]?' }
+  { name: 'key', desc: '同一菜单树内唯一的菜单项标识', type: 'string' },
+  { name: 'label', desc: '菜单项显示文本', type: 'string' },
+  { name: 'visible', desc: '初始可见状态', type: 'boolean?' },
+  { name: 'disabled', desc: '叶子菜单项是否禁用', type: 'boolean?' },
+  { name: 'mutexKey', desc: '与当前叶子项互斥的菜单项 key', type: 'string?' },
+  { name: 'child', desc: '级联子菜单', type: '<a href="#api-type-icontextmenuitem">IContextMenuItem</a>[]?' }
 ];
 </script>
 

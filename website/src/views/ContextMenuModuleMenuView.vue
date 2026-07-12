@@ -41,7 +41,7 @@ const columns = [
 const rows = [
   {
     name: 'addModuleMenu',
-    desc: '注册或替换指定模块菜单。',
+    desc: '注册或替换指定模块菜单',
     params:
       'module: string, items: <a href="/components/context-menu#api-type-icontextmenuitem">IContextMenuItem</a>[], callback?: <a href="/components/context-menu#api-type-contextmenucallback">ContextMenuCallback</a>, before?: <a href="/components/context-menu#api-type-contextmenubefore">ContextMenuBefore</a>',
     returns: 'boolean'

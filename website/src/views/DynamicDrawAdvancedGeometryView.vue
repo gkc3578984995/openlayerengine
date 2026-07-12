@@ -9,7 +9,7 @@ import { advancedDynamicDrawGeometries } from '../config/dynamicDrawGeometries';
 const anchors = [{ id: 'overview', label: '概述' }, { id: 'examples', label: '代码演示', children: [{ id: 'example-advanced-geometry-selector', label: '选择高级图形绘制' }] }, { id: 'api', label: 'API', children: [{ id: 'api-methods', label: '方法' }] }, { id: 'tips', label: '注意事项' }];
 const methodCols = [{ prop: 'name', label: '方法名', width: 260, presentation: 'method' as const }, { prop: 'desc', label: '说明', width: 310 }, { prop: 'params', label: '参数', width: 300, monospace: true }, { prop: 'returns', label: '返回值', width: 120, monospace: true }];
 const polygonParam = 'param?: <a href="/components/dynamic-draw/basic-geometry#api-type-idrawpolygon">IDrawPolygon</a>';
-const methods = advancedDynamicDrawGeometries.map(({ drawMethod: name, label }) => ({ name, desc: `绘制${label}。`, params: polygonParam, returns: 'void' }));
+const methods = advancedDynamicDrawGeometries.map(({ drawMethod: name, label }) => ({ name, desc: `绘制${label}`, params: polygonParam, returns: 'void' }));
 </script>
 
 <template>

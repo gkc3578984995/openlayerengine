@@ -43,18 +43,18 @@ const columns = [
   { prop: 'returns', label: '返回值', width: 120, monospace: true }
 ];
 const defaultRows = [
-  { name: 'getDefaultMenuState', desc: '读取默认菜单项可见状态。', params: 'menuKey: string', returns: 'boolean' },
-  { name: 'setDefaultMenuState', desc: '设置默认菜单项可见状态。', params: 'menuKey: string, visible: boolean', returns: 'boolean' },
-  { name: 'toggleDefaultMenuState', desc: '切换默认菜单项可见状态。', params: 'menuKey: string', returns: 'boolean' }
+  { name: 'getDefaultMenuState', desc: '读取默认菜单项可见状态', params: 'menuKey: string', returns: 'boolean' },
+  { name: 'setDefaultMenuState', desc: '设置默认菜单项可见状态', params: 'menuKey: string, visible: boolean', returns: 'boolean' },
+  { name: 'toggleDefaultMenuState', desc: '切换默认菜单项可见状态', params: 'menuKey: string', returns: 'boolean' }
 ];
 const moduleRows = [
-  { name: 'getModuleMenuState', desc: '读取模块要素的菜单状态。', params: 'module, featureId, menuKey: string', returns: 'boolean' },
-  { name: 'setModuleMenuState', desc: '设置模块要素的菜单状态。', params: 'module, featureId, menuKey: string, visible: boolean', returns: 'boolean' },
-  { name: 'toggleModuleMenuState', desc: '切换模块要素的菜单状态。', params: 'module, featureId, menuKey: string', returns: 'boolean' }
+  { name: 'getModuleMenuState', desc: '读取模块要素的菜单状态', params: 'module, featureId, menuKey: string', returns: 'boolean' },
+  { name: 'setModuleMenuState', desc: '设置模块要素的菜单状态', params: 'module, featureId, menuKey: string, visible: boolean', returns: 'boolean' },
+  { name: 'toggleModuleMenuState', desc: '切换模块要素的菜单状态', params: 'module, featureId, menuKey: string', returns: 'boolean' }
 ];
 const themeRows = [
-  { name: 'setTheme', desc: '显式设置深色或浅色主题。', params: 'isDarkTheme: boolean', returns: 'void' },
-  { name: 'toggleTheme', desc: '切换主题并返回切换后的深色状态。', params: '—', returns: 'boolean' }
+  { name: 'setTheme', desc: '显式设置深色或浅色主题', params: 'isDarkTheme: boolean', returns: 'void' },
+  { name: 'toggleTheme', desc: '切换主题并返回切换后的深色状态', params: '—', returns: 'boolean' }
 ];
 </script>
 <template>

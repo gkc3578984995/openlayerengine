@@ -7,7 +7,7 @@ import managementSource from '../examples/DynamicDrawManagementDemo.vue?raw';
 
 const anchors = [{ id: 'overview', label: '概述' }, { id: 'examples', label: '代码演示', children: [{ id: 'example-query-remove-cleanup', label: '查询、删除与清理' }] }, { id: 'api', label: 'API', children: [{ id: 'api-methods', label: '方法' }] }, { id: 'tips', label: '注意事项' }];
 const methodCols = [{ prop: 'name', label: '方法名', width: 230, presentation: 'method' as const }, { prop: 'desc', label: '说明', width: 340 }, { prop: 'params', label: '参数', width: 300, monospace: true }, { prop: 'returns', label: '返回值', width: 180, monospace: true }];
-const methods = [{ name: 'get', desc: '获取全部绘制成果，或按基础几何类型筛选。', params: "type?: 'Point' | 'LineString' | 'Polygon'", returns: 'Feature&lt;Geometry&gt;[]?' }, { name: 'remove', desc: '删除指定成果；无参数时清理当前临时绘制。', params: 'feature?: Feature&lt;Geometry&gt;', returns: 'void' }, { name: 'destroy', desc: '清理交互、覆盖物、临时图层和内部监听，可选清理成果或图层。', params: 'options?: { removeGraphics?: boolean; removeLayers?: boolean }', returns: 'void' }];
+const methods = [{ name: 'get', desc: '获取全部绘制成果，或按基础几何类型筛选', params: "type?: 'Point' | 'LineString' | 'Polygon'", returns: 'Feature&lt;Geometry&gt;[]?' }, { name: 'remove', desc: '删除指定成果；无参数时清理当前临时绘制', params: 'feature?: Feature&lt;Geometry&gt;', returns: 'void' }, { name: 'destroy', desc: '清理交互、覆盖物、临时图层和内部监听，可选清理成果或图层', params: 'options?: { removeGraphics?: boolean; removeLayers?: boolean }', returns: 'void' }];
 </script>
 
 <template>

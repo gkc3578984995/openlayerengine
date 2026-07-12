@@ -38,10 +38,10 @@ const propertyCols = [
   { prop: 'type', label: '类型', width: 260, monospace: true }
 ];
 const callbackParamRows = [
-  { name: 'position', desc: '经纬度坐标。', type: 'Coordinate' },
-  { name: 'feature', desc: '命中的 OpenLayers 要素；未命中时省略。', type: 'Feature&lt;Geometry&gt;?' },
-  { name: 'layer', desc: '命中的 OpenLayers 图层；未命中时省略。', type: 'Layer?' },
-  { name: 'id', desc: '命中要素的标识；未命中时省略。', type: 'any?' }
+  { name: 'position', desc: '经纬度坐标', type: 'Coordinate' },
+  { name: 'feature', desc: '命中的 OpenLayers 要素；未命中时省略', type: 'Feature&lt;Geometry&gt;?' },
+  { name: 'layer', desc: '命中的 OpenLayers 图层；未命中时省略', type: 'Layer?' },
+  { name: 'id', desc: '命中要素的标识；未命中时省略', type: 'any?' }
 ];
 </script>
 

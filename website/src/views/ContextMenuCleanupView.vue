@@ -39,14 +39,14 @@ const columns = [
   { prop: 'returns', label: '返回值', width: 120, monospace: true }
 ];
 const removalRows = [
-  { name: 'removeDefaultMenu', desc: '移除全局菜单及其状态。', params: '—', returns: 'boolean' },
-  { name: 'removeModuleMenu', desc: '移除模块菜单及所有要素状态。', params: 'module: string', returns: 'boolean' },
-  { name: 'clearModuleMenuState', desc: '仅清理一个模块要素的状态。', params: 'module: string, featureId: string', returns: 'boolean' },
-  { name: 'remove', desc: '兼容方法：按模块或默认菜单移除。', params: 'module?: string', returns: 'boolean' }
+  { name: 'removeDefaultMenu', desc: '移除全局菜单及其状态', params: '—', returns: 'boolean' },
+  { name: 'removeModuleMenu', desc: '移除模块菜单及所有要素状态', params: 'module: string', returns: 'boolean' },
+  { name: 'clearModuleMenuState', desc: '仅清理一个模块要素的状态', params: 'module: string, featureId: string', returns: 'boolean' },
+  { name: 'remove', desc: '兼容方法：按模块或默认菜单移除', params: 'module?: string', returns: 'boolean' }
 ];
 const lifecycleRows = [
-  { name: 'close', desc: '关闭当前显示的菜单。', params: '—', returns: 'void' },
-  { name: 'destroy', desc: '销毁菜单 DOM、状态和事件监听。', params: '—', returns: 'void' }
+  { name: 'close', desc: '关闭当前显示的菜单', params: '—', returns: 'void' },
+  { name: 'destroy', desc: '销毁菜单 DOM、状态和事件监听', params: '—', returns: 'void' }
 ];
 </script>
 <template>

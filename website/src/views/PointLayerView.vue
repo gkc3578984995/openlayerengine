@@ -130,14 +130,14 @@ const manualMethodRows = [
 const pointLayerMethodRows = getPointLayerMethodRows(manualMethodRows);
 
 const inheritedMethodRows = getBaseMethodRows([
-  { name: 'getUpdatedParam(feature)', desc: '读取要素的最新状态并返回参数快照。', params: '', returns: '' },
-  { name: 'get(id?)', desc: '获取全部要素，或按 id 获取指定要素。', params: '', returns: '' },
-  { name: 'hide(id?)', desc: '隐藏整个图层，或隐藏指定要素。', params: '', returns: '' },
-  { name: 'show(id?)', desc: '显示整个图层，或恢复指定要素。', params: '', returns: '' },
-  { name: 'setLayerOpacity(opacity)', desc: '设置图层透明度。', params: '', returns: '' },
-  { name: 'setLayerIndex(index)', desc: '设置图层层级。', params: '', returns: '' },
-  { name: 'getLayer()', desc: '获取底层 OpenLayers VectorLayer。', params: '', returns: '' },
-  { name: 'destroy()', desc: '销毁图层并清理资源。', params: '', returns: '' }
+  { name: 'getUpdatedParam(feature)', desc: '读取要素的最新状态并返回参数快照', params: '', returns: '' },
+  { name: 'get(id?)', desc: '获取全部要素，或按 id 获取指定要素', params: '', returns: '' },
+  { name: 'hide(id?)', desc: '隐藏整个图层，或隐藏指定要素', params: '', returns: '' },
+  { name: 'show(id?)', desc: '显示整个图层，或恢复指定要素', params: '', returns: '' },
+  { name: 'setLayerOpacity(opacity)', desc: '设置图层透明度', params: '', returns: '' },
+  { name: 'setLayerIndex(index)', desc: '设置图层层级', params: '', returns: '' },
+  { name: 'getLayer()', desc: '获取底层 OpenLayers VectorLayer', params: '', returns: '' },
+  { name: 'destroy()', desc: '销毁图层并清理资源', params: '', returns: '' }
 ]).map((row) => ({ ...row, name: `${row.name} <span class="api-table__tag">继承</span>` }));
 
 const methodRows = [...pointLayerMethodRows, ...inheritedMethodRows];
