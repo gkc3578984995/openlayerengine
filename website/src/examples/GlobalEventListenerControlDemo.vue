@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
       <el-button size="small" type="primary" @click="registerCallback">重新注册回调</el-button>
       <el-tag :type="clickRegistered ? 'success' : 'info'">监听状态：{{ clickRegistered ? '存在' : '不存在' }}</el-tag>
       <span>{{ feedback }}</span>
-      <span>停用监听会清空该类别的全部回调，再次启用后仍需重新注册。</span>
+      <span>日常代码使用 add* 和返回的注销函数；停用监听只用于批量清空该类别的全部回调。</span>
     </div>
     <div :id="mapId" class="example-stage"></div>
   </div>

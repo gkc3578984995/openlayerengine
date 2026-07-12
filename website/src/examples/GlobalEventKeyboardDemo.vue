@@ -10,7 +10,6 @@ const earthRef = shallowRef<Earth | null>(null);
 const eventsRef = shallowRef<ReturnType<Earth['useGlobalEvent']> | null>(null);
 const lastKey = ref('尚未按键');
 const keyRegistered = ref(false);
-const disposers: Array<() => void> = [];
 let cancelKeyDown: (() => void) | null = null;
 
 const updateStatus = () => {
@@ -23,7 +22,6 @@ const registerKeyDown = () => {
   cancelKeyDown = events.addKeyDownEventByGlobal((event) => {
     lastKey.value = `最近按键：${event.key}`;
   });
-  disposers.push(cancelKeyDown);
   updateStatus();
 };
 
@@ -39,10 +37,11 @@ onMounted(() => {
   earth.addLayer(createConfiguredLayer(earth, 'vector'));
   earthRef.value = earth;
   eventsRef.value = earth.useGlobalEvent();
+  registerKeyDown();
 });
 
 onBeforeUnmount(() => {
-  disposers.splice(0).forEach((dispose) => dispose());
+  cancelKeyDown?.();
   earthRef.value?.destroy();
 });
 </script>

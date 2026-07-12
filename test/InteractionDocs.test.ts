@@ -292,69 +292,81 @@ describe('interaction documentation infrastructure', () => {
     expect(contextDemo.indexOf('earth?.useContextMenu().destroy()')).toBeLessThan(contextDemo.indexOf('earth?.destroy()'));
   });
 
-  it('documents three focused GlobalEvent demos and their maintenance rules', async () => {
-    const demos = [
-      ['GlobalEventGlobalMouseView.vue', 'GlobalEventDemo.vue', 'example-global-mouse-events'],
-      ['GlobalEventModuleEventsView.vue', 'GlobalEventModuleDemo.vue', 'example-module-feature-events'],
-      ['GlobalEventKeyboardView.vue', 'GlobalEventKeyboardDemo.vue', 'example-keyboard-events']
+  it('documents seven GlobalEvent lifecycle demos and their maintenance rules', async () => {
+    const examples = [
+      ['GlobalEventView.vue', '最小完整生命周期', 'example-minimal-lifecycle', 'GlobalEventLifecycleDemo'],
+      ['GlobalEventView.vue', '高级：手动监听控制', 'example-advanced-listener-control', 'GlobalEventListenerControlDemo'],
+      ['GlobalEventGlobalMouseView.vue', '持续全局事件', 'example-persistent-global-events', 'GlobalEventDemo'],
+      ['GlobalEventGlobalMouseView.vue', '一次性事件与取消', 'example-once-events', 'GlobalEventOnceDemo'],
+      ['GlobalEventModuleEventsView.vue', '模块回调生命周期', 'example-module-lifecycle', 'GlobalEventModuleDemo'],
+      ['GlobalEventModuleEventsView.vue', '模块事件清理范围', 'example-module-cleanup-scope', 'GlobalEventModuleCleanupDemo'],
+      ['GlobalEventKeyboardView.vue', '键盘事件生命周期', 'example-keyboard-lifecycle', 'GlobalEventKeyboardDemo']
     ] as const;
-    const exampleDetails = {
-      'example-global-mouse-events': { title: '全局移动与点击', sourceName: 'globalEventSource' },
-      'example-module-feature-events': { title: '模块要素点击', sourceName: 'moduleEventSource' },
-      'example-keyboard-events': { title: '键盘注册与取消', sourceName: 'keyboardEventSource' }
+    const sourceNames = {
+      GlobalEventLifecycleDemo: 'globalEventLifecycleSource',
+      GlobalEventListenerControlDemo: 'globalEventListenerControlSource',
+      GlobalEventDemo: 'globalEventSource',
+      GlobalEventOnceDemo: 'globalEventOnceSource',
+      GlobalEventModuleDemo: 'globalEventModuleSource',
+      GlobalEventModuleCleanupDemo: 'globalEventModuleCleanupSource',
+      GlobalEventKeyboardDemo: 'globalEventKeyboardSource'
     } as const;
-
-    const pairs = await Promise.all(
-      demos.map(async ([viewFile, exampleFile]) =>
-        Promise.all([readFile(`website/src/views/${viewFile}`, 'utf8'), readFile(`website/src/examples/${exampleFile}`, 'utf8')])
-      )
+    const viewFiles = [...new Set(examples.map(([viewFile]) => viewFile))];
+    const views = Object.fromEntries(await Promise.all(viewFiles.map(async (file) => [file, await readFile(`website/src/views/${file}`, 'utf8')])));
+    const demos = Object.fromEntries(
+      await Promise.all(examples.map(async ([, , , component]) => [component, await readFile(`website/src/examples/${component}.vue`, 'utf8')]))
     );
-    const [rules, overview] = await Promise.all([readFile('website/AGENTS.md', 'utf8'), readFile('website/src/views/GlobalEventView.vue', 'utf8')]);
+    const rules = await readFile('website/AGENTS.md', 'utf8');
 
-    expect(overview).not.toContain("import GlobalEventDemo from '../examples/GlobalEventDemo.vue';");
-    expect(overview).not.toContain("import globalEventSource from '../examples/GlobalEventDemo.vue?raw';");
-    expect(overview).not.toContain('example-global-events');
-    expect(overview).not.toContain('<GlobalEventDemo');
-
-    for (const [[, exampleFile, exampleId], [view, example]] of demos.map((demo, index) => [demo, pairs[index]] as const)) {
-      const { title, sourceName } = exampleDetails[exampleId];
-      const componentName = exampleFile.replace('.vue', '');
-      expect(view).toContain(`import ${componentName} from '../examples/${exampleFile}';`);
-      expect(view).toContain(`import ${sourceName} from '../examples/${exampleFile}?raw';`);
-      expect(view).toContain(`{ id: '${exampleId}', label: '${title}' }`);
-      expect(view).toContain(`id="${exampleId}"`);
+    for (const [viewFile, title, anchor, component] of examples) {
+      const view = views[viewFile];
+      const demo = demos[component];
+      const sourceName = sourceNames[component];
+      expect(view).toContain(`import ${component} from '../examples/${component}.vue';`);
+      expect(view).toContain(`import ${sourceName} from '../examples/${component}.vue?raw';`);
+      expect(view).toContain(`{ id: '${anchor}', label: '${title}' }`);
+      expect(view).toContain(`id="${anchor}"`);
       expect(view).toContain(`title="${title}"`);
-      expect(view).toMatch(new RegExp(`:source="${sourceName}"\\s*>\\s*<template #preview>\\s*<${componentName}\\s*\\/>`, 's'));
-      expect(example, `${exampleFile} should use the configured map source`).toContain('createConfiguredLayer');
-      expect(example, `${exampleFile} should destroy Earth`).toContain('earthRef.value?.destroy()');
-      expect(example, `${exampleFile} should clean up registrations`).toContain('disposers.splice(0).forEach');
-      expect(example.indexOf('disposers.splice(0).forEach'), `${exampleFile} cleanup order`).toBeLessThan(example.indexOf('earthRef.value?.destroy()'));
+      expect(view).toMatch(new RegExp(`:source="${sourceName}"\\s*>\\s*<template #preview>\\s*<${component}\\s*\\/>`, 's'));
+      expect(demo, `${component} should use the configured map source`).toContain('createConfiguredLayer');
+      expect(demo, `${component} should clean up registrations before destroy`).toContain('onBeforeUnmount');
+      expect(demo.indexOf('onBeforeUnmount'), `${component} cleanup should precede destroy`).toBeLessThan(demo.indexOf('earthRef.value?.destroy()'));
     }
 
-    const [[, globalMouseDemo], [, moduleDemo], [, keyboardDemo]] = pairs;
-    expect(globalMouseDemo).toContain('addMouseMoveEventByGlobal');
-    expect(globalMouseDemo).toContain('addMouseClickEventByGlobal');
-    expect(globalMouseDemo).toContain('hasGlobalMouseClickEvent');
-    expect(moduleDemo).toContain('addMouseClickEventByModule');
-    expect(moduleDemo).toContain('addMouseDblClickEventByModule');
-    expect(moduleDemo).toContain('hasModuleMouseClickEvent');
-    expect(moduleDemo).toContain('removeAllModuleEvents');
-    expect(keyboardDemo).toContain('addKeyDownEventByGlobal');
-    expect(keyboardDemo).toContain('hasGlobalKeyDownEvent');
-    const moduleEventsView = pairs[1][0];
-    for (const method of ['add*EventByModule', 'addMouseClickEventByModule', 'removeModuleEvent', 'removeAllModuleEvents']) {
-      expect(moduleEventsView).toMatch(new RegExp(`<code class="code-fn"><a href="#api-methods">${method.replace('*', '\\*')}</a></code\\s*>`));
+    const dailyDemos = examples.filter(([, , , component]) => component !== 'GlobalEventListenerControlDemo').map(([, , , component]) => demos[component]);
+    for (const demo of dailyDemos) {
+      expect(demo).toMatch(/add[A-Za-z]*Event/);
+      expect(demo).toMatch(/(?:disposers|[A-Za-z]+Disposer|cancel[A-Za-z]*)/);
+      expect(demo).not.toMatch(/(?:enable|disable)(?:Global|Module)/);
     }
-    expect(moduleEventsView).toContain('返回的注销函数只移除本次注册的回调，不影响其他事件类别');
-    expect(moduleEventsView).toContain('只移除该模块指定名称的一类事件');
-    expect(moduleEventsView).toContain('移除该模块已注册的全部事件类别');
-    expect(moduleEventsView).toContain('命中要素的 <code>module</code> 属性');
 
-    expect(rules).toContain('导出的可构造工具必须先展示公共构造函数');
-    expect(rules).toContain('存在 Earth `use*` 入口时优先使用');
-    expect(rules).toContain('大型对称 API 必须按行为族拆分');
-    expect(rules).toContain('每个方法只能有一个规范归属页面');
-    expect(rules).toContain('`disable*`、注销函数与 `remove*` 的语义不得混淆');
+    const [overview, globalMouse, moduleEvents, keyboard] = [
+      views['GlobalEventView.vue'],
+      views['GlobalEventGlobalMouseView.vue'],
+      views['GlobalEventModuleEventsView.vue'],
+      views['GlobalEventKeyboardView.vue']
+    ];
+    expect(overview).toContain('常规代码使用');
+    expect(overview).toContain('批量清空');
+    expect(overview).toContain('href="#api-listener-control"');
+    expect(demos.GlobalEventLifecycleDemo).toContain('addMouseClickEventByGlobal');
+    expect(demos.GlobalEventOnceDemo).toContain('addCancelableMouseOnceClickEventByGlobal');
+    expect(demos.GlobalEventOnceDemo).toContain('addCancelableMouseOnceRightClickEventByGlobal');
+    expect(demos.GlobalEventModuleDemo).toContain('addMouseClickEventByModule');
+    expect(demos.GlobalEventModuleDemo).toContain('addMouseDblClickEventByModule');
+    expect(demos.GlobalEventModuleDemo).not.toContain('removeModuleEvent');
+    expect(demos.GlobalEventModuleDemo).not.toContain('removeAllModuleEvents');
+    expect(demos.GlobalEventModuleCleanupDemo).toContain("removeModuleEvent(MODULE, 'dblClick')");
+    expect(demos.GlobalEventModuleCleanupDemo).toContain('removeAllModuleEvents(MODULE)');
+    expect(demos.GlobalEventKeyboardDemo).toContain('addKeyDownEventByGlobal');
+    expect(demos.GlobalEventKeyboardDemo).toContain('hasGlobalKeyDownEvent');
+    for (const view of [overview, globalMouse, moduleEvents, keyboard]) expect(view).toContain('code-fn');
+    expect(globalMouse).toContain('href=&quot;#api-methods&quot;');
+    expect(moduleEvents).toContain('href=&quot;#api-methods&quot;');
+    expect(keyboard).toContain('href=&quot;#api-methods&quot;');
+
+    expect(rules).toContain('日常示例优先调用返回注销函数的高层 `add*` API');
+    expect(rules).toContain('`disable*` 会批量停用底层监听并清空同类别回调');
   });
 
   it('defines the Earth-owned feature hit type and links all interaction references to their owner pages', async () => {

@@ -4,10 +4,19 @@ import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
 import GlobalEventDemo from '../examples/GlobalEventDemo.vue';
 import globalEventSource from '../examples/GlobalEventDemo.vue?raw';
+import GlobalEventOnceDemo from '../examples/GlobalEventOnceDemo.vue';
+import globalEventOnceSource from '../examples/GlobalEventOnceDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '概述' },
-  { id: 'examples', label: '代码演示', children: [{ id: 'example-global-mouse-events', label: '全局移动与点击' }] },
+  {
+    id: 'examples',
+    label: '代码演示',
+    children: [
+      { id: 'example-persistent-global-events', label: '持续全局事件' },
+      { id: 'example-once-events', label: '一次性事件与取消' }
+    ]
+  },
   { id: 'api-methods', label: '方法' },
   { id: 'tips', label: '注意事项' }
 ];
@@ -105,12 +114,20 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
       </section>
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
-        <div id="example-global-mouse-events">
+        <div id="example-persistent-global-events">
           <ExampleBlock
-            title="全局移动与点击"
-            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseMoveEventByGlobal</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByGlobal</a></code> 更新可见状态，并用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasGlobalMouseClickEvent</a></code> 查询注册状态。`"
+            title="持续全局事件"
+            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseMoveEventByGlobal</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByGlobal</a></code> 注册持续回调，并在组件卸载前执行返回的注销函数。`"
             :source="globalEventSource"
             ><template #preview><GlobalEventDemo /></template
+          ></ExampleBlock>
+        </div>
+        <div id="example-once-events">
+          <ExampleBlock
+            title="一次性事件与取消"
+            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addCancelableMouseOnceClickEventByGlobal</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addCancelableMouseOnceRightClickEventByGlobal</a></code> 注册一次性回调，并可执行各自返回的取消函数。`"
+            :source="globalEventOnceSource"
+            ><template #preview><GlobalEventOnceDemo /></template
           ></ExampleBlock>
         </div>
       </section>

@@ -3,11 +3,11 @@ import ApiTable from '../components/docs/ApiTable.vue';
 import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
 import GlobalEventKeyboardDemo from '../examples/GlobalEventKeyboardDemo.vue';
-import keyboardEventSource from '../examples/GlobalEventKeyboardDemo.vue?raw';
+import globalEventKeyboardSource from '../examples/GlobalEventKeyboardDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '概述' },
-  { id: 'examples', label: '代码演示', children: [{ id: 'example-keyboard-events', label: '键盘注册与取消' }] },
+  { id: 'examples', label: '代码演示', children: [{ id: 'example-keyboard-lifecycle', label: '键盘事件生命周期' }] },
   { id: 'api-methods', label: '方法' },
   { id: 'tips', label: '注意事项' }
 ];
@@ -38,11 +38,11 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
       </section>
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
-        <div id="example-keyboard-events">
+        <div id="example-keyboard-lifecycle">
           <ExampleBlock
-            title="键盘注册与取消"
-            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addKeyDownEventByGlobal</a></code> 注册和取消 document 键盘回调，并用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasGlobalKeyDownEvent</a></code> 展示当前状态。`"
-            :source="keyboardEventSource"
+            title="键盘事件生命周期"
+            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addKeyDownEventByGlobal</a></code> 注册 document 键盘回调，用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasGlobalKeyDownEvent</a></code> 展示状态，并执行返回的注销函数取消注册。`"
+            :source="globalEventKeyboardSource"
             ><template #preview><GlobalEventKeyboardDemo /></template
           ></ExampleBlock>
         </div>

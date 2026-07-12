@@ -11,31 +11,37 @@ const mapId = useId();
 const earthRef = shallowRef<Earth | null>(null);
 const eventsRef = shallowRef<ReturnType<Earth['useGlobalEvent']> | null>(null);
 const feedback = ref('单击或双击蓝色模块点');
-const clickRegistered = ref(false);
-const disposers: Array<() => void> = [];
+let clickDisposer: (() => void) | null = null;
+let dblClickDisposer: (() => void) | null = null;
 
-const updateStatus = () => {
-  clickRegistered.value = eventsRef.value?.hasModuleMouseClickEvent(MODULE) ?? false;
-};
-
-const registerEvents = () => {
+const registerClick = () => {
   const events = eventsRef.value;
-  if (!events || events.hasModuleMouseClickEvent(MODULE)) return;
-  disposers.push(
-    events.addMouseClickEventByModule(MODULE, ({ id }) => {
-      feedback.value = `单击模块点：${String(id)}`;
-    }),
-    events.addMouseDblClickEventByModule(MODULE, ({ id }) => {
-      feedback.value = `双击模块点：${String(id)}`;
-    })
-  );
-  updateStatus();
+  if (!events || clickDisposer) return;
+  clickDisposer = events.addMouseClickEventByModule(MODULE, ({ id }) => {
+    feedback.value = `单击模块点：${String(id)}`;
+  });
+  feedback.value = '点击回调已注册';
 };
 
-const removeEvents = () => {
-  eventsRef.value?.removeAllModuleEvents(MODULE);
-  feedback.value = '模块回调已全部移除，可点击“重新注册”恢复';
-  updateStatus();
+const registerDblClick = () => {
+  const events = eventsRef.value;
+  if (!events || dblClickDisposer) return;
+  dblClickDisposer = events.addMouseDblClickEventByModule(MODULE, ({ id }) => {
+    feedback.value = `双击模块点：${String(id)}`;
+  });
+  feedback.value = '双击回调已注册';
+};
+
+const cancelClick = () => {
+  clickDisposer?.();
+  clickDisposer = null;
+  feedback.value = '仅取消本次点击注册；双击回调保持不变';
+};
+
+const cancelDblClick = () => {
+  dblClickDisposer?.();
+  dblClickDisposer = null;
+  feedback.value = '仅取消本次双击注册；点击回调保持不变';
 };
 
 onMounted(() => {
@@ -45,11 +51,13 @@ onMounted(() => {
   points.add({ id: 'event-point', module: MODULE, center, size: 12, fill: { color: '#409eff' }, label: { text: '模块点', offsetY: 20 } });
   earthRef.value = earth;
   eventsRef.value = earth.useGlobalEvent();
-  registerEvents();
+  registerClick();
+  registerDblClick();
 });
 
 onBeforeUnmount(() => {
-  disposers.splice(0).forEach((dispose) => dispose());
+  clickDisposer?.();
+  dblClickDisposer?.();
   earthRef.value?.destroy();
 });
 </script>
@@ -57,9 +65,10 @@ onBeforeUnmount(() => {
 <template>
   <div class="example-demo">
     <div class="example-demo__toolbar">
-      <el-button size="small" type="danger" plain @click="removeEvents">移除全部模块回调</el-button>
-      <el-button size="small" type="primary" @click="registerEvents">重新注册点击与双击</el-button>
-      <el-tag :type="clickRegistered ? 'success' : 'info'">点击回调：{{ clickRegistered ? '已注册' : '未注册' }}</el-tag>
+      <el-button size="small" @click="cancelClick">取消点击注册</el-button>
+      <el-button size="small" @click="cancelDblClick">取消双击注册</el-button>
+      <el-button size="small" type="primary" @click="registerClick">重新注册点击</el-button>
+      <el-button size="small" type="primary" @click="registerDblClick">重新注册双击</el-button>
       <span>{{ feedback }}</span>
     </div>
     <div :id="mapId" class="example-stage"></div>

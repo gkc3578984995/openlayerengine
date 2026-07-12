@@ -3,11 +3,20 @@ import ApiTable from '../components/docs/ApiTable.vue';
 import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
 import GlobalEventModuleDemo from '../examples/GlobalEventModuleDemo.vue';
-import moduleEventSource from '../examples/GlobalEventModuleDemo.vue?raw';
+import globalEventModuleSource from '../examples/GlobalEventModuleDemo.vue?raw';
+import GlobalEventModuleCleanupDemo from '../examples/GlobalEventModuleCleanupDemo.vue';
+import globalEventModuleCleanupSource from '../examples/GlobalEventModuleCleanupDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '概述' },
-  { id: 'examples', label: '代码演示', children: [{ id: 'example-module-feature-events', label: '模块要素点击' }] },
+  {
+    id: 'examples',
+    label: '代码演示',
+    children: [
+      { id: 'example-module-lifecycle', label: '模块回调生命周期' },
+      { id: 'example-module-cleanup-scope', label: '模块事件清理范围' }
+    ]
+  },
   { id: 'api-methods', label: '方法' },
   { id: 'tips', label: '注意事项' }
 ];
@@ -62,12 +71,20 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
       </section>
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
-        <div id="example-module-feature-events">
+        <div id="example-module-lifecycle">
           <ExampleBlock
-            title="模块要素点击"
-            :description="`为可见模块点注册 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByModule</a></code> 与 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseDblClickEventByModule</a></code>，通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasModuleMouseClickEvent</a></code> 展示状态，并可调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeAllModuleEvents</a></code> 后重新注册。`"
-            :source="moduleEventSource"
+            title="模块回调生命周期"
+            :description="`为可见模块点注册 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByModule</a></code> 与 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseDblClickEventByModule</a></code>，并独立执行每次注册返回的注销函数。`"
+            :source="globalEventModuleSource"
             ><template #preview><GlobalEventModuleDemo /></template
+          ></ExampleBlock>
+        </div>
+        <div id="example-module-cleanup-scope">
+          <ExampleBlock
+            title="模块事件清理范围"
+            :description="`比较单次注册返回的注销函数、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeModuleEvent</a></code> 的单一类别清理，以及 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeAllModuleEvents</a></code> 的模块级批量清理。`"
+            :source="globalEventModuleCleanupSource"
+            ><template #preview><GlobalEventModuleCleanupDemo /></template
           ></ExampleBlock>
         </div>
       </section>
