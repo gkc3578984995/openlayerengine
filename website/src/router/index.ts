@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import DocsLayout from '../layouts/DocsLayout.vue';
 import HomeView from '../views/HomeView.vue';
+import LayerCommonView from '../views/LayerCommonView.vue';
 import PointLayerView from '../views/PointLayerView.vue';
 import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
@@ -32,6 +33,11 @@ const router = createRouter({
           path: 'guide/global-methods',
           name: 'global-methods',
           component: GlobalMethodsView
+        },
+        {
+          path: 'components/layer-common',
+          name: 'layer-common',
+          component: LayerCommonView
         },
         {
           path: 'components/point-layer',

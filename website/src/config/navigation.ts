@@ -24,6 +24,9 @@ export const sideGroups: SideGroup[] = [
   },
   {
     title: '基础图层',
-    items: [{ label: 'PointLayer 点图层', to: '/components/point-layer' }]
+    items: [
+      { label: '图层通用操作', to: '/components/layer-common' },
+      { label: 'PointLayer 点图层', to: '/components/point-layer' }
+    ]
   }
 ];

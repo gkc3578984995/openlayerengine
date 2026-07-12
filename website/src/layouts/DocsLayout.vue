@@ -15,6 +15,9 @@ const pageTitle = computed(() => {
   if (route.path === '/guide/global-methods') {
     return '全局方法';
   }
+  if (route.path === '/components/layer-common') {
+    return '图层通用操作';
+  }
   if (route.path === '/components/point-layer') {
     return 'PointLayer 点图层';
   }
