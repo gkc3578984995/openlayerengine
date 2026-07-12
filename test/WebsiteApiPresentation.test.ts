@@ -28,4 +28,23 @@ describe('website API presentation', () => {
       expect(view).toContain('class="api-constructor__signature"');
     }
   });
+
+  it('defines the shared visual hierarchy and documents it for contributors', async () => {
+    const [styles, rules] = await Promise.all([
+      readFile('website/src/assets/styles/index.scss', 'utf8'),
+      readFile('website/AGENTS.md', 'utf8')
+    ]);
+
+    expect(styles).toContain('.api-constructor {');
+    expect(styles).toContain('.api-constructor__signature code {');
+    expect(styles).toContain('.api-table__property {');
+    expect(styles).toContain('.api-table__property a {');
+    expect(styles).toContain('.api-table__method {');
+    expect(styles).toContain('.api-table__method .code-fn {');
+    expect(styles).not.toContain('.api-table code.code-fn {');
+    expect(rules).toContain('API 表格中的构造器、属性名和方法名使用固定视觉层级');
+    expect(rules).toContain('api-table__property');
+    expect(rules).toContain('api-table__method');
+    expect(rules).toContain('api-constructor__signature');
+  });
 });

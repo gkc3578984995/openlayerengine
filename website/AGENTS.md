@@ -4,7 +4,13 @@
 
 文档正文、示例说明和 API 表格中，只要引用的公开方法、属性或类型在当前页面存在对应锚点，就必须提供页内跳转链接；自动生成的类型文本也必须保留这些链接。
 
-- 方法引用使用蓝色方法样式：`<code class="code-fn"><a href="#api-methods">methodName</a></code>`。
+API 表格中的构造器、属性名和方法名使用固定视觉层级：
+
+- 构造器必须使用 `api-constructor` 容器和 `api-constructor__signature` 签名样式，作为 API 区域最明显的入口。
+- 属性名列必须声明 `presentation: 'property'`，由 `api-table__property` 显示为浅灰色。
+- 方法名列必须声明 `presentation: 'method'`，由 `api-table__method` 显示为深灰色；即使方法名包含可点击锚点，也不得使用蓝色的 API 表格样式。
+- 正文和示例说明中的可点击方法引用继续使用蓝色 `code-fn` 样式，用于与 API 定义表区分。
+
 - 属性和类型引用使用默认的中性代码样式：`<code><a href="#api-property">propertyOrType</a></code>`。
 - 这两类引用不得使用相同视觉样式；方法代表可调用行为，属性/类型代表配置或数据结构。
 - 链接目标必须是当前页面真实存在的锚点。新增或改名锚点时，同步更新示例说明、API 表格和自动类型链接映射。
