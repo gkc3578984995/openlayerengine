@@ -25,6 +25,10 @@
 
 测试框架为 Vitest，运行环境为 Node。新增测试文件命名为 `test/<Feature>.test.ts`，保持与 `BaseLifecycle.test.ts`、`TransformGeometry.test.ts` 等现有风格一致。修改几何变换、图层生命周期、绘制交互或共享工具时，应补充覆盖正常路径和边界场景。开发中运行 `npm test`，提交前运行 `npm run verify`。
 
+## 文档同步
+
+修改公开 API、行为、参数或示例时，必须同步更新 `website/` 中对应的用户文档和可运行示例；文档风格遵循已配置完成的 `PointLayer 点图层` 页面。文档正文、示例说明和 API 表格需遵守 `website/AGENTS.md` 的页内链接规范，并在提交前运行 `npm run docs:build`。
+
 ## 提交与 Pull Request 规范
 
 近期提交信息以简短祈使句或 conventional commit 风格为主，例如 `chore: improve project quality gates...`、`refactor: ...`，也包含中文修复说明。提交应聚焦单一变更，并说明行为变化。Pull Request 应包含变更摘要、已执行的测试、关联 issue；涉及地图交互或视觉效果时，补充截图、录屏或演示说明。
