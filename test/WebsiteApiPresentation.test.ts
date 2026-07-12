@@ -48,6 +48,9 @@ describe('website API presentation', () => {
     expect(rules).toContain('api-table__method');
     expect(rules).toContain('浅灰背景的深灰代码块');
     expect(rules).toContain('api-constructor__signature');
+    expect(rules).toContain('相关类型定义应位于构造参数之后、方法之前');
+    expect(rules).toContain('每个类型定义必须拥有独立的右侧锚点');
+    expect(rules).toContain('方法名列只展示方法名称');
   });
 
   it('renders third-level API outline entries with a distinct style', async () => {
