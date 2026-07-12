@@ -1489,6 +1489,50 @@ html.dark .code-block-highlight .shiki span {
 }
 
 @media (max-width: 560px) {
+  .docs-header__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    padding: 10px 12px 8px;
+    column-gap: 8px;
+    row-gap: 4px;
+  }
+
+  .docs-header__logo {
+    min-width: 0;
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .docs-header__spacer {
+    display: none;
+  }
+
+  .docs-header__nav.el-menu--horizontal {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    min-width: 0;
+    border-top: 1px solid var(--doc-border);
+  }
+
+  .docs-header__nav.el-menu--horizontal > .el-menu-item {
+    min-width: 0;
+    flex: 1;
+    justify-content: center;
+    padding: 0 6px;
+  }
+
+  .docs-header__theme {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .docs-header__gh {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
   .home {
     padding-top: 8px;
   }

@@ -37,4 +37,15 @@ describe('website top menu', () => {
     expect(styles).toContain('--el-menu-hover-bg-color: var(--doc-surface-soft);');
     expect(styles).not.toContain('.docs-header__nav-item');
   });
+
+  it('uses a deliberate two-row header layout on compact screens', () => {
+    const styles = readSource('website/src/assets/styles/index.scss');
+    const compactStyles = styles.match(/@media \(max-width: 560px\)\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+    expect(compactStyles).toMatch(/\.docs-header__inner\s*\{[^}]*display:\s*grid/);
+    expect(compactStyles).toMatch(/\.docs-header__spacer\s*\{[^}]*display:\s*none/);
+    expect(compactStyles).toMatch(/\.docs-header__nav\.el-menu--horizontal\s*\{[^}]*grid-column:\s*1\s*\/\s*-1[^}]*grid-row:\s*2/);
+    expect(compactStyles).toMatch(/\.docs-header__theme\s*\{[^}]*grid-row:\s*1/);
+    expect(compactStyles).toMatch(/\.docs-header__gh\s*\{[^}]*grid-row:\s*1/);
+  });
 });
