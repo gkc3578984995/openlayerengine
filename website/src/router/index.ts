@@ -25,6 +25,8 @@ import MeasureView from '../views/MeasureView.vue';
 import MeasureDistanceView from '../views/MeasureDistanceView.vue';
 import MeasureAreaView from '../views/MeasureAreaView.vue';
 import MeasureRemoveView from '../views/MeasureRemoveView.vue';
+import TransformView from '../views/TransformView.vue';
+import DescriptorView from '../views/DescriptorView.vue';
 import { getDocumentTitle } from '../utils/documentTitle';
 
 const router = createRouter({
@@ -158,6 +160,16 @@ const router = createRouter({
           path: 'components/measure/remove',
           name: 'measure-remove',
           component: MeasureRemoveView
+        },
+        {
+          path: 'components/transform',
+          name: 'transform',
+          component: TransformView
+        },
+        {
+          path: 'components/descriptor',
+          name: 'descriptor',
+          component: DescriptorView
         }
       ]
     }

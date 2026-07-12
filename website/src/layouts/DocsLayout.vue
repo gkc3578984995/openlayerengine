@@ -103,6 +103,11 @@ const pageTitle = computed(() => {
     '/components/dynamic-draw/management': 'DynamicDraw 图形管理'
   };
   if (dynamicDrawTitles[route.path]) return dynamicDrawTitles[route.path];
+  const standaloneInteractionTitles: Record<string, string> = {
+    '/components/transform': 'Transform 图形变换',
+    '/components/descriptor': 'Descriptor 标牌'
+  };
+  if (standaloneInteractionTitles[route.path]) return standaloneInteractionTitles[route.path];
   if (route.path === '/guide/quick-start') {
     return '安装与引入';
   }
