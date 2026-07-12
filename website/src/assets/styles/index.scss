@@ -137,7 +137,8 @@ code {
 .docs-header__nav.el-menu--horizontal {
   --el-menu-bg-color: transparent;
   --el-menu-text-color: var(--doc-muted);
-  --el-menu-hover-bg-color: var(--doc-surface-soft);
+  --el-menu-hover-text-color: var(--doc-primary-deep);
+  --el-menu-hover-bg-color: transparent;
   --el-menu-active-color: var(--doc-primary-deep);
   --el-menu-horizontal-height: 40px;
 
@@ -146,7 +147,6 @@ code {
 
 .docs-header__nav.el-menu--horizontal > .el-menu-item {
   padding: 0 14px;
-  border-radius: 8px;
   font-size: 14px;
 }
 

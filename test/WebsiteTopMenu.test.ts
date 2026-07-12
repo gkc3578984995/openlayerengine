@@ -33,8 +33,10 @@ describe('website top menu', () => {
     expect(styles).toContain('.docs-header__nav.el-menu--horizontal');
     expect(styles).toContain('--el-menu-bg-color: transparent;');
     expect(styles).toContain('--el-menu-text-color: var(--doc-muted);');
+    expect(styles).toContain('--el-menu-hover-text-color: var(--doc-primary-deep);');
+    expect(styles).toContain('--el-menu-hover-bg-color: transparent;');
     expect(styles).toContain('--el-menu-active-color: var(--doc-primary-deep);');
-    expect(styles).toContain('--el-menu-hover-bg-color: var(--doc-surface-soft);');
+    expect(styles).not.toMatch(/\.docs-header__nav\.el-menu--horizontal > \.el-menu-item\s*{[^}]*border-radius:/s);
     expect(styles).not.toContain('.docs-header__nav-item');
   });
 });
