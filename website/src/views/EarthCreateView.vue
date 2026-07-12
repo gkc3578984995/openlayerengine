@@ -76,34 +76,34 @@ const targetOptionsRows = [
 
 const methodRows = [
   {
-    name: '<code class="code-fn"><a href="#api-methods">addLayer</a></code>(layer)',
+    name: 'addLayer',
     desc:
       '添加图层并返回唯一 UUID 句柄；多个由 <code class="code-fn"><a href="#api-methods">createOsmLayer</a></code> 或 <code class="code-fn"><a href="#api-methods">createXyzLayer</a></code> 创建的底图可同时存在。',
     params: 'BaseLayer',
     returns: 'string'
   },
   {
-    name: '<code class="code-fn"><a href="#api-methods">removeLayer</a></code>(layerOrId?)',
+    name: 'removeLayer',
     desc:
       '传入图层对象或 <code class="code-fn"><a href="#api-methods">addLayer</a></code> 返回的 UUID 句柄精确移除；不传参数时移除所有由底图工厂创建的底图。',
     params: 'BaseLayer | string | —',
     returns: 'BaseLayer | undefined'
   },
-  { name: '<code class="code-fn"><a href="#api-methods">createOsmLayer</a></code>()', desc: '创建 OSM 底图图层。', params: '—', returns: 'TileLayer&lt;OSM&gt;' },
+  { name: 'createOsmLayer', desc: '创建 OSM 底图图层。', params: '—', returns: 'TileLayer&lt;OSM&gt;' },
   {
-    name: '<code class="code-fn"><a href="#api-methods">createXyzLayer</a></code>(urlOrTileFn)',
+    name: 'createXyzLayer',
     desc: '创建自定义 XYZ 瓦片图层。',
     params: 'string | TileCoord =&gt; string',
     returns: 'TileLayer&lt;XYZ&gt;'
   },
-  { name: '<code class="code-fn"><a href="#api-methods">flyTo</a></code>(position, zoom?)', desc: '无动画移动到指定位置。', params: 'Coordinate, number?', returns: 'void' },
+  { name: 'flyTo', desc: '无动画移动到指定位置。', params: 'Coordinate, number?', returns: 'void' },
   {
-    name: '<code class="code-fn"><a href="#api-methods">animateFlyTo</a></code>(position, zoom?, duration?)',
+    name: 'animateFlyTo',
     desc: '带动画移动到指定位置。',
     params: 'Coordinate, number?, number?',
     returns: 'void'
   },
-  { name: '<code class="code-fn"><a href="#api-methods">destroy</a></code>()', desc: '销毁地图：移除所有图层、交互、监听，释放 DOM 引用。', params: '—', returns: 'void' }
+  { name: 'destroy', desc: '销毁地图：移除所有图层、交互、监听，释放 DOM 引用。', params: '—', returns: 'void' }
 ];
 </script>
 
@@ -119,7 +119,7 @@ const methodRows = [
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">概述</h2>
         <p>
-          <code>Earth</code> 是所有图层能力的入口。它封装了 OpenLayers 的 Map 和 View，
+          <code><a href="#api-constructor">Earth</a></code> 是所有图层能力的入口。它封装了 OpenLayers 的 Map 和 View，
           提供了底图创建、图层管理、相机控制、右键菜单、测量绘制等一站式能力。
         </p>
       </section>
@@ -190,7 +190,7 @@ const methodRows = [
           <li>文档站构建完成后，可直接编辑站点根目录的 <code>/map-sources.json</code> 来替换全部示例的矢量与卫星 XYZ 服务；地址模板必须包含 <code>{z}</code>、<code>{x}</code> 与 <code>{y}</code>。配置无法读取或不合法时，示例会回退到内置默认服务。</li>
           <li>保存 <code class="code-fn"><a href="#api-methods">addLayer</a></code> 返回的 UUID，便于在多个底图共存时调用 <code class="code-fn"><a href="#api-methods">removeLayer</a></code> 精确移除。</li>
           <li>组件卸载时务必调用 <code class="code-fn"><a href="#api-methods">destroy</a></code>，否则残留的地图 DOM 和事件监听可能导致内存泄漏。</li>
-          <li>多地图场景下，每个 <code>Earth</code> 实例需绑定不同的 DOM 容器 id。</li>
+          <li>多地图场景下，每个 <code><a href="#api-constructor">Earth</a></code> 实例需绑定不同的 DOM 容器 id。</li>
         </ul>
       </section>
     </article>

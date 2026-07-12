@@ -94,4 +94,26 @@ describe('website API presentation', () => {
     expect(helpers).toContain('return { ...row, name: methodName, params: linkDocumentedTypes(method.params)');
     expect(helpers).toContain('return { ...row, name: methodName, params: method.params, returns: method.returns };');
   });
+
+  it('keeps quick-start API method names signature-free and links documented references', async () => {
+    const [earthCreate, globalMethods] = await Promise.all([
+      readFile('website/src/views/EarthCreateView.vue', 'utf8'),
+      readFile('website/src/views/GlobalMethodsView.vue', 'utf8')
+    ]);
+    const earthScript = earthCreate.split('</script>', 1)[0];
+    const globalScript = globalMethods.split('</script>', 1)[0];
+
+    for (const [source, methods] of [
+      [earthScript, ['addLayer', 'removeLayer', 'createOsmLayer', 'createXyzLayer', 'flyTo', 'animateFlyTo', 'destroy']],
+      [globalScript, ['flyTo', 'animateFlyTo', 'flyHome', 'enableGraticule', 'disableGraticule', 'enableScaleLine', 'disableScaleLine', 'setMouseStyle', 'setMouseStyleToCrosshair', 'setMouseStyleToDefault', 'disabledMapDrag', 'enableMapDrag', 'getFeatureAtPixel', 'getLayerAtFeature', 'useGlobalEvent', 'useContextMenu', 'useDrawTool', 'useMeasure']]
+    ] as const) {
+      expect(source).not.toMatch(/name:\s*['"][^'"]*\(/);
+      for (const method of methods) expect(source).toContain(`name: '${method}'`);
+    }
+
+    expect(earthCreate).toContain('<code><a href="#api-constructor">Earth</a></code> 是所有图层能力的入口');
+    expect(earthCreate).toContain('每个 <code><a href="#api-constructor">Earth</a></code> 实例');
+    expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">flyHome</a></code>');
+    expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code>');
+  });
 });

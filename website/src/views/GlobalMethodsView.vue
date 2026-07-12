@@ -46,34 +46,34 @@ const methodCols: ApiColumn[] = [
 ];
 
 const methodRows = [
-  { name: 'flyTo(position, zoom?)', desc: '无动画移动到指定位置', params: 'Coordinate, number?', returns: 'void' },
-  { name: 'animateFlyTo(position, zoom?, duration?)', desc: '带动画移动到指定位置', params: 'Coordinate, number?, number?', returns: 'void' },
-  { name: 'flyHome()', desc: '移动相机到构造时所设的默认位置', params: '—', returns: 'void' },
+  { name: 'flyTo', desc: '无动画移动到指定位置', params: 'Coordinate, number?', returns: 'void' },
+  { name: 'animateFlyTo', desc: '带动画移动到指定位置', params: 'Coordinate, number?, number?', returns: 'void' },
+  { name: 'flyHome', desc: '移动相机到构造时所设的默认位置', params: '—', returns: 'void' },
   {
-    name: '<code class="code-fn"><a href="#api-methods">enableGraticule</a></code>(options?)',
+    name: 'enableGraticule',
     desc: '使用 <code>GraticuleOptions</code> 启用网格线；每次调用会移除旧网格并按新参数重建。',
     params: 'GraticuleOptions?',
     returns: 'Graticule'
   },
-  { name: 'disableGraticule()', desc: '禁用网格线控件', params: '—', returns: 'void' },
+  { name: 'disableGraticule', desc: '禁用网格线控件', params: '—', returns: 'void' },
   {
-    name: '<code class="code-fn"><a href="#api-methods">enableScaleLine</a></code>(options?)',
+    name: 'enableScaleLine',
     desc: '使用 <code>ScaleLineOptions</code> 启用比例尺；每次调用会移除旧比例尺并按新参数重建。',
     params: 'ScaleLineOptions?',
     returns: 'ScaleLine'
   },
-  { name: 'disableScaleLine()', desc: '禁用比例尺控件', params: '—', returns: 'void' },
-  { name: 'setMouseStyle(cursor)', desc: '设置鼠标样式（CSS cursor 值）', params: 'string', returns: 'void' },
-  { name: 'setMouseStyleToCrosshair()', desc: '设置鼠标样式为十字准线', params: '—', returns: 'void' },
-  { name: 'setMouseStyleToDefault()', desc: '恢复鼠标默认样式', params: '—', returns: 'void' },
-  { name: 'disabledMapDrag()', desc: '禁用地图拖拽平移', params: '—', returns: 'void' },
-  { name: 'enableMapDrag()', desc: '启用地图拖拽平移', params: '—', returns: 'void' },
-  { name: 'getFeatureAtPixel(pixel)', desc: '根据像素坐标获取该位置的 feature 信息', params: 'number[]', returns: 'IFeatureAtPixel' },
-  { name: 'getLayerAtFeature(feature)', desc: '根据 feature 获取其所属图层', params: 'Feature&lt;Geometry&gt;', returns: 'Layer | undefined' },
-  { name: 'useGlobalEvent()', desc: '获取全局事件管理器', params: '—', returns: 'GlobalEvent' },
-  { name: 'useContextMenu(option?)', desc: '启用/配置右键菜单', params: 'IContextMenuOption?', returns: 'ContextMenu' },
-  { name: 'useDrawTool()', desc: '获取动态绘制工具', params: '—', returns: 'DynamicDraw' },
-  { name: 'useMeasure()', desc: '获取测量工具', params: '—', returns: 'Measure' }
+  { name: 'disableScaleLine', desc: '禁用比例尺控件', params: '—', returns: 'void' },
+  { name: 'setMouseStyle', desc: '设置鼠标样式（CSS cursor 值）', params: 'string', returns: 'void' },
+  { name: 'setMouseStyleToCrosshair', desc: '设置鼠标样式为十字准线', params: '—', returns: 'void' },
+  { name: 'setMouseStyleToDefault', desc: '恢复鼠标默认样式', params: '—', returns: 'void' },
+  { name: 'disabledMapDrag', desc: '禁用地图拖拽平移', params: '—', returns: 'void' },
+  { name: 'enableMapDrag', desc: '启用地图拖拽平移', params: '—', returns: 'void' },
+  { name: 'getFeatureAtPixel', desc: '根据像素坐标获取该位置的 feature 信息', params: 'number[]', returns: 'IFeatureAtPixel' },
+  { name: 'getLayerAtFeature', desc: '根据 feature 获取其所属图层', params: 'Feature&lt;Geometry&gt;', returns: 'Layer | undefined' },
+  { name: 'useGlobalEvent', desc: '获取全局事件管理器', params: '—', returns: 'GlobalEvent' },
+  { name: 'useContextMenu', desc: '启用/配置右键菜单', params: 'IContextMenuOption?', returns: 'ContextMenu' },
+  { name: 'useDrawTool', desc: '获取动态绘制工具', params: '—', returns: 'DynamicDraw' },
+  { name: 'useMeasure', desc: '获取测量工具', params: '—', returns: 'Measure' }
 ];
 </script>
 
@@ -143,13 +143,13 @@ const methodRows = [
       <section id="tips" class="doc-prose">
         <h2 class="doc-h2">注意事项</h2>
         <ul class="doc-list">
-          <li><code>flyHome()</code> 将相机移动到构造 <code>Earth</code> 时所设的中心点和缩放级别。</li>
+          <li><code class="code-fn"><a href="#api-methods">flyHome</a></code> 将相机移动到构造 <code>Earth</code> 时所设的中心点和缩放级别。</li>
           <li>
             重复调用 <code class="code-fn"><a href="#api-methods">enableGraticule</a></code> 或
             <code class="code-fn"><a href="#api-methods">enableScaleLine</a></code> 会使用新参数重建实例；无需手动调用禁用方法。
           </li>
           <li>右键菜单、绘制工具、测量工具需单独调用对应方法初始化，首次调用后缓存实例。</li>
-          <li><code>getFeatureAtPixel</code> 接收的是屏幕像素坐标（相对于地图容器），非地理坐标。</li>
+          <li><code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code> 接收的是屏幕像素坐标（相对于地图容器），非地理坐标。</li>
         </ul>
       </section>
     </article>
