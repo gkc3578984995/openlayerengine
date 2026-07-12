@@ -2,12 +2,13 @@
 import type { ScrollbarInstance } from 'element-plus';
 import { Moon, Sunny } from '@element-plus/icons-vue';
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
-import { sideGroups, topNavItems } from '../config/navigation';
+import { useRoute, useRouter } from 'vue-router';
+import { getTopNavIndex, sideGroups, topNavItems, type TopNavIndex } from '../config/navigation';
 import BackToTop from '../components/BackToTop.vue';
 import { getTheme, toggleTheme, type Theme } from '../utils/theme';
 
 const route = useRoute();
+const router = useRouter();
 const mainScrollbar = ref<ScrollbarInstance>();
 const mainScrollTop = ref(0);
 const theme = ref<Theme>(getTheme(window.localStorage));
@@ -21,7 +22,14 @@ provide('docsMainScrollContainer', mainScrollContainer);
 
 const isHome = computed(() => route.path === '/');
 
+const activeTopMenu = computed(() => getTopNavIndex(route.path));
+
 const isParentActive = (item: { to: string }) => route.path === item.to || route.path.startsWith(`${item.to}/`);
+
+const onTopMenuSelect = (index: string) => {
+  const target = topNavItems.find((item) => getTopNavIndex(item.to) === (index as TopNavIndex));
+  if (target && route.path !== target.to) void router.push(target.to);
+};
 
 const onMainScroll = ({ scrollTop }: { scrollTop: number }) => {
   mainScrollTop.value = scrollTop;
@@ -111,17 +119,11 @@ const pageTitle = computed(() => {
           <span class="docs-header__version">v{{ docVersion }}</span>
         </RouterLink>
         <div class="docs-header__spacer" />
-        <nav class="docs-header__nav">
-          <RouterLink
-            v-for="item in topNavItems"
-            :key="item.to"
-            class="docs-header__nav-item"
-            :class="{ 'is-active': route.path === item.to || (item.to !== '/' && route.path.startsWith(item.to)) }"
-            :to="item.to"
-          >
+        <el-menu class="docs-header__nav" mode="horizontal" :ellipsis="false" :default-active="activeTopMenu" @select="onTopMenuSelect">
+          <el-menu-item v-for="item in topNavItems" :key="item.to" :index="getTopNavIndex(item.to)">
             {{ item.label }}
-          </RouterLink>
-        </nav>
+          </el-menu-item>
+        </el-menu>
         <button
           class="docs-header__theme"
           type="button"

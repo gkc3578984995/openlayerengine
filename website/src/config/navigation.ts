@@ -9,6 +9,11 @@ export interface SideGroup {
   items: NavItem[];
 }
 
+export type TopNavIndex = '/' | '/components';
+
+export const getTopNavIndex = (path: string): TopNavIndex =>
+  path === '/components' || path.startsWith('/components/') ? '/components' : '/';
+
 export const topNavItems: NavItem[] = [
   { label: '指南', to: '/' },
   { label: '组件', to: '/components/point-layer' }
