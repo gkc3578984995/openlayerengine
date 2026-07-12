@@ -10,11 +10,9 @@ describe('interaction documentation infrastructure', () => {
     ]);
 
     expect(navigation).toContain("title: '地图交互'");
-    expect(navigation).toContain(`{ label: 'PointLayer 点图层', to: '/components/point-layer' }
-    ]
-  },
-  {
-    title: '地图交互'`);
+    expect(navigation).toMatch(
+      /\{ label: 'PointLayer 点图层', to: '\/components\/point-layer' \}\r?\n\s+\]\r?\n\s+\},\r?\n\s+\{\r?\n\s+title: '地图交互'/
+    );
 
     const interactionGroup = navigation.slice(navigation.indexOf("title: '地图交互'"));
     let previousItemIndex = -1;
