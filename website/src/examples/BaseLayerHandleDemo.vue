@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
 import { Earth } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/dist/index.es.css';
 import { fromLonLat } from 'ol/proj';
+import { createConfiguredLayer } from '../config/mapSources';
 
 const BEIJING = fromLonLat([116.4074, 39.9042]);
 const mapId = useId();
@@ -10,25 +11,17 @@ const earthRef = shallowRef<Earth | null>(null);
 const vectorLayerId = ref<string | null>(null);
 const satelliteLayerId = ref<string | null>(null);
 
-const createSatelliteLayer = (earth: Earth) => {
-  const layer = earth.createXyzLayer(([z, x, y]) => {
-    return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
-  });
-  layer.setOpacity(0.65);
-  return layer;
-};
-
 const createMap = () => {
   if (earthRef.value) return;
   const earth = new Earth({ center: BEIJING, zoom: 5 }, { target: mapId });
-  vectorLayerId.value = earth.addLayer(earth.createOsmLayer());
+  vectorLayerId.value = earth.addLayer(createConfiguredLayer(earth, 'vector'));
   earthRef.value = earth;
 };
 
 const addSatelliteLayer = () => {
   const earth = earthRef.value;
   if (!earth || satelliteLayerId.value) return;
-  satelliteLayerId.value = earth.addLayer(createSatelliteLayer(earth));
+  satelliteLayerId.value = earth.addLayer(createConfiguredLayer(earth, 'satellite'));
 };
 
 const removeVectorLayer = () => {

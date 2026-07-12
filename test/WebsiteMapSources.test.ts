@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_MAP_SOURCES, createTileUrl, getMapSource, loadMapSources, setMapSources } from '../website/src/config/mapSources';
 
@@ -44,5 +45,13 @@ describe('website runtime map sources', () => {
 
     expect(mapSources.vector.urlTemplate).toMatch(/\{z\}.*\{x\}.*\{y\}|\{z\}.*\{y\}.*\{x\}/);
     expect(mapSources.satellite.urlTemplate).toMatch(/\{z\}.*\{x\}.*\{y\}|\{z\}.*\{y\}.*\{x\}/);
+  });
+
+  it('keeps tile service URLs out of documentation examples', async () => {
+    const examplesDirectory = 'website/src/examples';
+    const files = (await readdir(examplesDirectory)).filter((file) => file.endsWith('.vue'));
+    const contents = await Promise.all(files.map((file) => readFile(path.join(examplesDirectory, file), 'utf8')));
+
+    expect(contents.join('\n')).not.toMatch(/https:\/\/(tile\.openstreetmap\.org|server\.arcgisonline\.com|webrd\d+\.is\.autonavi\.com)/);
   });
 });
