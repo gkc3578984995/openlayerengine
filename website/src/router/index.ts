@@ -18,6 +18,9 @@ import ContextMenuStateView from '../views/ContextMenuStateView.vue';
 import ContextMenuCleanupView from '../views/ContextMenuCleanupView.vue';
 import DynamicDrawView from '../views/DynamicDrawView.vue';
 import MeasureView from '../views/MeasureView.vue';
+import MeasureDistanceView from '../views/MeasureDistanceView.vue';
+import MeasureAreaView from '../views/MeasureAreaView.vue';
+import MeasureRemoveView from '../views/MeasureRemoveView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -115,6 +118,21 @@ const router = createRouter({
           path: 'components/measure',
           name: 'measure',
           component: MeasureView
+        },
+        {
+          path: 'components/measure/distance',
+          name: 'measure-distance',
+          component: MeasureDistanceView
+        },
+        {
+          path: 'components/measure/area',
+          name: 'measure-area',
+          component: MeasureAreaView
+        },
+        {
+          path: 'components/measure/remove',
+          name: 'measure-remove',
+          component: MeasureRemoveView
         }
       ]
     }

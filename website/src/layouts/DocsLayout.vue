@@ -42,9 +42,13 @@ const pageTitle = computed(() => {
   if (route.path === '/components/dynamic-draw') {
     return 'DynamicDraw 动态绘制';
   }
-  if (route.path === '/components/measure') {
-    return 'Measure 测量工具';
-  }
+  const measureTitles: Record<string, string> = {
+    '/components/measure': 'Measure 概览与初始化',
+    '/components/measure/distance': 'Measure 量距离',
+    '/components/measure/area': 'Measure 量面积',
+    '/components/measure/remove': 'Measure 移除测量'
+  };
+  if (measureTitles[route.path]) return measureTitles[route.path];
   if (route.path === '/guide/quick-start') {
     return '安装与引入';
   }
