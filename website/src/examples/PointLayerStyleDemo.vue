@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, shallowRef, useId } from 'vue';
 import { Earth, PointLayer } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/dist/index.es.css';
 import { fromLonLat } from 'ol/proj';
+import { createConfiguredLayer } from '../config/mapSources';
 
 const POINT_ID = 'style-point';
 const BEIJING = fromLonLat([116.4074, 39.9042]);
@@ -13,11 +14,7 @@ const pointLayer = shallowRef<PointLayer | null>(null);
 
 onMounted(() => {
   const earth = new Earth({ center: BEIJING, zoom: 5 }, { target: mapId });
-  earth.addLayer(
-    earth.createXyzLayer(([z, x, y]) => {
-      return `https://webrd0${(x % 4) + 1}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x=${x}&y=${y}&z=${z}`;
-    })
-  );
+  earth.addLayer(createConfiguredLayer(earth, 'vector'));
   earthRef.value = earth;
 
   const layer = new PointLayer(earth, { register: false });

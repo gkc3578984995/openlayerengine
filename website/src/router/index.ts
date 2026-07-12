@@ -1,10 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import DocsLayout from '../layouts/DocsLayout.vue';
 import HomeView from '../views/HomeView.vue';
+import LayerCommonView from '../views/LayerCommonView.vue';
 import PointLayerView from '../views/PointLayerView.vue';
 import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
 import GlobalMethodsView from '../views/GlobalMethodsView.vue';
+import GlobalEventView from '../views/GlobalEventView.vue';
+import GlobalEventGlobalMouseView from '../views/GlobalEventGlobalMouseView.vue';
+import GlobalEventModuleEventsView from '../views/GlobalEventModuleEventsView.vue';
+import GlobalEventKeyboardView from '../views/GlobalEventKeyboardView.vue';
+import ContextMenuView from '../views/ContextMenuView.vue';
+import DynamicDrawView from '../views/DynamicDrawView.vue';
+import MeasureView from '../views/MeasureView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -34,9 +42,49 @@ const router = createRouter({
           component: GlobalMethodsView
         },
         {
+          path: 'components/layer-common',
+          name: 'layer-common',
+          component: LayerCommonView
+        },
+        {
           path: 'components/point-layer',
           name: 'point-layer',
           component: PointLayerView
+        },
+        {
+          path: 'components/global-event',
+          name: 'global-event',
+          component: GlobalEventView
+        },
+        {
+          path: 'components/global-event/global-mouse',
+          name: 'global-event-global-mouse',
+          component: GlobalEventGlobalMouseView
+        },
+        {
+          path: 'components/global-event/module-events',
+          name: 'global-event-module-events',
+          component: GlobalEventModuleEventsView
+        },
+        {
+          path: 'components/global-event/keyboard',
+          name: 'global-event-keyboard',
+          component: GlobalEventKeyboardView
+        },
+        {
+          path: 'components/context-menu',
+          name: 'context-menu',
+          component: ContextMenuView
+        },
+        {
+          path: 'components/dynamic-draw',
+          name: 'dynamic-draw',
+          component: DynamicDrawView
+        },
+        {
+          path: 'components/measure',
+          name: 'measure',
+          component: MeasureView
         }
       ]
     }

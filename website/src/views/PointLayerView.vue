@@ -23,6 +23,7 @@ interface ApiColumn {
   label: string;
   width?: string | number;
   monospace?: boolean;
+  presentation?: 'property' | 'method';
 }
 
 const anchors: AnchorItem[] = [
@@ -41,17 +42,26 @@ const anchors: AnchorItem[] = [
     label: 'API',
     children: [
       { id: 'api-constructor', label: '构造参数' },
-      { id: 'api-methods', label: '方法' },
-      { id: 'api-pointparam', label: 'IPointParam' },
-      { id: 'api-setpointparam', label: 'ISetPointParam' },
-      { id: 'api-types', label: '类型定义' }
+      {
+        id: 'api-types',
+        label: '类型定义',
+        children: [
+          { id: 'api-pointparam', label: 'IPointParam' },
+          { id: 'api-setpointparam', label: 'ISetPointParam' },
+          { id: 'api-type-irgbcolor', label: 'IRgbColor' },
+          { id: 'api-type-ifill', label: 'IFill' },
+          { id: 'api-type-istroke', label: 'IStroke' },
+          { id: 'api-type-ilabel', label: 'ILabel' }
+        ]
+      },
+      { id: 'api-methods', label: '方法' }
     ]
   },
   { id: 'tips', label: '注意事项' }
 ];
 
 const attrCols: ApiColumn[] = [
-  { prop: 'name', label: '属性名', width: 140 },
+  { prop: 'name', label: '属性名', width: 140, presentation: 'property' },
   { prop: 'desc', label: '说明', width: 300 },
   { prop: 'type', label: '类型', width: 160, monospace: true },
   { prop: 'options', label: '可选值', width: 130 },
@@ -59,14 +69,14 @@ const attrCols: ApiColumn[] = [
 ];
 
 const methodCols: ApiColumn[] = [
-  { prop: 'name', label: '方法名', width: 240 },
+  { prop: 'name', label: '方法名', width: 240, presentation: 'method' },
   { prop: 'desc', label: '说明', width: 280 },
   { prop: 'params', label: '参数', width: 220, monospace: true },
   { prop: 'returns', label: '返回值', width: 160, monospace: true }
 ];
 
 const typeCols: ApiColumn[] = [
-  { prop: 'name', label: '属性', width: 160 },
+  { prop: 'name', label: '属性', width: 160, presentation: 'property' },
   { prop: 'desc', label: '说明', width: 300 },
   { prop: 'type', label: '类型', width: 160, monospace: true },
   { prop: 'default', label: '默认值', width: 120 }
@@ -206,7 +216,7 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">基础图层 · API 自动同步</span>
+        <span class="doc-hero__eyebrow">基础图层</span>
         <h1>PointLayer 点图层</h1>
         <p>用于快速创建、更新、闪烁和清理点要素，是构建地图标记、监测点和轻量图层交互的基础能力。</p>
       </header>
@@ -283,25 +293,22 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
         <h2 class="doc-h2">API</h2>
 
         <!-- 1. 构造参数 -->
-        <h3 id="api-constructor" class="doc-h3">构造参数</h3>
-        <p class="doc-prose__hint"><code>new PointLayer(earth?, options?)</code></p>
+        <div class="api-constructor">
+          <h3 id="api-constructor" class="doc-h3">构造参数</h3>
+          <p class="api-constructor__signature"><code>new PointLayer(earth?, options?)</code></p>
+        </div>
         <ApiTable :columns="attrCols" :rows="constructorRows" />
 
-        <!-- 2. 方法 -->
-        <h3 id="api-methods" class="doc-h3">方法</h3>
-        <ApiTable :columns="methodCols" :rows="methodRows" />
+        <!-- 2. 类型定义 -->
+        <h3 id="api-types" class="doc-h3">类型定义</h3>
 
-        <!-- 3. 方法参数属性 -->
-        <h3 id="api-pointparam" class="doc-h3">IPointParam</h3>
+        <h4 id="api-pointparam" class="doc-h4">IPointParam</h4>
         <p class="doc-prose__hint"><code class="code-fn-inline">add(param)</code> 的参数类型。</p>
         <ApiTable :columns="attrCols" :rows="pointParamRows" />
 
-        <h3 id="api-setpointparam" class="doc-h3">ISetPointParam</h3>
+        <h4 id="api-setpointparam" class="doc-h4">ISetPointParam</h4>
         <p class="doc-prose__hint"><code class="code-fn-inline">set(param)</code> 的参数类型。除 <code>id</code> 外字段均可选。</p>
         <ApiTable :columns="attrCols" :rows="setPointParamRows" />
-
-        <!-- 4. 类型定义 -->
-        <h3 id="api-types" class="doc-h3">类型定义</h3>
 
         <h4 id="api-type-irgbcolor" class="doc-h4">IRgbColor</h4>
         <p class="doc-prose__hint">RGB 颜色对象。</p>
@@ -318,6 +325,10 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
         <h4 id="api-type-ilabel" class="doc-h4">ILabel</h4>
         <p class="doc-prose__hint">文本标签样式。注意 <code>offsetY</code> 正向为屏幕上方（与 OL 原生相反）。</p>
         <ApiTable :columns="typeCols" :rows="labelRows" />
+
+        <!-- 3. 方法 -->
+        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <ApiTable :columns="methodCols" :rows="methodRows" />
       </section>
 
       <section id="tips" class="doc-prose">

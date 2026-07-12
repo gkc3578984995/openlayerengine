@@ -35,14 +35,9 @@ body {
   min-width: 320px;
   min-height: 100vh;
   color: var(--doc-text);
-  font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: 'Avenir Next', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   background:
-    radial-gradient(
-      circle at top left,
-      rgba(64, 158, 255, 0.14),
-      transparent 28%
-    ),
-    linear-gradient(180deg, #f7fbff 0%, var(--doc-bg) 42%, #eef3f9 100%);
+    radial-gradient(circle at top left, rgba(64, 158, 255, 0.14), transparent 28%), linear-gradient(180deg, #f7fbff 0%, var(--doc-bg) 42%, #eef3f9 100%);
 }
 
 a {
@@ -52,7 +47,7 @@ a {
 
 pre,
 code {
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
 #app {
@@ -190,6 +185,28 @@ code {
   font-size: 14px;
   text-decoration: none;
   transition: all 0.15s ease;
+}
+
+.docs-sidebar__children {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 6px 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--doc-border);
+}
+
+.docs-sidebar__child-link {
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--doc-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.docs-sidebar__child-link:hover,
+.docs-sidebar__child-link.is-active {
+  color: var(--doc-primary-deep);
+  background: #ecf5ff;
 }
 
 .docs-sidebar__link:hover {
@@ -351,7 +368,9 @@ code {
   background: #fff;
   text-decoration: none;
   color: inherit;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .home-feature-card:hover {
@@ -458,7 +477,7 @@ code {
 }
 
 .code-block-highlight code {
-  font-family: "Cascadia Code", "Consolas", "SF Mono", "Menlo", monospace;
+  font-family: 'Cascadia Code', 'Consolas', 'SF Mono', 'Menlo', monospace;
   font-size: 13px;
   line-height: 1.65;
 }
@@ -475,7 +494,7 @@ code {
   background: var(--el-fill-color, #f0f2f5);
   color: var(--doc-text);
   font-size: 13px;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
 .example-block__desc code a {
@@ -501,24 +520,6 @@ code {
   text-decoration: underline;
 }
 
-/* API 表格中的方法引用延续示例说明的蓝色样式。 */
-.api-table code.code-fn {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(64, 158, 255, 0.1);
-  color: var(--doc-primary-deep);
-  font-family: "Cascadia Code", "Consolas", monospace;
-}
-
-.api-table code.code-fn a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.api-table code.code-fn a:hover {
-  text-decoration: underline;
-}
-
 /* 文本中引用方法名的灰色背景 code */
 .code-fn-inline {
   padding: 2px 6px;
@@ -526,7 +527,70 @@ code {
   background: var(--el-fill-color, #f0f2f5);
   color: var(--doc-text);
   font-size: 13px;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+}
+
+.api-constructor {
+  margin: 28px 0 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--el-border-color, var(--doc-border));
+  border-left: 4px solid var(--doc-primary-deep);
+  border-radius: 8px;
+  background: var(--el-fill-color-lighter, #fafbfc);
+}
+
+.api-constructor .doc-h3 {
+  margin: 0 0 10px;
+}
+
+.api-constructor__signature {
+  margin: 0;
+}
+
+.api-constructor__signature code {
+  display: inline-block;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: var(--el-text-color-primary, #303133);
+  color: var(--el-bg-color, #fff);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.api-table__property {
+  color: var(--el-text-color-secondary, #909399);
+  font-weight: 600;
+}
+
+.api-table__property a {
+  color: inherit;
+}
+
+.api-table__method {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--el-fill-color, #f0f2f5);
+  color: var(--el-text-color-primary, #303133);
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.api-table__method .code-fn {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+}
+
+.api-table__method .code-fn a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.api-table__method .code-fn a:hover {
+  text-decoration: underline;
 }
 
 .doc-page-layout {
@@ -654,6 +718,19 @@ code {
   color: var(--doc-primary-deep);
 }
 
+.page-anchor__grandchild.el-anchor__item {
+  padding-left: 40px;
+}
+
+.page-anchor__grandchild .el-anchor-link__title {
+  font-size: 12px;
+  color: var(--doc-muted);
+}
+
+.page-anchor__grandchild.is-active .el-anchor-link__title {
+  color: var(--doc-primary-deep);
+}
+
 .demo-card {
   border: 1px solid var(--el-border-color-light, rgba(223, 230, 239, 0.7));
   border-radius: 12px;
@@ -676,7 +753,6 @@ code {
   color: var(--doc-muted);
   font-size: 13px;
 }
-
 
 .example-stage {
   height: 420px;
@@ -795,7 +871,7 @@ code {
   color: var(--el-text-color-regular, var(--doc-muted));
   font-size: 13px;
   line-height: 1.7;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
 }
 
 /* ===== 示例运行区 ===== */
@@ -918,19 +994,13 @@ code {
   font-size: 14px;
 }
 
-/* 属性名列：去掉背景色，加粗纯文本 */
-.api-table td:first-child {
-  font-weight: 600;
-  color: var(--doc-text);
-}
-
 /* 类型列灰色背景 */
 .api-table__code {
   padding: 2px 6px;
   border-radius: 4px;
   background: var(--el-fill-color, #f0f2f5);
   color: var(--doc-text);
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
   font-size: 13px;
 }
 
@@ -951,7 +1021,9 @@ code {
   color: var(--doc-muted);
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .back-to-top:hover {
@@ -962,7 +1034,9 @@ code {
 
 .btt-fade-enter-active,
 .btt-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
 }
 
 .btt-fade-enter-from,
