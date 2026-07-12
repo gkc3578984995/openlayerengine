@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import ApiTable from '../components/docs/ApiTable.vue';
-import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
-import GlobalEventDemo from '../examples/GlobalEventDemo.vue';
-import globalEventSource from '../examples/GlobalEventDemo.vue?raw';
 
 const anchors = [
-  { id: 'examples', label: '代码演示', children: [{ id: 'example-global-events', label: '全局与模块回调' }] },
   {
     id: 'api',
     label: 'API',
@@ -53,14 +49,6 @@ const callbackParamRows = [
           推荐通过 <a href="/guide/global-methods#api-methods"><code>earth.useGlobalEvent()</code></a> 获取由 Earth
           管理的实例。全局回调提供坐标和像素；模块回调只在命中对应 <code>module</code> 的要素时触发。
         </p>
-      </section>
-      <section id="examples" class="doc-prose">
-        <h2 class="doc-h2">代码演示</h2>
-        <div id="example-global-events">
-          <ExampleBlock title="全局与模块回调" description="注册全局与模块回调，并在组件卸载时执行注销函数。" :source="globalEventSource">
-            <template #preview><GlobalEventDemo /></template>
-          </ExampleBlock>
-        </div>
       </section>
       <section id="api" class="doc-prose">
         <h2 class="doc-h2">API</h2>

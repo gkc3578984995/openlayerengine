@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import ApiTable from '../components/docs/ApiTable.vue';
+import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
+import GlobalEventModuleDemo from '../examples/GlobalEventModuleDemo.vue';
+import moduleEventSource from '../examples/GlobalEventModuleDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '概述' },
+  { id: 'examples', label: '代码演示', children: [{ id: 'example-module-feature-events', label: '模块要素点击' }] },
   { id: 'api-methods', label: '方法' },
   { id: 'tips', label: '注意事项' }
 ];
@@ -48,6 +52,17 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
           >，其参数结构见 <code><a href="/components/global-event#api-type-moduleeventcallbackparams">ModuleEventCallbackParams</a></code
           >。
         </p>
+      </section>
+      <section id="examples" class="doc-prose">
+        <h2 class="doc-h2">代码演示</h2>
+        <div id="example-module-feature-events">
+          <ExampleBlock
+            title="模块要素点击"
+            :description="`为可见模块点注册 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByModule</a></code> 与 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseDblClickEventByModule</a></code>，通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasModuleMouseClickEvent</a></code> 展示状态，并可调用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>removeAllModuleEvents</a></code> 后重新注册。`"
+            :source="moduleEventSource"
+            ><template #preview><GlobalEventModuleDemo /></template
+          ></ExampleBlock>
+        </div>
       </section>
       <section class="doc-prose">
         <h2 id="api-methods" class="doc-h2">方法</h2>

@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import ApiTable from '../components/docs/ApiTable.vue';
+import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
+import GlobalEventListenerControlDemo from '../examples/GlobalEventListenerControlDemo.vue';
+import listenerControlSource from '../examples/GlobalEventListenerControlDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '概述' },
+  { id: 'examples', label: '代码演示', children: [{ id: 'example-listener-control', label: '监听启停与重新注册' }] },
   { id: 'api-methods', label: '方法' },
   { id: 'tips', label: '注意事项' }
 ];
@@ -53,6 +57,17 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">概述</h2>
         <p>注册回调的方法会按需启用监听；这些方法适合需要显式控制底层监听生命周期的场景。</p>
+      </section>
+      <section id="examples" class="doc-prose">
+        <h2 class="doc-h2">代码演示</h2>
+        <div id="example-listener-control">
+          <ExampleBlock
+            title="监听启停与重新注册"
+            :description="`对比 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>enableGlobalMouseClickEvent</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>disableGlobalMouseClickEvent</a></code> 与 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByGlobal</a></code>，并用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasGlobalMouseClickEvent</a></code> 展示状态。`"
+            :source="listenerControlSource"
+            ><template #preview><GlobalEventListenerControlDemo /></template
+          ></ExampleBlock>
+        </div>
       </section>
       <section class="doc-prose">
         <h2 id="api-methods" class="doc-h2">方法</h2>

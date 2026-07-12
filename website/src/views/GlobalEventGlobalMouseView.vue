@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import ApiTable from '../components/docs/ApiTable.vue';
+import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
+import GlobalEventDemo from '../examples/GlobalEventDemo.vue';
+import globalEventSource from '../examples/GlobalEventDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '概述' },
+  { id: 'examples', label: '代码演示', children: [{ id: 'example-global-mouse-events', label: '全局移动与点击' }] },
   { id: 'api-methods', label: '方法' },
   { id: 'tips', label: '注意事项' }
 ];
@@ -98,6 +102,17 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
           回调参数使用概览页定义的 <code><a href="/components/global-event#api-type-globaleventcallback">GlobalEventCallback</a></code
           >。
         </p>
+      </section>
+      <section id="examples" class="doc-prose">
+        <h2 class="doc-h2">代码演示</h2>
+        <div id="example-global-mouse-events">
+          <ExampleBlock
+            title="全局移动与点击"
+            :description="`通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseMoveEventByGlobal</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByGlobal</a></code> 更新可见状态，并用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasGlobalMouseClickEvent</a></code> 查询注册状态。`"
+            :source="globalEventSource"
+            ><template #preview><GlobalEventDemo /></template
+          ></ExampleBlock>
+        </div>
       </section>
       <section class="doc-prose">
         <h2 id="api-methods" class="doc-h2">方法</h2>

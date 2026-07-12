@@ -207,26 +207,19 @@ describe('interaction documentation infrastructure', () => {
   });
 
   it('documents runnable GlobalEvent and ContextMenu demos, owned types, and public methods', async () => {
-    const [globalEvent, contextMenu, globalDemo, contextDemo, router] = await Promise.all([
+    const [globalEvent, contextMenu, contextDemo, router] = await Promise.all([
       readFile('website/src/views/GlobalEventView.vue', 'utf8'),
       readFile('website/src/views/ContextMenuView.vue', 'utf8'),
-      readFile('website/src/examples/GlobalEventDemo.vue', 'utf8'),
       readFile('website/src/examples/ContextMenuDemo.vue', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8')
     ]);
 
-    for (const [view, demo, rawImport, exampleId] of [
-      [globalEvent, globalDemo, "import globalEventSource from '../examples/GlobalEventDemo.vue?raw';", 'example-global-events'],
-      [contextMenu, contextDemo, "import contextMenuSource from '../examples/ContextMenuDemo.vue?raw';", 'example-default-and-module']
-    ]) {
-      expect(view).toContain(rawImport);
-      expect(view).toContain(`id="${exampleId}"`);
-      expect(view).toContain('<PageAnchor');
-      expect(demo).toContain('createConfiguredLayer');
-      expect(demo).toContain('onBeforeUnmount');
-      expect(demo).toContain('.destroy()');
-    }
-    expect(globalEvent).toMatch(/:source="globalEventSource"\s*>\s*<template #preview>\s*<GlobalEventDemo\s*\/>/s);
+    expect(contextMenu).toContain("import contextMenuSource from '../examples/ContextMenuDemo.vue?raw';");
+    expect(contextMenu).toContain('id="example-default-and-module"');
+    expect(contextMenu).toContain('<PageAnchor');
+    expect(contextDemo).toContain('createConfiguredLayer');
+    expect(contextDemo).toContain('onBeforeUnmount');
+    expect(contextDemo).toContain('.destroy()');
     expect(contextMenu).toMatch(/:source="contextMenuSource"\s*>\s*<template #preview>\s*<ContextMenuDemo\s*\/>/s);
     expect(router).toMatch(/path: 'components\/global-event',[\s\S]*?component: GlobalEventView/);
     expect(router).toMatch(/path: 'components\/context-menu',[\s\S]*?component: ContextMenuView/);
@@ -266,12 +259,70 @@ describe('interaction documentation infrastructure', () => {
     expect(contextDemo).toContain('addDefaultMenu');
     expect(contextDemo).toContain('addModuleMenu');
     expect(contextDemo).toContain('toggleTheme');
-    expect(globalDemo).toContain('disposers.splice(0).forEach');
-    expect(globalDemo).toContain('earthRef.value?.destroy()');
-    expect(globalDemo.indexOf('disposers.splice(0).forEach')).toBeLessThan(globalDemo.indexOf('earthRef.value?.destroy()'));
     expect(contextDemo).toContain('earth?.useContextMenu().destroy()');
     expect(contextDemo).toContain('earth?.destroy()');
     expect(contextDemo.indexOf('earth?.useContextMenu().destroy()')).toBeLessThan(contextDemo.indexOf('earth?.destroy()'));
+  });
+
+  it('documents four focused GlobalEvent demos and their maintenance rules', async () => {
+    const demos = [
+      ['GlobalEventGlobalMouseView.vue', 'GlobalEventDemo.vue', 'example-global-mouse-events'],
+      ['GlobalEventModuleEventsView.vue', 'GlobalEventModuleDemo.vue', 'example-module-feature-events'],
+      ['GlobalEventKeyboardView.vue', 'GlobalEventKeyboardDemo.vue', 'example-keyboard-events'],
+      ['GlobalEventListenerControlView.vue', 'GlobalEventListenerControlDemo.vue', 'example-listener-control']
+    ] as const;
+    const exampleDetails = {
+      'example-global-mouse-events': { title: '全局移动与点击', sourceName: 'globalEventSource' },
+      'example-module-feature-events': { title: '模块要素点击', sourceName: 'moduleEventSource' },
+      'example-keyboard-events': { title: '键盘注册与取消', sourceName: 'keyboardEventSource' },
+      'example-listener-control': { title: '监听启停与重新注册', sourceName: 'listenerControlSource' }
+    } as const;
+
+    const pairs = await Promise.all(
+      demos.map(async ([viewFile, exampleFile]) =>
+        Promise.all([readFile(`website/src/views/${viewFile}`, 'utf8'), readFile(`website/src/examples/${exampleFile}`, 'utf8')])
+      )
+    );
+    const [rules, overview] = await Promise.all([readFile('website/AGENTS.md', 'utf8'), readFile('website/src/views/GlobalEventView.vue', 'utf8')]);
+
+    expect(overview).not.toContain("import GlobalEventDemo from '../examples/GlobalEventDemo.vue';");
+    expect(overview).not.toContain("import globalEventSource from '../examples/GlobalEventDemo.vue?raw';");
+    expect(overview).not.toContain('example-global-events');
+    expect(overview).not.toContain('<GlobalEventDemo');
+
+    for (const [[, exampleFile, exampleId], [view, example]] of demos.map((demo, index) => [demo, pairs[index]] as const)) {
+      const { title, sourceName } = exampleDetails[exampleId];
+      const componentName = exampleFile.replace('.vue', '');
+      expect(view).toContain(`import ${componentName} from '../examples/${exampleFile}';`);
+      expect(view).toContain(`import ${sourceName} from '../examples/${exampleFile}?raw';`);
+      expect(view).toContain(`{ id: '${exampleId}', label: '${title}' }`);
+      expect(view).toContain(`id="${exampleId}"`);
+      expect(view).toContain(`title="${title}"`);
+      expect(view).toMatch(new RegExp(`:source="${sourceName}"\\s*>\\s*<template #preview>\\s*<${componentName}\\s*\\/>`, 's'));
+      expect(example, `${exampleFile} should use the configured map source`).toContain('createConfiguredLayer');
+      expect(example, `${exampleFile} should clean up registrations`).toContain('disposers.splice(0).forEach');
+      expect(example, `${exampleFile} should destroy Earth`).toContain('earthRef.value?.destroy()');
+      expect(example.indexOf('disposers.splice(0).forEach'), `${exampleFile} cleanup order`).toBeLessThan(example.indexOf('earthRef.value?.destroy()'));
+    }
+
+    const [[, globalMouseDemo], [, moduleDemo], [, keyboardDemo], [, listenerDemo]] = pairs;
+    expect(globalMouseDemo).toContain('addMouseMoveEventByGlobal');
+    expect(globalMouseDemo).toContain('addMouseClickEventByGlobal');
+    expect(globalMouseDemo).toContain('hasGlobalMouseClickEvent');
+    expect(moduleDemo).toContain('addMouseClickEventByModule');
+    expect(moduleDemo).toContain('addMouseDblClickEventByModule');
+    expect(moduleDemo).toContain('hasModuleMouseClickEvent');
+    expect(moduleDemo).toContain('removeAllModuleEvents');
+    expect(keyboardDemo).toContain('addKeyDownEventByGlobal');
+    expect(keyboardDemo).toContain('hasGlobalKeyDownEvent');
+    expect(listenerDemo).toContain('enableGlobalMouseClickEvent');
+    expect(listenerDemo).toContain('disableGlobalMouseClickEvent');
+
+    expect(rules).toContain('导出的可构造工具必须先展示公共构造函数');
+    expect(rules).toContain('存在 Earth `use*` 入口时优先使用');
+    expect(rules).toContain('大型对称 API 必须按行为族拆分');
+    expect(rules).toContain('每个方法只能有一个规范归属页面');
+    expect(rules).toContain('`disable*`、注销函数与 `remove*` 的语义不得混淆');
   });
 
   it('defines the Earth-owned feature hit type and links all interaction references to their owner pages', async () => {
