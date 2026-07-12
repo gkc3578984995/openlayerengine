@@ -11,8 +11,7 @@ export interface SideGroup {
 
 export type TopNavIndex = '/' | '/components';
 
-export const getTopNavIndex = (path: string): TopNavIndex =>
-  path === '/components' || path.startsWith('/components/') ? '/components' : '/';
+export const getTopNavIndex = (path: string): TopNavIndex => (path === '/components' || path.startsWith('/components/') ? '/components' : '/');
 
 export const topNavItems: NavItem[] = [
   { label: '指南', to: '/' },
@@ -66,7 +65,9 @@ export const sideGroups: SideGroup[] = [
         ]
       },
       {
-        label: 'DynamicDraw 动态绘制', to: '/components/dynamic-draw', children: [
+        label: 'DynamicDraw 动态绘制',
+        to: '/components/dynamic-draw',
+        children: [
           { label: '概览与接入', to: '/components/dynamic-draw' },
           { label: '基础几何绘制', to: '/components/dynamic-draw/basic-geometry' },
           { label: '高级几何绘制', to: '/components/dynamic-draw/advanced-geometry' },
