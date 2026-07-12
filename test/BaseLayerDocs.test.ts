@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import { getCircleLayerMethodRows } from '../website/src/docs/circleLayerApi';
 
 const readOptional = async (path: string) => readFile(path, 'utf8').catch(() => '');
 
@@ -57,6 +58,12 @@ const layers = [
 ] as const;
 
 describe('base layer documentation pages', () => {
+  it('escapes unmatched generic types in generated CircleLayer API values', () => {
+    const [row] = getCircleLayerMethodRows([{ name: 'add(param)', desc: '', params: '', returns: '' }]);
+
+    expect(row.returns).toBe('Feature&lt;Circle&gt;');
+  });
+
   it.each(layers)('$name follows the runnable page contract', async ({ name, view, api, examples, methods, types }) => {
     const viewSource = await readOptional(`website/src/views/${view}`);
     const apiSource = await readOptional(`website/src/docs/${api}`);
@@ -104,6 +111,20 @@ describe('base layer documentation pages', () => {
     expect(flightDemoSource).toContain("const FLIGHT_ID = 'demo-flight'");
     expect(flightDemoSource).toContain("const SAFE_NOOP_FLIGHT_ID = 'flight-not-created'");
     expect(flightDemoSource).not.toContain('@click="addFlight"');
+  });
+
+  it('PolylineLayer hands inherited methods off to the canonical common-layer API', async () => {
+    const viewSource = await readFile('website/src/views/PolylineLayerView.vue', 'utf8');
+
+    expect(viewSource).toMatch(
+      /<ApiTable :columns="methodCols" :rows="methodRows" \/>\s*<p[^>]*>\s*继承自 Base 的通用方法请参阅\s*<a href="\/components\/layer-common#api-methods">图层通用操作<\/a>/
+    );
+  });
+
+  it('PolylineLayer documents the effective register default', async () => {
+    const viewSource = await readFile('website/src/views/PolylineLayerView.vue', 'utf8');
+
+    expect(viewSource).toMatch(/name: 'options\.register',[^\n]+default: 'true'/);
   });
 
   it('registers all five pages without adding WindLayer', async () => {

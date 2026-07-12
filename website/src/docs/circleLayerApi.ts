@@ -22,9 +22,10 @@ const typeAnchors: Record<string, string> = {
 };
 
 function linkDocumentedTypes(value: string): string {
-  return value.replace(/\b(ICircleParam|ISetCircleParam|IGeometryFill|IStroke|ILabel)(?:&lt;[^&]+&gt;|<[^>]+>)?/g, (type) => {
+  const escapedValue = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return escapedValue.replace(/\b(ICircleParam|ISetCircleParam|IGeometryFill|IStroke|ILabel)(?:&lt;[^&]+&gt;)?/g, (type) => {
     const name = type.match(/^[A-Za-z]+/)?.[0] ?? type;
-    return `<a href="${typeAnchors[name]}">${type.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</a>`;
+    return `<a href="${typeAnchors[name]}">${type}</a>`;
   });
 }
 

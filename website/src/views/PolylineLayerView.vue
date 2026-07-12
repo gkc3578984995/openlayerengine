@@ -74,7 +74,7 @@ const methodCols: ApiColumn[] = [
 
 const constructorRows = [
   { name: 'earth', desc: '地图实例；不传时回退到 <code>useEarth()</code> 全局单例', type: 'Earth', options: '—', default: '—' },
-  { name: 'options.register', desc: '是否注册到全局管理（多地图场景建议设为 <code>false</code>）', type: 'boolean', options: 'true / false', default: '—' },
+  { name: 'options.register', desc: '是否注册到全局管理（多地图场景建议设为 <code>false</code>）', type: 'boolean', options: 'true / false', default: 'true' },
   { name: 'options.wrapX', desc: '是否允许要素跨 180° 经线换行显示', type: 'boolean', options: 'true / false', default: 'true' }
 ];
 
@@ -272,6 +272,7 @@ const polylineFlyParamRows = getPolylineLayerInterfaceRows('IPolylineFlyParam', 
 
         <h3 id="api-methods" class="doc-h3">方法</h3>
         <ApiTable :columns="methodCols" :rows="methodRows" />
+        <p class="doc-prose__hint">继承自 Base 的通用方法请参阅 <a href="/components/layer-common#api-methods">图层通用操作</a>。</p>
       </section>
 
       <section id="tips" class="doc-prose">
