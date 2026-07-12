@@ -50,7 +50,7 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">GlobalEvent</span>
+        <span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>
         <h1>监听控制</h1>
         <p>显式启用或停用模块与全局鼠标底层监听。</p>
       </header>
@@ -63,7 +63,7 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
         <div id="example-listener-control">
           <ExampleBlock
             title="监听启停与重新注册"
-            :description="`对比 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>enableGlobalMouseClickEvent</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>disableGlobalMouseClickEvent</a></code> 与 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>addMouseClickEventByGlobal</a></code>，并用 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>hasGlobalMouseClickEvent</a></code> 展示状态。`"
+            :description="`对比 <code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>enableGlobalMouseClickEvent</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>disableGlobalMouseClickEvent</a></code> 与 <code class=&quot;code-fn&quot;><a href=&quot;/components/global-event/global-mouse#api-methods&quot;>addMouseClickEventByGlobal</a></code>，并用 <code class=&quot;code-fn&quot;><a href=&quot;/components/global-event/global-mouse#api-methods&quot;>hasGlobalMouseClickEvent</a></code> 展示状态。`"
             :source="listenerControlSource"
             ><template #preview><GlobalEventListenerControlDemo /></template
           ></ExampleBlock>

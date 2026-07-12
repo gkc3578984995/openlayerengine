@@ -75,6 +75,9 @@ describe('interaction documentation infrastructure', () => {
     expect(layout).toContain('route.path.startsWith(`${item.to}/`)');
 
     const [overview, globalMouse, moduleEvents, keyboard, listenerControl] = views;
+    for (const view of views) {
+      expect(view).toContain('<span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>');
+    }
     expect(overview).toContain('id="api-constructor"');
     expect(overview).toContain('new GlobalEvent(earth)');
     expect(overview).toContain('href="/guide/global-methods#api-methods"');
@@ -93,6 +96,12 @@ describe('interaction documentation infrastructure', () => {
     }
     expect(globalMouse).toContain('/components/global-event#api-type-globaleventcallback');
     expect(moduleEvents).toContain('/components/global-event#api-type-moduleeventcallback');
+    expect(listenerControl).toContain(
+      'href=&quot;/components/global-event/global-mouse#api-methods&quot;>addMouseClickEventByGlobal'
+    );
+    expect(listenerControl).toContain(
+      'href=&quot;/components/global-event/global-mouse#api-methods&quot;>hasGlobalMouseClickEvent'
+    );
 
     const globalMouseMethods = [
       'addMouseMoveEventByGlobal',
@@ -156,7 +165,7 @@ describe('interaction documentation infrastructure', () => {
       'disableGlobalMouseRightClickEvent'
     ];
     const canonicalMethods = [...globalMouseMethods, ...moduleMethods, ...keyboardMethods, ...listenerMethods];
-    const sourceMethods = [...source.matchAll(/^  (?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
+    const sourceMethods = [...source.matchAll(/^ {2}(?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
       .map((match) => match[1])
       .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
     expect(canonicalMethods).toHaveLength(58);
@@ -395,7 +404,7 @@ describe('interaction documentation infrastructure', () => {
     }
 
     const getPublicMethods = (source: string) =>
-      [...source.matchAll(/^  (?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
+      [...source.matchAll(/^ {2}(?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
         .map((match) => match[1])
         .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
     const dynamicDrawMethods = getPublicMethods(dynamicDrawComponent);

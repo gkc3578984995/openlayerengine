@@ -30,7 +30,7 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">GlobalEvent</span>
+        <span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>
         <h1>键盘事件</h1>
         <p>管理 document 范围的键盘按下监听。</p>
       </header>

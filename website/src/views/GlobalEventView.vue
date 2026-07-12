@@ -39,7 +39,7 @@ const callbackParamRows = [
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">地图交互</span>
+        <span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>
         <h1>GlobalEvent 概览与初始化</h1>
         <p>统一管理地图范围和指定模块的鼠标、键盘事件，并通过注销函数安全释放回调。</p>
       </header>

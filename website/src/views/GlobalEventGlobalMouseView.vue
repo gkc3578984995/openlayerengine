@@ -92,7 +92,7 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">GlobalEvent</span>
+        <span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>
         <h1>全局鼠标事件</h1>
         <p>注册地图范围内的鼠标回调、一次性回调，并查询监听状态。</p>
       </header>

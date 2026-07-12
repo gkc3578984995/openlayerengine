@@ -41,7 +41,7 @@ const methodRows = methods.map(([name, desc, params, returns]) => ({ name, desc,
   <div class="doc-page-layout">
     <article class="doc-page">
       <header class="doc-hero">
-        <span class="doc-hero__eyebrow">GlobalEvent</span>
+        <span class="doc-hero__eyebrow">GlobalEvent 全局事件</span>
         <h1>模块要素事件</h1>
         <p>按要素的 module 标识注册、查询和移除鼠标回调。</p>
       </header>
