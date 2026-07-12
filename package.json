@@ -7,6 +7,9 @@
   "files": [
     "dist"
   ],
+  "workspaces": [
+    "website"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "npm run clean && rollup --bundleConfigAsCjs -c rollup.config.mjs --environment MODE:prod && tsc --emitDeclarationOnly --declaration --declarationDir dist/types",
@@ -21,6 +24,8 @@
     "copy": "copyfiles -u 1 src/**/*.glsl earth-engine",
     "tsc": "npm run clean && tsc && npm run copy",
     "doc": "typedoc --options ./typedoc.json",
+    "docs:dev": "npm run build && npm run dev --workspace=ol-doc",
+    "docs:build": "npm run build && npm run doc && npm run build --workspace=ol-doc",
     "pack:offline": "npm pack",
     "test": "vitest run",
     "test:watch": "vitest"
