@@ -15,7 +15,7 @@ const canEdit = ref(false);
 const feedback = ref('当前仅可查看详情；编辑与删除操作由菜单守卫禁用。');
 const items: IContextMenuItem[] = [
   { key: 'vehicle-detail', label: '查看车辆详情' },
-  { key: 'edit-vehicle', label: '移入复核区' },
+  { key: 'move-review-area', label: '移入复核区' },
   { key: 'delete-vehicle', label: '删除车辆' }
 ];
 
@@ -36,11 +36,11 @@ onMounted(() => {
     ({ menu, featureId, position }) => {
       if (!featureId) return;
       if (menu.key === 'vehicle-detail') {
-        earth.flyTo(position, 12);
+        earth.flyTo(fromLonLat(position), 12);
         feedback.value = `正在查看 ${featureId} 的位置`;
         return;
       }
-      if (menu.key === 'edit-vehicle') {
+      if (menu.key === 'move-review-area') {
         vehicles.setPosition(featureId, REVIEW_AREA);
         earth.flyTo(REVIEW_AREA, 12);
         feedback.value = `${featureId} 已移入复核区`;

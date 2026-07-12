@@ -13,9 +13,9 @@ const earthRef = shallowRef<Earth | null>(null);
 const isDark = ref(false);
 const feedback = ref('切换主题后右键地图，再选择场景菜单定位不同业务点。');
 const items: IContextMenuItem[] = [
-  { key: 'open-panel', label: '定位指挥中心' },
-  { key: 'save-view', label: '定位车辆仓库' },
-  { key: 'share-view', label: '定位巡检现场' }
+  { key: 'locate-command-center', label: '定位指挥中心' },
+  { key: 'locate-vehicle-depot', label: '定位车辆仓库' },
+  { key: 'locate-inspection-site', label: '定位巡检现场' }
 ];
 
 const setTheme = (dark: boolean) => {
@@ -38,7 +38,11 @@ onMounted(() => {
   sceneLayer.add({ id: 'vehicle-depot', center: DEPOT, size: 11, fill: { color: '#67c23a' }, label: { text: '车辆仓库', offsetY: 22 } });
   sceneLayer.add({ id: 'inspection-site', center: INSPECTION_SITE, size: 11, fill: { color: '#e6a23c' }, label: { text: '巡检现场', offsetY: 22 } });
   earth.useContextMenu({ isDarkTheme: false }).addDefaultMenu(items, ({ menu }) => {
-    const targets: Record<string, number[]> = { 'open-panel': COMMAND_CENTER, 'save-view': DEPOT, 'share-view': INSPECTION_SITE };
+    const targets: Record<string, number[]> = {
+      'locate-command-center': COMMAND_CENTER,
+      'locate-vehicle-depot': DEPOT,
+      'locate-inspection-site': INSPECTION_SITE
+    };
     earth.flyTo(targets[menu.key] ?? COMMAND_CENTER, 13);
     feedback.value = `已执行：${menu.label}`;
   });

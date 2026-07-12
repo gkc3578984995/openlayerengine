@@ -22,7 +22,7 @@ const items: IContextMenuItem[] = [
         label: '轨迹管理',
         child: [
           { key: 'track-live', label: '显示巡检轨迹' },
-          { key: 'track-export', label: '隐藏巡检轨迹' }
+          { key: 'track-hide', label: '隐藏巡检轨迹' }
         ]
       }
     ]
@@ -72,7 +72,7 @@ onMounted(() => {
       earth.flyTo(VEHICLE_POSITION, 13);
     } else if (menu.key === 'track-live') {
       trackLayer.show();
-    } else if (menu.key === 'track-export') {
+    } else if (menu.key === 'track-hide') {
       trackLayer.hide();
     } else if (menu.key === 'alarm-list') {
       alarmLayer.show();

@@ -5,7 +5,10 @@ import '@vrsim/earth-engine-ol/dist/index.es.css';
 import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
 
+const SAVED_FEATURE_ID = 'saved-station';
 const EXPORT_FEATURE_ID = 'export-station';
+const HISTORY_FEATURE_ID = 'history-station';
+const HISTORY_POSITION = fromLonLat([116.44, 39.89]);
 const mapId = useId();
 const earthRef = shallowRef<Earth | null>(null);
 const featureLayerRef = shallowRef<PointLayer | null>(null);
@@ -35,7 +38,7 @@ onMounted(() => {
   earth.addLayer(createConfiguredLayer(earth, 'vector'));
   const featureLayer = new PointLayer(earth, { register: false });
   featureLayer.add({
-    id: 'saved-station',
+    id: SAVED_FEATURE_ID,
     center: fromLonLat([116.38, 39.91]),
     size: 9,
     fill: { color: '#409eff' },
@@ -43,13 +46,30 @@ onMounted(() => {
   });
   featureLayer.add({ id: EXPORT_FEATURE_ID, center, size: 11, fill: { color: '#e6a23c' }, label: { text: '可导出站点', offsetY: 22 } });
   featureLayer.add({
-    id: 'history-station',
-    center: fromLonLat([116.44, 39.89]),
+    id: HISTORY_FEATURE_ID,
+    center: HISTORY_POSITION,
     size: 9,
     fill: { color: '#67c23a' },
     label: { text: '历史站点', offsetY: 20 }
   });
-  earth.useContextMenu().addDefaultMenu(items, ({ menu }) => (feedback.value = `已执行：${menu.label}`));
+  featureLayer.hide(HISTORY_FEATURE_ID);
+  earth.useContextMenu().addDefaultMenu(items, ({ menu, position }) => {
+    if (menu.key === 'export-current') {
+      setVisibility(false);
+      return;
+    }
+    if (menu.key === 'save-current') {
+      const savedPosition = fromLonLat(position);
+      featureLayer.remove(SAVED_FEATURE_ID);
+      featureLayer.add({ id: SAVED_FEATURE_ID, center: savedPosition, size: 9, fill: { color: '#409eff' }, label: { text: '已保存站点', offsetY: 20 } });
+      earth.flyTo(savedPosition, 13);
+      feedback.value = '已在右键位置保存站点。';
+      return;
+    }
+    featureLayer.show(HISTORY_FEATURE_ID);
+    earth.flyTo(HISTORY_POSITION, 13);
+    feedback.value = '已显示并定位历史巡检站点。';
+  });
   featureLayerRef.value = featureLayer;
   earthRef.value = earth;
 });

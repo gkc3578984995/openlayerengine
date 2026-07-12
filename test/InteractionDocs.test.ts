@@ -365,15 +365,15 @@ describe('interaction documentation infrastructure', () => {
       ContextMenuLifecycleDemo: ['mark-location', 'copy-coordinate', 'reset-view'],
       ContextMenuDefaultMenuDemo: ['add-task', 'add-warning', 'clear-marks'],
       ContextMenuDefaultMenuCallbackDemo: ['save-location', 'focus-position', 'coordinate-label'],
-      ContextMenuModuleMenuDemo: ['locate-vehicle', 'view-track', 'view-detail'],
-      ContextMenuModuleMenuGuardDemo: ['vehicle-detail', 'edit-vehicle', 'delete-vehicle'],
+      ContextMenuModuleMenuDemo: ['locate-vehicle', 'dispatch-next-stop', 'remove-offline-vehicle'],
+      ContextMenuModuleMenuGuardDemo: ['vehicle-detail', 'move-review-area', 'delete-vehicle'],
       ContextMenuModuleMenuCallbackDemo: ['dispatch', 'contact-driver', 'open-work-order'],
       ContextMenuNestedMenuDemo: [
         'vehicle-actions',
         'navigate',
         'track',
         'track-live',
-        'track-export',
+        'track-hide',
         'alarm-actions',
         'alarm-list',
         'alarm-confirm',
@@ -381,10 +381,10 @@ describe('interaction documentation infrastructure', () => {
       ],
       ContextMenuMutexMenuDemo: ['show-label', 'hide-label', 'enable-follow', 'stop-follow'],
       ContextMenuVisibilityDemo: ['save-current', 'export-current', 'open-history'],
-      ContextMenuStateToggleDemo: ['view-track', 'locate-vehicle', 'vehicle-detail'],
-      ContextMenuThemeDemo: ['open-panel', 'save-view', 'share-view'],
-      ContextMenuRemoveDefaultDemo: ['save-map', 'copy-link', 'reset-map'],
-      ContextMenuRemoveModuleDemo: ['view-track', 'locate-vehicle', 'vehicle-detail']
+      ContextMenuStateToggleDemo: ['toggle-track', 'locate-vehicle', 'show-vehicle-track'],
+      ContextMenuThemeDemo: ['locate-command-center', 'locate-vehicle-depot', 'locate-inspection-site'],
+      ContextMenuRemoveDefaultDemo: ['add-review-marker', 'add-warning-marker', 'clear-markers'],
+      ContextMenuRemoveModuleDemo: ['toggle-track', 'locate-vehicle', 'show-vehicle-track']
     };
     for (const [name, keys] of Object.entries(expectedKeys)) {
       const source = await readFile(`website/src/examples/${name}.vue`, 'utf8');
@@ -442,6 +442,18 @@ describe('interaction documentation infrastructure', () => {
       const source = await readFile(`website/src/examples/${name}.vue`, 'utf8');
       expect(source, `${name} should narrow the optional feature id before map mutations`).toContain('if (!featureId) return;');
     }
+    for (const name of ['ContextMenuModuleMenuCallbackDemo', 'ContextMenuModuleMenuGuardDemo', 'ContextMenuRemoveModuleDemo']) {
+      const source = await readFile(`website/src/examples/${name}.vue`, 'utf8');
+      expect(source, `${name} should convert callback longitude and latitude before map mutations`).toContain('fromLonLat(position)');
+    }
+    const visibilityCallback = await readFile('website/src/examples/ContextMenuVisibilityDemo.vue', 'utf8');
+    expect(visibilityCallback).toMatch(/addDefaultMenu\(items, \(\{ menu, position \}\) => \{[\s\S]*?setVisibility\(false\)/);
+    const stateCallback = await readFile('website/src/examples/ContextMenuStateToggleDemo.vue', 'utf8');
+    expect(stateCallback).toMatch(/addModuleMenu\(MODULE, items, \(\{ menu, featureId, position \}\) => \{[\s\S]*?toggleTrack\(featureId\)/);
+    expect(stateCallback).toMatch(/addModuleMenu\(MODULE, items,[\s\S]*?trackLayer\.show\(featureId\)/);
+    expect(stateCallback).toMatch(/trackLayer\.add\(\{\s+id: FIRST_ID,\s+module: MODULE,[\s\S]*?trackLayer\.add\(\{\s+id: SECOND_ID,\s+module: MODULE/);
+    const cleanupCallback = await readFile('website/src/examples/ContextMenuRemoveModuleDemo.vue', 'utf8');
+    expect(cleanupCallback).toMatch(/trackLayer\.add\(\{ id: VEHICLE_ID, module: MODULE,/);
     const contextViews = await Promise.all(
       [
         'ContextMenuOverviewView.vue',

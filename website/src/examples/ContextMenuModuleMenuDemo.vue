@@ -15,8 +15,8 @@ const earthRef = shallowRef<Earth | null>(null);
 const feedback = ref('右键蓝色车辆，可定位、调度或移除这辆车。');
 const items: IContextMenuItem[] = [
   { key: 'locate-vehicle', label: '定位车辆' },
-  { key: 'view-track', label: '调度至下一站' },
-  { key: 'view-detail', label: '移除离线车辆' }
+  { key: 'dispatch-next-stop', label: '调度至下一站' },
+  { key: 'remove-offline-vehicle', label: '移除离线车辆' }
 ];
 
 onMounted(() => {
@@ -35,7 +35,7 @@ onMounted(() => {
       feedback.value = `已定位 ${featureId}`;
       return;
     }
-    if (menu.key === 'view-track') {
+    if (menu.key === 'dispatch-next-stop') {
       vehicles.setPosition(featureId, NEXT_STOP);
       vehiclePositions[featureId] = NEXT_STOP;
       earth.flyTo(NEXT_STOP, 12);

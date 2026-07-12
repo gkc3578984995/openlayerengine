@@ -16,9 +16,9 @@ const registered = ref(true);
 const trackVisible = ref(false);
 const feedback = ref('车辆轨迹已隐藏；清理菜单状态后会恢复默认显示。');
 const items: IContextMenuItem[] = [
-  { key: 'view-track', label: '切换车辆轨迹' },
+  { key: 'toggle-track', label: '切换车辆轨迹' },
   { key: 'locate-vehicle', label: '定位车辆' },
-  { key: 'vehicle-detail', label: '查看车辆与轨迹' }
+  { key: 'show-vehicle-track', label: '查看车辆与轨迹' }
 ];
 
 const clearState = () => {
@@ -26,7 +26,7 @@ const clearState = () => {
   const trackLayer = trackLayerRef.value;
   if (!menu || !trackLayer) return;
   const cleared = menu.clearModuleMenuState(MODULE, VEHICLE_ID);
-  trackVisible.value = menu.getModuleMenuState(MODULE, VEHICLE_ID, 'view-track');
+  trackVisible.value = menu.getModuleMenuState(MODULE, VEHICLE_ID, 'toggle-track');
   if (trackVisible.value) trackLayer.show();
   else trackLayer.hide();
   feedback.value = cleared ? '已清理车辆菜单状态，轨迹恢复默认显示。' : '当前没有可清理的车辆状态。';
@@ -44,24 +44,24 @@ onMounted(() => {
   const vehicles = new PointLayer(earth, { register: false });
   const trackLayer = new PolylineLayer(earth, { register: false });
   vehicles.add({ id: VEHICLE_ID, module: MODULE, center: VEHICLE_CENTER, size: 12, fill: { color: '#f56c6c' }, label: { text: '清理状态车辆', offsetY: 20 } });
-  trackLayer.add({ id: 'vehicle-cleanup-track', positions: TRACK_POINTS, stroke: { color: '#409eff', width: 4 } });
+  trackLayer.add({ id: VEHICLE_ID, module: MODULE, positions: TRACK_POINTS, stroke: { color: '#409eff', width: 4 } });
   trackLayer.hide();
 
   const menu = earth.useContextMenu();
   menu.addModuleMenu(MODULE, items, ({ menu: item, position }) => {
-    if (item.key === 'view-track') {
+    if (item.key === 'toggle-track') {
       trackVisible.value = !trackVisible.value;
-      menu.setModuleMenuState(MODULE, VEHICLE_ID, 'view-track', trackVisible.value);
+      menu.setModuleMenuState(MODULE, VEHICLE_ID, 'toggle-track', trackVisible.value);
       if (trackVisible.value) trackLayer.show();
       else trackLayer.hide();
       feedback.value = trackVisible.value ? '车辆轨迹已显示。' : '车辆轨迹已隐藏。';
       return;
     }
-    earth.flyTo(position, item.key === 'locate-vehicle' ? 12 : 10);
-    if (item.key === 'vehicle-detail') trackLayer.show();
+    earth.flyTo(fromLonLat(position), item.key === 'locate-vehicle' ? 12 : 10);
+    if (item.key === 'show-vehicle-track') trackLayer.show();
     feedback.value = item.key === 'locate-vehicle' ? '已定位车辆。' : '已展示车辆与完整轨迹。';
   });
-  menu.setModuleMenuState(MODULE, VEHICLE_ID, 'view-track', false);
+  menu.setModuleMenuState(MODULE, VEHICLE_ID, 'toggle-track', false);
   earthRef.value = earth;
   trackLayerRef.value = trackLayer;
 });

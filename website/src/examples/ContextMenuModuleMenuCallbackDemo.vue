@@ -36,11 +36,12 @@ onMounted(() => {
   feature.set('param', { driver: '张师傅', status: '待派单', plateNumber: '京A·12345' });
 
   earth.useContextMenu().addModuleMenu(MODULE, items, ({ menu, featureId, position, param }) => {
+    const center = fromLonLat(position);
     if (menu.key === 'dispatch') {
       taskLayer.remove(TASK_ID);
       taskLayer.add({
         id: TASK_ID,
-        center: [position[0] + 1800, position[1]],
+        center: [center[0] + 1800, center[1]],
         size: 9,
         fill: { color: '#409eff' },
         label: { text: `${featureId} 配送任务`, offsetY: 18 }
@@ -53,7 +54,7 @@ onMounted(() => {
     const isContacted = menu.key === 'contact-driver';
     statusLayer.add({
       id: STATUS_ID,
-      center: [position[0] - 1800, position[1]],
+      center: [center[0] - 1800, center[1]],
       size: 9,
       fill: { color: isContacted ? '#67c23a' : '#e6a23c' },
       label: { text: isContacted ? '司机已联系' : '检修工单', offsetY: 18 }
