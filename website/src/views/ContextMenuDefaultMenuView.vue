@@ -52,15 +52,12 @@ const rows = [
       <section id="examples" class="doc-prose">
         <h2 class="doc-h2">代码演示</h2>
         <div id="example-add-default-menu">
-          <ExampleBlock title="添加全局菜单" :description="'在地图空白区域右键打开注册的全局菜单。'" :source="defaultSource"
+          <ExampleBlock title="添加全局菜单" :description="'在地图空白区域右键，可添加任务点、警戒点或清空已有标记。'" :source="defaultSource"
             ><template #preview><ContextMenuDefaultMenuDemo /></template
           ></ExampleBlock>
         </div>
         <div id="example-default-menu-callback">
-          <ExampleBlock
-            title="全局菜单点击回调"
-            :description="'回调通过 <code><a href=&quot;/components/context-menu#api-type-contextmenucallbackparam&quot;>IContextMenuCallbackParam</a></code> 提供菜单项、坐标和 scope。'"
-            :source="callbackSource"
+          <ExampleBlock title="全局菜单点击回调" :description="'选择菜单项后，可保存右键位置、移动观察中心或在该处生成坐标标牌。'" :source="callbackSource"
             ><template #preview><ContextMenuDefaultMenuCallbackDemo /></template
           ></ExampleBlock>
         </div>

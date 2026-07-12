@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
-import { Earth, type IContextMenuItem } from '@vrsim/earth-engine-ol';
+import { Earth, PointLayer, type IContextMenuItem } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/dist/index.es.css';
 import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
 
+const COMMAND_CENTER = fromLonLat([116.4074, 39.9042]);
+const DEPOT = fromLonLat([116.365, 39.925]);
+const INSPECTION_SITE = fromLonLat([116.455, 39.885]);
 const mapId = useId();
 const earthRef = shallowRef<Earth | null>(null);
 const isDark = ref(false);
-const feedback = ref('选择主题后右键地图，查看菜单的颜色变化。');
+const feedback = ref('切换主题后右键地图，再选择场景菜单定位不同业务点。');
 const items: IContextMenuItem[] = [
-  { key: 'open-panel', label: '打开地图面板' },
-  { key: 'save-view', label: '保存当前视图' },
-  { key: 'share-view', label: '分享当前视图' }
+  { key: 'locate-command-center', label: '定位指挥中心' },
+  { key: 'locate-vehicle-depot', label: '定位车辆仓库' },
+  { key: 'locate-inspection-site', label: '定位巡检现场' }
 ];
 
 const setTheme = (dark: boolean) => {
@@ -28,9 +31,21 @@ const toggleTheme = () => {
 };
 
 onMounted(() => {
-  const earth = new Earth({ center: fromLonLat([116.4074, 39.9042]), zoom: 5 }, { target: mapId });
+  const earth = new Earth({ center: COMMAND_CENTER, zoom: 11 }, { target: mapId });
   earth.addLayer(createConfiguredLayer(earth, 'vector'));
-  earth.useContextMenu({ isDarkTheme: false }).addDefaultMenu(items, ({ menu }) => (feedback.value = `已执行：${menu.label}`));
+  const sceneLayer = new PointLayer(earth, { register: false });
+  sceneLayer.add({ id: 'command-center', center: COMMAND_CENTER, size: 12, fill: { color: '#409eff' }, label: { text: '指挥中心', offsetY: 22 } });
+  sceneLayer.add({ id: 'vehicle-depot', center: DEPOT, size: 11, fill: { color: '#67c23a' }, label: { text: '车辆仓库', offsetY: 22 } });
+  sceneLayer.add({ id: 'inspection-site', center: INSPECTION_SITE, size: 11, fill: { color: '#e6a23c' }, label: { text: '巡检现场', offsetY: 22 } });
+  earth.useContextMenu({ isDarkTheme: false }).addDefaultMenu(items, ({ menu }) => {
+    const targets: Record<string, number[]> = {
+      'locate-command-center': COMMAND_CENTER,
+      'locate-vehicle-depot': DEPOT,
+      'locate-inspection-site': INSPECTION_SITE
+    };
+    earth.flyTo(targets[menu.key] ?? COMMAND_CENTER, 13);
+    feedback.value = `已执行：${menu.label}`;
+  });
   earthRef.value = earth;
 });
 

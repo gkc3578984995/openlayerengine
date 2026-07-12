@@ -63,7 +63,7 @@ const itemRows = [
         <div id="example-minimal-lifecycle">
           <ExampleBlock
             title="最小完整生命周期"
-            :description="'初始化地图后取得 <code class=&quot;code-fn&quot;><a href=&quot;/guide/global-methods#api-methods&quot;>earth.useContextMenu</a></code>；页面卸载时销毁菜单。'"
+            :description="'右键地图可添加或清除临时标记，也可恢复初始视图；离开页面时菜单与临时图层一并清理。'"
             :source="contextMenuLifecycleSource"
             ><template #preview><ContextMenuLifecycleDemo /></template
           ></ExampleBlock>
