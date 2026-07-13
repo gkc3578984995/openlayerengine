@@ -4,5 +4,6 @@
   "singleQuote": true,
   "semi": true,
   "bracketSpacing": true,
-  "trailingComma": "none"
+  "trailingComma": "none",
+  "endOfLine": "auto"
 }

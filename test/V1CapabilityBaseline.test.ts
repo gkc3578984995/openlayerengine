@@ -2,11 +2,16 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import Feature from 'ol/Feature';
+import type { Geometry } from 'ol/geom';
 import { DragPan } from 'ol/interaction';
+import type VectorLayer from 'ol/layer/Vector';
+import type Map from 'ol/Map';
 import OSM from 'ol/source/OSM';
+import type VectorSource from 'ol/source/Vector';
 import type View from 'ol/View';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import Earth from '../src/Earth';
+import type Base from '../src/base/Base';
 import { Utils } from '../src/common';
 import DynamicDraw from '../src/components/DynamicDraw';
 import GlobalEvent from '../src/components/GlobalEvent';
@@ -112,6 +117,23 @@ describe('v1 capability baseline', () => {
   it('validates declared coverage against the frozen manifest at runtime', () => {
     expect(coversCapabilities('earth-raster-osm-preset', 'camera-fly-home')).toEqual(['earth-raster-osm-preset', 'camera-fly-home']);
     expect(() => coversCapabilities('wind' as LegacyCapabilityId)).toThrowError('Unknown frozen capability: wind');
+  });
+
+  it('freezes direct evidence and public OpenLayers native escape hatches', () => {
+    const nativeEscape = v1CapabilityManifest.find((item) => item.id === 'public-ol-native-escape');
+    const earthSource = readSource('src/Earth.ts');
+    const baseSource = readSource('src/base/Base.ts');
+
+    expect(nativeEscape?.legacySources).toEqual(expect.arrayContaining(['src/Earth.ts', 'src/base/Base.ts']));
+    expect(nativeEscape?.testFiles).toContain('test/V1CapabilityBaseline.test.ts');
+    expect(earthSource).toMatch(/public\s+map:\s*Map;/);
+    expect(earthSource).toMatch(/public\s+view:\s*View;/);
+    expect(baseSource).toMatch(/public\s+layer:\s*VectorLayer<VectorSource<Geometry>>;/);
+    expect(baseSource).toMatch(/getLayer\(\):\s*VectorLayer<VectorSource<Geometry>>/);
+    expectTypeOf<Earth['map']>().toEqualTypeOf<Map>();
+    expectTypeOf<Earth['view']>().toEqualTypeOf<View>();
+    expectTypeOf<Base['layer']>().toEqualTypeOf<VectorLayer<VectorSource<Geometry>>>();
+    expectTypeOf<ReturnType<Base['getLayer']>>().toEqualTypeOf<VectorLayer<VectorSource<Geometry>>>();
   });
 
   it('freezes root exports and OSM, compact XYZ, and custom tile URL behavior', () => {

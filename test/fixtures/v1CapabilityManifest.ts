@@ -271,6 +271,7 @@ const intentionalApiBreaks: Partial<Record<LegacyCapabilityId, IntentionalApiBre
 
 function sourceEvidenceFor(id: LegacyCapabilityId): readonly string[] {
   if (id === 'public-style-explicit-entry') return ['package.json', 'src/assets/style/public.scss'];
+  if (id === 'public-ol-native-escape') return ['src/Earth.ts', 'src/base/Base.ts', 'src/index.ts'];
   if (id === 'public-base-subclass-extension') return ['src/base/Base.ts', 'src/base/index.ts', 'website/src/views/LayerCommonView.vue'];
   if (id === 'public-low-level-plot-api') return ['src/entries/plot.ts', 'src/extends/plot/plotDraw.ts', 'src/extends/plot/plotEdit.ts'];
   if (id === 'public-low-level-transform-interaction') return ['src/entries/transform.ts', 'src/extends/transform-interaction/TransformInteraction.ts'];

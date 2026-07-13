@@ -20,7 +20,7 @@
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint:fix": "npm run lint -- --fix",
     "format": "prettier --write \"src/**/*.{ts,scss}\" \"test/**/*.{ts,mjs,json,html}\" \"scripts/**/*.mjs\" \"*.{json,md,ts,mjs}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,scss}\" \"test/**/*.{ts,mjs,json,html}\" \"scripts/**/*.mjs\" \"*.{json,md,ts,mjs}\"",
+    "format:check": "node scripts/check-prettier-baseline.mjs && prettier --check --ignore-path .prettierignore \"src/**/*.{ts,scss}\" \"test/**/*.{ts,mjs,json,html}\" \"scripts/**/*.mjs\" \"*.{json,md,ts,mjs}\"",
     "verify": "npm run typecheck && npm run lint && npm run build && npm test",
     "verify:code": "npm run typecheck && npm run lint && npm run format:check && npm run build && npm run test:code",
     "prepack": "npm run build",
