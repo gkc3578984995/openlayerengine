@@ -182,8 +182,13 @@ describe('Earth context boundaries', () => {
   it('passes the resolved Earth to drawing-session helpers', async () => {
     const entries = await loadFeatureSourceEntries();
     const sources = new Map(entries.map(({ file, source }) => [file, source]));
+    const earthEntry = {
+      file: 'src/Earth.ts',
+      source: await readFile('src/Earth.ts', 'utf8')
+    };
 
     expect(entries.flatMap(implicitEarthConstructions)).toEqual([]);
+    expect(implicitEarthConstructions(earthEntry)).toEqual([]);
     expect(sources.get('src/extends/plot/plotDraw.ts')).toContain('new OverlayLayer(this.earth)');
     expect(sources.get('src/extends/plot/plotEdit.ts')).toContain('new OverlayLayer(this.earth)');
   });
