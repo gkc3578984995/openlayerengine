@@ -12,6 +12,7 @@ type PackageJson = {
   version: string;
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
+  scripts: Record<string, string>;
   main: string;
   module: string;
   types: string;
@@ -72,12 +73,20 @@ describe('package exports', () => {
 
   it('declares every Rollup entry and derives externals from dependencies and peers', () => {
     const config = readFileSync(resolve(projectRoot, 'rollup.config.mjs'), 'utf8');
+    const viteConfig = readFileSync(resolve(projectRoot, 'vite.config.ts'), 'utf8');
 
     expect(packageJson.dependencies['wind-core']).toBe('1.1.2');
     expect(packageJson.dependencies['heatmap.js']).toBeUndefined();
     expect(packageJson.dependencies.mitt).toBeUndefined();
     expect(packageJson.devDependencies['@types/heatmap.js']).toBeUndefined();
     expect(packageJson.devDependencies['rollup-plugin-postcss']).toBeUndefined();
+    for (const dependency of ['rollup-plugin-copy', 'rollup-plugin-shader', 'copyfiles', 'vite-plugin-string']) {
+      expect(packageJson.devDependencies[dependency]).toBeUndefined();
+    }
+    expect(packageJson.scripts.copy).toBeUndefined();
+    expect(packageJson.scripts.tsc).toBeUndefined();
+    expect(config).not.toMatch(/rollup-plugin-(?:copy|shader)/);
+    expect(viteConfig).not.toContain('vite-plugin-string');
 
     for (const entryName of ['index', 'core', 'layers', 'draw', 'measure', 'transform', 'plot']) {
       expect(config).toMatch(new RegExp(`\\b${entryName}:\\s*['"]src/`));
@@ -112,6 +121,33 @@ describe('package exports', () => {
     if (!existsSync(types)) return;
     const declarationLeaks = listFiles(types, '.d.ts').filter((file) => readFileSync(file, 'utf8').includes('@/'));
     expect(declarationLeaks).toEqual([]);
+  });
+
+  it('typechecks a strict consumer without skipping dependency declarations', () => {
+    if (!existsSync(resolve(projectRoot, 'dist/types/index.d.ts'))) return;
+
+    execFileSync(
+      process.execPath,
+      [
+        resolve(projectRoot, 'node_modules/typescript/bin/tsc'),
+        '--noEmit',
+        '--strict',
+        '--skipLibCheck',
+        'false',
+        '--target',
+        'ES2020',
+        '--module',
+        'ESNext',
+        '--moduleResolution',
+        'Bundler',
+        '--esModuleInterop',
+        'true',
+        '--types',
+        'node',
+        resolve(projectRoot, 'test/fixtures/PackageConsumer.ts')
+      ],
+      { cwd: projectRoot, encoding: 'utf8' }
+    );
   });
 
   it('loads the built core entry with native Node ESM resolution', () => {

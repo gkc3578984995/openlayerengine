@@ -141,6 +141,11 @@ import { PlotDraw } from '@vrsim/earth-engine-ol/plot';`;
           <code>@types/heatmap.js</code>。业务直接使用这些包时需自行显式安装，不要依赖传递安装；其中 <code>@types/heatmap.js</code> 应按业务 TypeScript
           配置作为开发依赖安装。
         </p>
+        <p>
+          <code>WindLayer.add()</code>、<code>set()</code> 和 <code>get()</code> 的运行时对象与调用方式不变，但公开返回声明改为本包导出的
+          <code>WindLayerInstance</code>，以隔离旧版 <code>ol-wind</code> 与 OpenLayers 7 的类型冲突。如果业务显式标注了第三方
+          <code>ol-wind.WindLayer</code> 返回类型，请改用 <code>WindLayerInstance</code>。
+        </p>
       </section>
 
       <section id="destroy" class="doc-prose">

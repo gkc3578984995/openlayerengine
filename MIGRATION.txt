@@ -69,6 +69,8 @@ destroyEarth('overview'); // 销毁命名实例
 
 2.0 移除了本库未使用的直接依赖 `heatmap.js`、`mitt` 和 `@types/heatmap.js`。业务直接使用这些包时需自行显式安装，不要依赖传递安装；其中 `@types/heatmap.js` 应按业务 TypeScript 配置作为开发依赖安装。
 
+`WindLayer.add()`、`set()` 和 `get()` 的运行时对象与调用方式不变，但公开返回声明改为本包导出的 `WindLayerInstance`，以隔离旧版 `ol-wind` 与 OpenLayers 7 的类型冲突。如果业务显式标注了第三方 `ol-wind.WindLayer` 返回类型，请改用 `WindLayerInstance`。
+
 ## 6. 2.0 升级 Checklist
 
 - [ ] 将 CommonJS `require` 改为 ESM import，并确认运行时或构建工具支持 ESM。

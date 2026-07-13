@@ -1,9 +1,7 @@
 import { defineConfig } from 'vite';
 import path from 'path';
-import vitePluginString from 'vite-plugin-string';
 
 export default defineConfig({
-  plugins: [vitePluginString()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')
@@ -20,5 +18,5 @@ export default defineConfig({
     //     }
     //   }
     // }
-  },
+  }
 });

@@ -1,9 +1,19 @@
 import type Earth from '../Earth';
 import { Map as Maps } from 'ol';
+import type Layer from 'ol/layer/Layer';
 import { WindLayer as WindLayers } from 'ol-wind';
+import type { Field } from 'wind-core';
 import { ISetWindOptions, ISetWindParam, IWindParam } from '../interface';
 import { Utils } from '../common';
 import { resolveEarth } from '../earthContext';
+
+/** 风场图层公开类型，用于隔离 ol-wind 的 OpenLayers 6 声明冲突。 */
+export type WindLayerInstance = Omit<Layer<any, any>, 'getData'> & {
+  getData(): Field | undefined;
+  setData(data: ISetWindParam['data'], options?: ISetWindParam['options']): WindLayerInstance;
+  setWindOptions(options: ISetWindOptions['options']): void;
+  getWindOptions(): ISetWindOptions['options'];
+};
 
 /**
  * 风场类，可绘制风场、洋流
@@ -28,9 +38,9 @@ export default class WindLayer {
   /**
    * 新增风场
    * @param param 参数，详见{@link IWindParam}
-   * @returns 返回{@link WindLayers}
+   * @returns 返回 {@link WindLayerInstance}
    */
-  add(param: IWindParam): WindLayers {
+  add(param: IWindParam): WindLayerInstance {
     const id = Utils.GetGUID();
     const layer = new WindLayers(param.data, {
       forceRender: false,
@@ -66,16 +76,16 @@ export default class WindLayer {
     });
     this.map.addLayer(layer);
     this.windCache?.set(param.id || id, layer);
-    return layer;
+    return layer as WindLayerInstance;
   }
   /**
    * 修改风场数据
    * @param param 参数，详见{@link ISetWindParam}
    */
-  set(param: ISetWindParam): WindLayers | undefined {
+  set(param: ISetWindParam): WindLayerInstance | undefined {
     const layer = this.windCache?.get(param.id);
     if (layer) {
-      return layer.setData(param.data, param.options);
+      return layer.setData(param.data, param.options) as WindLayerInstance;
     }
   }
   /**
@@ -90,19 +100,19 @@ export default class WindLayer {
   /**
    * 获取所有风场
    */
-  get(): WindLayers[] | undefined;
+  get(): WindLayerInstance[] | undefined;
   /**
    * 获取指定风场
    * @param id 风场id
    */
-  get(id: string): WindLayers | undefined;
-  get(id?: string): WindLayers | WindLayers[] | undefined {
+  get(id: string): WindLayerInstance | undefined;
+  get(id?: string): WindLayerInstance | WindLayerInstance[] | undefined {
     if (id) {
-      return this.windCache?.get(id);
+      return this.windCache?.get(id) as WindLayerInstance | undefined;
     } else {
-      const layers: WindLayers[] = [];
+      const layers: WindLayerInstance[] = [];
       this.windCache?.forEach((item) => {
-        layers.push(item);
+        layers.push(item as WindLayerInstance);
       });
       return layers;
     }

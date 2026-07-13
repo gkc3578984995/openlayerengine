@@ -76,7 +76,7 @@ npm run build
 npm run verify
 ```
 
-`npm run verify` 会依次执行类型检查、lint、单元测试和生产构建。
+`npm run verify` 会依次执行类型检查、lint、生产构建和单元测试；构建后的包导出、原生 ESM 加载和严格消费端类型检查也包含在测试中。
 
 ## 文档
 

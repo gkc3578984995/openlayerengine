@@ -172,6 +172,8 @@ describe('useEarth documentation', () => {
       for (const dependency of ['heatmap.js', 'mitt', '@types/heatmap.js']) expect(source).toContain(dependency);
       expect(source).toContain('业务直接使用这些包时需自行显式安装');
       expect(source).toContain('不要依赖传递安装');
+      expect(source).toContain('WindLayerInstance');
+      expect(source).toContain('调用方式不变');
     }
   });
 
