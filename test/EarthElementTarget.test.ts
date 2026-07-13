@@ -152,12 +152,16 @@ describe('HTMLElement Earth target', () => {
 
     const firstEvent = new Event('contextmenu', { cancelable: true });
     const secondEvent = new Event('contextmenu', { cancelable: true });
+    const stopPropagation = vi.spyOn(secondEvent, 'stopPropagation');
+    const stopImmediatePropagation = vi.spyOn(secondEvent, 'stopImmediatePropagation');
     firstViewport.dispatchEvent(firstEvent);
     secondViewport.dispatchEvent(secondEvent);
 
     expect(firstEvent.defaultPrevented).toBe(true);
     expect(secondEvent.defaultPrevented).toBe(true);
     expect(packagedListener).toHaveBeenCalledOnce();
+    expect(stopPropagation).not.toHaveBeenCalled();
+    expect(stopImmediatePropagation).not.toHaveBeenCalled();
     expect(addEventListener).not.toHaveBeenCalled();
     expect(removeEventListener).not.toHaveBeenCalled();
 
@@ -169,5 +173,7 @@ describe('HTMLElement Earth target', () => {
 
     expect(destroyedViewportEvent.defaultPrevented).toBe(false);
     expect(activeViewportEvent.defaultPrevented).toBe(true);
+    expect(addEventListener).not.toHaveBeenCalled();
+    expect(removeEventListener).not.toHaveBeenCalled();
   });
 });
