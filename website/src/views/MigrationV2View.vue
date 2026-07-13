@@ -14,6 +14,7 @@ const anchors: AnchorItem[] = [
   { id: 'styles', label: '样式入口' },
   { id: 'subpaths', label: '导出子路径' },
   { id: 'esm', label: '仅 ESM' },
+  { id: 'dependencies', label: '依赖清理' },
   { id: 'destroy', label: '销毁与重建' }
 ];
 
@@ -130,6 +131,15 @@ import { PlotDraw } from '@vrsim/earth-engine-ol/plot';`;
         <p>
           2.0 仅发布 ESM，因为 OpenLayers 本身就是 ESM。公开 exports 的 JavaScript 条件使用显式 <code>.mjs</code> 文件，不再提供 require/CJS 入口。 为兼容
           <code>ol-wind</code> 1.1.2，构建仅将 <code>ol-wind</code> 及其 <code>wind-core</code> 依赖作为窄兼容例外打包；这不会改变包的 ESM-only 契约。
+        </p>
+      </section>
+
+      <section id="dependencies" class="doc-prose">
+        <h2 class="doc-h2">依赖清理</h2>
+        <p>
+          2.0 移除了本库未使用的直接依赖 <code>heatmap.js</code>、<code>mitt</code> 和
+          <code>@types/heatmap.js</code>。业务直接使用这些包时需自行显式安装，不要依赖传递安装；其中 <code>@types/heatmap.js</code> 应按业务 TypeScript
+          配置作为开发依赖安装。
         </p>
       </section>
 

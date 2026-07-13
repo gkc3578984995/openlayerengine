@@ -65,13 +65,18 @@ destroyEarth('overview'); // 销毁命名实例
 
 `destroyEarth()` 和 `destroyEarth(id)` 在不存在对应实例时不会抛错。销毁会同时注销注册键；之后以相同 key 调用 `useEarth()`、`useEarth(id)` 或 `useEarth(options)` 会创建新实例。
 
-## 5. 2.0 升级 Checklist
+## 5. 依赖清理
+
+2.0 移除了本库未使用的直接依赖 `heatmap.js`、`mitt` 和 `@types/heatmap.js`。业务直接使用这些包时需自行显式安装，不要依赖传递安装；其中 `@types/heatmap.js` 应按业务 TypeScript 配置作为开发依赖安装。
+
+## 6. 2.0 升级 Checklist
 
 - [ ] 将 CommonJS `require` 改为 ESM import，并确认运行时或构建工具支持 ESM。
 - [ ] 将 `dist/index*.css` 替换为 `@vrsim/earth-engine-ol/style.css`。
 - [ ] 移除所有 `./dist/*` 深路径导入，改用包根或公开功能子路径。
 - [ ] 确认同一 id 的配置仅用于首次创建；需要应用新配置时先销毁原实例。
 - [ ] 在组件卸载时调用 `earth.destroy()`、`destroyEarth()` 或 `destroyEarth(id)`。
+- [ ] 如果业务直接导入 `heatmap.js`、`mitt` 或 `@types/heatmap.js`，在业务项目中显式声明对应依赖。
 - [ ] 执行 `npm run verify` 与业务项目构建。
 
 ---

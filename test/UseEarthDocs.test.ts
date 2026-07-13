@@ -165,6 +165,16 @@ describe('useEarth documentation', () => {
     }
   });
 
+  it('documents dependencies removed in version 2 without promising transitive installation', async () => {
+    const [rootMigration, migration] = await Promise.all([readFile('MIGRATION.txt', 'utf8'), readFile('website/src/views/MigrationV2View.vue', 'utf8')]);
+
+    for (const source of [rootMigration, migration]) {
+      for (const dependency of ['heatmap.js', 'mitt', '@types/heatmap.js']) expect(source).toContain(dependency);
+      expect(source).toContain('业务直接使用这些包时需自行显式安装');
+      expect(source).toContain('不要依赖传递安装');
+    }
+  });
+
   it('keeps every runnable basemap behind the deployment map source configuration', async () => {
     const examples = await readVueFiles('website/src/examples');
 
