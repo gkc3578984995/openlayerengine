@@ -7,6 +7,7 @@ import {
   closeRing,
   createControlPointDefinition,
   editableCapabilities,
+  haveSamePlanarDirection,
   requireNonCollinear,
   requireSeparated
 } from '../definition.js';
@@ -233,10 +234,41 @@ function validateSegments(points: readonly Coordinate[]): void {
   for (let index = 1; index < points.length; index += 1) requireSeparated(points, [index - 1, index]);
 }
 
+function validateBonePath(points: readonly Coordinate[]): void {
+  for (let index = 1; index < points.length; index += 1) requireSeparated(points, [index - 1, index]);
+  for (let index = 1; index < points.length - 1; index += 1) {
+    if (haveSamePlanarDirection(points[index], points[index - 1], points[index + 1])) {
+      throw new InvalidArgumentError('Arrow bone must not contain an exact foldback');
+    }
+  }
+}
+
 function validateArrowPath(points: readonly Coordinate[]): void {
   validateSegments(points);
-  if (points.length >= 3 && points.slice(2).every((point) => arePlanarCollinear(points[0], points[1], point))) {
+  if (points.length < 3) return;
+  if (points.slice(2).every((point) => arePlanarCollinear(points[0], points[1], point))) {
     throw new InvalidArgumentError('Arrow control points must produce a non-zero area');
+  }
+  validateBonePath([midpoint(points[0], points[1]), ...points.slice(2)]);
+}
+
+function validateDoubleArrowBones(points: readonly Coordinate[]): void {
+  if (points.length < 3) return;
+  const [point1, point2, point3] = points;
+  const point4 = points.length === 3 ? temporaryFourthPoint(point1, point2, point3) : points[3];
+  const connectionPoint = points.length < 5 ? midpoint(point1, point2) : points[4];
+  const branches = isClockWise(point1, point2, point3)
+    ? [
+        [point1, connectionPoint, point4],
+        [connectionPoint, point2, point3]
+      ]
+    : [
+        [point2, connectionPoint, point3],
+        [connectionPoint, point1, point4]
+      ];
+  for (const [tail1, tail2, head] of branches) {
+    requireSeparated([tail1, tail2], [0, 1]);
+    requireSeparated([midpoint(tail1, tail2), head], [0, 1]);
   }
 }
 
@@ -307,6 +339,7 @@ const doubleArrowDefinition = createControlPointDefinition({
     if (points.length >= 3) requireNonCollinear(points[0], points[1], points[2]);
     if (points.length >= 4) requireNonCollinear(points[0], points[1], points[3]);
     validateSegments(points);
+    validateDoubleArrowBones(points);
   },
   render: polygonRender(doubleArrow),
   finalize: (state) => {

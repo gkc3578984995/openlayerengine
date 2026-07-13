@@ -50,10 +50,9 @@ function planarVectors(origin: Coordinate, first: Coordinate, second: Coordinate
 
 export function arePlanarCollinear(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
   const [firstX, firstY, secondX, secondY] = planarVectors(origin, first, second);
-  const positive = firstX * secondY;
-  const negative = firstY * secondX;
-  const magnitude = Math.abs(positive) + Math.abs(negative);
-  return Math.abs(positive - negative) <= Number.EPSILON * 8 * magnitude;
+  const cross = firstX * secondY - firstY * secondX;
+  const tolerance = Number.EPSILON * Math.hypot(firstX, firstY) * Math.hypot(secondX, secondY);
+  return Math.abs(cross) <= tolerance;
 }
 
 export function requireNonCollinear(origin: Coordinate, first: Coordinate, second: Coordinate): void {
@@ -88,10 +87,9 @@ export function requireNonZeroPlanarArea(points: readonly Coordinate[], message 
 
 export function haveSamePlanarDirection(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
   const [firstX, firstY, secondX, secondY] = planarVectors(origin, first, second);
-  const positive = firstX * secondY;
-  const negative = firstY * secondX;
-  const crossMagnitude = Math.abs(positive) + Math.abs(negative);
-  return Math.abs(positive - negative) <= Number.EPSILON * 8 * crossMagnitude && firstX * secondX + firstY * secondY > 0;
+  const cross = firstX * secondY - firstY * secondX;
+  const tolerance = Number.EPSILON * Math.hypot(firstX, firstY) * Math.hypot(secondX, secondY);
+  return Math.abs(cross) <= tolerance && firstX * secondX + firstY * secondY > 0;
 }
 
 interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> {

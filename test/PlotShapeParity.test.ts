@@ -418,6 +418,16 @@ describe('plot shape parity', () => {
     });
 
     expect(shape.isComplete(preview)).toBe(false);
+    expect(shape.toRenderGeometry(preview)).toEqual({
+      type: 'polygon',
+      coordinates: [
+        [
+          [0, 0],
+          [4, 0],
+          [0, 0]
+        ]
+      ]
+    });
     expect(() => shape.finalize?.(preview)).toThrow(InvalidArgumentError);
   });
 
@@ -567,6 +577,131 @@ describe('plot shape parity', () => {
         }
       }
     }
+  });
+
+  it.each(['lune-polygon', 'lune-polyline', 'sector'] as const)(
+    '%s rejects axis-aligned near-collinear control points at every scale and translation',
+    (type) => {
+      for (const scale of [1e-8, 1, 1e8]) {
+        for (const translation of [0, scale / 4]) {
+          const controlPoints: Coordinate[] = [
+            [translation, -translation],
+            [translation + scale, -translation],
+            [translation + scale * 2, -translation + scale * Number.EPSILON]
+          ];
+
+          expect(() => definition(type).normalize({ type, controlPoints }), `${type} accepted a numerically collinear state at scale ${scale}`).toThrow(
+            InvalidArgumentError
+          );
+        }
+      }
+    }
+  );
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s rejects a complete state whose derived bone starts with a zero-length segment', (type) => {
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [2, 0],
+      [1, 0],
+      [2, 1]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s rejects repeated and exact-foldback points in its derived bone', (type) => {
+    const states: Coordinate[][] = [
+      [
+        [0, 0],
+        [2, 0],
+        [-1, -1],
+        [1, 0]
+      ],
+      [
+        [0, 0],
+        [2, 0],
+        [0, -1],
+        [2, 1]
+      ]
+    ];
+
+    for (const controlPoints of states) expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it('rejects a complete double arrow whose derived right-hand bone has zero length', () => {
+    const type = 'double-arrow';
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [2, 0],
+      [1, 1],
+      [2, 1],
+      [0, 2]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it.each([
+    [0, 0],
+    [2, 0]
+  ] as const)('rejects a complete double arrow whose connection repeats branch tail (%s, %s)', (x, y) => {
+    const type = 'double-arrow';
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [2, 0],
+      [1, 1],
+      [2, 1],
+      [x, y]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it('renders every complete arrow state accepted from bounded-grid and seeded fuzz cases with finite coordinates', () => {
+    const failures: { readonly type: PlotShapeType; readonly controlPoints: readonly Coordinate[] }[] = [];
+    const checkAcceptedRender = (type: PlotShapeType, controlPoints: Coordinate[]): void => {
+      const shape = definition(type);
+      try {
+        const state = shape.normalize({ type, controlPoints });
+        try {
+          shape.toRenderGeometry(state);
+        } catch {
+          failures.push({ type, controlPoints });
+        }
+      } catch {
+        // Rejected states do not participate in the normalize-implies-render property.
+      }
+    };
+    const grid: Coordinate[] = [];
+    for (const x of [-1, 0, 1, 2]) for (const y of [-1, 0, 1]) grid.push([x, y]);
+    for (const type of ['attack-arrow', 'tailed-attack-arrow'] as const) {
+      for (const third of grid) {
+        checkAcceptedRender(type, [[0, 0], [2, 0], third]);
+        for (const fourth of grid) checkAcceptedRender(type, [[0, 0], [2, 0], third, fourth]);
+      }
+    }
+
+    for (const third of grid) {
+      for (const fourth of grid) {
+        for (const connection of grid) checkAcceptedRender('double-arrow', [[0, 0], [2, 0], third, fourth, connection]);
+      }
+    }
+
+    let seed = 0x51f15e;
+    const next = (): number => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed;
+    };
+    const randomCoordinate = (): Coordinate => [(next() % 7) - 3, (next() % 7) - 3];
+    for (const type of ['attack-arrow', 'tailed-attack-arrow', 'double-arrow'] as const) {
+      for (let sample = 0; sample < 2000; sample += 1) {
+        const count = type === 'double-arrow' ? 5 : 3 + (next() % 4);
+        const controlPoints = Array.from({ length: count }, randomCoordinate);
+        checkAcceptedRender(type, controlPoints);
+      }
+    }
+
+    expect(failures, `${failures.length} accepted complete arrow states failed finite rendering`).toEqual([]);
   });
 
   it.each([

@@ -410,6 +410,7 @@ describe('basic shape definitions', () => {
     ]);
     expect(updateControlPoint?.(state, 0, [7, 8, 9])).toEqual({ type: 'circle', center: [7, 8, 9], radius: 4 });
     expect(updateControlPoint?.(state, 1, [2, 8, 9])).toEqual({ type: 'circle', center: [2, 3, 9], radius: 5 });
+    expect(() => updateControlPoint?.(state, 1, [2, 8, 99])).toThrow(InvalidArgumentError);
 
     const zero = circle.normalize({ type: 'circle', center: [2, 3, 9], radius: 0 });
     expect(getControlPoints?.(zero)).toEqual([
@@ -431,6 +432,22 @@ describe('basic shape definitions', () => {
     expect(() => circle.updateControlPoint?.(state, 1, [-maximum, maximum, maximum])).toThrow(InvalidArgumentError);
   });
 
+  it('chooses a representable radius-handle direction at extreme circle centers', () => {
+    const circle = definition('circle');
+    const state = circle.normalize({ type: 'circle', center: [Number.MAX_VALUE, 0], radius: 1 });
+    const handles = circle.getControlPoints?.(state);
+    if (handles === undefined) throw new Error('Expected circle control points');
+
+    expect(handles[1]).not.toEqual(handles[0]);
+    expect(Math.hypot(handles[1][0] - handles[0][0], handles[1][1] - handles[0][1])).toBe(1);
+    expect(circle.updateControlPoint?.(state, 1, handles[1])).toEqual(state);
+
+    const unrepresentable = circle.normalize({ type: 'circle', center: [Number.MAX_VALUE, Number.MAX_VALUE], radius: 1 });
+    expect(() => circle.getControlPoints?.(unrepresentable)).toThrow(InvalidArgumentError);
+    const imprecise = circle.normalize({ type: 'circle', center: [1e16, 1e16], radius: 1.5 });
+    expect(() => circle.getControlPoints?.(imprecise)).toThrow(InvalidArgumentError);
+  });
+
   it('renders extreme ellipses with finite coordinates using overflow-safe bounds', () => {
     const ellipse = definition('ellipse');
     const maximum = Number.MAX_VALUE;
@@ -450,6 +467,20 @@ describe('basic shape definitions', () => {
       expect(geometry.type).toBe('polygon');
       expect(geometry.type === 'polygon' && geometry.coordinates.flat().every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
     }
+  });
+
+  it('rejects ellipse axes whose half-span underflows to zero', () => {
+    const ellipse = definition('ellipse');
+
+    expect(() =>
+      ellipse.normalize({
+        type: 'ellipse',
+        controlPoints: [
+          [0, 0],
+          [Number.MIN_VALUE, Number.MIN_VALUE]
+        ]
+      })
+    ).toThrow(InvalidArgumentError);
   });
 
   it('rejects non-finite render output from a custom control-point definition', () => {
