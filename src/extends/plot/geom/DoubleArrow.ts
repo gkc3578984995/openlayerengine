@@ -4,8 +4,8 @@
  */
 import { Polygon } from 'ol/geom';
 import * as PlotUtils from '../utils';
-import { EPlotType } from '@/enum';
-import { IPlotAssembleDoubleData } from '@/interface';
+import { EPlotType } from '../../../enum';
+import { IPlotAssembleDoubleData } from '../../../interface';
 
 class DoubleArrow extends Polygon {
   private type: EPlotType;

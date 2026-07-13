@@ -6,8 +6,8 @@ import { Polygon } from 'ol/geom';
 import { fromExtent } from 'ol/geom/Polygon';
 import { boundingExtent } from 'ol/extent';
 import * as PlotUtils from '../utils';
-import { EPlotType } from '@/enum';
-import { IPlotAssembleData } from '@/interface';
+import { EPlotType } from '../../../enum';
+import { IPlotAssembleData } from '../../../interface';
 
 class RectAnglePolygon extends Polygon {
   private type: EPlotType;

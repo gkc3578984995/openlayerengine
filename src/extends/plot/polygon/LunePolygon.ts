@@ -3,8 +3,8 @@
  */
 import { Map } from 'ol';
 import { Polygon } from 'ol/geom';
-import { EPlotType } from '@/enum';
-import { IPlotAssembleData } from '@/interface';
+import { EPlotType } from '../../../enum';
+import { IPlotAssembleData } from '../../../interface';
 import * as PlotUtils from '../utils';
 
 class LunePolygon extends Polygon {

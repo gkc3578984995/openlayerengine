@@ -6,8 +6,8 @@
 import { Map } from 'ol';
 import { Polygon } from 'ol/geom';
 import * as PlotUtils from '../utils';
-import { EPlotType } from '@/enum';
-import { IPlotAssembleData } from '@/interface';
+import { EPlotType } from '../../../enum';
+import { IPlotAssembleData } from '../../../interface';
 
 class EquilateralTrianglePolygon extends Polygon {
   private type: EPlotType;

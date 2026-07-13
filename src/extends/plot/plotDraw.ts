@@ -20,7 +20,7 @@ import AssemblePolygon from './polygon/AssemblePolygon';
 import Circle from './circle/Circle';
 import Ellipse from './circle/Ellipse';
 import ClosedCurvePolygon from './polygon/ClosedCurvePolygon';
-import { OverlayLayer } from '@/base';
+import { OverlayLayer } from '../../base';
 import { EventsKey } from 'ol/events';
 import { unByKey } from 'ol/Observable';
 import SectorPolygon from './polygon/SectorPolygon';

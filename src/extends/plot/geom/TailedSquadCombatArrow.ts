@@ -3,7 +3,7 @@
  */
 import AttackArrow from './AttackArrow';
 import * as PlotUtils from '../utils';
-import { EPlotType } from '@/enum';
+import { EPlotType } from '../../../enum';
 
 class TailedSquadCombat extends AttackArrow {
   constructor(coordinates: any, points: any, params: any) {

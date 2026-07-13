@@ -1,4 +1,4 @@
-import { IPlotEditEventPayload } from '@/extends/plot/plotEdit';
+import { IPlotEditEventPayload } from '../extends/plot/plotEdit';
 import type Earth from '../Earth';
 import { ECursor, EPlotType, ETransform, ETranslateType } from '../enum';
 import { Feature } from 'ol';

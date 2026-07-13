@@ -1,11 +1,11 @@
 /**
  * 绘制正圆
  */
-import { IPlotAssembleData } from '@/interface';
+import { IPlotAssembleData } from '../../../interface';
 import { Map } from 'ol';
 import { Polygon } from 'ol/geom';
 import * as PlotUtils from '../utils';
-import { EPlotType } from '@/enum';
+import { EPlotType } from '../../../enum';
 
 
 class Circle extends Polygon {

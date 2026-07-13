@@ -1,8 +1,8 @@
 /**
  * 扇形
  */
-import { EPlotType } from '@/enum';
-import { IPlotAssembleData } from '@/interface';
+import { EPlotType } from '../../../enum';
+import { IPlotAssembleData } from '../../../interface';
 import * as PlotUtils from '../utils';
 import { Map } from 'ol';
 import { Polygon } from 'ol/geom';

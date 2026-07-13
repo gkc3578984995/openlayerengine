@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -22,6 +22,14 @@ type PackageJson = {
 
 const projectRoot = resolve(__dirname, '..');
 const packageJson = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as PackageJson;
+
+function listFiles(directory: string, extension: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const file = resolve(directory, entry.name);
+    if (entry.isDirectory()) return listFiles(file, extension);
+    return entry.isFile() && entry.name.endsWith(extension) ? [file] : [];
+  });
+}
 
 const conditionalExports = {
   '.': ['./dist/types/index.d.ts', './dist/esm/index.mjs'],
@@ -94,6 +102,16 @@ describe('package exports', () => {
     for (const file of builtFiles) {
       expect(existsSync(resolve(projectRoot, file))).toBe(true);
     }
+  });
+
+  it('does not expose the private source alias to consumers', () => {
+    const sourceLeaks = listFiles(resolve(projectRoot, 'src'), '.ts').filter((file) => readFileSync(file, 'utf8').includes('@/'));
+    expect(sourceLeaks).toEqual([]);
+
+    const types = resolve(projectRoot, 'dist/types');
+    if (!existsSync(types)) return;
+    const declarationLeaks = listFiles(types, '.d.ts').filter((file) => readFileSync(file, 'utf8').includes('@/'));
+    expect(declarationLeaks).toEqual([]);
   });
 
   it('loads the built core entry with native Node ESM resolution', () => {

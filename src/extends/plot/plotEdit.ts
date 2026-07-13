@@ -25,7 +25,7 @@ import ClosedCurvePolygon from './polygon/ClosedCurvePolygon';
 import SectorPolygon from './polygon/SectorPolygon';
 import LunePolygon from './polygon/LunePolygon';
 import LunePolyline from './polyline/LunePolyline';
-import { PolylineLayer } from '@/base';
+import { PolylineLayer } from '../../base';
 import CurvePolyline from './polyline/CurvePolyline';
 import RectAnglePolygon from './polygon/RectAnglePolygon';
 import TrianglePolygon from './polygon/TrianglePolygon';

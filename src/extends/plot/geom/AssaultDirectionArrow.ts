@@ -1,7 +1,7 @@
 /**
  * 粗单直箭头
  */
-import { EPlotType } from '@/enum';
+import { EPlotType } from '../../../enum';
 import FineArrow from './FineArrow';
 
 class AssaultDirection extends FineArrow {
