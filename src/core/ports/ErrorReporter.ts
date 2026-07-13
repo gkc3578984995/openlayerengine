@@ -11,7 +11,7 @@ export function createAsyncErrorReporter(reporter: ErrorReporter): ErrorReporter
   return (error, context) => {
     queueMicrotask(() => {
       try {
-        reporter(error, context);
+        void Promise.resolve(reporter(error, context)).catch(() => undefined);
       } catch {
         // Reporting failures are isolated from the operation that already completed.
       }
