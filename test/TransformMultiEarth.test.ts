@@ -64,13 +64,13 @@ describe('TransformInteraction 多 Earth 隔离', () => {
     firstTransform.bindToolbarEvents(firstToolbar);
     secondTransform.bindToolbarEvents(secondToolbar);
 
-    const enterDetail = { key: 'remove', item: { title: '鍒犻櫎' } };
+    const enterDetail = { key: 'remove', item: { title: '删除' } };
     const detail = { key: 'remove', item: enterDetail.item, pixel: [12, 34] };
     firstRoot.dispatchEvent(new DetailEvent('toolbar:itementer', enterDetail));
     firstRoot.dispatchEvent(new DetailEvent('toolbar:itemleave', enterDetail));
     firstRoot.dispatchEvent(new DetailEvent('toolbar:itemclick', detail));
 
-    expect(firstTransform.updateHelpTooltip).toHaveBeenCalledWith('鍒犻櫎');
+    expect(firstTransform.updateHelpTooltip).toHaveBeenCalledWith('删除');
     expect(firstTransform.updateHelpTooltip).toHaveBeenCalledWith('first');
     expect(firstTransform.handleToolbarClick).toHaveBeenCalledWith(detail, detail.pixel);
     expect(secondTransform.updateHelpTooltip).not.toHaveBeenCalled();
@@ -79,11 +79,13 @@ describe('TransformInteraction 多 Earth 隔离', () => {
 
   it('通过当前 Toolbar 实例绑定事件且不再查询全局根元素', async () => {
     const source = await readFile('src/components/Transform.ts', 'utf8');
-    const toolbarConstructions = source.match(/this\.toolbar = new Toolbar\(/g) ?? [];
-    const toolbarBindings = source.match(/this\.bindToolbarEvents\(this\.toolbar\)/g) ?? [];
+    const toolbarConstructions = source.match(/^[ \t]*this\.toolbar = new Toolbar\([^;\r\n]*\);[ \t]*$/gm) ?? [];
+    const adjacentToolbarBindings =
+      source.match(/^[ \t]*this\.toolbar = new Toolbar\([^;\r\n]*\);[ \t]*\r?\n[ \t]*this\.bindToolbarEvents\(this\.toolbar\);[ \t]*$/gm) ?? [];
 
     expect(source).not.toContain("document.querySelector('.ol-toolbar')");
     expect(source).toContain('this.bindToolbarEvents(this.toolbar)');
-    expect(toolbarBindings.length).toBe(toolbarConstructions.length);
+    expect(toolbarConstructions).toHaveLength(2);
+    expect(adjacentToolbarBindings).toHaveLength(toolbarConstructions.length);
   });
 });
