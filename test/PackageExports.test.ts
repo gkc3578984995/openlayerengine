@@ -11,6 +11,7 @@ type ConditionalExport = {
 type PackageJson = {
   version: string;
   dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
   main: string;
   module: string;
   types: string;
@@ -65,6 +66,9 @@ describe('package exports', () => {
     const config = readFileSync(resolve(projectRoot, 'rollup.config.mjs'), 'utf8');
 
     expect(packageJson.dependencies['wind-core']).toBe('1.1.2');
+    expect(packageJson.dependencies['heatmap.js']).toBeUndefined();
+    expect(packageJson.dependencies.mitt).toBeUndefined();
+    expect(packageJson.devDependencies['@types/heatmap.js']).toBeUndefined();
 
     for (const entryName of ['index', 'core', 'layers', 'draw', 'measure', 'transform', 'plot']) {
       expect(config).toMatch(new RegExp(`\\b${entryName}:\\s*['"]src/`));
