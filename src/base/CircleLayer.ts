@@ -8,7 +8,7 @@ import { Fill, Style } from 'ol/style';
 import Base from './Base';
 import type { ICircleParam, ISetCircleParam } from '../interface';
 import { Coordinate } from 'ol/coordinate';
-import { getDefaultEarth } from '../earthContext';
+import { resolveEarth } from '../earthContext';
 import { createPatternFill, isPatternFill } from '../common/PatternFill';
 /**
  * 创建圆`Circle`
@@ -28,7 +28,7 @@ export default class CircleLayer<T = Circle> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? getDefaultEarth();
+    const e = resolveEarth(earth);
     super(e, layer, 'Circle');
   }
   /**
@@ -94,9 +94,7 @@ export default class CircleLayer<T = Circle> extends Base {
     }
     const feature = features[0];
     const stored = feature.get(FEATURE_KEYS.param) as ICircleParam<T>;
-    const nextFill = isPatternFill(param.fill)
-      ? { ...(isPatternFill(stored.fill) ? stored.fill : {}), ...param.fill }
-      : param.fill ?? stored.fill;
+    const nextFill = isPatternFill(param.fill) ? { ...(isPatternFill(stored.fill) ? stored.fill : {}), ...param.fill } : (param.fill ?? stored.fill);
     const next: ICircleParam<T> = {
       ...stored,
       center: param.center ?? stored.center,

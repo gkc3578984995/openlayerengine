@@ -1,4 +1,5 @@
 import { OverlayLayer } from '../../base';
+import type Earth from '../../Earth';
 import saveSvg from '../../assets/image/toolbar-save.svg?raw';
 import undoSvg from '../../assets/image/toolbar-undo.svg?raw';
 import redoSvg from '../../assets/image/toolbar-redo.svg?raw';
@@ -38,9 +39,9 @@ class Toolbar {
   /** 按钮集合（可根据 geometry type 动态裁剪） */
   private items: IToolbarItem[] = [];
 
-  constructor(options: IToolbarOptions) {
+  constructor(options: IToolbarOptions, earth: Earth) {
     this.options = options;
-    this.overlay = new OverlayLayer();
+    this.overlay = new OverlayLayer(earth);
     this.createOverlay();
   }
   /**

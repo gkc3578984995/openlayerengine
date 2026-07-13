@@ -9,7 +9,7 @@ import { Circle, Fill, Stroke, Style } from 'ol/style.js';
 import { Utils } from '../common';
 import { unByKey } from 'ol/Observable';
 import { Coordinate } from 'ol/coordinate';
-import { getDefaultEarth } from '../earthContext';
+import { resolveEarth } from '../earthContext';
 
 /**
  * 创建点`Point`
@@ -29,7 +29,7 @@ export default class PointLayer<T = Point> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? getDefaultEarth();
+    const e = resolveEarth(earth);
     super(e, layer, 'Point', options);
   }
   /**

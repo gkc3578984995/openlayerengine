@@ -50,3 +50,7 @@ export function getDefaultEarth(): Earth {
   }
   return earth;
 }
+
+export function resolveEarth(earth?: Earth): Earth {
+  return earth ?? getDefaultEarth();
+}

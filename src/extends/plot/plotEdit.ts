@@ -30,7 +30,7 @@ import CurvePolyline from './polyline/CurvePolyline';
 import RectAnglePolygon from './polygon/RectAnglePolygon';
 import TrianglePolygon from './polygon/TrianglePolygon';
 import EquilateralTrianglePolygon from './polygon/EquilateralTrianglePolygon';
-import { getDefaultEarth } from '../../earthContext';
+import { resolveEarth } from '../../earthContext';
 
 // 事件类型定义（新增 undo / redo）
 export type PlotEditEventType = 'modifyStart' | 'modifying' | 'modifyEnd' | 'modifyExit' | 'undo' | 'redo';
@@ -163,7 +163,7 @@ class plotEdit {
   ];
 
   constructor(earth?: Earth) {
-    this.earth = earth ?? getDefaultEarth();
+    this.earth = resolveEarth(earth);
     this.map = this.earth.map;
     this.createLayer();
   }
@@ -311,7 +311,7 @@ class plotEdit {
   /** 初始化帮助提示 */
   private initHelpTooltip(str: string) {
     if (typeof document === 'undefined') return;
-    if (!this.overlay) this.overlay = new OverlayLayer();
+    if (!this.overlay) this.overlay = new OverlayLayer(this.earth);
     this.baseTooltipContent = str;
     if (!this.helpTooltipElement) {
       const div = document.createElement('div');

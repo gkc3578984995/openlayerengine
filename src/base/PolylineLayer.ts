@@ -14,7 +14,7 @@ import RenderEvent from 'ol/render/Event';
 import { unByKey } from 'ol/Observable';
 import { EventsKey } from 'ol/events';
 import { getWidth } from 'ol/extent';
-import { getDefaultEarth } from '../earthContext';
+import { resolveEarth } from '../earthContext';
 
 /** Resolve the effective main-line width while keeping the legacy top-level width fallback. */
 export function resolvePolylineWidth(stroke?: IStroke, width?: number): number {
@@ -54,7 +54,7 @@ export default class Polyline<T = LineString> extends Base {
       }),
       declutter: true
     });
-    const e = earth ?? getDefaultEarth();
+    const e = resolveEarth(earth);
     super(e, layer, 'Polyline', options);
   }
   /**

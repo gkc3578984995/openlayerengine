@@ -30,7 +30,7 @@ import CurvePolyline from './polyline/CurvePolyline';
 import RectAnglePolygon from './polygon/RectAnglePolygon';
 import TrianglePolygon from './polygon/TrianglePolygon';
 import EquilateralTrianglePolygon from './polygon/EquilateralTrianglePolygon';
-import { getDefaultEarth } from '../../earthContext';
+import { resolveEarth } from '../../earthContext';
 
 // 事件类型与监听器类型定义（放在类外部避免语法错误）
 export type PlotDrawEventName = 'start' | 'add-point' | 'moving' | 'end' | 'cancel' | string;
@@ -90,7 +90,7 @@ class PlotDraw {
   private offEvents: any[] = [];
 
   constructor(earth?: Earth) {
-    this.earth = earth ?? getDefaultEarth();
+    this.earth = resolveEarth(earth);
     this.map = this.earth.map;
     // 创建图层
     this.layer = this.createLayer();
@@ -317,7 +317,7 @@ class PlotDraw {
   /** 初始化帮助提示 */
   private initHelpTooltip(str: string) {
     if (typeof document === 'undefined') return;
-    if (!this.overlay) this.overlay = new OverlayLayer();
+    if (!this.overlay) this.overlay = new OverlayLayer(this.earth);
     if (!this.helpTooltipElement) {
       const div = document.createElement('div');
       div.className = 'ol-tooltip';

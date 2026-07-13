@@ -17,7 +17,7 @@ import { Utils } from '../common';
 import cloneDeep from 'lodash/cloneDeep';
 import { IToolbarItem, Toolbar } from '../extends/toolbar/Toolbar';
 import DynamicDraw from './DynamicDraw';
-import { getDefaultEarth } from '../earthContext';
+import { resolveEarth } from '../earthContext';
 import { extractGeometryInfo, geometriesEqual } from './transform/geometry';
 import { TransformHistory } from './transform/history';
 import { cloneStyleSnapshot } from './transform/styleSnapshot';
@@ -118,7 +118,7 @@ export default class Transform {
   constructor(options: ITransformParams) {
     this.options = options;
     this.history = new TransformHistory(() => this.options.historyLimit ?? this.defaultParams.historyLimit ?? 10);
-    this.earth = options.earth ?? getDefaultEarth();
+    this.earth = resolveEarth(options.earth);
     this.overlay = new OverlayLayer(this.earth);
     this.transforms = this.createTransform();
     // 初始化统一事件管线（内部数据处理 + 外部监听分发）
@@ -778,7 +778,7 @@ export default class Transform {
       point: e.bboxExtent[0][2],
       type: e.feature?.getGeometry()?.getType()
     };
-    this.toolbar = new Toolbar(params);
+    this.toolbar = new Toolbar(params, this.earth);
     const toolbarRoot = document.querySelector('.ol-toolbar');
     toolbarRoot?.addEventListener('toolbar:itementer', (e: any) => {
       this.updateHelpTooltip(e.detail.item.title);
@@ -1279,7 +1279,7 @@ export default class Transform {
       if (!this.toolbar) {
         const opts: any = { point: tbPoint };
         if (type) opts.type = type;
-        this.toolbar = new Toolbar(opts);
+        this.toolbar = new Toolbar(opts, this.earth);
       } else {
         const opts: any = { point: tbPoint };
         if (type) opts.type = type;

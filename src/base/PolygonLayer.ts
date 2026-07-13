@@ -8,7 +8,7 @@ import VectorSource from 'ol/source/Vector';
 import { Fill, Style } from 'ol/style';
 import Base from './Base';
 import { Coordinate } from 'ol/coordinate';
-import { getDefaultEarth } from '../earthContext';
+import { resolveEarth } from '../earthContext';
 import { createPatternFill, isPatternFill } from '../common/PatternFill';
 
 /**
@@ -30,7 +30,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? getDefaultEarth();
+    const e = resolveEarth(earth);
     super(e, layer, 'Polygon', options);
   }
   /**

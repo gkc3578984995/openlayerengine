@@ -9,7 +9,7 @@ import Base from './Base';
 import { Utils } from '../common';
 import { Coordinate } from 'ol/coordinate';
 import { Feature } from 'ol';
-import { getDefaultEarth } from '../earthContext';
+import { resolveEarth } from '../earthContext';
 
 /**
  * 创建广告牌`Billboard`
@@ -29,7 +29,7 @@ export default class BillboardLayer<T = Point> extends Base {
         wrapX: options?.wrapX !== undefined ? options.wrapX : true
       })
     });
-    const e = earth ?? getDefaultEarth();
+    const e = resolveEarth(earth);
     super(e, layer, 'Billboard');
   }
   /**

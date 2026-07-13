@@ -3,7 +3,7 @@ import type Earth from '../Earth';
 import { IOverlayParam, ISetOverlayParam } from '../interface';
 import { Map, Overlay } from 'ol';
 import { Coordinate } from 'ol/coordinate';
-import { getDefaultEarth } from '../earthContext';
+import { resolveEarth } from '../earthContext';
 
 /**
  * 创建覆盖物`Overlay`
@@ -22,7 +22,7 @@ export default class OverlayLayer<T = unknown> {
    * ```
    */
   constructor(earth?: Earth) {
-    const e = earth ?? getDefaultEarth();
+    const e = resolveEarth(earth);
     this.map = e.map;
   }
   /**
