@@ -52,12 +52,22 @@ function isWithin(directory: string, path: string): boolean {
 
 function classifyResolvedPath(path: string): ArchitectureArea | undefined {
   const normalized = normalizeRealPath(path);
-  if (normalized.split(sep).includes('node_modules')) return undefined;
+  if (pathSegments(normalized).includes('node_modules')) return undefined;
   if (!isWithin(sourceRoot, normalized)) return 'legacy';
 
   const sourceRelative = relative(sourceRoot, normalized);
   const area = sourceRelative.split(sep)[0] as ArchitectureArea;
   return checkedAreas.includes(area as CheckedArea) ? area : 'legacy';
+}
+
+function pathSegments(path: string): string[] {
+  return path.split(/[\\/]+/).filter(Boolean);
+}
+
+function isOpenLayersResolution(resolvedModule: ts.ResolvedModuleFull): boolean {
+  if (resolvedModule.packageId?.name === 'ol') return true;
+  const segments = pathSegments(normalizeRealPath(resolvedModule.resolvedFileName));
+  return segments.some((segment, index) => segment === 'node_modules' && segments[index + 1] === 'ol');
 }
 
 function fallbackSourcePath(importer: string, specifier: string): string | undefined {
@@ -77,8 +87,9 @@ function classifyImport(importer: string, specifier: string): ArchitectureArea |
 
   const resolvedModule = ts.resolveModuleName(specifier, importer, compilerOptions, ts.sys).resolvedModule;
   if (resolvedModule !== undefined) {
+    if (isOpenLayersResolution(resolvedModule)) return 'ol';
     const normalized = normalizeRealPath(resolvedModule.resolvedFileName);
-    if (normalized.split(sep).includes('node_modules')) return undefined;
+    if (pathSegments(normalized).includes('node_modules')) return undefined;
     return classifyResolvedPath(normalized);
   }
 
@@ -166,6 +177,15 @@ describe('architecture import graph', () => {
     expect(classifyImport(importer, '@/core/errors.js')).toBe('core');
     expect(classifyImport(importer, 'typescript')).toBeUndefined();
     expect(classifyImport(importer, 'node:fs')).toBeUndefined();
+  });
+
+  it('classifies OpenLayers reached through a relative node_modules path as OL', () => {
+    const importer = join(sourceRoot, 'core', 'example.ts');
+    const specifier = '../../node_modules/ol/Map.js';
+
+    expect(classifyImport(importer, specifier)).toBe('ol');
+    expect(findImportViolations('core', importer, `import Map from '${specifier}';`)).toEqual([`core/example.ts: core -> ol (${specifier})`]);
+    expect(classifyImport(importer, 'typescript')).toBeUndefined();
   });
 
   it('prevents adapters from depending upward on composition or legacy modules', () => {
