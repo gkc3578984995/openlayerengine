@@ -25,8 +25,8 @@ vi.mock('ol', async () => {
       return this.view;
     }
 
-    getTargetElement(): HTMLElement {
-      return this.target as HTMLElement;
+    getTargetElement(): HTMLElement | null {
+      return typeof this.target === 'string' ? null : (this.target ?? null);
     }
 
     getInteractions() {
@@ -48,6 +48,8 @@ vi.mock('ol', async () => {
     removeInteraction(): void {}
 
     addInteraction(): void {}
+
+    addOverlay(): void {}
 
     setTarget(target?: string | HTMLElement): void {
       this.target = target;
@@ -72,8 +74,8 @@ afterEach(() => {
 describe('HTMLElement Earth target', () => {
   it('preserves the element through Earth and uses the map target for Descriptor DOM attachment', () => {
     const append = vi.fn();
-    const target = { append } as unknown as HTMLElement;
-    const descriptorElement = {} as HTMLDivElement;
+    const target = { id: 'earth-target', append } as unknown as HTMLElement;
+    const descriptorElement = { style: {}, innerHTML: '', appendChild: vi.fn() } as unknown as HTMLDivElement;
     const getElementById = vi.fn(() => null);
     Object.defineProperty(globalThis, 'document', {
       configurable: true,
@@ -86,17 +88,44 @@ describe('HTMLElement Earth target', () => {
     });
 
     const earth = useEarth({ id: 'element-target', target });
-    expect(earth.containerId).toBe(target);
+    expect(earth.target).toBe(target);
+    expect(earth.containerId).toBe('earth-target');
     expect(earth.map.getTargetElement()).toBe(target);
+    earth.useDefaultLayer = () => ({ polyline: { get: () => [] } }) as unknown as ReturnType<typeof earth.useDefaultLayer>;
 
-    const descriptor = Object.assign(Object.create(Descriptor.prototype) as Descriptor, {
-      earth,
-      options: { type: 'custom' }
+    const descriptor = new Descriptor(earth, {
+      type: 'custom',
+      drag: false,
+      isShowFixedline: false,
+      isShowClose: false
     });
-    const init = Reflect.get(descriptor, 'init') as () => void;
-    init.call(descriptor);
+    descriptor.set({ position: [0, 0] });
 
     expect(append).toHaveBeenCalledWith(descriptorElement);
     expect(getElementById).not.toHaveBeenCalled();
+  });
+
+  it('allows Descriptor.set when the map target is detached', () => {
+    const target = { id: 'earth-target', append: vi.fn() } as unknown as HTMLElement;
+    const descriptorElement = { style: {}, innerHTML: '', appendChild: vi.fn() } as unknown as HTMLDivElement;
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        createElement: () => descriptorElement
+      }
+    });
+    const earth = useEarth({ id: 'element-target', target });
+    earth.useDefaultLayer = () => ({ polyline: { get: () => [] } }) as unknown as ReturnType<typeof earth.useDefaultLayer>;
+    earth.map.setTarget(undefined);
+    const descriptor = new Descriptor(earth, {
+      type: 'custom',
+      drag: false,
+      isShowFixedline: false,
+      isShowClose: false
+    });
+
+    expect(() => descriptor.set({ position: [0, 0] })).not.toThrow();
   });
 });

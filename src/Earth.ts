@@ -63,7 +63,11 @@ export default class Earth {
   /**
    * 地图容器id
    */
-  public containerId: string | HTMLElement;
+  public containerId: string;
+  /**
+   * Map mount target.
+   */
+  public target: string | HTMLElement;
   /**
    * 默认实例
    */
@@ -208,7 +212,8 @@ export default class Earth {
     });
     this.map = map;
     this.view = map.getView();
-    this.containerId = el;
+    this.target = el;
+    this.containerId = typeof el === 'string' ? el : el.id;
     // 相机与控件模块
     this.camera = new Camera(this.view, () => this.center);
     this.controls = new Controls(this.map);

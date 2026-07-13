@@ -56,6 +56,13 @@ describe('useEarth registry', () => {
     expect(earthConstructor).toHaveBeenCalledWith(undefined, { target: 'compare' });
   });
 
+  it('uses options without an ID to address the default instance', () => {
+    const first = useEarth({ target: 'custom-default', view: { zoom: 6 } });
+
+    expect(useEarth()).toBe(first);
+    expect(earthConstructor).toHaveBeenCalledWith({ zoom: 6 }, { target: 'custom-default' });
+  });
+
   it('recreates a named instance after destroy', () => {
     const first = useEarth('compare');
 
