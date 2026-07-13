@@ -59,6 +59,16 @@ describe('useEarth documentation', () => {
     expect(view).not.toContain('code-fn-inline');
   });
 
+  it('distinguishes named instance ids from map container isolation', async () => {
+    const earthCreate = await readFile('website/src/views/EarthCreateView.vue', 'utf8');
+
+    expect(earthCreate).toContain('同时存在的命名实例应使用不同的');
+    expect(earthCreate).toContain('默认实例和直接调用');
+    expect(earthCreate).toContain('无需注册');
+    expect(earthCreate).toContain('所有并存地图都应绑定不同的 DOM 容器');
+    expect(earthCreate).not.toMatch(/每个\s*<code><a href="#api-constructor">Earth<\/a><\/code>\s*实例必须使用不同的/);
+  });
+
   it('uses the runnable default example as the displayed useEarth source', async () => {
     const [view, demo] = await Promise.all([
       readFile('website/src/views/EarthCreateView.vue', 'utf8'),

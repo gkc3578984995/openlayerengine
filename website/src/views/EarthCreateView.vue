@@ -252,8 +252,10 @@ const methodRows = [
             >；销毁会注销注册键，使默认实例或同名实例可以重新创建。
           </li>
           <li>
-            每个 <code><a href="#api-constructor">Earth</a></code> 实例必须使用不同的 <code><a href="#api-type-use-earth-options">id</a></code
-            >，并绑定不同的 DOM 容器。
+            同时存在的命名实例应使用不同的 <code><a href="#api-type-use-earth-options">id</a></code
+            >；默认实例和直接调用 <code><a href="#api-constructor">new Earth()</a></code> 创建的实例无需注册
+            <code><a href="#api-type-use-earth-options">id</a></code
+            >。所有并存地图都应绑定不同的 DOM 容器。
           </li>
         </ul>
       </section>

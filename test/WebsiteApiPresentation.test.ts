@@ -135,7 +135,8 @@ describe('website API presentation', () => {
     }
 
     expect(earthCreate).toContain('<code><a href="#api-constructor">Earth</a></code> 是所有图层能力的入口');
-    expect(earthCreate).toContain('每个 <code><a href="#api-constructor">Earth</a></code> 实例');
+    expect(earthCreate).toContain('同时存在的命名实例应使用不同的 <code><a href="#api-type-use-earth-options">id</a></code');
+    expect(earthCreate).toContain('所有并存地图都应绑定不同的 DOM 容器');
     expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">flyHome</a></code>');
     expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code>');
   });
