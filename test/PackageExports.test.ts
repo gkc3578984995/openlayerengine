@@ -10,6 +10,7 @@ type ConditionalExport = {
 
 type PackageJson = {
   version: string;
+  dependencies: Record<string, string>;
   main: string;
   module: string;
   types: string;
@@ -62,6 +63,8 @@ describe('package exports', () => {
 
   it('declares every Rollup entry and derives externals from dependencies and peers', () => {
     const config = readFileSync(resolve(projectRoot, 'rollup.config.mjs'), 'utf8');
+
+    expect(packageJson.dependencies['wind-core']).toBe('1.1.2');
 
     for (const entryName of ['index', 'core', 'layers', 'draw', 'measure', 'transform', 'plot']) {
       expect(config).toMatch(new RegExp(`\\b${entryName}:\\s*['"]src/`));

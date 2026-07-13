@@ -39,7 +39,8 @@
     "heatmap.js": "^2.0.5",
     "lodash": "^4.17.21",
     "mitt": "^3.0.0",
-    "ol-wind": "^1.1.2"
+    "ol-wind": "^1.1.2",
+    "wind-core": "1.1.2"
   },
   "peerDependencies": {
     "ol": "^7.5.2"
