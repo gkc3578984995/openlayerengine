@@ -407,6 +407,37 @@ describe('plot shape parity', () => {
     });
   });
 
+  it('refuses to finalize an incomplete two-point double arrow', () => {
+    const shape = definition('double-arrow');
+    const preview = shape.normalize({
+      type: 'double-arrow',
+      controlPoints: [
+        [0, 0],
+        [4, 0]
+      ]
+    });
+
+    expect(shape.isComplete(preview)).toBe(false);
+    expect(() => shape.finalize?.(preview)).toThrow(InvalidArgumentError);
+  });
+
+  it('keeps an already canonical five-point double arrow complete when finalized', () => {
+    const shape = definition('double-arrow');
+    const state = shape.normalize({
+      type: 'double-arrow',
+      controlPoints: [
+        [0, 0],
+        [4, 0],
+        [3, 3],
+        [1, 3],
+        [2, 0]
+      ]
+    });
+
+    expect(shape.isComplete(state)).toBe(true);
+    expect(shape.finalize?.(state)).toEqual(state);
+  });
+
   it('finalizes a three-point double arrow after right-click into a canonical five-point state', () => {
     const shape = definition('double-arrow');
     const preview = shape.normalize({
@@ -449,6 +480,93 @@ describe('plot shape parity', () => {
       [2, 3],
       [4, 0]
     ]);
+  });
+
+  it('validates non-degenerate plot shapes independently of scale and translation', () => {
+    const cases: readonly [PlotShapeType, Coordinate[]][] = [
+      [
+        'triangle',
+        [
+          [0, 0],
+          [4, 0],
+          [2, 3]
+        ]
+      ],
+      [
+        'assemble-polygon',
+        [
+          [0, 0],
+          [2, 3],
+          [4, 0]
+        ]
+      ],
+      [
+        'closed-curve-polygon',
+        [
+          [0, 0],
+          [2, 3],
+          [4, 0]
+        ]
+      ],
+      [
+        'lune-polygon',
+        [
+          [0, 0],
+          [4, 0],
+          [2, 3]
+        ]
+      ],
+      [
+        'lune-polyline',
+        [
+          [0, 0],
+          [4, 0],
+          [2, 3]
+        ]
+      ],
+      [
+        'double-arrow',
+        [
+          [0, 0],
+          [4, 0],
+          [3, 3],
+          [1, 3],
+          [2, 0]
+        ]
+      ],
+      [
+        'rectangle',
+        [
+          [0, 0],
+          [4, 3]
+        ]
+      ]
+    ];
+
+    for (const scale of [1e-8, 1, 1e8]) {
+      for (const translation of [0, scale * 1e8]) {
+        for (const [type, source] of cases) {
+          const controlPoints = source.map(([x, y]) => [x * scale + translation, y * scale - translation] as Coordinate);
+          const shape = definition(type);
+          const state = shape.normalize({ type, controlPoints });
+          const geometry = shape.toRenderGeometry(state);
+          const coordinates =
+            geometry.type === 'polygon'
+              ? geometry.coordinates.flat()
+              : geometry.type === 'polyline'
+                ? geometry.coordinates
+                : geometry.type === 'point'
+                  ? [geometry.coordinates]
+                  : [geometry.center];
+
+          expect(coordinates.length, `${type} emitted no coordinates at scale ${scale}`).toBeGreaterThan(0);
+          expect(
+            coordinates.every((coordinate) => coordinate.every(Number.isFinite)),
+            `${type} emitted non-finite coordinates at scale ${scale} and translation ${translation}`
+          ).toBe(true);
+        }
+      }
+    }
   });
 
   it.each([

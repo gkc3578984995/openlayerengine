@@ -1,7 +1,15 @@
 import { InvalidArgumentError } from '../../../core/errors.js';
 import type { Coordinate } from '../../../core/common/types.js';
 import type { ShapeCapability, ShapeDefinition } from '../../../core/shape/types.js';
-import { cloneCoordinate, closeRing, createControlPointDefinition, editableCapabilities, requireSeparated } from '../definition.js';
+import {
+  arePlanarCollinear,
+  cloneCoordinate,
+  closeRing,
+  createControlPointDefinition,
+  editableCapabilities,
+  requireNonCollinear,
+  requireSeparated
+} from '../definition.js';
 import {
   HALF_PI,
   angleOfThreePoints,
@@ -12,7 +20,6 @@ import {
   isClockWise,
   midpoint,
   quadraticBSplinePoints,
-  requireNonCollinear,
   thirdPoint,
   wholeDistance
 } from './math.js';
@@ -226,17 +233,10 @@ function validateSegments(points: readonly Coordinate[]): void {
   for (let index = 1; index < points.length; index += 1) requireSeparated(points, [index - 1, index]);
 }
 
-function validateGenerated(points: readonly Coordinate[], generator: (points: readonly Coordinate[]) => Coordinate[]): void {
+function validateArrowPath(points: readonly Coordinate[]): void {
   validateSegments(points);
-  const generated = generator(points);
-  assertFinitePoints(generated);
-  if (points.length >= 3) {
-    let doubledArea = 0;
-    for (let index = 0; index < generated.length; index += 1) {
-      const next = generated[(index + 1) % generated.length];
-      doubledArea += generated[index][0] * next[1] - next[0] * generated[index][1];
-    }
-    if (Math.abs(doubledArea) <= Number.EPSILON) throw new InvalidArgumentError('Arrow control points must produce a non-zero area');
+  if (points.length >= 3 && points.slice(2).every((point) => arePlanarCollinear(points[0], points[1], point))) {
+    throw new InvalidArgumentError('Arrow control points must produce a non-zero area');
   }
 }
 
@@ -253,7 +253,7 @@ const attackArrowDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 3,
   capabilities: plotAreaCapabilities,
-  validate: (points) => validateGenerated(points, attackArrow),
+  validate: validateArrowPath,
   render: polygonRender(attackArrow)
 });
 
@@ -262,7 +262,7 @@ const tailedAttackArrowDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 3,
   capabilities: plotAreaCapabilities,
-  validate: (points) => validateGenerated(points, tailedAttackArrow),
+  validate: validateArrowPath,
   render: polygonRender(tailedAttackArrow)
 });
 
@@ -272,10 +272,7 @@ const fineArrowDefinition = createControlPointDefinition({
   completeMin: 2,
   completeMax: 2,
   capabilities: plotAreaCapabilities,
-  validate: (points) =>
-    validateGenerated(points, (value) =>
-      fineArrow(value, { tailWidth: 0.1, neckWidth: 0.2, headWidth: 0.25, headAngle: Math.PI / 8.5, neckAngle: Math.PI / 13 })
-    ),
+  validate: validateSegments,
   render: polygonRender((points) => fineArrow(points, { tailWidth: 0.1, neckWidth: 0.2, headWidth: 0.25, headAngle: Math.PI / 8.5, neckAngle: Math.PI / 13 }))
 });
 
@@ -285,7 +282,7 @@ const tailedSquadCombatArrowDefinition = createControlPointDefinition({
   completeMin: 2,
   completeMax: 2,
   capabilities: plotAreaCapabilities,
-  validate: (points) => validateGenerated(points, tailedSquadCombatArrow),
+  validate: validateSegments,
   render: polygonRender(tailedSquadCombatArrow)
 });
 
@@ -295,10 +292,7 @@ const assaultDirectionArrowDefinition = createControlPointDefinition({
   completeMin: 2,
   completeMax: 2,
   capabilities: plotAreaCapabilities,
-  validate: (points) =>
-    validateGenerated(points, (value) =>
-      fineArrow(value, { tailWidth: 0.03, neckWidth: 0.1, headWidth: 0.15, headAngle: Math.PI / 5.5, neckAngle: Math.PI / 12 })
-    ),
+  validate: validateSegments,
   render: polygonRender((points) => fineArrow(points, { tailWidth: 0.03, neckWidth: 0.1, headWidth: 0.15, headAngle: Math.PI / 5.5, neckAngle: Math.PI / 12 }))
 });
 
@@ -312,7 +306,7 @@ const doubleArrowDefinition = createControlPointDefinition({
   validate: (points) => {
     if (points.length >= 3) requireNonCollinear(points[0], points[1], points[2]);
     if (points.length >= 4) requireNonCollinear(points[0], points[1], points[3]);
-    validateGenerated(points, doubleArrow);
+    validateSegments(points);
   },
   render: polygonRender(doubleArrow),
   finalize: (state) => {

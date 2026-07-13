@@ -5,7 +5,7 @@ import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { CapabilityError, InvalidArgumentError } from '../src/core/errors.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { shapeTypes as coreShapeTypes } from '../src/core/shape/types.js';
-import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
+import type { ShapeCapability, ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
 
 const { shapeTypes } = publicBuiltinShapes;
 
@@ -186,7 +186,84 @@ describe('ShapeRegistry', () => {
     registry.register(first);
 
     expect(() => registry.register({ ...first, capabilities: new Set(['edit']) })).toThrow(InvalidArgumentError);
-    expect(registry.get('point')).toBe(first);
+    expect(registry.get('point')).not.toBe(first);
+    expect(registry.get('point').type).toBe(first.type);
+  });
+
+  it('snapshots and freezes definitions, policies, and capabilities at registration time', () => {
+    const capabilities = new Set<ShapeCapability>(['draw']);
+    const controlPointPolicy = { previewMin: 1, completeMin: 1, completeMax: 1 };
+    const original: ShapeDefinition<ShapeState<'point'>> = {
+      type: 'point',
+      capabilities,
+      controlPointPolicy,
+      normalize() {
+        return { type: this.type, controlPoints: [[0, 0]] };
+      },
+      clone(state) {
+        return this.normalize(state);
+      },
+      isComplete() {
+        return this.type === 'point';
+      },
+      toRenderGeometry(state) {
+        return { type: 'point', coordinates: this.normalize(state).controlPoints[0] };
+      }
+    };
+    const registry = new ShapeRegistry([original]);
+    const snapshot = registry.get('point');
+
+    capabilities.clear();
+    capabilities.add('edit');
+    controlPointPolicy.previewMin = 99;
+    (original as { type: ShapeType }).type = 'polyline';
+    (original as { normalize: ShapeDefinition<ShapeState<'point'>>['normalize'] }).normalize = () => {
+      throw new Error('mutated original method');
+    };
+
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.controlPointPolicy)).toBe(true);
+    expect(snapshot.controlPointPolicy).toEqual({ previewMin: 1, completeMin: 1, completeMax: 1 });
+    expect(snapshot.clone({ type: 'point', controlPoints: [[9, 9]] })).toEqual({ type: 'point', controlPoints: [[0, 0]] });
+    expect(snapshot.toRenderGeometry({ type: 'point', controlPoints: [[9, 9]] })).toEqual({ type: 'point', coordinates: [0, 0] });
+    expect(registry.supports('point', 'draw')).toBe(true);
+    expect(registry.supports('point', 'edit')).toBe(false);
+    expect(() => (snapshot.capabilities as Set<ShapeCapability>).add('edit')).toThrow();
+  });
+
+  it('rejects accessor-backed definitions and policies without invoking getters', () => {
+    let definitionReads = 0;
+    let policyReads = 0;
+    const methods = {
+      capabilities: new Set<ShapeCapability>(['draw']),
+      normalize: (input: unknown) => input as ShapeState<'point'>,
+      clone: (state: ShapeState<'point'>) => state,
+      isComplete: () => true,
+      toRenderGeometry: () => ({ type: 'point' as const, coordinates: [0, 0] as const })
+    };
+    const accessorDefinition = { ...methods } as Record<PropertyKey, unknown>;
+    Object.defineProperty(accessorDefinition, 'type', {
+      enumerable: true,
+      get() {
+        definitionReads += 1;
+        return 'point';
+      }
+    });
+    const accessorPolicy = { completeMin: 1 } as Record<PropertyKey, unknown>;
+    Object.defineProperty(accessorPolicy, 'previewMin', {
+      enumerable: true,
+      get() {
+        policyReads += 1;
+        return 1;
+      }
+    });
+
+    expect(() => new ShapeRegistry().register(accessorDefinition as unknown as ShapeDefinition<ShapeState<'point'>>)).toThrow(InvalidArgumentError);
+    expect(() =>
+      new ShapeRegistry().register({ type: 'point', controlPointPolicy: accessorPolicy, ...methods } as unknown as ShapeDefinition<ShapeState<'point'>>)
+    ).toThrow(InvalidArgumentError);
+    expect(definitionReads).toBe(0);
+    expect(policyReads).toBe(0);
   });
 
   it('throws the stable capability error for an unknown runtime type', () => {

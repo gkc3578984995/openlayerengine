@@ -234,11 +234,6 @@ export function quadraticBSplinePoints(points: readonly Point[]): Point[] {
   return result;
 }
 
-export function requireNonCollinear(point1: Point, point2: Point, point3: Point): void {
-  const area = (point2[0] - point1[0]) * (point3[1] - point1[1]) - (point2[1] - point1[1]) * (point3[0] - point1[0]);
-  if (Math.abs(area) <= ZERO_TOLERANCE) throw new InvalidArgumentError('Control points must not be collinear');
-}
-
 export function assertFinitePoints(points: readonly Point[]): void {
   if (points.length === 0 || points.some((point) => !Number.isFinite(point[0]) || !Number.isFinite(point[1]))) {
     throw new InvalidArgumentError('Shape algorithm produced invalid coordinates');

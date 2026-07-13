@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
+import { createControlPointDefinition } from '../src/builtins/shapes/definition.js';
 import { InvalidArgumentError } from '../src/core/errors.js';
 import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
 
@@ -10,11 +11,24 @@ function definition<T extends ShapeType>(type: T): ShapeDefinition<ShapeState<T>
 }
 
 describe('basic shape definitions', () => {
+  it('rejects a custom finalizer result that remains incomplete', () => {
+    const shape = createControlPointDefinition({
+      type: 'polyline',
+      previewMin: 1,
+      completeMin: 2,
+      render: (points) => ({ type: 'polyline', coordinates: points }),
+      finalize: (state) => state
+    });
+    const preview = shape.normalize({ type: 'polyline', controlPoints: [[0, 0]] });
+
+    expect(() => shape.finalize?.(preview)).toThrow(InvalidArgumentError);
+  });
+
   it('normalize validates and copies coordinates without mutating caller data', () => {
     const input = {
       type: 'polyline',
       controlPoints: [
-        [0, 1],
+        [0, 1, 2],
         [2, 3, 4]
       ]
     };
@@ -27,6 +41,251 @@ describe('basic shape definitions', () => {
     expect(state).not.toBe(input);
     expect(state.controlPoints).not.toBe(input.controlPoints);
     expect(state.controlPoints[0]).not.toBe(input.controlPoints[0]);
+  });
+
+  it('rejects sparse coordinate and control-point arrays', () => {
+    const sparseCoordinate: unknown[] = [];
+    sparseCoordinate.length = 2;
+    sparseCoordinate[0] = 1;
+    const sparseControlPoints: unknown[] = [];
+    sparseControlPoints.length = 2;
+    sparseControlPoints[0] = [0, 0];
+
+    expect(() => definition('point').normalize({ type: 'point', controlPoints: [sparseCoordinate] })).toThrow(InvalidArgumentError);
+    expect(() => definition('polyline').normalize({ type: 'polyline', controlPoints: sparseControlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it('rejects accessors without invoking them', () => {
+    let stateReads = 0;
+    let coordinateReads = 0;
+    const accessorState = { type: 'point' } as Record<string, unknown>;
+    Object.defineProperty(accessorState, 'controlPoints', {
+      enumerable: true,
+      get() {
+        stateReads += 1;
+        return [[0, 0]];
+      }
+    });
+    const accessorCoordinate: unknown[] = [];
+    accessorCoordinate.length = 2;
+    Object.defineProperty(accessorCoordinate, '0', {
+      enumerable: true,
+      get() {
+        coordinateReads += 1;
+        return 0;
+      }
+    });
+    accessorCoordinate[1] = 0;
+
+    expect(() => definition('point').normalize(accessorState)).toThrow(InvalidArgumentError);
+    expect(() => definition('point').normalize({ type: 'point', controlPoints: [accessorCoordinate] })).toThrow(InvalidArgumentError);
+    expect(stateReads).toBe(0);
+    expect(coordinateReads).toBe(0);
+  });
+
+  it('snapshots caller descriptors once without using proxy property reads', () => {
+    const descriptorReads = new Map<PropertyKey, number>();
+    let propertyReads = 0;
+    const coordinate = new Proxy([0, 0], {
+      get(target, key, receiver) {
+        propertyReads += 1;
+        return Reflect.get(target, key, receiver);
+      }
+    });
+    const controlPoints = new Proxy([coordinate], {
+      get(target, key, receiver) {
+        propertyReads += 1;
+        return Reflect.get(target, key, receiver);
+      }
+    });
+    const target = { type: 'point', controlPoints };
+    const state = new Proxy(target, {
+      getOwnPropertyDescriptor(source, key) {
+        const count = (descriptorReads.get(key) ?? 0) + 1;
+        descriptorReads.set(key, count);
+        if (count > 1) {
+          return {
+            configurable: true,
+            enumerable: true,
+            get() {
+              propertyReads += 1;
+              return Reflect.get(source, key);
+            }
+          };
+        }
+        return Reflect.getOwnPropertyDescriptor(source, key);
+      }
+    });
+
+    expect(definition('point').normalize(state)).toEqual({ type: 'point', controlPoints: [[0, 0]] });
+    expect(descriptorReads).toEqual(
+      new Map<PropertyKey, number>([
+        ['type', 1],
+        ['controlPoints', 1]
+      ])
+    );
+    expect(propertyReads).toBe(0);
+  });
+
+  it('rejects array subclasses and attached caller methods without invoking them', () => {
+    class CallerArray<T> extends Array<T> {}
+    const subclass = new CallerArray<unknown>();
+    subclass.push([0, 0], [1, 1]);
+    let mapCalls = 0;
+    let everyCalls = 0;
+    const customControlPoints = [
+      [0, 0],
+      [1, 1]
+    ] as unknown[];
+    Object.defineProperty(customControlPoints, 'map', {
+      value() {
+        mapCalls += 1;
+        return [
+          [0, 0],
+          [1, 1]
+        ];
+      }
+    });
+    const customCoordinate = [0, 0] as unknown[];
+    Object.defineProperty(customCoordinate, 'every', {
+      value() {
+        everyCalls += 1;
+        return true;
+      }
+    });
+
+    expect(() => definition('polyline').normalize({ type: 'polyline', controlPoints: subclass })).toThrow(InvalidArgumentError);
+    expect(() => definition('polyline').normalize({ type: 'polyline', controlPoints: customControlPoints })).toThrow(InvalidArgumentError);
+    expect(() => definition('point').normalize({ type: 'point', controlPoints: [customCoordinate] })).toThrow(InvalidArgumentError);
+    expect(mapCalls).toBe(0);
+    expect(everyCalls).toBe(0);
+  });
+
+  it('rejects non-plain state records and returns stable ordinary dense arrays', () => {
+    const inherited = Object.create({ inherited: true }) as Record<string, unknown>;
+    inherited.type = 'polyline';
+    inherited.controlPoints = [
+      [0, 0],
+      [1, 1]
+    ];
+
+    expect(() => definition('polyline').normalize(inherited)).toThrow(InvalidArgumentError);
+
+    const normalized = definition('polyline').normalize({
+      type: 'polyline',
+      controlPoints: [
+        [0, 0],
+        [1, 1]
+      ]
+    });
+    expect(Object.getPrototypeOf(normalized)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(normalized.controlPoints)).toBe(Array.prototype);
+    expect(
+      normalized.controlPoints.every((coordinate, index) => index in normalized.controlPoints && Object.getPrototypeOf(coordinate) === Array.prototype)
+    ).toBe(true);
+  });
+
+  it('applies descriptor-safe plain-data parsing to circle state', () => {
+    let centerReads = 0;
+    const accessorCircle = { type: 'circle', radius: 2 } as Record<string, unknown>;
+    Object.defineProperty(accessorCircle, 'center', {
+      enumerable: true,
+      get() {
+        centerReads += 1;
+        return [0, 0];
+      }
+    });
+
+    expect(() => definition('circle').normalize(accessorCircle)).toThrow(InvalidArgumentError);
+    expect(centerReads).toBe(0);
+    expect(() => definition('circle').normalize(Object.assign(Object.create({}), { type: 'circle', center: [0, 0], radius: 2 }))).toThrow(InvalidArgumentError);
+  });
+
+  it('requires uniform dimensions, keeps direct 3D shapes, and makes ellipse explicitly 2D', () => {
+    expect(() =>
+      definition('polyline').normalize({
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [1, 1, 1]
+        ]
+      })
+    ).toThrow(InvalidArgumentError);
+    expect(() =>
+      definition('polygon').normalize({
+        type: 'polygon',
+        controlPoints: [
+          [0, 0, 0],
+          [2, 0],
+          [1, 1, 0]
+        ]
+      })
+    ).toThrow(InvalidArgumentError);
+    expect(() =>
+      definition('ellipse').normalize({
+        type: 'ellipse',
+        controlPoints: [
+          [0, 0, 1],
+          [2, 1, 1]
+        ]
+      })
+    ).toThrow(InvalidArgumentError);
+
+    expect(definition('point').normalize({ type: 'point', controlPoints: [[1, 2, 3]] }).controlPoints).toEqual([[1, 2, 3]]);
+    expect(
+      definition('polyline').normalize({
+        type: 'polyline',
+        controlPoints: [
+          [0, 0, 1],
+          [1, 1, 2]
+        ]
+      }).controlPoints
+    ).toEqual([
+      [0, 0, 1],
+      [1, 1, 2]
+    ]);
+    expect(
+      definition('polygon').toRenderGeometry(
+        definition('polygon').normalize({
+          type: 'polygon',
+          controlPoints: [
+            [0, 0, 1],
+            [2, 0, 2],
+            [1, 1, 3]
+          ]
+        })
+      )
+    ).toEqual({
+      type: 'polygon',
+      coordinates: [
+        [
+          [0, 0, 1],
+          [2, 0, 2],
+          [1, 1, 3],
+          [0, 0, 1]
+        ]
+      ]
+    });
+  });
+
+  it('keeps concave polygons valid across scales and translations', () => {
+    const polygon = definition('polygon');
+    const source = [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [2, 2],
+      [0, 4]
+    ] as const;
+
+    for (const scale of [1e-8, 1, 1e8]) {
+      for (const translation of [0, scale * 1e8]) {
+        const controlPoints = source.map(([x, y]) => [x * scale + translation, y * scale - translation]);
+        const state = polygon.normalize({ type: 'polygon', controlPoints });
+        const geometry = polygon.toRenderGeometry(state);
+        expect(geometry.type).toBe('polygon');
+      }
+    }
   });
 
   it('clone creates independent coordinates and updateControlPoint leaves the source unchanged', () => {
@@ -133,6 +392,77 @@ describe('basic shape definitions', () => {
     ]);
     expect(circle.updateControlPoint?.(state, 0, [7, 8])).toEqual({ type: 'circle', center: [7, 8], radius: 4 });
     expect(circle.updateControlPoint?.(state, 1, [2, 8])).toEqual({ type: 'circle', center: [2, 3], radius: 5 });
+  });
+
+  it('keeps circle methods detached-safe and preserves 3D handles', () => {
+    const circle = definition('circle');
+    const { clone, finalize, getControlPoints, isComplete, toRenderGeometry, updateControlPoint } = circle;
+    const state = circle.normalize({ type: 'circle', center: [2, 3, 9], radius: 4 });
+
+    expect(circle.controlPointPolicy).toEqual({ previewMin: 2, completeMin: 2, completeMax: 2 });
+    expect(clone(state)).toEqual(state);
+    expect(isComplete(state)).toBe(true);
+    expect(finalize?.(state)).toEqual(state);
+    expect(toRenderGeometry(state)).toEqual({ type: 'circle', center: [2, 3, 9], radius: 4 });
+    expect(getControlPoints?.(state)).toEqual([
+      [2, 3, 9],
+      [6, 3, 9]
+    ]);
+    expect(updateControlPoint?.(state, 0, [7, 8, 9])).toEqual({ type: 'circle', center: [7, 8, 9], radius: 4 });
+    expect(updateControlPoint?.(state, 1, [2, 8, 9])).toEqual({ type: 'circle', center: [2, 3, 9], radius: 5 });
+
+    const zero = circle.normalize({ type: 'circle', center: [2, 3, 9], radius: 0 });
+    expect(getControlPoints?.(zero)).toEqual([
+      [2, 3, 9],
+      [2, 3, 9]
+    ]);
+  });
+
+  it('keeps accepted extreme circle states finite and rejects an unrepresentable radius update', () => {
+    const circle = definition('circle');
+    const maximum = Number.MAX_VALUE;
+    const state = circle.normalize({ type: 'circle', center: [maximum, maximum, maximum], radius: maximum });
+    const geometry = circle.toRenderGeometry(state);
+    const handles = circle.getControlPoints?.(state);
+
+    expect(geometry.type).toBe('circle');
+    expect(geometry.type === 'circle' && geometry.center.every(Number.isFinite) && Number.isFinite(geometry.radius)).toBe(true);
+    expect(handles?.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+    expect(() => circle.updateControlPoint?.(state, 1, [-maximum, maximum, maximum])).toThrow(InvalidArgumentError);
+  });
+
+  it('renders extreme ellipses with finite coordinates using overflow-safe bounds', () => {
+    const ellipse = definition('ellipse');
+    const maximum = Number.MAX_VALUE;
+    const bounds = [
+      [
+        [maximum, maximum],
+        [maximum / 2, maximum / 2]
+      ],
+      [
+        [-maximum, -maximum],
+        [maximum, maximum]
+      ]
+    ] as const;
+
+    for (const controlPoints of bounds) {
+      const geometry = ellipse.toRenderGeometry(ellipse.normalize({ type: 'ellipse', controlPoints }));
+      expect(geometry.type).toBe('polygon');
+      expect(geometry.type === 'polygon' && geometry.coordinates.flat().every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+    }
+  });
+
+  it('rejects non-finite render output from a custom control-point definition', () => {
+    const shape = createControlPointDefinition({
+      type: 'point',
+      previewMin: 1,
+      completeMin: 1,
+      completeMax: 1,
+      render: () => ({ type: 'point', coordinates: [Infinity, 0] })
+    });
+    const state = shape.normalize({ type: 'point', controlPoints: [[0, 0]] });
+
+    expect(() => shape.toRenderGeometry(state)).toThrow(InvalidArgumentError);
   });
 
   it.each([

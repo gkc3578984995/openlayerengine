@@ -1,8 +1,8 @@
 import { InvalidArgumentError } from '../../../core/errors.js';
 import type { Coordinate } from '../../../core/common/types.js';
 import type { ShapeDefinition } from '../../../core/shape/types.js';
-import { cloneCoordinate, createControlPointDefinition, pathCapabilities, requireSeparated } from '../definition.js';
-import { arcPoints, assertFinitePoints, azimuth, circleCenter, curvePoints, distance, isClockWise, requireNonCollinear } from './math.js';
+import { cloneCoordinate, createControlPointDefinition, pathCapabilities, requireNonCollinear, requireSeparated } from '../definition.js';
+import { arcPoints, assertFinitePoints, azimuth, circleCenter, curvePoints, distance, isClockWise } from './math.js';
 
 function validatePlotPoints(points: readonly Coordinate[]): void {
   if (points.some((point) => point.length !== 2)) throw new InvalidArgumentError('Plot shapes require two-dimensional control points');

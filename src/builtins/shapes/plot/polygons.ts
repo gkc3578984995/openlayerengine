@@ -6,13 +6,15 @@ import {
   closeRing,
   createControlPointDefinition,
   editableCapabilities,
+  haveSamePlanarDirection,
   nonRotatingEditableCapabilities,
+  requireNonCollinear,
+  requireNonZeroPlanarArea,
   requireSeparated
 } from '../definition.js';
 import {
   FITTING_COUNT,
   HALF_PI,
-  ZERO_TOLERANCE,
   arcPoints,
   assertFinitePoints,
   azimuth,
@@ -22,7 +24,6 @@ import {
   distance,
   isClockWise,
   midpoint,
-  requireNonCollinear,
   thirdPoint
 } from './math.js';
 
@@ -30,18 +31,8 @@ function requireTwoDimensional(points: readonly Coordinate[]): void {
   if (points.some((point) => point.length !== 2)) throw new InvalidArgumentError('Plot shapes require two-dimensional control points');
 }
 
-function polygonArea(points: readonly Coordinate[]): number {
-  let area = 0;
-  for (let index = 0; index < points.length; index += 1) {
-    const next = points[(index + 1) % points.length];
-    area += points[index][0] * next[1] - next[0] * points[index][1];
-  }
-  return area / 2;
-}
-
 function requireArea(points: readonly Coordinate[]): void {
-  if (points.length >= 3 && Math.abs(polygonArea(points)) <= ZERO_TOLERANCE)
-    throw new InvalidArgumentError('Polygon control points must enclose a non-zero area');
+  requireNonZeroPlanarArea(points, 'Polygon control points must enclose a non-zero area');
 }
 
 function validateSegments(points: readonly Coordinate[]): void {
@@ -168,7 +159,7 @@ const rectangleDefinition = createControlPointDefinition({
   capabilities: nonRotatingEditableCapabilities,
   validate: (points) => {
     requireTwoDimensional(points);
-    if (Math.abs(points[0][0] - points[1][0]) <= ZERO_TOLERANCE || Math.abs(points[0][1] - points[1][1]) <= ZERO_TOLERANCE) {
+    if (points[0][0] === points[1][0] || points[0][1] === points[1][1]) {
       throw new InvalidArgumentError('Rectangle width and height must be non-zero');
     }
   },
@@ -237,10 +228,7 @@ const sectorDefinition = createControlPointDefinition({
     requireSeparated(points, [0, 1]);
     if (points.length === 3) {
       requireSeparated(points, [0, 2]);
-      const start = azimuth(points[1], points[0]);
-      const end = azimuth(points[2], points[0]);
-      const difference = Math.abs(start - end);
-      if (difference <= ZERO_TOLERANCE || Math.abs(difference - Math.PI * 2) <= ZERO_TOLERANCE) {
+      if (haveSamePlanarDirection(points[0], points[1], points[2])) {
         throw new InvalidArgumentError('Sector rays must have a non-zero angle');
       }
     }

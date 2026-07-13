@@ -1,24 +1,10 @@
 import { InvalidArgumentError } from '../../core/errors.js';
 import type { Coordinate } from '../../core/common/types.js';
 import type { RenderGeometryState, ShapeCapability, ShapeDefinition, ShapeState, ShapeType } from '../../core/shape/types.js';
+import { createImmutableSet } from '../../core/shape/immutableSet.js';
 
 export function immutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
-  const source = new Set(values);
-  const result: ReadonlySet<T> = Object.freeze({
-    get size() {
-      return source.size;
-    },
-    has: (value: T) => source.has(value),
-    entries: () => source.entries(),
-    keys: () => source.keys(),
-    values: () => source.values(),
-    forEach: (callback: (value: T, value2: T, set: ReadonlySet<T>) => void, thisArg?: unknown) => {
-      source.forEach((value) => callback.call(thisArg, value, value, result));
-    },
-    [Symbol.iterator]: () => source[Symbol.iterator](),
-    [Symbol.toStringTag]: 'Set'
-  });
-  return result;
+  return createImmutableSet(values);
 }
 
 export const editableCapabilities = immutableSet<ShapeCapability>(['draw', 'edit', 'translate', 'rotate', 'scale', 'vertexEdit']);
@@ -31,10 +17,11 @@ export function cloneCoordinate(coordinate: Coordinate): Coordinate {
 }
 
 export function normalizeCoordinate(input: unknown, label = 'coordinate'): Coordinate {
-  if (!Array.isArray(input) || (input.length !== 2 && input.length !== 3) || !input.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+  const values = readDensePlainArray(input, label);
+  if ((values.length !== 2 && values.length !== 3) || values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
     throw new InvalidArgumentError(`${label} must contain two or three finite numbers`);
   }
-  return input.length === 3 ? [input[0], input[1], input[2]] : [input[0], input[1]];
+  return values.length === 3 ? [values[0] as number, values[1] as number, values[2] as number] : [values[0] as number, values[1] as number];
 }
 
 export function coordinatesEqual(left: Coordinate, right: Coordinate): boolean {
@@ -48,34 +35,171 @@ export function closeRing(coordinates: readonly Coordinate[]): readonly Coordina
   return ring;
 }
 
+function planarVectors(origin: Coordinate, first: Coordinate, second: Coordinate): readonly [number, number, number, number] {
+  const firstX = first[0] - origin[0];
+  const firstY = first[1] - origin[1];
+  const secondX = second[0] - origin[0];
+  const secondY = second[1] - origin[1];
+  if (![firstX, firstY, secondX, secondY].every(Number.isFinite)) {
+    throw new InvalidArgumentError('Control-point differences exceed the finite numeric range');
+  }
+  const scale = Math.max(Math.abs(firstX), Math.abs(firstY), Math.abs(secondX), Math.abs(secondY));
+  if (scale === 0) return [0, 0, 0, 0];
+  return [firstX / scale, firstY / scale, secondX / scale, secondY / scale];
+}
+
+export function arePlanarCollinear(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
+  const [firstX, firstY, secondX, secondY] = planarVectors(origin, first, second);
+  const positive = firstX * secondY;
+  const negative = firstY * secondX;
+  const magnitude = Math.abs(positive) + Math.abs(negative);
+  return Math.abs(positive - negative) <= Number.EPSILON * 8 * magnitude;
+}
+
+export function requireNonCollinear(origin: Coordinate, first: Coordinate, second: Coordinate): void {
+  if (arePlanarCollinear(origin, first, second)) throw new InvalidArgumentError('Control points must not be collinear');
+}
+
+export function requireNonZeroPlanarArea(points: readonly Coordinate[], message = 'Control points must enclose a non-zero area'): void {
+  if (points.length < 3) return;
+  const origin = points[0];
+  const vectors = new Array<readonly [number, number]>(points.length);
+  let scale = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const x = points[index][0] - origin[0];
+    const y = points[index][1] - origin[1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InvalidArgumentError('Control-point differences exceed the finite numeric range');
+    scale = Math.max(scale, Math.abs(x), Math.abs(y));
+    vectors[index] = [x, y];
+  }
+  if (scale === 0) throw new InvalidArgumentError(message);
+  let doubledArea = 0;
+  let magnitude = 0;
+  for (let index = 1; index < vectors.length - 1; index += 1) {
+    const current = vectors[index];
+    const next = vectors[index + 1];
+    const positive = (current[0] / scale) * (next[1] / scale);
+    const negative = (current[1] / scale) * (next[0] / scale);
+    doubledArea += positive - negative;
+    magnitude += Math.abs(positive) + Math.abs(negative);
+  }
+  if (!Number.isFinite(doubledArea) || Math.abs(doubledArea) <= Number.EPSILON * 8 * vectors.length * magnitude) throw new InvalidArgumentError(message);
+}
+
+export function haveSamePlanarDirection(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
+  const [firstX, firstY, secondX, secondY] = planarVectors(origin, first, second);
+  const positive = firstX * secondY;
+  const negative = firstY * secondX;
+  const crossMagnitude = Math.abs(positive) + Math.abs(negative);
+  return Math.abs(positive - negative) <= Number.EPSILON * 8 * crossMagnitude && firstX * secondX + firstY * secondY > 0;
+}
+
 interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> {
   readonly type: T;
   readonly previewMin: number;
   readonly completeMin: number;
   readonly completeMax?: number;
   readonly autoFinish?: number;
+  readonly coordinateDimension?: 2 | 3;
   readonly capabilities?: ReadonlySet<ShapeCapability>;
   readonly validate?: (points: readonly Coordinate[]) => void;
   readonly render: (points: readonly Coordinate[]) => RenderGeometryState;
   readonly finalize?: (state: ShapeState<T>) => ShapeState<T>;
 }
 
-function getRecord(input: unknown): Record<PropertyKey, unknown> {
-  if (input === null || typeof input !== 'object') throw new InvalidArgumentError('Shape state must be an object');
-  return input as Record<PropertyKey, unknown>;
+export function getPlainDataRecord(input: unknown, label = 'Shape state'): object {
+  if (input === null || typeof input !== 'object') throw new InvalidArgumentError(`${label} must be an object`);
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) throw new InvalidArgumentError(`${label} must be a plain object`);
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  const snapshot = Object.create(null) as Record<PropertyKey, unknown>;
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (typeof key === 'symbol') throw new InvalidArgumentError(`${label} cannot contain symbol properties`);
+    const descriptor = descriptors[key];
+    if (!('value' in descriptor)) throw new InvalidArgumentError(`${label} cannot contain accessor properties`);
+    snapshot[key] = descriptor.value;
+  }
+  return snapshot;
+}
+
+export function getOwnDataValue(record: object, key: PropertyKey, label: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(record, key);
+  if (descriptor === undefined || !('value' in descriptor)) throw new InvalidArgumentError(`${label} must be an own data property`);
+  return descriptor.value;
+}
+
+function readDensePlainArray(input: unknown, label: string): unknown[] {
+  if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype) throw new InvalidArgumentError(`${label} must be an ordinary array`);
+  const descriptors = Object.getOwnPropertyDescriptors(input) as unknown as Record<PropertyKey, PropertyDescriptor>;
+  const lengthDescriptor = descriptors['length'];
+  if (lengthDescriptor === undefined || !('value' in lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) {
+    throw new InvalidArgumentError(`${label} must have an ordinary array length`);
+  }
+  const length = lengthDescriptor.value as number;
+  const values = new Array<unknown>(length);
+  const keys = Reflect.ownKeys(descriptors);
+  if (keys.length !== length + 1 || keys.some((key) => key !== 'length' && (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key)))) {
+    throw new InvalidArgumentError(`${label} must be a dense array without attached properties`);
+  }
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor === undefined || !('value' in descriptor)) throw new InvalidArgumentError(`${label} must contain only dense data entries`);
+    values[index] = descriptor.value;
+  }
+  return values;
+}
+
+export function assertFiniteRenderGeometry(geometry: RenderGeometryState): void {
+  const record = getPlainDataRecord(geometry, 'Render geometry');
+  const type = getOwnDataValue(record, 'type', 'Render geometry type');
+  if (type === 'point') {
+    normalizeCoordinate(getOwnDataValue(record, 'coordinates', 'Point render coordinates'), 'Point render coordinates');
+    return;
+  }
+  if (type === 'polyline') {
+    const coordinates = readDensePlainArray(getOwnDataValue(record, 'coordinates', 'Polyline render coordinates'), 'Polyline render coordinates');
+    for (let index = 0; index < coordinates.length; index += 1) normalizeCoordinate(coordinates[index], `Polyline render coordinates[${index}]`);
+    return;
+  }
+  if (type === 'polygon') {
+    const rings = readDensePlainArray(getOwnDataValue(record, 'coordinates', 'Polygon render coordinates'), 'Polygon render coordinates');
+    for (let ringIndex = 0; ringIndex < rings.length; ringIndex += 1) {
+      const ring = readDensePlainArray(rings[ringIndex], `Polygon render coordinates[${ringIndex}]`);
+      for (let coordinateIndex = 0; coordinateIndex < ring.length; coordinateIndex += 1) {
+        normalizeCoordinate(ring[coordinateIndex], `Polygon render coordinates[${ringIndex}][${coordinateIndex}]`);
+      }
+    }
+    return;
+  }
+  if (type === 'circle') {
+    normalizeCoordinate(getOwnDataValue(record, 'center', 'Circle render center'), 'Circle render center');
+    const radius = getOwnDataValue(record, 'radius', 'Circle render radius');
+    if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 0)
+      throw new InvalidArgumentError('Circle render radius must be finite and non-negative');
+    return;
+  }
+  throw new InvalidArgumentError('Render geometry has an unsupported type');
 }
 
 export function createControlPointDefinition<T extends Exclude<ShapeType, 'circle'>>(
   options: ControlPointDefinitionOptions<T>
 ): ShapeDefinition<ShapeState<T>> {
+  const hasCompleteCount = (count: number): boolean => count >= options.completeMin && (options.completeMax === undefined || count <= options.completeMax);
+
   const normalize = (input: unknown): ShapeState<T> => {
-    const record = getRecord(input);
-    if (record.type !== options.type) throw new InvalidArgumentError(`Expected shape type ${options.type}`);
-    if (!Array.isArray(record.controlPoints)) throw new InvalidArgumentError(`${options.type} requires controlPoints`);
-    const points = record.controlPoints.map((coordinate, index) => normalizeCoordinate(coordinate, `controlPoints[${index}]`));
+    const record = getPlainDataRecord(input);
+    if (getOwnDataValue(record, 'type', 'type') !== options.type) throw new InvalidArgumentError(`Expected shape type ${options.type}`);
+    const rawPoints = readDensePlainArray(getOwnDataValue(record, 'controlPoints', 'controlPoints'), 'controlPoints');
+    const points = new Array<Coordinate>(rawPoints.length);
+    for (let index = 0; index < rawPoints.length; index += 1) points[index] = normalizeCoordinate(rawPoints[index], `controlPoints[${index}]`);
     if (points.length < options.previewMin) throw new InvalidArgumentError(`${options.type} requires at least ${options.previewMin} preview control points`);
     if (options.completeMax !== undefined && points.length > options.completeMax) {
       throw new InvalidArgumentError(`${options.type} accepts at most ${options.completeMax} control points`);
+    }
+    const dimension = options.coordinateDimension ?? points[0]?.length;
+    for (const point of points) {
+      if (dimension !== undefined && point.length !== dimension)
+        throw new InvalidArgumentError(`${options.type} control points must use a uniform ${dimension}D dimension`);
     }
     options.validate?.(points);
     return { type: options.type, controlPoints: points } as unknown as ShapeState<T>;
@@ -92,20 +216,18 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     }),
     normalize,
     clone: (state) => normalize(state),
-    isComplete: (state) => {
-      const count = normalize(state).controlPoints.length;
-      return count >= options.completeMin && (options.completeMax === undefined || count <= options.completeMax);
-    },
+    isComplete: (state) => hasCompleteCount(normalize(state).controlPoints.length),
     finalize: (state) => {
       const normalized = normalize(state);
-      if (options.finalize !== undefined) return normalize(options.finalize(normalized));
-      const count = normalized.controlPoints.length;
-      if (count < options.completeMin || (options.completeMax !== undefined && count > options.completeMax)) {
-        throw new InvalidArgumentError(`${options.type} is not complete`);
-      }
-      return normalize(normalized);
+      const finalized = normalize(options.finalize === undefined ? normalized : options.finalize(normalized));
+      if (!hasCompleteCount(finalized.controlPoints.length)) throw new InvalidArgumentError(`${options.type} is not complete`);
+      return finalized;
     },
-    toRenderGeometry: (state) => options.render(normalize(state).controlPoints),
+    toRenderGeometry: (state) => {
+      const geometry = options.render(normalize(state).controlPoints);
+      assertFiniteRenderGeometry(geometry);
+      return geometry;
+    },
     getControlPoints: (state) => normalize(state).controlPoints,
     updateControlPoint: (state, index, coordinate) => {
       const normalized = normalize(state);
