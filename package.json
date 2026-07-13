@@ -1,9 +1,10 @@
 {
   "name": "@vrsim/earth-engine-ol",
-  "version": "1.1.0",
-  "main": "dist/index.cjs.js",
-  "module": "dist/index.es.js",
-  "types": "dist/types/index.d.ts",
+  "version": "2.0.0",
+  "main": "./dist/cjs/index.cjs",
+  "module": "./dist/esm/index.mjs",
+  "types": "./dist/types/index.d.ts",
+  "style": "./dist/style.css",
   "files": [
     "dist"
   ],
@@ -12,7 +13,8 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "npm run clean && rollup --bundleConfigAsCjs -c rollup.config.mjs --environment MODE:prod && tsc --emitDeclarationOnly --declaration --declarationDir dist/types",
+    "build": "npm run clean && rollup --bundleConfigAsCjs -c rollup.config.mjs --environment MODE:prod && tsc --emitDeclarationOnly --declaration --declarationDir dist/types && npm run build:styles",
+    "build:styles": "sass --load-path=node_modules --style=compressed --no-source-map src/assets/style/public.scss dist/style.css",
     "clean": "rimraf -rf dist/",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -73,15 +75,43 @@
   "license": "MIT",
   "exports": {
     ".": {
-      "import": "./dist/index.es.js",
-      "require": "./dist/index.cjs.js",
-      "types": "./dist/types/index.d.ts"
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.mjs",
+      "require": "./dist/cjs/index.cjs"
     },
-    "./dist/*": "./dist/*"
+    "./core": {
+      "types": "./dist/types/entries/core.d.ts",
+      "import": "./dist/esm/core.mjs",
+      "require": "./dist/cjs/core.cjs"
+    },
+    "./layers": {
+      "types": "./dist/types/base/index.d.ts",
+      "import": "./dist/esm/layers.mjs",
+      "require": "./dist/cjs/layers.cjs"
+    },
+    "./draw": {
+      "types": "./dist/types/entries/draw.d.ts",
+      "import": "./dist/esm/draw.mjs",
+      "require": "./dist/cjs/draw.cjs"
+    },
+    "./measure": {
+      "types": "./dist/types/entries/measure.d.ts",
+      "import": "./dist/esm/measure.mjs",
+      "require": "./dist/cjs/measure.cjs"
+    },
+    "./transform": {
+      "types": "./dist/types/entries/transform.d.ts",
+      "import": "./dist/esm/transform.mjs",
+      "require": "./dist/cjs/transform.cjs"
+    },
+    "./plot": {
+      "types": "./dist/types/entries/plot.d.ts",
+      "import": "./dist/esm/plot.mjs",
+      "require": "./dist/cjs/plot.cjs"
+    },
+    "./style.css": "./dist/style.css"
   },
   "sideEffects": [
-    "dist/index.css",
-    "dist/index.es.css",
-    "dist/index.cjs.css"
+    "./dist/style.css"
   ]
 }

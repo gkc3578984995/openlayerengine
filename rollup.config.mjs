@@ -5,7 +5,6 @@ import terser from '@rollup/plugin-terser';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import url from '@rollup/plugin-url';
-import postcss from 'rollup-plugin-postcss';
 import { defineConfig } from 'rollup';
 import copy from 'rollup-plugin-copy';
 import fs from 'fs';
@@ -32,21 +31,33 @@ function rawPlugin() {
 // eslint-disable-next-line no-undef
 const mode = process.env.MODE;
 const isProd = mode === 'prod';
+const externalDependencies = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})])];
 
 export default defineConfig({
-  input: `src/index.ts`,
-  // Keep peer and runtime-provided dependencies out of the library bundle.
-  external: (id) => id === 'mitt' || id === 'heatmap.js' || id === 'ol' || id.startsWith('ol/'),
+  input: {
+    index: 'src/index.ts',
+    core: 'src/entries/core.ts',
+    layers: 'src/base/index.ts',
+    draw: 'src/entries/draw.ts',
+    measure: 'src/entries/measure.ts',
+    transform: 'src/entries/transform.ts',
+    plot: 'src/entries/plot.ts'
+  },
+  external: (id) => externalDependencies.some((dependency) => id === dependency || id.startsWith(`${dependency}/`)),
   output: [
     {
-      file: pkg.main,
-      exports: 'named',
-      format: 'cjs',
+      dir: 'dist/esm',
+      entryFileNames: '[name].mjs',
+      chunkFileNames: 'chunks/[name]-[hash].mjs',
+      format: 'es',
       sourcemap: !isProd
     },
     {
-      file: pkg.module,
-      format: 'es',
+      dir: 'dist/cjs',
+      entryFileNames: '[name].cjs',
+      chunkFileNames: 'chunks/[name]-[hash].cjs',
+      exports: 'named',
+      format: 'cjs',
       sourcemap: !isProd
     }
     // 注：移除 iife 全局构建。ol 改为 external 后，深路径导入（ol/Map 等）无法在
@@ -56,14 +67,6 @@ export default defineConfig({
   plugins: [
     // 放在最前，优先截获 *?raw 资源
     rawPlugin(),
-    // 处理样式（SCSS -> 单独 CSS 文件 dist/index.css）
-    postcss({
-      extract: true,
-      minimize: isProd,
-      sourceMap: !isProd,
-      extensions: ['.css', '.scss'],
-      use: ['sass']
-    }),
     // 小图片自动转 base64，大于 limit 的复制到 dist/assets
     // 资源文件处理：此前使用 limit:4096 以内联小图片，但出现部分 png 被压缩后 dataURI 内容为空的问题（可能与某些工具链/缓存交互有关）。
     // 为保证发布库中引用的图标路径稳定且便于调试，这里改为 limit:0 强制始终复制到 dist/assets 下。
@@ -81,13 +84,15 @@ export default defineConfig({
         { src: 'public/earthspec1k.jpg', dest: 'dist' },
         { src: 'public/waterNormals.jpg', dest: 'dist' }
       ],
-      hook: 'writeBundle'
+      hook: 'writeBundle',
+      copyOnce: true
     }),
     typescript({
       tsconfig: './tsconfig.json',
-      declaration: true,
-      declarationDir: 'dist/types',
-      emitDeclarationOnly: false
+      declaration: false,
+      declarationMap: false,
+      declarationDir: undefined,
+      outDir: undefined
     }),
     shader(),
     nodeResolve(),
