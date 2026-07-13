@@ -251,7 +251,7 @@ export default class Earth {
   }
   /**
    * 创建瓦片地图图层
-   * 
+   *
    * - 传入字符串 `url` 时，使用默认的切片路径拼接逻辑：`${url}/L{z}/R{y}/C{x}.jpg`
    * @example
    * ```
@@ -273,11 +273,11 @@ export default class Earth {
       typeof urlOrTileFn === 'function'
         ? urlOrTileFn
         : (coordinate: TileCoord) => {
-          const x = 'C' + this.zeroFill(coordinate[1], 8, 16).toUpperCase();
-          const y = 'R' + this.zeroFill(coordinate[2], 8, 16).toUpperCase();
-          const z = 'L' + this.zeroFill(coordinate[0], 2, 10).toUpperCase();
-          return `${urlOrTileFn}/` + z + '/' + y + '/' + x + '.jpg';
-        };
+            const x = 'C' + this.zeroFill(coordinate[1], 8, 16).toUpperCase();
+            const y = 'R' + this.zeroFill(coordinate[2], 8, 16).toUpperCase();
+            const z = 'L' + this.zeroFill(coordinate[0], 2, 10).toUpperCase();
+            return `${urlOrTileFn}/` + z + '/' + y + '/' + x + '.jpg';
+          };
     return new TileLayer({
       properties: {
         [BASE_LAYER_MARKER]: true
