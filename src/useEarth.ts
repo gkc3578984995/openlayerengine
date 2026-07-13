@@ -1,40 +1,71 @@
 import Earth from './Earth';
-import { ViewOptions } from 'ol/View';
-import { IEarthConstructorOptions } from './interface';
-import { setDefaultEarthProvider } from './earthContext';
+import type { IEarthConstructorOptions, UseEarthOptions } from './interface';
+import { getRegisteredEarth, registerEarth, unregisterEarth } from './earthContext';
 
-let earth: Earth | undefined;
-/**
- * 创建地图实例
- * @param viewOptions 地图视图参数
- * @param options 地图自定义参数
- * @returns `Earth`实例，详见{@link Earth}
- */
-const useEarth = (viewOptions?: ViewOptions, options?: IEarthConstructorOptions): Earth => {
-  if (!earth || earth.isDestroyed) {
-    earth = new Earth(viewOptions, options);
-    const current = earth;
-    const rawDestroy = current.destroy.bind(current);
-    current.destroy = () => {
-      rawDestroy();
-      if (earth === current) {
-        earth = undefined;
-      }
-    };
+const DEFAULT_TARGET = 'olContainer';
+
+function validateId(id?: string): string | undefined {
+  if (id !== undefined && id.trim().length === 0) {
+    throw new TypeError('Earth instance ID must not be empty.');
   }
+  return id;
+}
+
+function getCreationOptions(input?: string | UseEarthOptions): {
+  id?: string;
+  view?: UseEarthOptions['view'];
+  target: string | HTMLElement;
+  controls?: UseEarthOptions['controls'];
+} {
+  if (typeof input === 'string') {
+    const id = validateId(input);
+    return { id, target: input };
+  }
+
+  const id = validateId(input?.id);
+  return {
+    id,
+    view: input?.view,
+    target: input?.target ?? id ?? DEFAULT_TARGET,
+    controls: input?.controls
+  };
+}
+
+/**
+ * Returns an existing Earth instance for a key, or creates and registers it.
+ */
+function useEarth(): Earth;
+function useEarth(id: string): Earth;
+function useEarth(options: UseEarthOptions): Earth;
+function useEarth(input?: string | UseEarthOptions): Earth {
+  const { id, view, target, controls } = getCreationOptions(input);
+  const registeredEarth = getRegisteredEarth(id);
+  if (registeredEarth && !registeredEarth.isDestroyed) {
+    return registeredEarth;
+  }
+  if (registeredEarth) {
+    unregisterEarth(registeredEarth, id);
+  }
+
+  const earth = new Earth(view, { ...controls, target } as IEarthConstructorOptions);
+  registerEarth(earth, id);
   return earth;
-};
+}
 
 /**
- * 销毁并清空当前地图单例
+ * Destroys and unregisters the Earth instance for a key when it exists.
  */
-const destroyEarth = (): void => {
-  if (earth && !earth.isDestroyed) {
-    earth.destroy();
-  }
-  earth = undefined;
-};
+function destroyEarth(id?: string): void {
+  const normalizedId = validateId(id);
+  const earth = getRegisteredEarth(normalizedId);
+  if (!earth) return;
 
-setDefaultEarthProvider(() => useEarth());
+  if (earth.isDestroyed) {
+    unregisterEarth(earth, normalizedId);
+    return;
+  }
+  earth.destroy();
+}
 
 export { useEarth, destroyEarth };
+export type { UseEarthOptions } from './interface';

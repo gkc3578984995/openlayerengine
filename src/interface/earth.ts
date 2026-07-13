@@ -1,10 +1,11 @@
-import WindLayer from "../base/WindLayer";
-import { Feature } from "ol";
-import { Geometry } from "ol/geom";
-import { Layer } from "ol/layer";
-import LayerRenderer from "ol/renderer/Layer";
-import { Source } from "ol/source";
-import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from "../base";
+import WindLayer from '../base/WindLayer';
+import { Feature } from 'ol';
+import { Geometry } from 'ol/geom';
+import { Layer } from 'ol/layer';
+import LayerRenderer from 'ol/renderer/Layer';
+import { Source } from 'ol/source';
+import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from '../base';
+import type { ViewOptions } from 'ol/View';
 
 export interface DefaultEntities<T = unknown> {
   /**
@@ -57,6 +58,12 @@ export interface IEarthConstructorOptions {
    * 归属控件，默认关闭
    */
   attribution?: boolean;
+}
+export interface UseEarthOptions {
+  id?: string;
+  target?: string | HTMLElement;
+  view?: ViewOptions;
+  controls?: Omit<IEarthConstructorOptions, 'target'>;
 }
 export interface IFeatureAtPixel {
   /**

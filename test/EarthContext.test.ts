@@ -1,32 +1,50 @@
-import { describe, expect, it } from 'vitest';
-import { setDefaultEarthProvider } from '../src/earthContext';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import PointLayer from '../src/base/PointLayer';
+import { destroyEarth, useEarth } from '../src/useEarth';
 
-function makeMockEarth() {
-  const addedLayers: unknown[] = [];
-  const registeredLayers: string[] = [];
-  return {
-    earth: {
-      map: {
-        addLayer: (layer: unknown) => addedLayers.push(layer)
-      },
-      _autoRegisterLayer: (key: string) => registeredLayers.push(key),
-      removeLayer: () => undefined,
-      removeRegisteredLayer: () => false
-    } as any,
-    addedLayers,
-    registeredLayers
-  };
-}
+const state = vi.hoisted(() => ({
+  addedLayers: [] as unknown[],
+  registeredLayers: [] as string[]
+}));
 
-describe('earthContext default provider', () => {
-  it('allows layer constructors to use the registered default Earth without importing useEarth', () => {
-    const { earth, addedLayers, registeredLayers } = makeMockEarth();
-    setDefaultEarthProvider(() => earth);
+vi.mock('../src/Earth', () => ({
+  default: class MockEarth {
+    isDestroyed = false;
+    map = {
+      addLayer: (layer: unknown) => state.addedLayers.push(layer)
+    };
+
+    _autoRegisterLayer(key: string): void {
+      state.registeredLayers.push(key);
+    }
+
+    removeLayer(): undefined {
+      return undefined;
+    }
+
+    removeRegisteredLayer(): boolean {
+      return false;
+    }
+
+    destroy(): void {
+      this.isDestroyed = true;
+    }
+  }
+}));
+
+afterEach(() => {
+  destroyEarth();
+  state.addedLayers.length = 0;
+  state.registeredLayers.length = 0;
+});
+
+describe('earthContext default registry', () => {
+  it('allows layer constructors to use the registered default Earth', () => {
+    useEarth();
 
     const layer = new PointLayer();
 
-    expect(layer.getLayer()).toBe(addedLayers[0]);
-    expect(registeredLayers).toEqual([layer.registryKey]);
+    expect(layer.getLayer()).toBe(state.addedLayers[0]);
+    expect(state.registeredLayers).toEqual([layer.registryKey]);
   });
 });
