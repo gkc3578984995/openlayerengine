@@ -1,7 +1,7 @@
 import { InvalidArgumentError, ObjectDisposedError } from '../errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../ports/ErrorReporter.js';
 import type { ShapeRegistry } from '../shape/ShapeRegistry.js';
-import { abortElementTransaction, completeElementTransaction, ElementTransaction } from '../transaction/ElementTransaction.js';
+import { createElementTransactionScope, type ElementTransaction, type ElementTransactionScope } from '../transaction/ElementTransaction.js';
 import type { ElementChangeSet, TransactionResult } from '../transaction/types.js';
 import { cloneElementSnapshot, type ElementSnapshot } from './snapshot.js';
 import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from './types.js';
@@ -21,6 +21,7 @@ export class ElementStore {
   readonly #listeners = new Map<number, (changes: ElementChangeSet) => void>();
   readonly #notificationQueue: ElementChangeSet[] = [];
   readonly #states = new Map<string, StoredElement>();
+  readonly #transactionScopes: ElementTransactionScope[] = [];
   #nextListenerId = 0;
   #nextGeneratedId = 0;
   #disposed = false;
@@ -45,14 +46,14 @@ export class ElementStore {
 
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[] {
     this.#assertActive();
-    const transaction = new ElementTransaction(this.#shapeRegistry, this.#states, this.#createIdFor());
+    this.#assertSelectorReadOnly();
+    const scope = createElementTransactionScope(this.#shapeRegistry, this.#states, this.#createIdFor(), () => this.#isSelectorEvaluationActive());
+    this.#transactionScopes.push(scope);
     try {
-      const result = transaction.query(selector);
-      abortElementTransaction(transaction);
-      return result;
-    } catch (error) {
-      abortElementTransaction(transaction);
-      throw error;
+      return scope.transaction.query(selector);
+    } finally {
+      scope.abort();
+      this.#transactionScopes.pop();
     }
   }
 
@@ -83,33 +84,40 @@ export class ElementStore {
   transaction<T>(work: (transaction: ElementTransaction) => SynchronousResult<T>): TransactionResult<T>;
   transaction<T>(work: (transaction: ElementTransaction) => T): TransactionResult<T> {
     this.#assertActive();
+    this.#assertSelectorReadOnly();
     if (this.#transactionActive) throw new InvalidArgumentError('Nested element transactions are not supported');
     if (typeof work !== 'function') throw new InvalidArgumentError('Element transaction work must be a function');
 
+    const scope = createElementTransactionScope(this.#shapeRegistry, this.#states, this.#createIdFor(), () => this.#isSelectorEvaluationActive());
     this.#transactionActive = true;
-    const transaction = new ElementTransaction(this.#shapeRegistry, this.#states, this.#createIdFor());
+    this.#transactionScopes.push(scope);
+    let value!: T;
+    let changes!: ElementChangeSet;
     try {
-      const value = work(transaction);
+      value = work(scope.transaction);
       if (observeNativePromise(value) || isThenable(value)) throw new InvalidArgumentError('Element transactions must be synchronous');
-      const changes = completeElementTransaction(transaction);
-      this.#transactionActive = false;
-      this.#notify(changes);
-      return Object.freeze({ value, changes });
+      changes = scope.complete();
     } catch (error) {
-      abortElementTransaction(transaction);
-      this.#transactionActive = false;
+      scope.abort();
       throw error;
+    } finally {
+      this.#transactionScopes.pop();
+      this.#transactionActive = false;
     }
+    this.#notify(changes);
+    return Object.freeze({ value, changes });
   }
 
   subscribe(listener: (changes: ElementChangeSet) => void): () => void {
     this.#assertActive();
+    this.#assertSelectorReadOnly();
     if (typeof listener !== 'function') throw new InvalidArgumentError('Element listener must be a function');
     const subscriptionId = ++this.#nextListenerId;
     this.#listeners.set(subscriptionId, listener);
     let active = true;
     return () => {
       if (!active) return;
+      this.#assertSelectorReadOnly();
       active = false;
       this.#listeners.delete(subscriptionId);
     };
@@ -117,6 +125,7 @@ export class ElementStore {
 
   destroy(): void {
     if (this.#disposed) return;
+    this.#assertSelectorReadOnly();
     if (this.#transactionActive) throw new InvalidArgumentError('Cannot destroy an ElementStore during a transaction');
     this.#disposed = true;
     this.#states.clear();
@@ -126,6 +135,14 @@ export class ElementStore {
 
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('ElementStore has been destroyed');
+  }
+
+  #assertSelectorReadOnly(): void {
+    if (this.#isSelectorEvaluationActive()) throw new InvalidArgumentError('Element selector predicates are read-only');
+  }
+
+  #isSelectorEvaluationActive(): boolean {
+    return this.#transactionScopes.some((scope) => scope.isEvaluatingSelector());
   }
 
   #createIdFor(): (isOccupied: (id: string) => boolean) => string {

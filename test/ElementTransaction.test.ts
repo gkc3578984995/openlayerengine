@@ -1,18 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
-import type { ElementState } from '../src/core/element/types.js';
+import type { ElementSelector, ElementState } from '../src/core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../src/core/errors.js';
 import type { ErrorReporter } from '../src/core/ports/ErrorReporter.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import type { ShapeDefinition, ShapeState } from '../src/core/shape/types.js';
 import { createNativeStyleRef } from '../src/core/style/types.js';
-import {
-  abortElementTransaction,
-  completeElementTransaction,
-  ElementTransaction as ElementTransactionScope,
-  type ElementTransaction
-} from '../src/core/transaction/ElementTransaction.js';
+import * as elementTransactionModule from '../src/core/transaction/ElementTransaction.js';
+import { createElementTransactionScope, type ElementTransaction } from '../src/core/transaction/ElementTransaction.js';
 import type { ElementChangeSet } from '../src/core/transaction/types.js';
 
 function element(id: string, visible = true): ElementState<{ nested: { value: number } }> {
@@ -102,19 +98,19 @@ describe('ElementTransaction', () => {
     };
     const registry = new ShapeRegistry([definition]);
     const base = new Map();
-    const rolledBack = new ElementTransactionScope(registry, base, () => 'unused');
+    const rolledBack = createElementTransactionScope(registry, base, () => 'unused');
 
-    rolledBack.add(element('rolled-back'));
+    rolledBack.transaction.add(element('rolled-back'));
     expect(base.size).toBe(0);
-    abortElementTransaction(rolledBack);
+    rolledBack.abort();
     expect(base.size).toBe(0);
 
-    const failedCommit = new ElementTransactionScope(registry, base, () => 'unused');
-    failedCommit.add(element('failed-commit'));
+    const failedCommit = createElementTransactionScope(registry, base, () => 'unused');
+    failedCommit.transaction.add(element('failed-commit'));
     failClone = true;
-    expect(() => completeElementTransaction(failedCommit)).toThrow(snapshotFailure);
+    expect(() => failedCommit.complete()).toThrow(snapshotFailure);
     expect(base.size).toBe(0);
-    abortElementTransaction(failedCommit);
+    failedCommit.abort();
   });
 
   it('commits multiple writes atomically, exposes read-your-writes, and notifies once with entry/final snapshots', () => {
@@ -165,6 +161,64 @@ describe('ElementTransaction', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('does not expose commit authority to a transaction callback and never commits after callback failure', () => {
+    const store = createStore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    const failure = new Error('work failed after attempted early commit');
+    const exposedComplete = Reflect.get(elementTransactionModule, 'completeElementTransaction');
+    let captured: ElementTransaction | undefined;
+
+    expect(() =>
+      store.transaction((transaction) => {
+        captured = transaction;
+        transaction.add(element('point-1'));
+        if (typeof exposedComplete === 'function') Reflect.apply(exposedComplete, undefined, [transaction]);
+        throw failure;
+      })
+    ).toThrow(failure);
+
+    expect(exposedComplete).toBeUndefined();
+    if (captured === undefined) throw new Error('Transaction callback did not receive a transaction');
+    expect(Reflect.get(captured, 'complete')).toBeUndefined();
+    expect(Reflect.get(captured, 'abort')).toBeUndefined();
+    expect(store.query()).toEqual([]);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('seals a captured transaction before fallible commit snapshots can reenter it', () => {
+    const pointDefinition = basicShapeDefinitions.find(({ type }) => type === 'point') as ShapeDefinition<ShapeState<'point'>>;
+    let captured: ElementTransaction | undefined;
+    let commitSnapshotArmed = false;
+    let attemptedLateWrite = false;
+    const definition: ShapeDefinition<ShapeState<'point'>> = {
+      ...pointDefinition,
+      clone: (shape) => {
+        if (commitSnapshotArmed && !attemptedLateWrite) {
+          attemptedLateWrite = true;
+          if (captured === undefined) throw new Error('Transaction callback did not capture its transaction');
+          captured.add(element('late-write'));
+        }
+        return pointDefinition.clone(shape);
+      }
+    };
+    const store = new ElementStore(new ShapeRegistry([definition]));
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    expect(() =>
+      store.transaction((transaction) => {
+        captured = transaction;
+        transaction.add(element('point-1'));
+        commitSnapshotArmed = true;
+      })
+    ).toThrow(ObjectDisposedError);
+
+    expect(attemptedLateWrite).toBe(true);
+    expect(store.query()).toEqual([]);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('folds add-remove and update-back-to-entry-state into an empty net change without notification', () => {
     const store = createStore();
     store.add(element('point-1'));
@@ -212,6 +266,30 @@ describe('ElementTransaction', () => {
 
     expect(changes.changes).toEqual([]);
     expect(finalState?.data?.first).toBe(finalState?.data?.second);
+  });
+
+  it('compares wide structurally equal states without repeated linear key membership scans', () => {
+    const store = createStore();
+    const fieldCount = 128;
+    const data = Object.fromEntries(Array.from({ length: fieldCount }, (_, index) => [`field-${index}`, index]));
+    store.add({ ...element('point-1'), data });
+    const originalIncludes = Array.prototype.includes;
+    let wideIncludes = 0;
+    const includesSpy = vi.spyOn(Array.prototype, 'includes').mockImplementation(function (this: unknown[], searchElement: unknown, fromIndex?: number) {
+      if (this.length === fieldCount) wideIncludes += 1;
+      return originalIncludes.call(this, searchElement, fromIndex);
+    });
+
+    const changes = (() => {
+      try {
+        return store.update({ id: 'point-1' }, { data: { ...data } });
+      } finally {
+        includesSpy.mockRestore();
+      }
+    })();
+
+    expect(changes.changes).toEqual([]);
+    expect(wideIncludes).toBe(0);
   });
 
   it('rejects nested transactions and rolls back the outer transaction', () => {
@@ -360,6 +438,180 @@ describe('ElementTransaction', () => {
     expect(store.get('point-1')?.visible).toBe(false);
     expect(store.get('point-2')?.visible).toBe(true);
     expect(store.query().map(({ id }) => id)).toEqual(['point-1', 'point-2']);
+  });
+
+  it('propagates the selector read-only scope to Store operations while allowing Store get', () => {
+    const store = createStore();
+    store.add(element('point-1'));
+    store.add(element('point-2'));
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    const queried = store.query({
+      id: 'point-1',
+      predicate: () => {
+        expect(store.get('point-2')?.id).toBe('point-2');
+        const operations = [
+          () => store.add(element('side-effect')),
+          () => store.hide({ id: 'point-2' }),
+          () => store.query({ id: 'point-2' }),
+          () => store.destroy(),
+          () => store.subscribe(() => undefined)
+        ];
+        for (const operation of operations) {
+          expect(operation).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+        }
+        return true;
+      }
+    });
+
+    expect(queried.map(({ id }) => id)).toEqual(['point-1']);
+    expect(store.get('point-2')?.visible).toBe(true);
+    expect(store.get('side-effect')).toBeUndefined();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('keeps selector read-only scopes isolated between Store instances', () => {
+    const firstStore = createStore();
+    const secondStore = createStore();
+    firstStore.add(element('first'));
+    secondStore.add(element('second'));
+
+    const queried = firstStore.query({
+      id: 'first',
+      predicate: () => {
+        expect(secondStore.hide({ id: 'second' }).changes.map(({ id }) => id)).toEqual(['second']);
+        return true;
+      }
+    });
+
+    expect(queried.map(({ id }) => id)).toEqual(['first']);
+    expect(firstStore.get('first')?.visible).toBe(true);
+    expect(secondStore.get('second')?.visible).toBe(false);
+  });
+
+  it('applies a nested Store query selector guard to every active transaction from that Store', () => {
+    const store = createStore();
+    store.add(element('point-1'));
+    store.add(element('point-2'));
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    const result = store.transaction((transaction) => {
+      transaction.hide({ id: 'point-2' });
+      const queried = store.query({
+        id: 'point-1',
+        predicate: () => {
+          expect(store.get('point-2')?.visible).toBe(true);
+          expect(transaction.get('point-2')?.visible).toBe(false);
+          const operations = [
+            () => transaction.add(element('side-effect')),
+            () => transaction.hide({ id: 'point-1' }),
+            () => transaction.query({ id: 'point-1' })
+          ];
+          for (const operation of operations) {
+            expect(operation).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+          }
+          return true;
+        }
+      });
+      transaction.add(element('allowed-after-query'));
+      return queried;
+    });
+
+    expect(result.value.map(({ id }) => id)).toEqual(['point-1']);
+    expect(result.changes.changes.map(({ id }) => id)).toEqual(['point-2', 'allowed-after-query']);
+    expect(store.get('point-1')?.visible).toBe(true);
+    expect(store.get('point-2')?.visible).toBe(false);
+    expect(store.get('side-effect')).toBeUndefined();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back an uncaught Store write from a query predicate and restores the selector guard', () => {
+    const store = createStore();
+    store.add(element('point-1'));
+    store.add(element('point-2'));
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    expect(() =>
+      store.query({
+        id: 'point-1',
+        predicate: () => {
+          store.hide({ id: 'point-2' });
+          return true;
+        }
+      })
+    ).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+
+    expect(store.get('point-2')?.visible).toBe(true);
+    expect(listener).not.toHaveBeenCalled();
+    expect(store.hide({ id: 'point-2' }).changes.map(({ id }) => id)).toEqual(['point-2']);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('enters the selector read-only scope before reading query or destructive selector accessors', () => {
+    const store = createStore();
+    store.add(element('point-1'));
+    const listener = vi.fn();
+    store.subscribe(listener);
+    let queryGetterCalls = 0;
+    let updateGetterCalls = 0;
+    const querySelector = Object.defineProperty({}, 'id', {
+      enumerable: true,
+      get: () => {
+        queryGetterCalls += 1;
+        store.add(element('query-side-effect'));
+        return 'point-1';
+      }
+    }) as ElementSelector;
+    const updateSelector = Object.defineProperty({}, 'id', {
+      enumerable: true,
+      get: () => {
+        updateGetterCalls += 1;
+        store.add(element('update-side-effect'));
+        return 'point-1';
+      }
+    }) as ElementSelector;
+
+    expect(() => store.query(querySelector)).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+    expect(queryGetterCalls).toBe(1);
+    expect(store.get('query-side-effect')).toBeUndefined();
+    expect(() => store.hide(updateSelector)).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+    expect(updateGetterCalls).toBe(1);
+    expect(store.get('update-side-effect')).toBeUndefined();
+    expect(store.get('point-1')?.visible).toBe(true);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('keeps the selector read-only scope continuous while cloning an update patch', () => {
+    const store = createStore();
+    store.add(element('point-1'));
+    const listener = vi.fn();
+    const leakedListener = vi.fn();
+    store.subscribe(listener);
+    let selectorRead = false;
+    const selector = Object.defineProperty({}, 'id', {
+      enumerable: true,
+      get: () => {
+        selectorRead = true;
+        return 'point-1';
+      }
+    }) as ElementSelector;
+    const patch = new Proxy(
+      { visible: false },
+      {
+        getPrototypeOf: (target) => {
+          if (selectorRead) store.subscribe(leakedListener);
+          return Reflect.getPrototypeOf(target);
+        }
+      }
+    );
+
+    expect(() => store.update(selector, patch)).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+    expect(store.get('point-1')?.visible).toBe(true);
+    expect(listener).not.toHaveBeenCalled();
+    expect(leakedListener).not.toHaveBeenCalled();
   });
 
   it('treats duplicate listener registrations as independent subscriptions', () => {

@@ -22,15 +22,50 @@ interface TransactionState {
   readonly createId: ElementIdFactory;
   readonly before: Map<string, StoredElement | undefined>;
   readonly order: string[];
+  readonly isSelectorEvaluationActive: () => boolean;
   active: boolean;
   evaluatingSelector: boolean;
 }
 
-const transactionStates = new WeakMap<ElementTransaction, TransactionState>();
+const transactionStates = new WeakMap<ElementTransactionImpl, TransactionState>();
 const patchFields: ReadonlySet<string> = new Set(['geometry', 'style', 'data', 'module', 'layerId', 'visible']);
 
-export class ElementTransaction {
-  constructor(shapeRegistry: ShapeRegistry, base: Map<string, StoredElement>, createId: ElementIdFactory) {
+export interface ElementTransaction {
+  add<T>(input: ElementState<T>): Readonly<ElementState<T>>;
+  get<T>(id: string): Readonly<ElementState<T>> | undefined;
+  query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[];
+  update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Readonly<ElementState<T>>[];
+  remove(selector: ElementSelector): readonly string[];
+  hide(selector: ElementSelector): readonly Readonly<ElementState>[];
+  show(selector: ElementSelector): readonly Readonly<ElementState>[];
+  copy<T>(id: string, overrides?: ElementCopyOptions<T>): Readonly<ElementState<T>>;
+  clear(): readonly string[];
+}
+
+export interface ElementTransactionScope {
+  readonly transaction: ElementTransaction;
+  complete(): ElementChangeSet;
+  abort(): void;
+  isEvaluatingSelector(): boolean;
+}
+
+export function createElementTransactionScope(
+  shapeRegistry: ShapeRegistry,
+  base: Map<string, StoredElement>,
+  createId: ElementIdFactory,
+  isSelectorEvaluationActive: () => boolean = () => false
+): ElementTransactionScope {
+  const transaction = new ElementTransactionImpl(shapeRegistry, base, createId, isSelectorEvaluationActive);
+  return Object.freeze({
+    transaction,
+    complete: () => completeElementTransaction(transaction),
+    abort: () => abortElementTransaction(transaction),
+    isEvaluatingSelector: () => transactionStates.get(transaction)?.evaluatingSelector === true
+  });
+}
+
+class ElementTransactionImpl implements ElementTransaction {
+  constructor(shapeRegistry: ShapeRegistry, base: Map<string, StoredElement>, createId: ElementIdFactory, isSelectorEvaluationActive: () => boolean) {
     transactionStates.set(this, {
       shapeRegistry,
       base,
@@ -40,6 +75,7 @@ export class ElementTransaction {
       createId,
       before: new Map(),
       order: [],
+      isSelectorEvaluationActive,
       active: true,
       evaluatingSelector: false
     });
@@ -67,25 +103,26 @@ export class ElementTransaction {
 
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Readonly<ElementState<T>>[] {
     const transaction = writableState(this);
-    assertDestructiveSelector(selector as ElementSelector);
-    const safePatch = clonePatch(patch);
-    if (Reflect.ownKeys(safePatch).length === 0) return Object.freeze([]);
+    return withSelectorEvaluation(transaction, () => {
+      assertDestructiveSelector(selector as ElementSelector);
+      const safePatch = clonePatch(patch);
+      if (Reflect.ownKeys(safePatch).length === 0) return Object.freeze([]);
 
-    const replacements = matchingEntries(transaction, selector).map(([id, state]) => {
-      const candidate = mergeState(state, safePatch, id);
-      return [id, state, createElementSnapshot(transaction.shapeRegistry, candidate)] as const;
+      const replacements = matchingEntries(transaction, selector).map(([id, state]) => {
+        const candidate = mergeState(state, safePatch, id);
+        return [id, state, createElementSnapshot(transaction.shapeRegistry, candidate)] as const;
+      });
+      for (const [id, before, after] of replacements) {
+        remember(transaction, id, before);
+        setElement(transaction, id, after as StoredElement);
+      }
+      return Object.freeze(replacements.map(([, , state]) => snapshot<T>(transaction, state)));
     });
-    for (const [id, before, after] of replacements) {
-      remember(transaction, id, before);
-      setElement(transaction, id, after as StoredElement);
-    }
-    return Object.freeze(replacements.map(([, , state]) => snapshot<T>(transaction, state)));
   }
 
   remove(selector: ElementSelector): readonly string[] {
     const transaction = writableState(this);
-    assertDestructiveSelector(selector);
-    const matches = matchingEntries(transaction, selector);
+    const matches = matchingEntries(transaction, selector, true);
     for (const [id, before] of matches) {
       remember(transaction, id, before);
       deleteElement(transaction, id);
@@ -126,8 +163,9 @@ export class ElementTransaction {
   }
 }
 
-export function completeElementTransaction(transaction: ElementTransaction): ElementChangeSet {
+function completeElementTransaction(transaction: ElementTransactionImpl): ElementChangeSet {
   const state = activeState(transaction);
+  state.active = false;
   const changes: ElementChange[] = [];
   const mutations = new Map<string, StoredElement | undefined>();
   for (const id of state.order) {
@@ -148,8 +186,6 @@ export function completeElementTransaction(transaction: ElementTransaction): Ele
   }
 
   const frozenChanges = Object.freeze({ changes: Object.freeze(changes) });
-  state.active = false;
-
   // All fallible canonical snapshots are prepared before the shared Map is touched.
   // Existing entries are updated in place; removals and entries moved to the tail
   // are deleted first, then final appended entries are applied in transaction order.
@@ -167,24 +203,26 @@ export function completeElementTransaction(transaction: ElementTransaction): Ele
   return frozenChanges;
 }
 
-export function abortElementTransaction(transaction: ElementTransaction): void {
+function abortElementTransaction(transaction: ElementTransactionImpl): void {
   const state = transactionStates.get(transaction);
   if (state !== undefined) state.active = false;
 }
 
-function activeState(transaction: ElementTransaction): TransactionState {
+function activeState(transaction: ElementTransactionImpl): TransactionState {
   const state = transactionStates.get(transaction);
   if (state === undefined || !state.active) throw new ObjectDisposedError('Element transaction is no longer active');
   return state;
 }
 
-function selectableState(transaction: ElementTransaction): TransactionState {
+function selectableState(transaction: ElementTransactionImpl): TransactionState {
   const state = activeState(transaction);
-  if (state.evaluatingSelector) throw new InvalidArgumentError('Element selector predicates are read-only');
+  if (state.evaluatingSelector || state.isSelectorEvaluationActive()) {
+    throw new InvalidArgumentError('Element selector predicates are read-only');
+  }
   return state;
 }
 
-function writableState(transaction: ElementTransaction): TransactionState {
+function writableState(transaction: ElementTransactionImpl): TransactionState {
   return selectableState(transaction);
 }
 
@@ -194,27 +232,34 @@ function remember(transaction: TransactionState, id: string, before: StoredEleme
   transaction.order.push(id);
 }
 
-function matchingEntries<T>(transaction: TransactionState, selector?: ElementSelector<T>): Array<readonly [string, StoredElement]> {
-  const matches = compileSelector(selector);
-  const ids = selectorIds(selector);
-  const result: Array<readonly [string, StoredElement]> = [];
-  const candidates =
-    ids === undefined
-      ? currentEntries(transaction)
-      : ids.flatMap((id) => {
-          const state = getElement(transaction, id);
-          return state === undefined ? [] : [[id, state] as const];
-        });
-  for (const [id, state] of candidates) {
-    const wasEvaluatingSelector = transaction.evaluatingSelector;
-    transaction.evaluatingSelector = true;
-    try {
+function matchingEntries<T>(transaction: TransactionState, selector?: ElementSelector<T>, destructive = false): Array<readonly [string, StoredElement]> {
+  return withSelectorEvaluation(transaction, () => {
+    if (destructive) assertDestructiveSelector(selector as ElementSelector);
+    const matches = compileSelector(selector);
+    const ids = selectorIds(selector);
+    const result: Array<readonly [string, StoredElement]> = [];
+    const candidates =
+      ids === undefined
+        ? currentEntries(transaction)
+        : ids.flatMap((id) => {
+            const state = getElement(transaction, id);
+            return state === undefined ? [] : [[id, state] as const];
+          });
+    for (const [id, state] of candidates) {
       if (matches(state as ElementSnapshot<T>)) result.push([id, state]);
-    } finally {
-      transaction.evaluatingSelector = wasEvaluatingSelector;
     }
+    return result;
+  });
+}
+
+function withSelectorEvaluation<T>(transaction: TransactionState, work: () => T): T {
+  const wasEvaluatingSelector = transaction.evaluatingSelector;
+  transaction.evaluatingSelector = true;
+  try {
+    return work();
+  } finally {
+    transaction.evaluatingSelector = wasEvaluatingSelector;
   }
-  return result;
 }
 
 function getElement(transaction: TransactionState, id: string): StoredElement | undefined {
@@ -303,6 +348,8 @@ function equalCoreState(left: unknown, right: unknown, seen = new WeakMap<object
   if (Array.isArray(left) !== Array.isArray(right)) return false;
   const leftKeys = Reflect.ownKeys(left);
   const rightKeys = Reflect.ownKeys(right);
-  if (leftKeys.length !== rightKeys.length || leftKeys.some((key) => !rightKeys.includes(key))) return false;
+  if (leftKeys.length !== rightKeys.length) return false;
+  const rightKeySet = new Set(rightKeys);
+  if (leftKeys.some((key) => !rightKeySet.has(key))) return false;
   return leftKeys.every((key) => equalCoreState(Reflect.get(left, key), Reflect.get(right, key), seen));
 }
