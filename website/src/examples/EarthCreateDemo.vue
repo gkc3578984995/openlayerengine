@@ -16,7 +16,7 @@ const createMap = () => {
     target: mapId,
     view: { center: BEIJING, zoom: 5 }
   });
-  useEarth() === earth;
+  console.assert(useEarth() === earth);
   earth.addLayer(createConfiguredLayer(earth, 'vector'));
   earthRef.value = earth;
 };

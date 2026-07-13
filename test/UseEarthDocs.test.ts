@@ -71,6 +71,8 @@ describe('useEarth documentation', () => {
     expect(demo).toMatch(/import\s*\{\s*Earth,\s*useEarth\s*\}\s*from '@vrsim\/earth-engine-ol';/);
     expect(demo).toMatch(/useEarth\(\{\s*target: mapId,\s*view: \{ center: BEIJING, zoom: 5 \}\s*\}\)/s);
     expect(demo).toContain('useEarth() === earth');
+    expect(demo).toContain('console.assert(useEarth() === earth)');
+    expect(demo).not.toMatch(/^\s*useEarth\(\) === earth;\s*$/m);
     expect(demo).toContain("createConfiguredLayer(earth, 'vector')");
   });
 
@@ -85,6 +87,82 @@ describe('useEarth documentation', () => {
     expect(demo).toContain("createConfiguredLayer(earth2, 'vector')");
     expect(demo).toContain('earthRef1.value?.destroy()');
     expect(demo).toContain('earthRef2.value?.destroy()');
+    expect(demo).toContain('console.assert(useEarth(mapId1) === earth1)');
+    expect(demo).toContain('console.assert(useEarth(mapId2) === earth2)');
+    expect(demo).not.toMatch(/^\s*useEarth\([^\n]*\) === earth\d?;\s*$/m);
+  });
+
+  it('keeps a complete root migration contract for version 2', async () => {
+    const migration = await readFile('MIGRATION.txt', 'utf8');
+    const version2 = migration.indexOf('1.x 升级到 2.0.0');
+    const version1 = migration.indexOf('v1.0.0 迁移指南');
+
+    expect(version2).toBeGreaterThanOrEqual(0);
+    expect(version1).toBeGreaterThan(version2);
+    for (const topic of [
+      '仅 ESM',
+      'require',
+      '@vrsim/earth-engine-ol/style.css',
+      './dist/*',
+      'useEarth()',
+      'useEarth(id)',
+      'useEarth(options)',
+      'destroyEarth()',
+      'destroyEarth(id)'
+    ]) {
+      expect(migration).toContain(topic);
+    }
+    expect(migration).toContain('target、view 和 controls 仅在首次创建时生效');
+    expect(migration).toContain('不存在对应实例时不会抛错');
+  });
+
+  it('documents the public destroyEarth helper and first-creation option semantics', async () => {
+    const [readme, earthCreate, migration] = await Promise.all([
+      readFile('README.md', 'utf8'),
+      readFile('website/src/views/EarthCreateView.vue', 'utf8'),
+      readFile('website/src/views/MigrationV2View.vue', 'utf8')
+    ]);
+
+    for (const source of [readme, earthCreate, migration]) {
+      expect(source).toContain('destroyEarth()');
+      expect(source).toContain('destroyEarth(id)');
+      expect(source).toContain('不存在对应实例时不会抛错');
+      expect(source).toContain('target、view 和 controls 仅在首次创建时生效');
+    }
+
+    expect(earthCreate).toContain("{ id: 'api-destroy-earth', label: 'destroyEarth' }");
+    expect(earthCreate).toContain('id="api-destroy-earth"');
+    expect(earthCreate).toContain('<code>destroyEarth(): void</code>');
+    expect(earthCreate).toContain('<code>destroyEarth(id: string): void</code>');
+    expect(earthCreate).toMatch(/<code class="code-fn"><a href="#api-destroy-earth">destroyEarth(?:\(\)|\(id\))?<\/a><\/code\s*>/);
+    expect(migration).toContain("import { destroyEarth, useEarth } from '@vrsim/earth-engine-ol';");
+    expect(migration).toContain("destroyEarth('overview');");
+    expect(migration).toContain('destroyEarth();');
+  });
+
+  it('documents the version 1 two-argument signature migration and canonical API links', async () => {
+    const [readme, rootMigration, migration, earthCreate] = await Promise.all([
+      readFile('README.md', 'utf8'),
+      readFile('MIGRATION.txt', 'utf8'),
+      readFile('website/src/views/MigrationV2View.vue', 'utf8'),
+      readFile('website/src/views/EarthCreateView.vue', 'utf8')
+    ]);
+
+    for (const source of [readme, rootMigration, migration]) {
+      expect(source).toContain('useEarth(viewOptions?, options?)');
+      expect(source).toContain('useEarth({ view, target, controls })');
+      expect(source).toContain('第二个参数会被忽略');
+    }
+    expect(readme).toContain('必须改为单个 UseEarthOptions 对象');
+    expect(rootMigration).toContain('必须改为单个 UseEarthOptions 对象');
+    expect(migration).toMatch(/必须改为单个\s*<code><a href="\/guide\/earth-create#api-type-use-earth-options">UseEarthOptions<\/a><\/code> 对象/);
+
+    expect(migration).toContain("{ id: 'signature', label: '调用签名' }");
+    expect(migration).toContain('id="signature"');
+    for (const anchor of ['api-use-earth', 'api-destroy-earth', 'api-constructor', 'api-type-use-earth-options', 'api-methods']) {
+      expect(earthCreate).toContain(`id="${anchor}"`);
+      expect(migration).toContain(`href="/guide/earth-create#${anchor}"`);
+    }
   });
 
   it('keeps every runnable basemap behind the deployment map source configuration', async () => {
@@ -109,7 +187,18 @@ describe('useEarth documentation', () => {
     expect(router).toContain("import MigrationV2View from '../views/MigrationV2View.vue';");
     expect(router).toContain("path: 'guide/migration-v2'");
     expect(router).toContain('component: MigrationV2View');
-    for (const topic of ['useEarth()', 'useEarth(id)', 'useEarth(options)', 'style.css', './dist/*', 'ESM', '.mjs', 'earth.destroy()']) {
+    for (const topic of [
+      'useEarth()',
+      'useEarth(id)',
+      'useEarth(options)',
+      'style.css',
+      './dist/*',
+      'ESM',
+      '.mjs',
+      'earth.destroy()',
+      'destroyEarth()',
+      'destroyEarth(id)'
+    ]) {
       expect(migration).toContain(topic);
     }
     for (const subpath of ['/core', '/layers', '/draw', '/measure', '/transform', '/plot']) expect(migration).toContain(subpath);

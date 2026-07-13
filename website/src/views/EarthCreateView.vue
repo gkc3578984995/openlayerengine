@@ -39,6 +39,7 @@ const anchors: AnchorItem[] = [
     label: 'API',
     children: [
       { id: 'api-use-earth', label: 'useEarth' },
+      { id: 'api-destroy-earth', label: 'destroyEarth' },
       { id: 'api-constructor', label: 'Earth 构造函数' },
       { id: 'api-type-use-earth-options', label: 'UseEarthOptions' },
       { id: 'api-methods', label: 'Earth 实例方法' }
@@ -135,7 +136,10 @@ const methodRows = [
           <code><a href="#api-constructor">Earth</a></code> 是所有图层能力的入口。常规单地图使用
           <code class="code-fn"><a href="#api-use-earth">useEarth</a></code> 获取或创建默认实例；需要多个地图时，为
           <code><a href="#api-type-use-earth-options">UseEarthOptions</a></code> 提供不同的 <code><a href="#api-type-use-earth-options">id</a></code
-          >。 <code><a href="#api-constructor">Earth</a></code> 仍保留公共构造函数，作为需要完全自行管理实例时的完整 API 入口。
+          >。 <code><a href="#api-constructor">Earth</a></code> 仍保留公共构造函数，作为需要完全自行管理实例时的完整 API 入口。 注册实例既可调用实例的
+          <code class="code-fn"><a href="#api-methods">destroy</a></code
+          >，也可按注册键调用 <code class="code-fn"><a href="#api-destroy-earth">destroyEarth</a></code
+          >。
         </p>
       </section>
 
@@ -191,6 +195,22 @@ const methodRows = [
           <li>传入非空 id 获取或创建对应命名实例；首次创建时 id 同时作为默认挂载目标。</li>
           <li>传入配置时，id 决定注册键；省略 id 表示默认实例，target、view 和 controls 仅在创建时生效。</li>
         </ul>
+        <p class="doc-prose__hint">useEarth(options) 的 target、view 和 controls 仅在首次创建时生效；需要应用新配置时，请先销毁同一注册键的活动实例。</p>
+
+        <h3 id="api-destroy-earth" class="doc-h3">destroyEarth</h3>
+        <p class="api-constructor__signature"><code>destroyEarth(): void</code></p>
+        <p class="api-constructor__signature"><code>destroyEarth(id: string): void</code></p>
+        <ul class="doc-list">
+          <li>
+            <code class="code-fn"><a href="#api-destroy-earth">destroyEarth()</a></code> 销毁并注销默认实例。
+          </li>
+          <li>
+            <code class="code-fn"><a href="#api-destroy-earth">destroyEarth(id)</a></code> 销毁并注销对应命名实例。
+          </li>
+          <li>
+            不存在对应实例时不会抛错；销毁后以相同 key 调用 <code class="code-fn"><a href="#api-use-earth">useEarth</a></code> 会创建新实例。
+          </li>
+        </ul>
 
         <div class="api-constructor">
           <h3 id="api-constructor" class="doc-h3">Earth 构造函数</h3>
@@ -228,6 +248,7 @@ const methodRows = [
           </li>
           <li>
             组件卸载时务必调用 <code class="code-fn"><a href="#api-methods">destroy</a></code
+            >，或使用 <code class="code-fn"><a href="#api-destroy-earth">destroyEarth</a></code
             >；销毁会注销注册键，使默认实例或同名实例可以重新创建。
           </li>
           <li>

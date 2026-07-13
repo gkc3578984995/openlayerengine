@@ -9,6 +9,7 @@ interface AnchorItem {
 
 const anchors: AnchorItem[] = [
   { id: 'overview', label: '迁移概览' },
+  { id: 'signature', label: '调用签名' },
   { id: 'earth-instances', label: 'Earth 实例' },
   { id: 'styles', label: '样式入口' },
   { id: 'subpaths', label: '导出子路径' },
@@ -16,11 +17,30 @@ const anchors: AnchorItem[] = [
   { id: 'destroy', label: '销毁与重建' }
 ];
 
-const instanceCode = `const defaultEarth = useEarth({ target: 'map' });
-useEarth() === defaultEarth;
+const signatureCode = `// 1.x：useEarth(viewOptions?, options?)
+useEarth({ center, zoom }, { target: 'map', zoom: true });
+
+// 2.0：useEarth({ view, target, controls })
+useEarth({
+  view: { center, zoom },
+  target: 'map',
+  controls: { zoom: true }
+});`;
+
+const instanceCode = `import { destroyEarth, useEarth } from '@vrsim/earth-engine-ol';
+
+const defaultEarth = useEarth({ target: 'map' });
+console.assert(useEarth() === defaultEarth);
 
 const overview = useEarth({ id: 'overview', target: 'overview' });
-useEarth('overview') === overview;`;
+console.assert(useEarth('overview') === overview);`;
+
+const destroyCode = `destroyEarth('overview'); // 销毁命名实例
+destroyEarth(); // 销毁默认实例
+
+// 也可以直接调用 earth.destroy()
+// 相同 key 已注销，因此会创建新实例
+const nextOverview = useEarth({ id: 'overview', target: 'overview' });`;
 
 const styleCode = `// 1.x：不再使用 dist/index*.css
 // 2.0：从公开样式子路径导入
@@ -47,19 +67,43 @@ import { PlotDraw } from '@vrsim/earth-engine-ol/plot';`;
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">迁移概览</h2>
         <ul class="doc-list">
-          <li>常规单地图继续使用 <code>useEarth()</code> 获取或创建默认实例。</li>
-          <li>多地图使用 <code>useEarth(id)</code> 或带 id 的 <code>useEarth(options)</code> 创建和复用命名实例。</li>
+          <li>
+            常规单地图继续使用 <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth()</a></code> 获取或创建默认实例。
+          </li>
+          <li>
+            多地图使用 <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(id)</a></code> 或带 id 的
+            <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(options)</a></code> 创建和复用命名实例。
+          </li>
           <li>样式改从公开的 <code>/style.css</code> 子路径导入，所有 <code>./dist/*</code> 深路径导入均已移除。</li>
           <li>JavaScript 入口改为仅 ESM；包导出会把公开入口映射到显式的 <code>.mjs</code> 文件。</li>
         </ul>
       </section>
 
+      <section id="signature" class="doc-prose">
+        <h2 class="doc-h2">调用签名</h2>
+        <p>
+          1.x 的 <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(viewOptions?, options?)</a></code> 已移除；2.0 必须改为单个
+          <code><a href="/guide/earth-create#api-type-use-earth-options">UseEarthOptions</a></code> 对象，即
+          <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth({ view, target, controls })</a></code
+          >。
+        </p>
+        <p>2.0 运行时只读取第一个参数，旧两参调用的第二个参数会被忽略，放在第一参顶层的 center、zoom 等视图字段也不会生效。</p>
+        <CodeBlock :code="signatureCode" lang="typescript" />
+      </section>
+
       <section id="earth-instances" class="doc-prose">
         <h2 class="doc-h2">Earth 实例</h2>
         <p>
-          <code>useEarth()</code> 保持“获取或创建”语义：默认实例仍然活动时返回同一个对象。<code>useEarth(id)</code>
-          使用字符串作为注册键和首次创建时的默认挂载目标； <code>useEarth(options)</code> 可通过 id、target、view 与 controls 完整配置实例，其中带 id
-          的配置创建或复用命名实例。
+          <code><a href="/guide/earth-create#api-constructor">Earth</a></code> 实例由
+          <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth()</a></code>
+          获取或创建：默认实例仍然活动时返回同一个对象。<code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(id)</a></code>
+          使用字符串作为注册键和首次创建时的默认挂载目标；
+          <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(options)</a></code> 可通过 id、target、view 与 controls
+          完整配置实例，其中带 id 的配置创建或复用命名实例。
+        </p>
+        <p>
+          <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(options)</a></code> 的 target、view 和 controls
+          在复用已有实例时不会更新配置。target、view 和 controls 仅在首次创建时生效；如需应用新配置，请先销毁同一注册键的活动实例。
         </p>
         <CodeBlock :code="instanceCode" lang="typescript" />
         <p>图层和工具内部采用显式 Earth 传递来隔离多地图上下文；这不会给常规单地图用法增加样板代码。省略构造参数时，支持该行为的图层仍会回退到默认实例。</p>
@@ -92,11 +136,20 @@ import { PlotDraw } from '@vrsim/earth-engine-ol/plot';`;
       <section id="destroy" class="doc-prose">
         <h2 class="doc-h2">销毁与重建</h2>
         <p>
-          <code>earth.destroy()</code> 除清理地图资源外，还会注销对应的默认或命名实例。销毁完成后，再次调用相同形式的 <code>useEarth()</code>、<code
-            >useEarth(id)</code
-          >
-          或 <code>useEarth(options)</code> 会创建新的实例。
+          <code class="code-fn"><a href="/guide/earth-create#api-methods">earth.destroy</a></code>
+          除清理地图资源外，还会注销对应的默认或命名实例。销毁完成后，再次调用相同形式的
+          <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth()</a></code
+          >、<code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(id)</a></code> 或
+          <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(options)</a></code> 会创建新的实例。
         </p>
+        <p>
+          也可以使用公开的 <code class="code-fn"><a href="/guide/earth-create#api-destroy-earth">destroyEarth()</a></code> 销毁默认实例，或使用
+          <code class="code-fn"><a href="/guide/earth-create#api-destroy-earth">destroyEarth(id)</a></code>
+          销毁命名实例；不存在对应实例时不会抛错。两种辅助调用与
+          <code class="code-fn"><a href="/guide/earth-create#api-methods">earth.destroy</a></code> 一样会注销注册键，之后以相同 key 调用
+          <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth</a></code> 会创建新实例。
+        </p>
+        <CodeBlock :code="destroyCode" lang="typescript" />
       </section>
     </article>
 

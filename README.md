@@ -41,19 +41,26 @@ points.add({
 });
 ```
 
-`useEarth()` 是常规单地图的默认入口：首次调用创建并注册默认实例，后续调用返回同一活动实例。销毁后可再次创建。
+`useEarth()` 是常规单地图的默认入口：首次调用创建并注册默认实例，后续调用返回同一活动实例。`useEarth(options)` 的 target、view 和 controls 仅在首次创建时生效；销毁后可再次创建。
+
+从 1.x 升级时必须调整调用签名：旧的 `useEarth(viewOptions?, options?)` 已移除，必须改为单个 UseEarthOptions 对象，即 `useEarth({ view, target, controls })`。2.0 运行时只读取第一个参数，旧两参调用的第二个参数会被忽略，放在第一参顶层的 center、zoom 等视图字段也不会生效。
 
 命名实例适用于同一页面的多个地图：
 
 ```ts
-import { useEarth } from '@vrsim/earth-engine-ol';
+import { destroyEarth, useEarth } from '@vrsim/earth-engine-ol';
 
 const overview = useEarth({ id: 'overview', target: 'overview' });
 const detail = useEarth({ id: 'detail', target: 'detail' });
 
-useEarth('overview') === overview;
-useEarth('detail') === detail;
+console.assert(useEarth('overview') === overview);
+console.assert(useEarth('detail') === detail);
+
+destroyEarth('overview');
+destroyEarth('detail');
 ```
+
+`destroyEarth()` 销毁默认实例，`destroyEarth(id)` 销毁对应命名实例；不存在对应实例时不会抛错。也可以直接调用 `earth.destroy()`，两种方式都会注销注册键，之后使用相同 key 调用 `useEarth` 会创建新实例。
 
 `new Earth(viewOptions?, options?)` 仍是完整的公共构造入口。图层和工具内部会显式传递 `Earth`；常规单地图使用默认实例时不需要增加额外样板代码。
 

@@ -69,6 +69,7 @@ describe('package exports', () => {
     expect(packageJson.dependencies['heatmap.js']).toBeUndefined();
     expect(packageJson.dependencies.mitt).toBeUndefined();
     expect(packageJson.devDependencies['@types/heatmap.js']).toBeUndefined();
+    expect(packageJson.devDependencies['rollup-plugin-postcss']).toBeUndefined();
 
     for (const entryName of ['index', 'core', 'layers', 'draw', 'measure', 'transform', 'plot']) {
       expect(config).toMatch(new RegExp(`\\b${entryName}:\\s*['"]src/`));

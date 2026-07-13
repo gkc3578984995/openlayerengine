@@ -16,12 +16,12 @@ const earthRef2 = shallowRef<Earth | null>(null);
 const createMaps = () => {
   if (earthRef1.value) return;
   const earth1 = useEarth({ id: mapId1, target: mapId1, view: { center: BEIJING, zoom: 5 } });
-  useEarth(mapId1) === earth1;
+  console.assert(useEarth(mapId1) === earth1);
   earth1.addLayer(createConfiguredLayer(earth1, 'vector'));
   earthRef1.value = earth1;
 
   const earth2 = useEarth({ id: mapId2, target: mapId2, view: { center: SHANGHAI, zoom: 6 } });
-  useEarth(mapId2) === earth2;
+  console.assert(useEarth(mapId2) === earth2);
   earth2.addLayer(createConfiguredLayer(earth2, 'vector'));
   earthRef2.value = earth2;
 };

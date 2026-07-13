@@ -1,3 +1,81 @@
+# @vrsim/earth-engine-ol 1.x 升级到 2.0.0
+
+2.0.0 调整了包导出、样式入口和 Earth 实例管理。升级现有外部项目时，请完成以下迁移；后文保留 0.x 升级到 1.0.0 的历史指南。
+
+## 1. JavaScript 入口改为仅 ESM
+
+2.0.0 不再提供 CommonJS/CJS 或 `require` 入口。请使用支持 ESM 的运行时或构建工具，并将调用改为标准 ESM import：
+
+```ts
+import { PointLayer, useEarth } from '@vrsim/earth-engine-ol';
+```
+
+不要再通过 `require('@vrsim/earth-engine-ol')` 加载本包。公开 JavaScript 入口均映射到 `.mjs` 文件。
+
+## 2. 使用公开样式入口
+
+1.x 的 `dist/index*.css` 深路径不再属于公共接口。统一改为：
+
+```ts
+import '@vrsim/earth-engine-ol/style.css';
+```
+
+包不再开放 `./dist/*` 深路径。除包根外，可按需从 `/core`、`/layers`、`/draw`、`/measure`、`/transform` 和 `/plot` 导入。
+
+## 3. useEarth 获取或创建实例
+
+1.x 的入口签名是 `useEarth(viewOptions?, options?)`；2.0 必须改为单个 UseEarthOptions 对象：`useEarth({ view, target, controls })`。2.0 运行时只读取第一个参数，因此旧两参调用的第二个参数会被忽略，原来直接放在第一参的 center、zoom 等视图字段也不会生效。
+
+```ts
+// 1.x
+useEarth({ center, zoom }, { target: 'map', zoom: true });
+
+// 2.0
+useEarth({
+  view: { center, zoom },
+  target: 'map',
+  controls: { zoom: true }
+});
+```
+
+- `useEarth()` 获取或创建默认实例，默认挂载目标为 `olContainer`。
+- `useEarth(id)` 获取或创建对应命名实例；首次创建时，非空 id 同时作为默认挂载目标。
+- `useEarth(options)` 通过可选 id 选择默认或命名注册键，并配置挂载目标、视图与控件。
+
+同一注册键已有活动实例时，上述调用都会返回原对象；target、view 和 controls 仅在首次创建时生效。多地图场景下，图层和工具内部会显式使用其所属 Earth，外部仍可通过 id 便捷取回实例。
+
+```ts
+const defaultEarth = useEarth({ target: 'map' });
+console.assert(useEarth() === defaultEarth);
+
+const overview = useEarth({ id: 'overview', target: 'overview' });
+console.assert(useEarth('overview') === overview);
+```
+
+## 4. 销毁、注销与重建
+
+可以直接调用 `earth.destroy()`，也可以使用公开辅助函数：
+
+```ts
+import { destroyEarth } from '@vrsim/earth-engine-ol';
+
+destroyEarth(); // 销毁默认实例
+destroyEarth('overview'); // 销毁命名实例
+```
+
+`destroyEarth()` 和 `destroyEarth(id)` 在不存在对应实例时不会抛错。销毁会同时注销注册键；之后以相同 key 调用 `useEarth()`、`useEarth(id)` 或 `useEarth(options)` 会创建新实例。
+
+## 5. 2.0 升级 Checklist
+
+- [ ] 将 CommonJS `require` 改为 ESM import，并确认运行时或构建工具支持 ESM。
+- [ ] 将 `dist/index*.css` 替换为 `@vrsim/earth-engine-ol/style.css`。
+- [ ] 移除所有 `./dist/*` 深路径导入，改用包根或公开功能子路径。
+- [ ] 确认同一 id 的配置仅用于首次创建；需要应用新配置时先销毁原实例。
+- [ ] 在组件卸载时调用 `earth.destroy()`、`destroyEarth()` 或 `destroyEarth(id)`。
+- [ ] 执行 `npm run verify` 与业务项目构建。
+
+---
+
 # @vrsim/earth-engine-ol v1.0.0 迁移指南
 
 本库由 0.x 升级到 1.0.0，包含破坏性变更。外部消费端升级时请逐条核对。

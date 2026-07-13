@@ -59,7 +59,6 @@
     "rimraf": "^4.1.2",
     "rollup": "^3.15.0",
     "rollup-plugin-copy": "^3.5.0",
-    "rollup-plugin-postcss": "^4.0.2",
     "rollup-plugin-shader": "^0.0.3",
     "sass": "^1.58.1",
     "tslib": "^2.5.0",
