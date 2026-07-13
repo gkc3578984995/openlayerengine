@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["test/types/V1PublicApi.type-test.ts", "src/global.d.ts"],
+  "exclude": [".test", "dist", "docs", "node_modules", "website"]
+}

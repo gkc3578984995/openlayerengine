@@ -344,6 +344,7 @@ function sourceEvidenceFor(id: LegacyCapabilityId): readonly string[] {
 }
 
 function testEvidenceFor(id: LegacyCapabilityId): readonly string[] {
+  if (id === 'public-ol-native-escape') return ['test/PackageExports.test.ts', 'test/V1CapabilityBaseline.test.ts', 'test/types/V1PublicApi.type-test.ts'];
   if (id.startsWith('public-')) return ['test/PackageExports.test.ts', 'test/V1CapabilityBaseline.test.ts'];
   if (id === 'earth-browser-contextmenu-suppression' || id === 'earth-target-string-or-element') return ['test/EarthElementTarget.test.ts'];
   if (id === 'earth-layer-handle-lifecycle') return ['test/EarthLayerHandle.test.ts'];
