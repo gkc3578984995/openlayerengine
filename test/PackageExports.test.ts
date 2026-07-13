@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -5,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 type ConditionalExport = {
   types: string;
   import: string;
-  require: string;
 };
 
 type PackageJson = {
@@ -22,13 +22,13 @@ const projectRoot = resolve(__dirname, '..');
 const packageJson = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as PackageJson;
 
 const conditionalExports = {
-  '.': ['./dist/types/index.d.ts', './dist/esm/index.mjs', './dist/cjs/index.cjs'],
-  './core': ['./dist/types/entries/core.d.ts', './dist/esm/core.mjs', './dist/cjs/core.cjs'],
-  './layers': ['./dist/types/base/index.d.ts', './dist/esm/layers.mjs', './dist/cjs/layers.cjs'],
-  './draw': ['./dist/types/entries/draw.d.ts', './dist/esm/draw.mjs', './dist/cjs/draw.cjs'],
-  './measure': ['./dist/types/entries/measure.d.ts', './dist/esm/measure.mjs', './dist/cjs/measure.cjs'],
-  './transform': ['./dist/types/entries/transform.d.ts', './dist/esm/transform.mjs', './dist/cjs/transform.cjs'],
-  './plot': ['./dist/types/entries/plot.d.ts', './dist/esm/plot.mjs', './dist/cjs/plot.cjs']
+  '.': ['./dist/types/index.d.ts', './dist/esm/index.mjs'],
+  './core': ['./dist/types/entries/core.d.ts', './dist/esm/core.mjs'],
+  './layers': ['./dist/types/base/index.d.ts', './dist/esm/layers.mjs'],
+  './draw': ['./dist/types/entries/draw.d.ts', './dist/esm/draw.mjs'],
+  './measure': ['./dist/types/entries/measure.d.ts', './dist/esm/measure.mjs'],
+  './transform': ['./dist/types/entries/transform.d.ts', './dist/esm/transform.mjs'],
+  './plot': ['./dist/types/entries/plot.d.ts', './dist/esm/plot.mjs']
 } as const;
 
 describe('package exports', () => {
@@ -41,13 +41,13 @@ describe('package exports', () => {
       const entry = packageJson.exports[subpath];
 
       expect(entry).toBeTypeOf('object');
-      expect(Object.keys(entry as ConditionalExport)).toEqual(['types', 'import', 'require']);
+      expect(Object.keys(entry as ConditionalExport)).toEqual(['types', 'import']);
       expect(Object.values(entry as ConditionalExport)).toEqual(targets);
       expect((entry as ConditionalExport).import).toMatch(/\.mjs$/);
-      expect((entry as ConditionalExport).require).toMatch(/\.cjs$/);
+      expect((entry as ConditionalExport & { require?: string }).require).toBeUndefined();
     }
 
-    expect(packageJson.main).toBe('./dist/cjs/index.cjs');
+    expect(packageJson.main).toBe('./dist/esm/index.mjs');
     expect(packageJson.module).toBe('./dist/esm/index.mjs');
     expect(packageJson.types).toBe('./dist/types/index.d.ts');
     expect(packageJson.style).toBe('./dist/style.css');
@@ -70,6 +70,8 @@ describe('package exports', () => {
     expect(config).toMatch(/Object\.keys\(pkg\.dependencies/);
     expect(config).toMatch(/Object\.keys\(pkg\.peerDependencies/);
     expect(config).toContain('id.startsWith(`${dependency}/`)');
+    expect(config).toContain("new Set(['ol-wind', 'wind-core'])");
+    expect(config).toMatch(/!bundledDependencies\.has\(dependency\)/);
   });
 
   it('contains every declared artifact after a build', () => {
@@ -77,10 +79,30 @@ describe('package exports', () => {
 
     if (!existsSync(dist)) return;
 
+    expect(existsSync(resolve(dist, 'cjs'))).toBe(false);
+
     const builtFiles = [...Object.values(conditionalExports).flat(), './dist/style.css'];
 
     for (const file of builtFiles) {
       expect(existsSync(resolve(projectRoot, file))).toBe(true);
     }
+  });
+
+  it('loads the built core entry with native Node ESM resolution', () => {
+    const coreEntry = resolve(projectRoot, 'dist/esm/core.mjs');
+
+    if (!existsSync(coreEntry)) return;
+
+    const output = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        "const module = await import('./dist/esm/core.mjs'); console.log(['Earth', 'useEarth', 'destroyEarth', 'Camera', 'Controls'].filter(name => name in module).join(','));"
+      ],
+      { cwd: projectRoot, encoding: 'utf8' }
+    );
+
+    expect(output.trim()).toBe('Earth,useEarth,destroyEarth,Camera,Controls');
   });
 });

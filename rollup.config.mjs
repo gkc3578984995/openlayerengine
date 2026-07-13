@@ -31,7 +31,33 @@ function rawPlugin() {
 // eslint-disable-next-line no-undef
 const mode = process.env.MODE;
 const isProd = mode === 'prod';
-const externalDependencies = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})])];
+// ol-wind 1.x publishes ESM syntax in .js files without declaring type: module, while its CJS build requires ESM-only OpenLayers.
+// Bundle it and its wind-core dependency so the published .mjs entries remain loadable by native Node ESM.
+const bundledDependencies = new Set(['ol-wind', 'wind-core']);
+const externalDependencies = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})])].filter(
+  (dependency) => !bundledDependencies.has(dependency)
+);
+
+function toNativeEsmSpecifier(id) {
+  if ((id.startsWith('ol/') || id.startsWith('lodash/')) && !id.endsWith('.js')) return `${id}.js`;
+  return id;
+}
+
+const lodashInteropId = '\0lodash-esm-interop';
+
+function lodashEsmInteropPlugin() {
+  return {
+    name: 'lodash-esm-interop',
+    resolveId(id) {
+      if (id === 'lodash') return lodashInteropId;
+      return null;
+    },
+    load(id) {
+      if (id === lodashInteropId) return "export { default as cloneDeep } from 'lodash/cloneDeep';";
+      return null;
+    }
+  };
+}
 
 export default defineConfig({
   input: {
@@ -43,28 +69,17 @@ export default defineConfig({
     transform: 'src/entries/transform.ts',
     plot: 'src/entries/plot.ts'
   },
-  external: (id) => externalDependencies.some((dependency) => id === dependency || id.startsWith(`${dependency}/`)),
-  output: [
-    {
-      dir: 'dist/esm',
-      entryFileNames: '[name].mjs',
-      chunkFileNames: 'chunks/[name]-[hash].mjs',
-      format: 'es',
-      sourcemap: !isProd
-    },
-    {
-      dir: 'dist/cjs',
-      entryFileNames: '[name].cjs',
-      chunkFileNames: 'chunks/[name]-[hash].cjs',
-      exports: 'named',
-      format: 'cjs',
-      sourcemap: !isProd
-    }
-    // 注：移除 iife 全局构建。ol 改为 external 后，深路径导入（ol/Map 等）无法在
-    // 浏览器全局模式下正确映射到 OL 的 UMD 命名导出，iife 产物不可用。
-    // 消费端请使用 ESM/CJS（已在 package.json exports 中声明）。
-  ],
+  external: (id) => id !== 'lodash' && externalDependencies.some((dependency) => id === dependency || id.startsWith(`${dependency}/`)),
+  output: {
+    dir: 'dist/esm',
+    entryFileNames: '[name].mjs',
+    chunkFileNames: 'chunks/[name]-[hash].mjs',
+    format: 'es',
+    paths: toNativeEsmSpecifier,
+    sourcemap: !isProd
+  },
   plugins: [
+    lodashEsmInteropPlugin(),
     // 放在最前，优先截获 *?raw 资源
     rawPlugin(),
     // 小图片自动转 base64，大于 limit 的复制到 dist/assets

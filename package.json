@@ -1,7 +1,7 @@
 {
   "name": "@vrsim/earth-engine-ol",
   "version": "2.0.0",
-  "main": "./dist/cjs/index.cjs",
+  "main": "./dist/esm/index.mjs",
   "module": "./dist/esm/index.mjs",
   "types": "./dist/types/index.d.ts",
   "style": "./dist/style.css",
@@ -76,38 +76,31 @@
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
-      "import": "./dist/esm/index.mjs",
-      "require": "./dist/cjs/index.cjs"
+      "import": "./dist/esm/index.mjs"
     },
     "./core": {
       "types": "./dist/types/entries/core.d.ts",
-      "import": "./dist/esm/core.mjs",
-      "require": "./dist/cjs/core.cjs"
+      "import": "./dist/esm/core.mjs"
     },
     "./layers": {
       "types": "./dist/types/base/index.d.ts",
-      "import": "./dist/esm/layers.mjs",
-      "require": "./dist/cjs/layers.cjs"
+      "import": "./dist/esm/layers.mjs"
     },
     "./draw": {
       "types": "./dist/types/entries/draw.d.ts",
-      "import": "./dist/esm/draw.mjs",
-      "require": "./dist/cjs/draw.cjs"
+      "import": "./dist/esm/draw.mjs"
     },
     "./measure": {
       "types": "./dist/types/entries/measure.d.ts",
-      "import": "./dist/esm/measure.mjs",
-      "require": "./dist/cjs/measure.cjs"
+      "import": "./dist/esm/measure.mjs"
     },
     "./transform": {
       "types": "./dist/types/entries/transform.d.ts",
-      "import": "./dist/esm/transform.mjs",
-      "require": "./dist/cjs/transform.cjs"
+      "import": "./dist/esm/transform.mjs"
     },
     "./plot": {
       "types": "./dist/types/entries/plot.d.ts",
-      "import": "./dist/esm/plot.mjs",
-      "require": "./dist/cjs/plot.cjs"
+      "import": "./dist/esm/plot.mjs"
     },
     "./style.css": "./dist/style.css"
   },
