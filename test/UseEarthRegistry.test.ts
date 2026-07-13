@@ -101,6 +101,16 @@ describe('useEarth registry', () => {
     expect(useEarth('compare')).not.toBe(first);
   });
 
+  it('keeps a replacement registered when the old instance is destroyed again', () => {
+    const first = useEarth('compare');
+    first.isDestroyed = true;
+    const replacement = useEarth('compare');
+
+    first.destroy();
+
+    expect(useEarth('compare')).toBe(replacement);
+  });
+
   it('isolates instances registered under different names', () => {
     expect(useEarth('first')).not.toBe(useEarth('second'));
   });

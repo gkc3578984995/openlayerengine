@@ -45,7 +45,7 @@ export interface IEarthConstructorOptions {
   /**
    * 地图容器ID
    */
-  target?: string;
+  target?: string | HTMLElement;
   /**
    * 缩放控件，默认关闭
    */

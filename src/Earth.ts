@@ -63,7 +63,7 @@ export default class Earth {
   /**
    * 地图容器id
    */
-  public containerId: string;
+  public containerId: string | HTMLElement;
   /**
    * 默认实例
    */

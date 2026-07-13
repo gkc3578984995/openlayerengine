@@ -1,5 +1,5 @@
 import Earth from './Earth';
-import type { IEarthConstructorOptions, UseEarthOptions } from './interface';
+import type { UseEarthOptions } from './interface';
 import { getRegisteredEarth, registerEarth, unregisterEarth } from './earthContext';
 
 const DEFAULT_TARGET = 'olContainer';
@@ -47,7 +47,7 @@ function useEarth(input?: string | UseEarthOptions): Earth {
     unregisterEarth(registeredEarth, id);
   }
 
-  const earth = new Earth(view, { ...controls, target } as IEarthConstructorOptions);
+  const earth = new Earth(view, { ...controls, target });
   registerEarth(earth, id);
   return earth;
 }

@@ -59,8 +59,8 @@ export default class Descriptor<T = any> {
    */
   private init() {
     this.dom = document.createElement('div');
-    const container = document.getElementById(this.earth.containerId);
-    container?.append(this.dom);
+    const container = this.earth.map.getTargetElement();
+    container.append(this.dom);
     if (this.options.type === 'list') {
       this.enableListEvent();
     }
