@@ -15,6 +15,7 @@ vi.mock('ol', async () => {
     private target?: string | HTMLElement;
     private readonly view: TestView;
     private readonly interactions = { getArray: () => [], forEach: () => undefined, clear: () => undefined };
+    private readonly viewport = new EventTarget();
 
     constructor(options: { target?: string | HTMLElement; view: TestView }) {
       this.target = options.target;
@@ -27,6 +28,10 @@ vi.mock('ol', async () => {
 
     getTargetElement(): HTMLElement | null {
       return typeof this.target === 'string' ? null : (this.target ?? null);
+    }
+
+    getViewport(): HTMLElement {
+      return this.viewport as unknown as HTMLElement;
     }
 
     getInteractions() {
@@ -68,6 +73,8 @@ const originalDocument = globalThis.document;
 
 afterEach(() => {
   destroyEarth('element-target');
+  destroyEarth('context-first');
+  destroyEarth('context-second');
   Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
 });
 
@@ -127,5 +134,40 @@ describe('HTMLElement Earth target', () => {
     });
 
     expect(() => descriptor.set({ position: [0, 0] })).not.toThrow();
+  });
+
+  it('isolates browser context-menu suppression to each Earth viewport', () => {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: { addEventListener, removeEventListener }
+    });
+    const first = useEarth({ id: 'context-first', target: { id: 'context-first' } as HTMLElement });
+    const second = useEarth({ id: 'context-second', target: { id: 'context-second' } as HTMLElement });
+    const firstViewport = first.map.getViewport();
+    const secondViewport = second.map.getViewport();
+    const packagedListener = vi.fn();
+    secondViewport.addEventListener('contextmenu', packagedListener);
+
+    const firstEvent = new Event('contextmenu', { cancelable: true });
+    const secondEvent = new Event('contextmenu', { cancelable: true });
+    firstViewport.dispatchEvent(firstEvent);
+    secondViewport.dispatchEvent(secondEvent);
+
+    expect(firstEvent.defaultPrevented).toBe(true);
+    expect(secondEvent.defaultPrevented).toBe(true);
+    expect(packagedListener).toHaveBeenCalledOnce();
+    expect(addEventListener).not.toHaveBeenCalled();
+    expect(removeEventListener).not.toHaveBeenCalled();
+
+    destroyEarth('context-first');
+    const destroyedViewportEvent = new Event('contextmenu', { cancelable: true });
+    const activeViewportEvent = new Event('contextmenu', { cancelable: true });
+    firstViewport.dispatchEvent(destroyedViewportEvent);
+    secondViewport.dispatchEvent(activeViewportEvent);
+
+    expect(destroyedViewportEvent.defaultPrevented).toBe(false);
+    expect(activeViewportEvent.defaultPrevented).toBe(true);
   });
 });

@@ -85,9 +85,9 @@ export default class Earth {
    * 关闭右键菜单监听方法
    * @param event 鼠标事件
    */
-  private closeRightMenu(event: MouseEvent): void {
+  private readonly closeRightMenu = (event: MouseEvent): void => {
     event.preventDefault();
-  }
+  };
   /**
    * 相机模块（视图动画 / 定位）
    */
@@ -187,7 +187,7 @@ export default class Earth {
       );
     }
     // 关闭浏览器右键菜单
-    document.addEventListener('contextmenu', this.closeRightMenu);
+    this.map.getViewport().addEventListener('contextmenu', this.closeRightMenu);
   }
   /**
    * 构造器
@@ -587,7 +587,7 @@ export default class Earth {
       }
       this.globalEvent = undefined;
     }
-    document.removeEventListener('contextmenu', this.closeRightMenu);
+    this.map.getViewport().removeEventListener('contextmenu', this.closeRightMenu);
 
     // 3) 清理地图可视元素与容器绑定
     this.disableGraticule();
