@@ -23,6 +23,7 @@ interface TransactionState {
   readonly before: Map<string, StoredElement | undefined>;
   readonly order: string[];
   active: boolean;
+  evaluatingSelector: boolean;
 }
 
 const transactionStates = new WeakMap<ElementTransaction, TransactionState>();
@@ -39,12 +40,13 @@ export class ElementTransaction {
       createId,
       before: new Map(),
       order: [],
-      active: true
+      active: true,
+      evaluatingSelector: false
     });
   }
 
   add<T>(input: ElementState<T>): Readonly<ElementState<T>> {
-    const transaction = activeState(this);
+    const transaction = writableState(this);
     const state = createElementSnapshot(transaction.shapeRegistry, input);
     if (hasElement(transaction, state.id)) throw new DuplicateElementIdError(`Element id already exists: ${state.id}`);
     remember(transaction, state.id, undefined);
@@ -59,12 +61,12 @@ export class ElementTransaction {
   }
 
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[] {
-    const transaction = activeState(this);
+    const transaction = selectableState(this);
     return Object.freeze(matchingEntries<T>(transaction, selector).map(([, state]) => snapshot<T>(transaction, state)));
   }
 
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Readonly<ElementState<T>>[] {
-    const transaction = activeState(this);
+    const transaction = writableState(this);
     assertDestructiveSelector(selector as ElementSelector);
     const safePatch = clonePatch(patch);
     if (Reflect.ownKeys(safePatch).length === 0) return Object.freeze([]);
@@ -81,7 +83,7 @@ export class ElementTransaction {
   }
 
   remove(selector: ElementSelector): readonly string[] {
-    const transaction = activeState(this);
+    const transaction = writableState(this);
     assertDestructiveSelector(selector);
     const matches = matchingEntries(transaction, selector);
     for (const [id, before] of matches) {
@@ -100,7 +102,7 @@ export class ElementTransaction {
   }
 
   copy<T>(id: string, overrides: ElementCopyOptions<T> = {}): Readonly<ElementState<T>> {
-    const transaction = activeState(this);
+    const transaction = writableState(this);
     const source = getElement(transaction, id);
     if (source === undefined) throw new InvalidArgumentError(`Element does not exist: ${id}`);
     const safeOverrides = clonePatch(overrides);
@@ -114,7 +116,7 @@ export class ElementTransaction {
   }
 
   clear(): readonly string[] {
-    const transaction = activeState(this);
+    const transaction = writableState(this);
     const entries = currentEntries(transaction);
     for (const [id, before] of entries) {
       remember(transaction, id, before);
@@ -176,6 +178,16 @@ function activeState(transaction: ElementTransaction): TransactionState {
   return state;
 }
 
+function selectableState(transaction: ElementTransaction): TransactionState {
+  const state = activeState(transaction);
+  if (state.evaluatingSelector) throw new InvalidArgumentError('Element selector predicates are read-only');
+  return state;
+}
+
+function writableState(transaction: ElementTransaction): TransactionState {
+  return selectableState(transaction);
+}
+
 function remember(transaction: TransactionState, id: string, before: StoredElement | undefined): void {
   if (transaction.before.has(id)) return;
   transaction.before.set(id, before);
@@ -184,7 +196,7 @@ function remember(transaction: TransactionState, id: string, before: StoredEleme
 
 function matchingEntries<T>(transaction: TransactionState, selector?: ElementSelector<T>): Array<readonly [string, StoredElement]> {
   const matches = compileSelector(selector);
-  const ids = pureSelectorIds(selector);
+  const ids = selectorIds(selector);
   const result: Array<readonly [string, StoredElement]> = [];
   const candidates =
     ids === undefined
@@ -194,7 +206,13 @@ function matchingEntries<T>(transaction: TransactionState, selector?: ElementSel
           return state === undefined ? [] : [[id, state] as const];
         });
   for (const [id, state] of candidates) {
-    if (matches(state as ElementSnapshot<T>)) result.push([id, state]);
+    const wasEvaluatingSelector = transaction.evaluatingSelector;
+    transaction.evaluatingSelector = true;
+    try {
+      if (matches(state as ElementSnapshot<T>)) result.push([id, state]);
+    } finally {
+      transaction.evaluatingSelector = wasEvaluatingSelector;
+    }
   }
   return result;
 }
@@ -239,17 +257,8 @@ function currentEntries(transaction: TransactionState): Array<readonly [string, 
   return result;
 }
 
-function pureSelectorIds<T>(selector?: ElementSelector<T>): readonly string[] | undefined {
+function selectorIds<T>(selector?: ElementSelector<T>): readonly string[] | undefined {
   if (selector === undefined || selector === null || typeof selector !== 'object' || Array.isArray(selector)) return undefined;
-  if (
-    selector.module !== undefined ||
-    selector.layerId !== undefined ||
-    selector.type !== undefined ||
-    selector.visible !== undefined ||
-    selector.predicate !== undefined
-  ) {
-    return undefined;
-  }
   if (selector.id !== undefined) return [selector.id];
   return selector.ids === undefined ? undefined : [...new Set(selector.ids)];
 }

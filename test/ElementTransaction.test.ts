@@ -33,7 +33,7 @@ function createStore(options?: ConstructorParameters<typeof ElementStore>[1]): E
 }
 
 describe('ElementTransaction', () => {
-  it('does not scan the full Store map for sequential adds or pure-id updates', () => {
+  it('does not scan the full Store map for sequential adds or id-targeted selectors', () => {
     const store = createStore();
     const iteratedSizes: number[] = [];
     const originalIterator = Map.prototype[Symbol.iterator];
@@ -63,9 +63,24 @@ describe('ElementTransaction', () => {
             transaction.show({ id: 'point-20' });
           }
         });
-        const pureIdScans = [...iteratedSizes, ...enteredSizes].filter((size) => size === 32);
-        expect(pureIdScans).toEqual([]);
+        const predicateOrder: string[] = [];
+        const combinedQuery = store.query({
+          ids: ['point-18', 'point-2', 'point-18', 'point-4'],
+          module: 'draw',
+          visible: true,
+          predicate: ({ id }) => {
+            predicateOrder.push(id);
+            return id !== 'point-4';
+          }
+        });
+        const combinedUpdate = store.hide({ id: 'point-19', module: 'draw', visible: true });
+
+        const idTargetedScans = [...iteratedSizes, ...enteredSizes].filter((size) => size === 32);
+        expect(idTargetedScans).toEqual([]);
         expect(idsChanges.changes.map(({ id }) => id)).toEqual(['point-17', 'point-3']);
+        expect(combinedQuery.map(({ id }) => id)).toEqual(['point-18', 'point-2']);
+        expect(predicateOrder).toEqual(['point-18', 'point-2', 'point-4']);
+        expect(combinedUpdate.changes.map(({ id }) => id)).toEqual(['point-19']);
       } finally {
         entriesSpy.mockRestore();
       }
@@ -287,28 +302,64 @@ describe('ElementTransaction', () => {
     expect(store.query().map(({ id }) => id)).toEqual(['point-1', 'element-1', 'element-2']);
   });
 
-  it('evaluates selector predicates against a stable candidate list under reentrant transaction writes', () => {
+  it('rolls back the entire transaction when a selector predicate attempts a reentrant write', () => {
+    const store = createStore();
+    store.add(element('point-1'));
+    store.add(element('point-2'));
+    const before = store.query();
+
+    expect(() =>
+      store.transaction((transaction) => {
+        transaction.update(
+          {
+            id: 'point-1',
+            predicate: () => {
+              transaction.update({ id: 'point-2' }, { data: { nested: { value: 2 } } });
+              return true;
+            }
+          },
+          { visible: false }
+        );
+      })
+    ).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+
+    expect(store.query()).toEqual(before);
+  });
+
+  it('rejects every transaction write and query inside a selector predicate while allowing get', () => {
     const store = createStore();
     store.add(element('point-1'));
     store.add(element('point-2'));
 
-    const result = store.transaction((transaction) => {
-      let predicateCalls = 0;
+    store.transaction((transaction) => {
       transaction.update(
         {
+          id: 'point-1',
           predicate: () => {
-            predicateCalls += 1;
-            if (predicateCalls <= 3) transaction.add(element(`side-effect-${predicateCalls}`));
-            return false;
+            expect(transaction.get('point-2')?.id).toBe('point-2');
+            const operations = [
+              () => transaction.add(element('side-effect')),
+              () => transaction.update({ id: 'point-2' }, { visible: false }),
+              () => transaction.remove({ id: 'point-2' }),
+              () => transaction.hide({ id: 'point-2' }),
+              () => transaction.show({ id: 'point-2' }),
+              () => transaction.copy('point-2'),
+              () => transaction.clear(),
+              () => transaction.query({ id: 'point-2' })
+            ];
+            for (const operation of operations) {
+              expect(operation).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+            }
+            return true;
           }
         },
         { visible: false }
       );
-      return predicateCalls;
     });
 
-    expect(result.value).toBe(2);
-    expect(store.query().map(({ id }) => id)).toEqual(['point-1', 'point-2', 'side-effect-1', 'side-effect-2']);
+    expect(store.get('point-1')?.visible).toBe(false);
+    expect(store.get('point-2')?.visible).toBe(true);
+    expect(store.query().map(({ id }) => id)).toEqual(['point-1', 'point-2']);
   });
 
   it('treats duplicate listener registrations as independent subscriptions', () => {
