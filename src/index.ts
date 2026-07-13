@@ -8,3 +8,4 @@ export * from './base/index.js';
 export * from './interface/index.js';
 export * from './enum/index.js';
 export * from './extends/index.js';
+export type { ShapeType } from './core/shape/types.js';

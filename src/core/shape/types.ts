@@ -34,3 +34,25 @@ export type RenderGeometryState =
   | { readonly type: 'polyline'; readonly coordinates: readonly Coordinate[] }
   | { readonly type: 'polygon'; readonly coordinates: readonly (readonly Coordinate[])[] }
   | { readonly type: 'circle'; readonly center: Coordinate; readonly radius: number };
+
+export type ShapeCapability = 'draw' | 'edit' | 'translate' | 'rotate' | 'scale' | 'vertexEdit' | 'anchor' | 'path';
+
+export interface ControlPointPolicy {
+  readonly previewMin: number;
+  readonly completeMin: number;
+  readonly completeMax?: number;
+  readonly autoFinish?: number;
+}
+
+export interface ShapeDefinition<S extends ShapeState = ShapeState> {
+  readonly type: S['type'];
+  readonly capabilities: ReadonlySet<ShapeCapability>;
+  readonly controlPointPolicy?: ControlPointPolicy;
+  normalize(input: unknown): S;
+  clone(state: S): S;
+  isComplete(state: S): boolean;
+  finalize?(state: S): S;
+  toRenderGeometry(state: S): RenderGeometryState;
+  getControlPoints?(state: S): readonly Coordinate[];
+  updateControlPoint?(state: S, index: number, coordinate: Coordinate): S;
+}
