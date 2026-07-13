@@ -44,6 +44,11 @@ class Toolbar {
     this.overlay = new OverlayLayer(earth);
     this.createOverlay();
   }
+
+  getRootElement(): HTMLDivElement | null {
+    return this.rootEl;
+  }
+
   /**
    * 创建提示牌
    */

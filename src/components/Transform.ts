@@ -767,6 +767,23 @@ export default class Transform {
     }
     return null;
   }
+
+  private bindToolbarEvents(toolbar: Toolbar): void {
+    const toolbarRoot = toolbar.getRootElement();
+    if (!toolbarRoot) return;
+    toolbarRoot.addEventListener('toolbar:itementer', (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      this.updateHelpTooltip(detail.item.title);
+    });
+    toolbarRoot.addEventListener('toolbar:itemleave', () => {
+      this.updateHelpTooltip(this.baseTransformTipFlag);
+    });
+    toolbarRoot.addEventListener('toolbar:itemclick', (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      this.handleToolbarClick(detail, detail.pixel);
+    });
+  }
+
   /**
    * 创建工具栏
    */
@@ -779,16 +796,7 @@ export default class Transform {
       type: e.feature?.getGeometry()?.getType()
     };
     this.toolbar = new Toolbar(params, this.earth);
-    const toolbarRoot = document.querySelector('.ol-toolbar');
-    toolbarRoot?.addEventListener('toolbar:itementer', (e: any) => {
-      this.updateHelpTooltip(e.detail.item.title);
-    });
-    toolbarRoot?.addEventListener('toolbar:itemleave', (e: any) => {
-      this.updateHelpTooltip(this.baseTransformTipFlag);
-    });
-    toolbarRoot?.addEventListener('toolbar:itemclick', (e: any) => {
-      this.handleToolbarClick(e.detail, e.detail.pixel);
-    });
+    this.bindToolbarEvents(this.toolbar);
   }
   /**
    * 处理工具栏按钮点击事件
