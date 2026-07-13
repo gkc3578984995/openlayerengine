@@ -446,6 +446,46 @@ describe('basic shape definitions', () => {
     expect(() => circle.getControlPoints?.(unrepresentable)).toThrow(InvalidArgumentError);
     const imprecise = circle.normalize({ type: 'circle', center: [1e16, 1e16], radius: 1.5 });
     expect(() => circle.getControlPoints?.(imprecise)).toThrow(InvalidArgumentError);
+
+    const diagonal = circle.normalize({ type: 'circle', center: [1e16, 1e16], radius: Math.hypot(2, 2) });
+    const diagonalHandles = circle.getControlPoints?.(diagonal);
+    if (diagonalHandles === undefined) throw new Error('Expected diagonal circle control points');
+    expect(circle.updateControlPoint?.(diagonal, 1, diagonalHandles[1])).toEqual(diagonal);
+
+    for (const [deltaX, deltaY] of [
+      [4, 2],
+      [6, 2],
+      [6, 4],
+      [8, 4]
+    ] as const) {
+      const lattice = circle.normalize({ type: 'circle', center: [1e16, 1e16], radius: Math.hypot(deltaX, deltaY) });
+      const latticeHandles = circle.getControlPoints?.(lattice);
+      if (latticeHandles === undefined) throw new Error('Expected lattice circle control points');
+      expect(circle.updateControlPoint?.(lattice, 1, latticeHandles[1])).toEqual(lattice);
+    }
+  });
+
+  it('keeps successful small-lattice circle handle updates canonically editable', () => {
+    const circle = definition('circle');
+    const center: Coordinate = [1e16, 1e16];
+    const initial = circle.normalize({ type: 'circle', center, radius: 0 });
+
+    for (let deltaX = 2; deltaX <= 16; deltaX += 2) {
+      for (let deltaY = 2; deltaY <= 16; deltaY += 2) {
+        const updated = circle.updateControlPoint?.(initial, 1, [center[0] + deltaX, center[1] + deltaY]);
+        if (updated === undefined) throw new Error('Expected circle control-point updates');
+        const handles = circle.getControlPoints?.(updated);
+        if (handles === undefined) throw new Error('Expected canonical circle handles');
+        expect(circle.updateControlPoint?.(updated, 1, handles[1])).toEqual(updated);
+      }
+    }
+  });
+
+  it('rejects a circle center update that would leave no stable canonical radius handle', () => {
+    const circle = definition('circle');
+    const state = circle.normalize({ type: 'circle', center: [0, 0], radius: 1.5 });
+
+    expect(() => circle.updateControlPoint?.(state, 0, [1e16, 1e16])).toThrow(InvalidArgumentError);
   });
 
   it('renders extreme ellipses with finite coordinates using overflow-safe bounds', () => {
@@ -469,18 +509,57 @@ describe('basic shape definitions', () => {
     }
   });
 
-  it('rejects ellipse axes whose half-span underflows to zero', () => {
+  it.each([1, 3, 5])('preserves ellipse bounds whose half-span would underflow at %s minimum-value units', (multiplier) => {
     const ellipse = definition('ellipse');
+    const upper = Number.MIN_VALUE * multiplier;
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [upper, upper]
+    ];
+    const geometry = ellipse.toRenderGeometry(ellipse.normalize({ type: 'ellipse', controlPoints }));
 
-    expect(() =>
-      ellipse.normalize({
-        type: 'ellipse',
-        controlPoints: [
-          [0, 0],
-          [Number.MIN_VALUE, Number.MIN_VALUE]
-        ]
-      })
-    ).toThrow(InvalidArgumentError);
+    expect(geometry.type).toBe('polygon');
+    if (geometry.type !== 'polygon') throw new Error('Expected ellipse polygon');
+    const coordinates = geometry.coordinates.flat();
+    expect([Math.min(...coordinates.map(([x]) => x)), Math.max(...coordinates.map(([x]) => x))]).toEqual([0, upper]);
+    expect([Math.min(...coordinates.map(([, y]) => y)), Math.max(...coordinates.map(([, y]) => y))]).toEqual([0, upper]);
+  });
+
+  it('preserves adjacent representable ellipse bounds at a large center', () => {
+    const ellipse = definition('ellipse');
+    const lower = 1e16;
+    const upper = lower + 2;
+    const controlPoints: Coordinate[] = [
+      [lower, lower],
+      [upper, upper]
+    ];
+    const geometry = ellipse.toRenderGeometry(ellipse.normalize({ type: 'ellipse', controlPoints }));
+
+    expect(geometry.type).toBe('polygon');
+    if (geometry.type !== 'polygon') throw new Error('Expected ellipse polygon');
+    const coordinates = geometry.coordinates.flat();
+    expect([Math.min(...coordinates.map(([x]) => x)), Math.max(...coordinates.map(([x]) => x))]).toEqual([lower, upper]);
+    expect([Math.min(...coordinates.map(([, y]) => y)), Math.max(...coordinates.map(([, y]) => y))]).toEqual([lower, upper]);
+  });
+
+  it('accepts distinct ellipse bounds whose reconstructed endpoints differ only by large-coordinate rounding', () => {
+    const ellipse = definition('ellipse');
+    const lower = 1e16;
+
+    for (const span of [6, 10, 14, 18]) {
+      const controlPoints: Coordinate[] = [
+        [lower, lower],
+        [lower + span, lower + span]
+      ];
+      const geometry = ellipse.toRenderGeometry(ellipse.normalize({ type: 'ellipse', controlPoints }));
+
+      expect(geometry.type).toBe('polygon');
+      if (geometry.type !== 'polygon') throw new Error('Expected ellipse polygon');
+      const coordinates = geometry.coordinates.flat();
+      expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+      expect([Math.min(...coordinates.map(([x]) => x)), Math.max(...coordinates.map(([x]) => x))]).toEqual([lower, lower + span]);
+      expect([Math.min(...coordinates.map(([, y]) => y)), Math.max(...coordinates.map(([, y]) => y))]).toEqual([lower, lower + span]);
+    }
   });
 
   it('rejects non-finite render output from a custom control-point definition', () => {

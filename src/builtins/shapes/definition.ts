@@ -35,7 +35,37 @@ export function closeRing(coordinates: readonly Coordinate[]): readonly Coordina
   return ring;
 }
 
-function planarVectors(origin: Coordinate, first: Coordinate, second: Coordinate): readonly [number, number, number, number] {
+interface PlanarVectors {
+  readonly firstX: number;
+  readonly firstY: number;
+  readonly secondX: number;
+  readonly secondY: number;
+  readonly firstXError: number;
+  readonly firstYError: number;
+  readonly secondXError: number;
+  readonly secondYError: number;
+}
+
+export function numberRoundingRadius(value: number): number {
+  const magnitude = Math.abs(value);
+  if (magnitude === 0 || magnitude < 2 ** -1022) return Number.MIN_VALUE;
+  const exponent = Math.min(1023, Math.floor(Math.log2(magnitude)));
+  return Math.max(Number.MIN_VALUE, 2 ** (exponent - 53));
+}
+
+function differenceRoundingError(left: number, right: number): number {
+  return numberRoundingRadius(left) + numberRoundingRadius(right);
+}
+
+export function arePlanarCoordinatesCoincident(left: Coordinate, right: Coordinate): boolean {
+  const propagatedMidpointUlps = 4;
+  return (
+    Math.abs(left[0] - right[0]) <= differenceRoundingError(left[0], right[0]) * propagatedMidpointUlps &&
+    Math.abs(left[1] - right[1]) <= differenceRoundingError(left[1], right[1]) * propagatedMidpointUlps
+  );
+}
+
+function planarVectors(origin: Coordinate, first: Coordinate, second: Coordinate): PlanarVectors {
   const firstX = first[0] - origin[0];
   const firstY = first[1] - origin[1];
   const secondX = second[0] - origin[0];
@@ -44,14 +74,35 @@ function planarVectors(origin: Coordinate, first: Coordinate, second: Coordinate
     throw new InvalidArgumentError('Control-point differences exceed the finite numeric range');
   }
   const scale = Math.max(Math.abs(firstX), Math.abs(firstY), Math.abs(secondX), Math.abs(secondY));
-  if (scale === 0) return [0, 0, 0, 0];
-  return [firstX / scale, firstY / scale, secondX / scale, secondY / scale];
+  if (scale === 0) {
+    return { firstX: 0, firstY: 0, secondX: 0, secondY: 0, firstXError: 0, firstYError: 0, secondXError: 0, secondYError: 0 };
+  }
+  return {
+    firstX: firstX / scale,
+    firstY: firstY / scale,
+    secondX: secondX / scale,
+    secondY: secondY / scale,
+    firstXError: differenceRoundingError(first[0], origin[0]) / scale,
+    firstYError: differenceRoundingError(first[1], origin[1]) / scale,
+    secondXError: differenceRoundingError(second[0], origin[0]) / scale,
+    secondYError: differenceRoundingError(second[1], origin[1]) / scale
+  };
+}
+
+function planarCrossTolerance(vectors: PlanarVectors): number {
+  const { firstX, firstY, secondX, secondY, firstXError, firstYError, secondXError, secondYError } = vectors;
+  const firstLength = Math.hypot(firstX, firstY);
+  const secondLength = Math.hypot(secondX, secondY);
+  const angularError = Number.EPSILON * 8 * firstLength * secondLength;
+  const firstProductError = Math.abs(firstX) * secondYError + Math.abs(secondY) * firstXError + firstXError * secondYError;
+  const secondProductError = Math.abs(firstY) * secondXError + Math.abs(secondX) * firstYError + firstYError * secondXError;
+  return angularError + firstProductError + secondProductError;
 }
 
 export function arePlanarCollinear(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
-  const [firstX, firstY, secondX, secondY] = planarVectors(origin, first, second);
-  const cross = firstX * secondY - firstY * secondX;
-  const tolerance = Number.EPSILON * Math.hypot(firstX, firstY) * Math.hypot(secondX, secondY);
+  const vectors = planarVectors(origin, first, second);
+  const cross = vectors.firstX * vectors.secondY - vectors.firstY * vectors.secondX;
+  const tolerance = planarCrossTolerance(vectors);
   return Math.abs(cross) <= tolerance;
 }
 
@@ -86,10 +137,10 @@ export function requireNonZeroPlanarArea(points: readonly Coordinate[], message 
 }
 
 export function haveSamePlanarDirection(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
-  const [firstX, firstY, secondX, secondY] = planarVectors(origin, first, second);
-  const cross = firstX * secondY - firstY * secondX;
-  const tolerance = Number.EPSILON * Math.hypot(firstX, firstY) * Math.hypot(secondX, secondY);
-  return Math.abs(cross) <= tolerance && firstX * secondX + firstY * secondY > 0;
+  const vectors = planarVectors(origin, first, second);
+  const cross = vectors.firstX * vectors.secondY - vectors.firstY * vectors.secondX;
+  const tolerance = planarCrossTolerance(vectors);
+  return Math.abs(cross) <= tolerance && vectors.firstX * vectors.secondX + vectors.firstY * vectors.secondY > 0;
 }
 
 interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> {

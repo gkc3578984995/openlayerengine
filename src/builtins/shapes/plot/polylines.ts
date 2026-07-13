@@ -1,7 +1,7 @@
 import { InvalidArgumentError } from '../../../core/errors.js';
 import type { Coordinate } from '../../../core/common/types.js';
 import type { ShapeDefinition } from '../../../core/shape/types.js';
-import { cloneCoordinate, createControlPointDefinition, pathCapabilities, requireNonCollinear, requireSeparated } from '../definition.js';
+import { cloneCoordinate, coordinatesEqual, createControlPointDefinition, pathCapabilities, requireNonCollinear, requireSeparated } from '../definition.js';
 import { arcPoints, assertFinitePoints, azimuth, circleCenter, curvePoints, distance, isClockWise } from './math.js';
 
 function validatePlotPoints(points: readonly Coordinate[]): void {
@@ -17,6 +17,18 @@ function lunePolyline(points: readonly Coordinate[]): Coordinate[] {
   const angle1 = azimuth(point1, center);
   const angle2 = azimuth(point2, center);
   return isClockWise(point1, point2, point3) ? arcPoints(center, radius, angle2, angle1) : arcPoints(center, radius, angle1, angle2);
+}
+
+function curvePolyline(points: readonly Coordinate[]): Coordinate[] {
+  return points.length === 2 ? points.map(cloneCoordinate) : curvePoints(0.3, points);
+}
+
+function validateGeneratedPath(points: readonly Coordinate[], generator: (points: readonly Coordinate[]) => Coordinate[]): void {
+  const coordinates = generator(points);
+  assertFinitePoints(coordinates);
+  if (!coordinates.slice(1).some((coordinate) => !coordinatesEqual(coordinates[0], coordinate))) {
+    throw new InvalidArgumentError('Plot path must remain distinct on the coordinate grid');
+  }
 }
 
 function polylineRender(generator: (points: readonly Coordinate[]) => Coordinate[]) {
@@ -38,6 +50,7 @@ const lunePolylineDefinition = createControlPointDefinition({
     if (points.length === 3) {
       requireSeparated(points, [0, 2]);
       requireNonCollinear(points[0], points[1], points[2]);
+      validateGeneratedPath(points, lunePolyline);
     }
   },
   render: polylineRender(lunePolyline)
@@ -48,8 +61,11 @@ const curvePolylineDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 2,
   capabilities: pathCapabilities,
-  validate: validatePlotPoints,
-  render: polylineRender((points) => (points.length === 2 ? points.map(cloneCoordinate) : curvePoints(0.3, points)))
+  validate: (points) => {
+    validatePlotPoints(points);
+    validateGeneratedPath(points, curvePolyline);
+  },
+  render: polylineRender(curvePolyline)
 });
 
 export const polylineShapeDefinitions = Object.freeze([lunePolylineDefinition, curvePolylineDefinition] as const satisfies readonly ShapeDefinition[]);

@@ -8,6 +8,7 @@ import {
   editableCapabilities,
   haveSamePlanarDirection,
   nonRotatingEditableCapabilities,
+  numberRoundingRadius,
   requireNonCollinear,
   requireNonZeroPlanarArea,
   requireSeparated
@@ -48,6 +49,16 @@ function polygonRender(generator: (points: readonly Coordinate[]) => Coordinate[
   };
 }
 
+function validateGeneratedPolygon(
+  points: readonly Coordinate[],
+  generator: (points: readonly Coordinate[]) => Coordinate[],
+  requireRenderedArea: boolean
+): void {
+  const ring = generator(points);
+  assertFinitePoints(ring);
+  if (requireRenderedArea) requireNonZeroPlanarArea(ring, 'Plot polygon must remain non-degenerate on the coordinate grid');
+}
+
 function rectangle(points: readonly Coordinate[]): Coordinate[] {
   const minX = Math.min(points[0][0], points[1][0]);
   const minY = Math.min(points[0][1], points[1][1]);
@@ -70,12 +81,28 @@ function equilateralTriangle(points: readonly Coordinate[]): Coordinate[] {
   const [point1, point2] = points;
   const vectorX = point2[0] - point1[0];
   const vectorY = point2[1] - point1[1];
-  const length = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
+  const length = distance(point1, point2);
   const normalX = -vectorY / length;
   const normalY = vectorX / length;
   const height = (Math.sqrt(3) / 2) * length;
-  const point3: Coordinate = [(point1[0] + point2[0]) / 2 + normalX * height, (point1[1] + point2[1]) / 2 + normalY * height];
+  const mid = midpoint(point1, point2);
+  const point3: Coordinate = [mid[0] + normalX * height, mid[1] + normalY * height];
   return [cloneCoordinate(point1), cloneCoordinate(point2), cloneCoordinate(point3)];
+}
+
+function relativeLengthError(left: number, right: number): number {
+  if (left === right) return 0;
+  return Math.abs(left - right) / Math.max(left, right);
+}
+
+function segmentLengthRoundingError(left: Coordinate, right: Coordinate): number {
+  return Math.hypot(numberRoundingRadius(left[0]) + numberRoundingRadius(right[0]), numberRoundingRadius(left[1]) + numberRoundingRadius(right[1]));
+}
+
+function equilateralLengthTolerance(referenceStart: Coordinate, referenceEnd: Coordinate, candidateEnd: Coordinate, referenceLength: number): number {
+  const roundingError = segmentLengthRoundingError(referenceStart, referenceEnd) + segmentLengthRoundingError(referenceStart, candidateEnd);
+  const relativeRoundingError = roundingError / referenceLength;
+  return Math.min(1e-3, relativeRoundingError * 8 + Number.EPSILON * 8);
 }
 
 function assemblePolygon(points: readonly Coordinate[]): Coordinate[] {
@@ -188,6 +215,16 @@ const equilateralTriangleDefinition = createControlPointDefinition({
   validate: (points) => {
     requireTwoDimensional(points);
     requireSeparated(points, [0, 1]);
+    const triangle = equilateralTriangle(points);
+    assertFinitePoints(triangle);
+    requireNonZeroPlanarArea(triangle, 'Equilateral triangle offsets must remain distinct on the coordinate grid');
+    const edgeLength = distance(triangle[0], triangle[1]);
+    if (
+      relativeLengthError(distance(triangle[0], triangle[2]), edgeLength) > equilateralLengthTolerance(triangle[0], triangle[1], triangle[2], edgeLength) ||
+      relativeLengthError(distance(triangle[1], triangle[2]), edgeLength) > equilateralLengthTolerance(triangle[1], triangle[0], triangle[2], edgeLength)
+    ) {
+      throw new InvalidArgumentError('Equilateral triangle edges cannot be represented consistently on the coordinate grid');
+    }
   },
   render: polygonRender(equilateralTriangle)
 });
@@ -200,7 +237,8 @@ const assemblePolygonDefinition = createControlPointDefinition({
   capabilities: editableCapabilities,
   validate: (points) => {
     validateSegments(points);
-    requireArea(points);
+    if (points.length >= 3) requireArea(points);
+    validateGeneratedPolygon(points, assemblePolygon, true);
   },
   render: polygonRender(assemblePolygon)
 });
@@ -212,7 +250,12 @@ const closedCurvePolygonDefinition = createControlPointDefinition({
   capabilities: editableCapabilities,
   validate: (points) => {
     validateSegments(points);
-    requireArea(points);
+    if (points.length >= 3) {
+      requireArea(points);
+      validateGeneratedPolygon(points, closedCurvePolygon, true);
+    } else {
+      validateGeneratedPolygon(points, closedCurvePolygon, false);
+    }
   },
   render: polygonRender(closedCurvePolygon)
 });
@@ -231,6 +274,7 @@ const sectorDefinition = createControlPointDefinition({
       if (haveSamePlanarDirection(points[0], points[1], points[2])) {
         throw new InvalidArgumentError('Sector rays must have a non-zero angle');
       }
+      validateGeneratedPolygon(points, sector, true);
     }
   },
   render: polygonRender(sector)
@@ -248,6 +292,7 @@ const lunePolygonDefinition = createControlPointDefinition({
       requireSeparated(points, [0, 2]);
       requireNonCollinear(points[0], points[1], points[2]);
     }
+    validateGeneratedPolygon(points, lunePolygon, true);
   },
   render: polygonRender(lunePolygon)
 });

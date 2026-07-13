@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
+import { bezierPoints, cubicValue, isClockWise, quadraticBSplinePoints } from '../src/builtins/shapes/plot/math.js';
 import type { Coordinate } from '../src/core/common/types.js';
 import { InvalidArgumentError } from '../src/core/errors.js';
 import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
@@ -176,6 +177,206 @@ function closeLegacyPolygon(coordinates: unknown): unknown {
 }
 
 describe('plot shape parity', () => {
+  it('keeps convex curve primitives finite and inside their control bounds near Number.MAX_VALUE', () => {
+    const lower = 1.7976931348623153e308;
+    const upper = 1.7976931348623155e308;
+    const controlPoints: Coordinate[] = [
+      [upper, upper],
+      [lower, upper],
+      [upper, lower],
+      [lower, lower]
+    ];
+    const samples = [
+      [
+        'cubic',
+        Array.from({ length: 10_001 }, (_value, index) => cubicValue(index / 10_000, controlPoints[0], controlPoints[1], controlPoints[2], controlPoints[3]))
+      ],
+      ['bezier', bezierPoints(controlPoints)],
+      ['quadratic B-spline', quadraticBSplinePoints(controlPoints.slice(0, 3))]
+    ] as const;
+
+    for (const [label, points] of samples) {
+      expect(
+        points.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y) && x >= lower && x <= upper && y >= lower && y <= upper),
+        `${label} escaped its finite convex bounds`
+      ).toBe(true);
+    }
+  });
+
+  it('preserves representable subnormal contributions in convex curve primitives', () => {
+    const zero: Coordinate = [0, 0];
+    const minimum: Coordinate = [Number.MIN_VALUE, Number.MIN_VALUE];
+
+    expect(cubicValue(0.5, zero, minimum, minimum, minimum)).toEqual(minimum);
+    expect(bezierPoints([zero, minimum, minimum, minimum])[50]).toEqual(minimum);
+    expect(quadraticBSplinePoints([zero, minimum, minimum])[11]).toEqual(minimum);
+  });
+
+  it('renders a narrow but representable sector without collapsing its rays', () => {
+    const type = 'sector';
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [1e-9, 1],
+      [2e-9, 1]
+    ];
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+
+    expect(geometry.type).toBe('polygon');
+    if (geometry.type === 'polygon') {
+      expect(new Set(geometry.coordinates[0].map(([x, y]) => `${x},${y}`)).size).toBeGreaterThan(2);
+    }
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s renders when narrow but distinct bone directions are representable', (type) => {
+    const controlPoints: Coordinate[] = [
+      [0, 1],
+      [2e-9, 1],
+      [0, 0],
+      [2e-9, 1]
+    ];
+    const shape = definition(type);
+
+    expect(() => shape.toRenderGeometry(shape.normalize({ type, controlPoints }))).not.toThrow();
+  });
+
+  it.each(['lune-polygon', 'lune-polyline'] as const)('%s rejects a derived circle outside the finite coordinate range', (type) => {
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [1, -100],
+      [0, 1e308]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it.each(['lune-polygon', 'lune-polyline'] as const)('%s preserves a representable subnormal arc with stable azimuths', (type) => {
+    const controlPoints = [
+      [237, 5],
+      [243, 5],
+      [176, 178]
+    ].map(([x, y]) => [x * Number.MIN_VALUE, y * Number.MIN_VALUE] as Coordinate);
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+    const coordinates = geometry.type === 'polygon' ? geometry.coordinates.flat() : geometry.type === 'polyline' ? geometry.coordinates : [];
+
+    expect(new Set(coordinates.map(([x, y]) => `${x},${y}`)).size).toBeGreaterThan(1);
+  });
+
+  it('rejects a sector whose selected arc leaves the finite coordinate range', () => {
+    const type = 'sector';
+    const controlPoints: Coordinate[] = [
+      [1.7e308, 0],
+      [0.7e308, 0],
+      [1.7e308, 1e308]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s rejects complete states whose derived head directions collapse near MAX', (type) => {
+    const origin = 1e300;
+    const step = 1e285;
+    const controlPoints: Coordinate[] = [
+      [origin, origin],
+      [origin + 2 * step, origin],
+      [origin + 3 * step, origin + 3 * step],
+      [origin + 5 * step, origin + 4 * step]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s rejects finite paths whose derived body width overflows near a foldback', (type) => {
+    const controlPoints: Coordinate[] = [
+      [0, -1e300],
+      [0, 1e300],
+      [1e300, 0],
+      [0, 1e288]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it('rejects a complete double arrow whose derived head directions collapse near MAX', () => {
+    const type = 'double-arrow';
+    const origin = 1e300;
+    const step = 1e285;
+    const controlPoints: Coordinate[] = [
+      [origin, origin],
+      [origin + 4 * step, origin],
+      [origin + 3 * step, origin + 3 * step],
+      [origin + step, origin + 3 * step],
+      [origin + 2 * step, origin]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it('rejects a finalized double arrow whose generated complete state cannot render', () => {
+    const type = 'double-arrow';
+    const shape = definition(type);
+
+    expect(() => {
+      const state = shape.normalize({
+        type,
+        controlPoints: [
+          [1.7976931348623125e308, 1.7976931348623125e308],
+          [1.7976931348623141e308, 1.7976931348623125e308],
+          [1.7976931348623137e308, 1.7976931348623137e308]
+        ]
+      });
+      shape.finalize(state);
+    }).toThrow(InvalidArgumentError);
+  });
+
+  it('rejects a double arrow with an unrepresentable branch-tail distance', () => {
+    const type = 'double-arrow';
+    const controlPoints: Coordinate[] = [
+      [1e308, 1e308],
+      [1.1e308, 1e308],
+      [1.08e308, 1.1e308],
+      [1.02e308, 1.1e308],
+      [-1e308, -1e308]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it.each(['assemble-polygon', 'lune-polygon'] as const)('%s rejects two-point previews whose derived control point cannot be represented', (type) => {
+    const cases: readonly Coordinate[][] = [
+      [
+        [1e16, 1e16],
+        [1e16 + 2, 1e16]
+      ],
+      [
+        [1e8, 1e8],
+        [1e8 + 2 ** -26, 1e8]
+      ],
+      [
+        [-Number.MAX_VALUE, 0],
+        [Number.MAX_VALUE, 0]
+      ]
+    ];
+
+    for (const controlPoints of cases) {
+      expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+    }
+  });
+
+  it.each(['assemble-polygon', 'closed-curve-polygon', 'curve-polyline'] as const)(
+    '%s rejects states whose derived curve controls leave the finite range near MAX',
+    (type) => {
+      const controlPoints: Coordinate[] = [
+        [1.7976931348623093e308, 1.7976931348623093e308],
+        [Number.MAX_VALUE, 1.7976931348623093e308],
+        [1.7976931348623125e308, 1.7976931348623141e308]
+      ];
+
+      expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+    }
+  );
+
   it.each(representativeCases)('%s matches the existing representative geometry algorithm', (type, Legacy, points) => {
     const legacyCoordinates = new Legacy([], structuredClone(points), {}).getCoordinates();
     const shape = definition(type);
@@ -598,6 +799,86 @@ describe('plot shape parity', () => {
     }
   );
 
+  it.each(['lune-polygon', 'lune-polyline', 'sector'] as const)('%s rejects translated non-axis collinear points despite decimal roundoff', (type) => {
+    for (const offset of [10, 1000, 1e6]) {
+      const controlPoints: Coordinate[] = [
+        [0, offset],
+        [0.1, offset + 0.2],
+        [0.2, offset + 0.4]
+      ];
+
+      expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+    }
+  });
+
+  it.each(['lune-polygon', 'lune-polyline', 'sector'] as const)('%s accepts a representable right angle at a large translation', (type) => {
+    const offset = 5e14;
+    const controlPoints: Coordinate[] = [
+      [offset, offset],
+      [offset + 1, offset],
+      [offset, offset + 1]
+    ];
+    const shape = definition(type);
+
+    expect(() => {
+      const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+      const coordinates = geometry.type === 'polygon' ? geometry.coordinates.flat() : geometry.type === 'polyline' ? geometry.coordinates : [];
+      expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+    }).not.toThrow();
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s accepts a representable turn at a large translation', (type) => {
+    const offset = 5e14;
+    const controlPoints: Coordinate[] = [
+      [offset, offset],
+      [offset + 100, offset],
+      [offset + 49, offset + 2],
+      [offset + 50, offset + 2]
+    ];
+    const shape = definition(type);
+
+    expect(() => shape.toRenderGeometry(shape.normalize({ type, controlPoints }))).not.toThrow();
+  });
+
+  it('accepts a representable double arrow at a large translation', () => {
+    const type = 'double-arrow';
+    const offset = 5e14;
+    const controlPoints: Coordinate[] = [
+      [offset, offset],
+      [offset + 2, offset],
+      [offset + 1.5, offset + 1],
+      [offset + 0.5, offset + 1],
+      [offset + 1, offset]
+    ];
+    const shape = definition(type);
+
+    expect(() => shape.toRenderGeometry(shape.normalize({ type, controlPoints }))).not.toThrow();
+  });
+
+  it.each(['fine-arrow', 'tailed-squad-combat-arrow', 'assault-direction-arrow'] as const)(
+    '%s rejects complete states whose required width offsets collapse on the coordinate grid',
+    (type) => {
+      const cases: readonly Coordinate[][] = [
+        [
+          [1e16, 1e16],
+          [1e16 + 2, 1e16]
+        ],
+        [
+          [1e8, 1e8],
+          [1e8 + 2 ** -26, 1e8]
+        ],
+        [
+          [-Number.MAX_VALUE, 0],
+          [Number.MAX_VALUE, 0]
+        ]
+      ];
+
+      for (const controlPoints of cases) {
+        expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+      }
+    }
+  );
+
   it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s rejects a complete state whose derived bone starts with a zero-length segment', (type) => {
     const controlPoints: Coordinate[] = [
       [0, 0],
@@ -626,6 +907,17 @@ describe('plot shape parity', () => {
     ];
 
     for (const controlPoints of states) expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s rejects a translated decimal foldback in its derived bone', (type) => {
+    const controlPoints: Coordinate[] = [
+      [0, 1000.2],
+      [0.2, 1000.2],
+      [0.2, 1000.4],
+      [0, 1000]
+    ];
+
+    expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
   });
 
   it('rejects a complete double arrow whose derived right-hand bone has zero length', () => {
@@ -702,6 +994,260 @@ describe('plot shape parity', () => {
     }
 
     expect(failures, `${failures.length} accepted complete arrow states failed finite rendering`).toEqual([]);
+  });
+
+  it.each([1e-200, 1e200])('renders complete arrows when squared distance would underflow or overflow at scale %s', (scale) => {
+    const cases: readonly [PlotShapeType, Coordinate[]][] = [
+      [
+        'attack-arrow',
+        [
+          [0, 0],
+          [1, 0],
+          [2, 1]
+        ]
+      ],
+      [
+        'tailed-attack-arrow',
+        [
+          [0, 0],
+          [1, 0],
+          [2, 1]
+        ]
+      ],
+      [
+        'double-arrow',
+        [
+          [0, 0],
+          [1, 0],
+          [0.8, 0.8],
+          [0.2, 0.8],
+          [0.5, 0]
+        ]
+      ]
+    ];
+
+    for (const [type, source] of cases) {
+      const controlPoints = source.map(([x, y]) => [x * scale, y * scale] as Coordinate);
+      const shape = definition(type);
+      const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+      const coordinates = geometry.type === 'polygon' ? geometry.coordinates.flat() : geometry.type === 'polyline' ? geometry.coordinates : [];
+
+      expect(coordinates.length, `${type} emitted no coordinates at scale ${scale}`).toBeGreaterThan(0);
+      expect(
+        coordinates.every((coordinate) => coordinate.every(Number.isFinite)),
+        `${type} emitted non-finite coordinates at scale ${scale}`
+      ).toBe(true);
+    }
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s renders finite coordinates when a squared distance is subnormal and inaccurate', (type) => {
+    const controlPoints: Coordinate[] = [
+      [-1e-160, 0],
+      [1e-160, 0],
+      [1e-162, 1e-160]
+    ];
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+    const coordinates = geometry.type === 'polygon' ? geometry.coordinates.flat() : [];
+
+    expect(coordinates.length).toBeGreaterThan(0);
+    expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+  });
+
+  it('keeps double-arrow topology validation stable when orientation products underflow', () => {
+    const source: Coordinate[] = [
+      [8, 7],
+      [-2, -8],
+      [2, -9],
+      [-2, 8],
+      [6, -10]
+    ];
+
+    for (const scale of [1, 1e-170]) {
+      const controlPoints = source.map(([x, y]) => [x * scale, y * scale] as Coordinate);
+      expect(isClockWise(controlPoints[0], controlPoints[1], controlPoints[2])).toBe(true);
+      expect(() => definition('double-arrow').normalize({ type: 'double-arrow', controlPoints })).toThrow(InvalidArgumentError);
+    }
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)('%s rejects a derived zero-length bone across subnormal scales', (type) => {
+    const source: Coordinate[] = [
+      [8, 7],
+      [-2, -8],
+      [3, -0.5],
+      [4, 2]
+    ];
+
+    for (const scale of [1, 1e-170, 1e-200]) {
+      const controlPoints = source.map(([x, y]) => [x * scale, y * scale] as Coordinate);
+      expect(() => definition(type).normalize({ type, controlPoints }), `${type} accepted a zero-length derived bone at scale ${scale}`).toThrow(
+        InvalidArgumentError
+      );
+    }
+  });
+
+  it.each([
+    [
+      'tailed-attack-arrow',
+      [
+        [1e308, 0],
+        [1.2e308, 0],
+        [1.1e308, 1e307]
+      ]
+    ],
+    [
+      'double-arrow',
+      [
+        [1e308, 1e308],
+        [1.2e308, 1e308],
+        [1.15e308, 1.1e308],
+        [1.05e308, 1.1e308],
+        [1.1e308, 1e308]
+      ]
+    ]
+  ] as const)('%s renders finite coordinates when a representable midpoint has an overflowing coordinate sum', (type, controlPoints) => {
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+    const coordinates = geometry.type === 'polygon' ? geometry.coordinates.flat() : [];
+
+    expect(coordinates.length).toBeGreaterThan(0);
+    expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+  });
+
+  it('keeps tailed-attack-arrow tail orientation stable when orientation products overflow', () => {
+    const source: Coordinate[] = [
+      [0, 0],
+      [2, 1],
+      [1, 2],
+      [3, 4]
+    ];
+
+    for (const scale of [1, 1e200]) {
+      const type = 'tailed-attack-arrow';
+      const controlPoints = source.map(([x, y]) => [x * scale, y * scale] as Coordinate);
+      const shape = definition(type);
+      const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+
+      expect(geometry.type).toBe('polygon');
+      if (geometry.type === 'polygon') expect(geometry.coordinates[0][0]).toEqual(controlPoints[1]);
+    }
+  });
+
+  it.each([1e-200, 1e200])('renders an equilateral triangle when squared edge length would underflow or overflow at scale %s', (scale) => {
+    const type = 'equilateral-triangle';
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [4 * scale, 3 * scale]
+    ];
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+    const coordinates = geometry.type === 'polygon' ? geometry.coordinates.flat() : [];
+
+    expect(coordinates.length).toBeGreaterThan(0);
+    expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+  });
+
+  it.each([1_000, 1_000_000])('renders an equilateral triangle without false rejection at translation %s', (translation) => {
+    const type = 'equilateral-triangle';
+    const controlPoints: Coordinate[] = [
+      [translation, translation],
+      [translation + 4, translation + 3]
+    ];
+    const shape = definition(type);
+
+    expect(() => shape.toRenderGeometry(shape.normalize({ type, controlPoints }))).not.toThrow();
+  });
+
+  it('rejects an equilateral triangle whose edge or generated height exceeds the finite coordinate range', () => {
+    const cases: readonly Coordinate[][] = [
+      [
+        [-Number.MAX_VALUE, 0],
+        [Number.MAX_VALUE, 0]
+      ],
+      [
+        [Number.MAX_VALUE - 1e308, Number.MAX_VALUE],
+        [Number.MAX_VALUE, Number.MAX_VALUE]
+      ],
+      [
+        [1e16, 1e16],
+        [1e16 + 2, 1e16]
+      ]
+    ];
+
+    for (const controlPoints of cases) {
+      expect(() => definition('equilateral-triangle').normalize({ type: 'equilateral-triangle', controlPoints })).toThrow(InvalidArgumentError);
+    }
+  });
+
+  it('renders a curve polyline with finite coordinates near Number.MAX_VALUE', () => {
+    const type = 'curve-polyline';
+    const controlPoints: Coordinate[] = [
+      [1.7976931348623155e308, 1.7976931348623155e308],
+      [1.7976931348623153e308, 1.7976931348623155e308],
+      [1.7976931348623155e308, 1.7976931348623153e308]
+    ];
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+    const coordinates = geometry.type === 'polyline' ? geometry.coordinates : [];
+
+    expect(coordinates.length).toBeGreaterThan(0);
+    expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+  });
+
+  it.each([Number.MIN_VALUE, 1e-320])('renders a curve polyline when control-point vector squares underflow at scale %s', (scale) => {
+    const type = 'curve-polyline';
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [4 * scale, 3 * scale],
+      [8 * scale, 0]
+    ];
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+    const coordinates = geometry.type === 'polyline' ? geometry.coordinates : [];
+
+    expect(coordinates.length).toBeGreaterThan(0);
+    expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+  });
+
+  it.each(['lune-polygon', 'lune-polyline'] as const)('%s renders finite coordinates when same-sign midpoint sums overflow', (type) => {
+    const controlPoints: Coordinate[] = [
+      [1e308, 1e308],
+      [1.2e308, 1e308],
+      [1.1e308, 1.1e308]
+    ];
+    const shape = definition(type);
+    const geometry = shape.toRenderGeometry(shape.normalize({ type, controlPoints }));
+    const coordinates = geometry.type === 'polygon' ? geometry.coordinates.flat() : geometry.type === 'polyline' ? geometry.coordinates : [];
+
+    expect(coordinates.length).toBeGreaterThan(0);
+    expect(coordinates.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
+  });
+
+  it.each(['attack-arrow', 'tailed-attack-arrow'] as const)(
+    '%s rejects a derived path whose representable segment lengths have an unrepresentable sum',
+    (type) => {
+      const controlPoints: Coordinate[] = [
+        [0, 0],
+        [1e308, 0],
+        [1e308, 1e308],
+        [0, 1e308]
+      ];
+
+      expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
+    }
+  );
+
+  it('rejects a double arrow whose derived offsets underflow at the minimum finite scale', () => {
+    const scale = Number.MIN_VALUE;
+    const controlPoints: Coordinate[] = [
+      [0, 0],
+      [2 * scale, 0],
+      [1.6 * scale, 1.6 * scale],
+      [0.4 * scale, 1.6 * scale],
+      [scale, 0]
+    ];
+
+    expect(() => definition('double-arrow').normalize({ type: 'double-arrow', controlPoints })).toThrow(InvalidArgumentError);
   });
 
   it.each([
