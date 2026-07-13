@@ -776,7 +776,7 @@ export interface ITransformCallback {
 
 export interface ITransformParams {
   /**
-   * 所属地图实例。多地图场景下应显式传入；不传时回退到全局单例 `useEarth()`
+   * 所属地图实例。多地图场景下应显式传入；不传时回退到 `useEarth()` 管理的默认实例
    */
   earth?: Earth;
   /**

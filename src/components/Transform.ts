@@ -24,7 +24,7 @@ import { cloneStyleSnapshot } from './transform/styleSnapshot';
 
 export default class Transform {
   /**
-   * 地图实例（由外部注入或回退到全局单例）
+   * 地图实例（由外部注入或回退到 `useEarth()` 管理的默认实例）
    */
   private earth: Earth;
   /**
