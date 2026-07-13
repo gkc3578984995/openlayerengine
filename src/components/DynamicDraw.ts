@@ -34,6 +34,7 @@ import { OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, CircleLayer, Bas
 import { isPatternFill } from '../common/PatternFill.js';
 import { unByKey } from 'ol/Observable.js';
 import { EventsKey } from 'ol/events.js';
+import { shiftKeyOnly } from 'ol/events/condition.js';
 import { Coordinate } from 'ol/coordinate.js';
 import { Utils } from '../common/index.js';
 import PlotDraw from '../extends/plot/plotDraw.js';
@@ -109,7 +110,7 @@ export default class DynamicDraw {
   private drawProgressDisposers: Array<() => void> = [];
   /** 当前绘制会话注册的右键退出监听释放器 */
   private drawExitDisposer?: () => void;
-  /** 通过 Draw condition 的公开 MapBrowserEvent 记录最近一次按下位置，替代 Draw 私有按下像素字段。 */
+  /** 通过 Draw 的公开 condition 记录最近一次按下位置，替代 Draw 私有按下像素字段。 */
   private lastDrawPointerDown?: { coordinate: Coordinate; pixel: number[] };
   /** 当前编辑会话注册的右键退出监听释放器 */
   private editSessionExitDisposer?: () => void;
@@ -295,6 +296,14 @@ export default class DynamicDraw {
     this.initHelpTooltip('左击开始绘制，右击退出绘制');
     this.earth.setMouseStyle('pointer');
     const drawStyle = this.buildDrawPreviewStyle(type, param);
+    const rememberPrimaryPointerDown = (event: Parameters<typeof shiftKeyOnly>[0]): boolean => {
+      if (event.type !== 'pointerdown' || !isPrimaryMouseButton(event.originalEvent)) return false;
+      this.lastDrawPointerDown = {
+        coordinate: event.coordinate.slice(),
+        pixel: event.pixel.slice()
+      };
+      return true;
+    };
     // 如果存在绘制工具 则清除以前的绘制工具
     // if (this.draw) this.map.removeInteraction(this.draw);
     // 创建绘制
@@ -305,13 +314,10 @@ export default class DynamicDraw {
       style: drawStyle,
       stopClick: true,
       geometryName: type,
-      condition: (e) => {
-        if (!isPrimaryMouseButton(e.originalEvent)) return false;
-        this.lastDrawPointerDown = {
-          coordinate: e.coordinate.slice(),
-          pixel: e.pixel.slice()
-        };
-        return true;
+      condition: rememberPrimaryPointerDown,
+      freehandCondition: (event) => {
+        if (!shiftKeyOnly(event)) return false;
+        return event.type === 'pointerdown' ? rememberPrimaryPointerDown(event) : true;
       },
       finishCondition: () => {
         if (type == 'Point') {
@@ -544,7 +550,12 @@ export default class DynamicDraw {
             /* ignore */
           }
         }
+        this.lastDrawPointerDown = undefined;
       }
+    });
+    this.draw?.on('drawabort', () => {
+      this.clearDrawProgressListeners();
+      this.lastDrawPointerDown = undefined;
     });
     // 退出绘制回调函数
     this.drawExitDisposer = this.earth.useGlobalEvent().addMouseRightClickEventByGlobal((event) => {

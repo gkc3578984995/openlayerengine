@@ -1,9 +1,91 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Feature from 'ol/Feature.js';
+import BaseObject from 'ol/Object.js';
+import View from 'ol/View.js';
+import LineString from 'ol/geom/LineString.js';
+import Draw, { DrawEvent } from 'ol/interaction/Draw.js';
+import VectorSource from 'ol/source/Vector.js';
 import { Style } from 'ol/style';
 import DynamicDraw from '../src/components/DynamicDraw';
 
+class TestPointerEvent extends Event {
+  readonly altKey = false;
+  readonly button: number;
+  readonly ctrlKey = false;
+  readonly isPrimary = true;
+  readonly metaKey = false;
+  readonly pointerId = 1;
+  readonly pointerType = 'mouse';
+  readonly shiftKey: boolean;
+
+  constructor(type: string, options: { button: number; shiftKey: boolean }) {
+    super(type);
+    this.button = options.button;
+    this.shiftKey = options.shiftKey;
+  }
+}
+
+function createPointerEvent(
+  type: 'pointerdown' | 'pointerdrag' | 'pointerup',
+  coordinate: number[],
+  pixel: number[],
+  options: { button: number; shiftKey: boolean }
+) {
+  const originalEvent = new TestPointerEvent(type, options);
+  return {
+    type,
+    originalEvent,
+    coordinate: coordinate.slice(),
+    pixel: pixel.slice(),
+    activePointers: type === 'pointerup' ? [] : [originalEvent],
+    preventDefault: vi.fn()
+  } as any;
+}
+
+function createDrawHarness(type: 'LineString' | 'Circle', wireDrawLifecycle = false) {
+  const view = new View({ center: [0, 0], zoom: 2 });
+  const map = Object.assign(new BaseObject(), {
+    render: vi.fn(),
+    getView: () => view,
+    addInteraction(interaction: Draw) {
+      interaction.setMap(map as any);
+    },
+    removeInteraction(interaction: Draw) {
+      interaction.setMap(null);
+    }
+  });
+  const dynamicDraw = Object.create(DynamicDraw.prototype) as any;
+  dynamicDraw.map = map;
+  dynamicDraw.tempSource = new VectorSource();
+  dynamicDraw.drawProgressDisposers = [];
+  dynamicDraw.overlay = { remove: vi.fn() };
+  dynamicDraw.earth = {
+    setMouseStyle: vi.fn(),
+    useGlobalEvent: () => ({
+      addMouseRightClickEventByGlobal: vi.fn(() => vi.fn()),
+      addMouseMoveEventByGlobal: vi.fn(() => vi.fn()),
+      addMouseLeftDownEventByGlobal: vi.fn(() => vi.fn())
+    })
+  };
+  dynamicDraw.initHelpTooltip = vi.fn();
+  dynamicDraw.buildDrawPreviewStyle = vi.fn(() => new Style());
+  if (!wireDrawLifecycle) dynamicDraw.drawChange = vi.fn();
+
+  dynamicDraw.initDraw(type);
+
+  return { dynamicDraw, interaction: dynamicDraw.draw as Draw };
+}
+
 describe('DynamicDraw 监听生命周期', () => {
+  beforeEach(() => {
+    vi.stubGlobal('PointerEvent', TestPointerEvent);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('退出绘制时只注销自身的全局监听', () => {
     const progressDisposer = vi.fn();
     const exitDisposer = vi.fn();
@@ -58,6 +140,95 @@ describe('DynamicDraw 监听生命周期', () => {
     draw.exitDraw({ position: [120, 30] });
 
     expect(order).toEqual(['finish', 'remove', 'clear']);
+  });
+
+  it.each(['LineString', 'Circle'] as const)('records the primary Shift freehand pointer coordinate for %s', (type) => {
+    const { dynamicDraw, interaction } = createDrawHarness(type);
+
+    interaction.handleEvent(createPointerEvent('pointerdown', [12000000, 3000000], [12, 3], { button: 0, shiftKey: true }));
+
+    expect(dynamicDraw.lastDrawPointerDown).toEqual({ coordinate: [12000000, 3000000], pixel: [12, 3] });
+    expect(interaction.getFreehand()).toBe(true);
+
+    interaction.handleEvent(createPointerEvent('pointerdrag', [12000001, 3000001], [24, 15], { button: -1, shiftKey: true }));
+    interaction.handleEvent(createPointerEvent('pointerup', [12000001, 3000001], [24, 15], { button: -1, shiftKey: true }));
+
+    expect(interaction.getFreehand()).toBe(true);
+    interaction.setMap(null);
+  });
+
+  it('replaces a rejected ordinary drag position with the next Shift freehand pointerdown', () => {
+    const { dynamicDraw, interaction } = createDrawHarness('LineString');
+    const drawStart = vi.fn();
+    interaction.on('drawstart', drawStart);
+
+    interaction.handleEvent(createPointerEvent('pointerdown', [120, 30], [12, 3], { button: 0, shiftKey: false }));
+    interaction.handleEvent(createPointerEvent('pointerdrag', [140, 50], [40, 30], { button: -1, shiftKey: false }));
+    interaction.handleEvent(createPointerEvent('pointerup', [140, 50], [40, 30], { button: -1, shiftKey: false }));
+
+    expect(drawStart).not.toHaveBeenCalled();
+    expect(dynamicDraw.lastDrawPointerDown).toEqual({ coordinate: [120, 30], pixel: [12, 3] });
+
+    interaction.handleEvent(createPointerEvent('pointerdown', [150, 60], [50, 40], { button: 0, shiftKey: true }));
+
+    expect(dynamicDraw.lastDrawPointerDown).toEqual({ coordinate: [150, 60], pixel: [50, 40] });
+
+    const fallbackEvent = new DrawEvent(
+      'drawstart',
+      new Feature(
+        new LineString([
+          [150, 60],
+          [160, 70]
+        ])
+      )
+    );
+    expect(dynamicDraw.resolveDrawEventCoordinate(fallbackEvent)).toEqual([150, 60]);
+    interaction.setMap(null);
+  });
+
+  it('clears the public pointer position after drawend', () => {
+    const { dynamicDraw, interaction } = createDrawHarness('LineString', true);
+    dynamicDraw.getBaseLayer = vi.fn();
+    dynamicDraw.lastDrawPointerDown = { coordinate: [120, 30], pixel: [12, 3] };
+
+    try {
+      interaction.dispatchEvent(
+        new DrawEvent(
+          'drawend',
+          new Feature(
+            new LineString([
+              [120, 30],
+              [130, 40]
+            ])
+          )
+        )
+      );
+      expect(dynamicDraw.lastDrawPointerDown).toBeUndefined();
+    } finally {
+      interaction.setMap(null);
+    }
+  });
+
+  it('clears the public pointer position after drawabort', () => {
+    const { dynamicDraw, interaction } = createDrawHarness('LineString', true);
+    dynamicDraw.lastDrawPointerDown = { coordinate: [120, 30], pixel: [12, 3] };
+
+    try {
+      interaction.dispatchEvent(
+        new DrawEvent(
+          'drawabort',
+          new Feature(
+            new LineString([
+              [120, 30],
+              [130, 40]
+            ])
+          )
+        )
+      );
+      expect(dynamicDraw.lastDrawPointerDown).toBeUndefined();
+    } finally {
+      interaction.setMap(null);
+    }
   });
 
   it('uses the same background stroke for polygon preview and saved parameters', () => {
