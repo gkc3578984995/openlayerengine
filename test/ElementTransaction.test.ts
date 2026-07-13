@@ -5,8 +5,14 @@ import type { ElementState } from '../src/core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../src/core/errors.js';
 import type { ErrorReporter } from '../src/core/ports/ErrorReporter.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import type { ShapeDefinition, ShapeState } from '../src/core/shape/types.js';
 import { createNativeStyleRef } from '../src/core/style/types.js';
-import type { ElementTransaction } from '../src/core/transaction/ElementTransaction.js';
+import {
+  abortElementTransaction,
+  completeElementTransaction,
+  ElementTransaction as ElementTransactionScope,
+  type ElementTransaction
+} from '../src/core/transaction/ElementTransaction.js';
 import type { ElementChangeSet } from '../src/core/transaction/types.js';
 
 function element(id: string, visible = true): ElementState<{ nested: { value: number } }> {
@@ -27,6 +33,75 @@ function createStore(options?: ConstructorParameters<typeof ElementStore>[1]): E
 }
 
 describe('ElementTransaction', () => {
+  it('does not scan the full Store map for sequential adds or pure-id updates', () => {
+    const store = createStore();
+    const iteratedSizes: number[] = [];
+    const originalIterator = Map.prototype[Symbol.iterator];
+    const iteratorSpy = vi.spyOn(Map.prototype, Symbol.iterator).mockImplementation(function (this: Map<unknown, unknown>) {
+      iteratedSizes.push(this.size);
+      return originalIterator.call(this);
+    });
+    try {
+      for (let index = 0; index < 32; index += 1) store.add(element(`point-${index}`));
+
+      const sequentialScans = iteratedSizes.filter((size) => size >= 8);
+      expect(sequentialScans).toEqual([]);
+
+      iteratedSizes.length = 0;
+      const enteredSizes: number[] = [];
+      const originalEntries = Map.prototype.entries;
+      const entriesSpy = vi.spyOn(Map.prototype, 'entries').mockImplementation(function (this: Map<unknown, unknown>) {
+        enteredSizes.push(this.size);
+        return originalEntries.call(this);
+      });
+      try {
+        store.hide({ id: 'point-16' });
+        const idsChanges = store.hide({ ids: ['point-17', 'point-3', 'point-17'] });
+        store.transaction((transaction) => {
+          for (let index = 0; index < 16; index += 1) {
+            transaction.hide({ id: 'point-20' });
+            transaction.show({ id: 'point-20' });
+          }
+        });
+        const pureIdScans = [...iteratedSizes, ...enteredSizes].filter((size) => size === 32);
+        expect(pureIdScans).toEqual([]);
+        expect(idsChanges.changes.map(({ id }) => id)).toEqual(['point-17', 'point-3']);
+      } finally {
+        entriesSpy.mockRestore();
+      }
+    } finally {
+      iteratorSpy.mockRestore();
+    }
+  });
+
+  it('keeps the base Map untouched until an atomic commit and through rollback or snapshot failure', () => {
+    const pointDefinition = basicShapeDefinitions.find(({ type }) => type === 'point') as ShapeDefinition<ShapeState<'point'>>;
+    const snapshotFailure = new Error('snapshot failed');
+    let failClone = false;
+    const definition: ShapeDefinition<ShapeState<'point'>> = {
+      ...pointDefinition,
+      clone: (shape) => {
+        if (failClone) throw snapshotFailure;
+        return pointDefinition.clone(shape);
+      }
+    };
+    const registry = new ShapeRegistry([definition]);
+    const base = new Map();
+    const rolledBack = new ElementTransactionScope(registry, base, () => 'unused');
+
+    rolledBack.add(element('rolled-back'));
+    expect(base.size).toBe(0);
+    abortElementTransaction(rolledBack);
+    expect(base.size).toBe(0);
+
+    const failedCommit = new ElementTransactionScope(registry, base, () => 'unused');
+    failedCommit.add(element('failed-commit'));
+    failClone = true;
+    expect(() => completeElementTransaction(failedCommit)).toThrow(snapshotFailure);
+    expect(base.size).toBe(0);
+    abortElementTransaction(failedCommit);
+  });
+
   it('commits multiple writes atomically, exposes read-your-writes, and notifies once with entry/final snapshots', () => {
     const store = createStore();
     store.add(element('point-1'));
@@ -107,6 +182,23 @@ describe('ElementTransaction', () => {
     expect(store.get('point-1')?.style).toBe(secondStyle);
   });
 
+  it('restores the entry snapshot when structural equality hides an alias-topology-only update', () => {
+    const store = createStore();
+    const shared = { value: 1 };
+    store.add({ ...element('point-1'), data: { first: shared, second: shared } });
+
+    const changes = store.update<{ first: { value: number }; second: { value: number } }>(
+      { id: 'point-1' },
+      {
+        data: { first: { value: 1 }, second: { value: 1 } }
+      }
+    );
+    const finalState = store.get<{ first: { value: number }; second: { value: number } }>('point-1');
+
+    expect(changes.changes).toEqual([]);
+    expect(finalState?.data?.first).toBe(finalState?.data?.second);
+  });
+
   it('rejects nested transactions and rolls back the outer transaction', () => {
     const store = createStore();
 
@@ -164,6 +256,24 @@ describe('ElementTransaction', () => {
     expect(store.query()).toEqual([]);
   });
 
+  it('rejects a hostile non-Promise thenable without invoking its then body', async () => {
+    const store = createStore();
+    let thenCalls = 0;
+    const hostileThenable = {
+      then: () => {
+        thenCalls += 1;
+        store.add(element('hostile-side-effect'));
+      }
+    };
+
+    expect(() => store.transaction(() => hostileThenable)).toThrow(InvalidArgumentError);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(thenCalls).toBe(0);
+    expect(store.get('hostile-side-effect')).toBeUndefined();
+  });
+
   it('generates a default copy id against staged additions in the same transaction', () => {
     const store = createStore();
     store.add(element('point-1'));
@@ -175,6 +285,30 @@ describe('ElementTransaction', () => {
 
     expect(result.value.id).toBe('element-2');
     expect(store.query().map(({ id }) => id)).toEqual(['point-1', 'element-1', 'element-2']);
+  });
+
+  it('evaluates selector predicates against a stable candidate list under reentrant transaction writes', () => {
+    const store = createStore();
+    store.add(element('point-1'));
+    store.add(element('point-2'));
+
+    const result = store.transaction((transaction) => {
+      let predicateCalls = 0;
+      transaction.update(
+        {
+          predicate: () => {
+            predicateCalls += 1;
+            if (predicateCalls <= 3) transaction.add(element(`side-effect-${predicateCalls}`));
+            return false;
+          }
+        },
+        { visible: false }
+      );
+      return predicateCalls;
+    });
+
+    expect(result.value).toBe(2);
+    expect(store.query().map(({ id }) => id)).toEqual(['point-1', 'point-2', 'side-effect-1', 'side-effect-2']);
   });
 
   it('treats duplicate listener registrations as independent subscriptions', () => {
@@ -190,6 +324,28 @@ describe('ElementTransaction', () => {
     store.hide({ id: 'point-1' });
     expect(listener).toHaveBeenCalledTimes(3);
     unsubscribeSecond();
+  });
+
+  it('queues reentrant commits so every listener observes FIFO changes and converges with the Store', () => {
+    const store = createStore();
+    const order: string[] = [];
+    const projection = new Map<string, Readonly<ElementState>>();
+    store.subscribe((changes) => {
+      const change = changes.changes[0];
+      order.push(`first:${change.kind}`);
+      if (change.kind === 'add') store.hide({ id: change.id });
+    });
+    store.subscribe((changes) => {
+      const change = changes.changes[0];
+      order.push(`second:${change.kind}:${String(change.after?.visible)}`);
+      if (change.after === undefined) projection.delete(change.id);
+      else projection.set(change.id, change.after);
+    });
+
+    store.add(element('point-1'));
+
+    expect(order).toEqual(['first:add', 'second:add:true', 'first:update', 'second:update:false']);
+    expect(projection.get('point-1')).toEqual(store.get('point-1'));
   });
 
   it('freezes changes for every listener so one callback cannot pollute the next', () => {

@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
+import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { DuplicateElementIdError, InvalidArgumentError, InvalidSelectorError } from '../src/core/errors.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import type { ShapeDefinition, ShapeState } from '../src/core/shape/types.js';
 import { createNativeStyleRef } from '../src/core/style/types.js';
 
 function createStore(options?: ConstructorParameters<typeof ElementStore>[1]): ElementStore {
@@ -133,6 +135,39 @@ describe('ElementStore', () => {
     expect(() => store.update({ id: 'missing' }, { animation: { type: 'blink' } } as never)).toThrow(InvalidArgumentError);
   });
 
+  it('persists finalized canonical geometry and rejects a finalizer result that remains incomplete', () => {
+    const plotStore = new ElementStore(new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]));
+    const doubleArrow = plotStore.add({
+      id: 'double-arrow-1',
+      type: 'double-arrow',
+      geometry: {
+        type: 'double-arrow',
+        controlPoints: [
+          [0, 0],
+          [4, 0],
+          [3, 3],
+          [1, 3]
+        ]
+      },
+      style: {},
+      layerId: 'business-layer',
+      visible: true
+    });
+    expect('controlPoints' in doubleArrow.geometry && doubleArrow.geometry.controlPoints).toHaveLength(5);
+
+    const incompleteFinalizer: ShapeDefinition<ShapeState<'point'>> = {
+      type: 'point',
+      capabilities: new Set(),
+      normalize: (input) => input as ShapeState<'point'>,
+      clone: (shape) => ({ type: 'point', controlPoints: shape.controlPoints.map((coordinate) => [...coordinate]) }),
+      isComplete: (shape) => shape.controlPoints.length === 1,
+      finalize: () => ({ type: 'point', controlPoints: [] }),
+      toRenderGeometry: (shape) => ({ type: 'point', coordinates: shape.controlPoints[0] })
+    };
+    const incompleteStore = new ElementStore(new ShapeRegistry([incompleteFinalizer]));
+    expect(() => incompleteStore.add(pointElement())).toThrow(InvalidArgumentError);
+  });
+
   it('passes isolated immutable snapshots to predicates for query, update, and remove', () => {
     const store = createStore();
     store.add(pointElement());
@@ -154,6 +189,31 @@ describe('ElementStore', () => {
     expect(predicateStates[0]).not.toBe(queried[0]);
     expect(predicateStates[1]).not.toBe(updated.changes[0].before);
     expect(predicateStates[2]).not.toBe(removed.changes[0].before);
+  });
+
+  it('normalizes only matched writes and never re-finalizes read or predicate snapshots', () => {
+    const pointDefinition = basicShapeDefinitions.find(({ type }) => type === 'point');
+    if (pointDefinition === undefined) throw new Error('Expected point definition');
+    const normalizedX: number[] = [];
+    const countingDefinition: ShapeDefinition<ShapeState<'point'>> = {
+      ...(pointDefinition as ShapeDefinition<ShapeState<'point'>>),
+      normalize: (input) => {
+        const normalized = pointDefinition.normalize(input) as ShapeState<'point'>;
+        normalizedX.push(normalized.controlPoints[0][0]);
+        return normalized;
+      }
+    };
+    const store = new ElementStore(new ShapeRegistry([countingDefinition]));
+    store.add(pointElement({ id: 'matched', geometry: { type: 'point', controlPoints: [[1, 0]] } }));
+    store.add(pointElement({ id: 'unmatched', geometry: { type: 'point', controlPoints: [[2, 0]] } }));
+    normalizedX.length = 0;
+
+    store.get('matched');
+    store.query({ predicate: () => true });
+    expect(normalizedX).toEqual([]);
+
+    store.update({ id: 'matched' }, { visible: false });
+    expect(normalizedX).toEqual([1, 1]);
   });
 
   it('hides, shows, removes, and clears selected states with explicit change kinds', () => {
@@ -185,6 +245,16 @@ describe('ElementStore', () => {
     expect(() => store.show({})).toThrow(InvalidSelectorError);
     expect(store.remove({ ids: [] }).changes).toEqual([]);
     expect(store.update({ id: 'missing' }, { visible: false }).changes).toEqual([]);
+  });
+
+  it.each([undefined, null, 0, '', false, []])('rejects a non-object destructive selector as InvalidSelectorError: %j', (selector) => {
+    const store = createStore();
+    store.add(pointElement());
+
+    expect(() => store.update(selector as never, { visible: false })).toThrow(InvalidSelectorError);
+    expect(() => store.remove(selector as never)).toThrow(InvalidSelectorError);
+    expect(() => store.hide(selector as never)).toThrow(InvalidSelectorError);
+    expect(() => store.show(selector as never)).toThrow(InvalidSelectorError);
   });
 
   it('copies pure state deeply, preserves NativeStyleRef identity, and always uses a generated id', () => {

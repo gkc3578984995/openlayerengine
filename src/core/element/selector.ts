@@ -26,6 +26,7 @@ export function compileSelector<T>(selector?: ElementSelector<T>): (state: Reado
 }
 
 export function assertDestructiveSelector(selector: ElementSelector): void {
+  if (selector === null || typeof selector !== 'object' || Array.isArray(selector)) throw new InvalidSelectorError();
   assertUnambiguousSelector(selector);
   const hasCriterion =
     selector.id !== undefined ||

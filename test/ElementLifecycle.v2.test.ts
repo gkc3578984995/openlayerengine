@@ -3,6 +3,7 @@ import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { DuplicateElementIdError, InvalidArgumentError, ObjectDisposedError } from '../src/core/errors.js';
+import { createNativeRef } from '../src/core/native/types.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { createNativeStyleRef } from '../src/core/style/types.js';
 
@@ -61,6 +62,26 @@ describe('ElementStore lifecycle and snapshots', () => {
     expect(copied.style).toBe(nativeStyle);
   });
 
+  it('canonicalizes optional undefined fields as absent and reports only real field removal', () => {
+    const store = createStore();
+    store.add(state());
+    const explicitUndefined = store.add(state({ id: 'undefined', data: undefined, module: undefined }));
+    const absentInput = state({ id: 'absent' });
+    delete (absentInput as { data?: unknown }).data;
+    delete (absentInput as { module?: string }).module;
+    store.add(absentInput);
+
+    expect(Object.prototype.hasOwnProperty.call(explicitUndefined, 'data')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(explicitUndefined, 'module')).toBe(false);
+    expect(store.update({ id: 'absent' }, { data: undefined, module: undefined }).changes).toEqual([]);
+
+    const removed = store.update({ id: 'point-1' }, { data: undefined, module: undefined });
+    expect(removed.changes).toHaveLength(1);
+    expect(removed.changes[0].before).toMatchObject({ data: { nested: { label: 'original' } }, module: 'draw' });
+    expect(Object.prototype.hasOwnProperty.call(removed.changes[0].after, 'data')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(removed.changes[0].after, 'module')).toBe(false);
+  });
+
   it('uses a collision-free default copy id and rejects one invalid generated id without retrying', () => {
     const store = createStore();
     store.add(state());
@@ -82,6 +103,16 @@ describe('ElementStore lifecycle and snapshots', () => {
     expect(() => store.add({ ...state(), style: undefined } as never)).toThrow(InvalidArgumentError);
     expect(() => store.add({ ...state(), visible: undefined } as never)).toThrow(InvalidArgumentError);
     expect(() => store.add({ ...state(), module: '' })).toThrow(InvalidArgumentError);
+  });
+
+  it('accepts only plain structured style data or an issued NativeStyleRef', () => {
+    const store = createStore();
+    const nullPrototypeStyle = Object.assign(Object.create(null) as Record<string, unknown>, { zIndex: 2 });
+
+    expect(() => store.add({ ...state(), style: [] } as never)).toThrow(InvalidArgumentError);
+    expect(() => store.add({ ...state(), style: createNativeRef('layer') } as never)).toThrow(InvalidArgumentError);
+    expect(() => store.add({ ...state(), id: 'plain-style', style: nullPrototypeStyle })).not.toThrow();
+    expect(() => store.add({ ...state(), id: 'native-style', style: createNativeStyleRef() })).not.toThrow();
   });
 
   it('clears state and subscriptions on idempotent destroy, then rejects every other public operation', () => {

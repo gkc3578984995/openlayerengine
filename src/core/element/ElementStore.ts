@@ -3,7 +3,7 @@ import { defaultErrorReporter, type ErrorReporter } from '../ports/ErrorReporter
 import type { ShapeRegistry } from '../shape/ShapeRegistry.js';
 import { abortElementTransaction, completeElementTransaction, ElementTransaction } from '../transaction/ElementTransaction.js';
 import type { ElementChangeSet, TransactionResult } from '../transaction/types.js';
-import { createElementSnapshot, type ElementSnapshot } from './snapshot.js';
+import { cloneElementSnapshot, type ElementSnapshot } from './snapshot.js';
 import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from './types.js';
 
 export interface ElementStoreOptions {
@@ -12,17 +12,20 @@ export interface ElementStoreOptions {
 }
 
 type StoredElement = ElementSnapshot<unknown>;
+type SynchronousResult<T> = T extends PromiseLike<unknown> ? never : T;
 
 export class ElementStore {
   readonly #shapeRegistry: ShapeRegistry;
   readonly #errorReporter: ErrorReporter;
   readonly #providedCreateId: (() => string) | undefined;
   readonly #listeners = new Map<number, (changes: ElementChangeSet) => void>();
-  #states = new Map<string, StoredElement>();
+  readonly #notificationQueue: ElementChangeSet[] = [];
+  readonly #states = new Map<string, StoredElement>();
   #nextListenerId = 0;
   #nextGeneratedId = 0;
   #disposed = false;
   #transactionActive = false;
+  #notifying = false;
 
   constructor(shapeRegistry: ShapeRegistry, options: ElementStoreOptions = {}) {
     this.#shapeRegistry = shapeRegistry;
@@ -37,13 +40,12 @@ export class ElementStore {
   get<T>(id: string): Readonly<ElementState<T>> | undefined {
     this.#assertActive();
     const state = this.#states.get(id);
-    return state === undefined ? undefined : (createElementSnapshot(this.#shapeRegistry, state) as ElementSnapshot<T>);
+    return state === undefined ? undefined : (cloneElementSnapshot(this.#shapeRegistry, state) as ElementSnapshot<T>);
   }
 
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[] {
     this.#assertActive();
-    const staged = new Map(this.#states);
-    const transaction = new ElementTransaction(this.#shapeRegistry, staged, this.#createIdFor(staged));
+    const transaction = new ElementTransaction(this.#shapeRegistry, this.#states, this.#createIdFor());
     try {
       const result = transaction.query(selector);
       abortElementTransaction(transaction);
@@ -78,22 +80,18 @@ export class ElementStore {
     return this.transaction((transaction) => transaction.clear()).changes;
   }
 
+  transaction<T>(work: (transaction: ElementTransaction) => SynchronousResult<T>): TransactionResult<T>;
   transaction<T>(work: (transaction: ElementTransaction) => T): TransactionResult<T> {
     this.#assertActive();
     if (this.#transactionActive) throw new InvalidArgumentError('Nested element transactions are not supported');
     if (typeof work !== 'function') throw new InvalidArgumentError('Element transaction work must be a function');
 
     this.#transactionActive = true;
-    const staged = new Map(this.#states);
-    const transaction = new ElementTransaction(this.#shapeRegistry, staged, this.#createIdFor(staged));
+    const transaction = new ElementTransaction(this.#shapeRegistry, this.#states, this.#createIdFor());
     try {
       const value = work(transaction);
-      if (isThenable(value)) {
-        consumeThenable(value);
-        throw new InvalidArgumentError('Element transactions must be synchronous');
-      }
+      if (observeNativePromise(value) || isThenable(value)) throw new InvalidArgumentError('Element transactions must be synchronous');
       const changes = completeElementTransaction(transaction);
-      this.#states = staged;
       this.#transactionActive = false;
       this.#notify(changes);
       return Object.freeze({ value, changes });
@@ -123,32 +121,51 @@ export class ElementStore {
     this.#disposed = true;
     this.#states.clear();
     this.#listeners.clear();
+    this.#notificationQueue.length = 0;
   }
 
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('ElementStore has been destroyed');
   }
 
-  #createIdFor(states: ReadonlyMap<string, StoredElement>): () => string {
-    return this.#providedCreateId ?? (() => this.#nextAvailableId(states));
+  #createIdFor(): (isOccupied: (id: string) => boolean) => string {
+    const providedCreateId = this.#providedCreateId;
+    return providedCreateId === undefined ? (isOccupied) => this.#nextAvailableId(isOccupied) : () => providedCreateId();
   }
 
-  #nextAvailableId(states: ReadonlyMap<string, StoredElement>): string {
+  #nextAvailableId(isOccupied: (id: string) => boolean): string {
     let candidate: string;
     do candidate = `element-${++this.#nextGeneratedId}`;
-    while (states.has(candidate));
+    while (isOccupied(candidate));
     return candidate;
   }
 
   #notify(changes: ElementChangeSet): void {
-    if (changes.changes.length === 0) return;
-    for (const listener of [...this.#listeners.values()]) {
-      try {
-        const result = (listener as (notifiedChanges: ElementChangeSet) => unknown)(changes);
-        void Promise.resolve(result).catch((error: unknown) => this.#report(error));
-      } catch (error) {
-        this.#report(error);
+    if (changes.changes.length === 0 || this.#disposed) return;
+    this.#notificationQueue.push(changes);
+    if (this.#notifying) return;
+
+    this.#notifying = true;
+    try {
+      while (!this.#disposed && this.#notificationQueue.length > 0) {
+        const nextChanges = this.#notificationQueue.shift();
+        if (nextChanges === undefined) continue;
+        const subscriptionIds = [...this.#listeners.keys()];
+        for (const subscriptionId of subscriptionIds) {
+          if (this.#disposed) break;
+          const listener = this.#listeners.get(subscriptionId);
+          if (listener === undefined) continue;
+          try {
+            const result = (listener as (notifiedChanges: ElementChangeSet) => unknown)(nextChanges);
+            void Promise.resolve(result).catch((error: unknown) => this.#report(error));
+          } catch (error) {
+            this.#report(error);
+          }
+        }
       }
+    } finally {
+      if (this.#disposed) this.#notificationQueue.length = 0;
+      this.#notifying = false;
     }
   }
 
@@ -174,10 +191,12 @@ function isThenable(value: unknown): boolean {
   }
 }
 
-function consumeThenable(value: unknown): void {
+function observeNativePromise(value: unknown): boolean {
+  if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return false;
   try {
-    void Promise.resolve(value).catch(() => undefined);
+    void Promise.prototype.then.call(value, undefined, () => undefined);
+    return true;
   } catch {
-    // A hostile thenable is still rejected synchronously by transaction().
+    return false;
   }
 }

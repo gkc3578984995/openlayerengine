@@ -6,6 +6,7 @@
   },
   "include": [
     "test/types/V1PublicApi.type-test.ts",
+    "test/types/ElementTransaction.type-test.ts",
     "test/CoreBoundaries.test.ts",
     "test/ArchitectureImportGraph.test.ts",
     "test/ElementSelector.test.ts",

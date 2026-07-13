@@ -3,17 +3,23 @@ import { DuplicateElementIdError, InvalidArgumentError, ObjectDisposedError } fr
 import { isNativeRef } from '../native/types.js';
 import type { ShapeRegistry } from '../shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../style/types.js';
-import { createElementSnapshot, type ElementSnapshot } from '../element/snapshot.js';
+import { cloneElementSnapshot, createElementSnapshot, type ElementSnapshot } from '../element/snapshot.js';
 import { assertDestructiveSelector, compileSelector } from '../element/selector.js';
 import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from '../element/types.js';
 import type { ElementChange, ElementChangeSet } from './types.js';
 
 type StoredElement = ElementSnapshot<unknown>;
+const deletedElement = Symbol('deleted element');
+type OverlayElement = StoredElement | typeof deletedElement;
+type ElementIdFactory = (isOccupied: (id: string) => boolean) => string;
 
 interface TransactionState {
   readonly shapeRegistry: ShapeRegistry;
-  readonly states: Map<string, StoredElement>;
-  readonly createId: () => string;
+  readonly base: Map<string, StoredElement>;
+  readonly overlay: Map<string, OverlayElement>;
+  readonly appendOrder: string[];
+  readonly appendedAt: Map<string, number>;
+  readonly createId: ElementIdFactory;
   readonly before: Map<string, StoredElement | undefined>;
   readonly order: string[];
   active: boolean;
@@ -23,22 +29,32 @@ const transactionStates = new WeakMap<ElementTransaction, TransactionState>();
 const patchFields: ReadonlySet<string> = new Set(['geometry', 'style', 'data', 'module', 'layerId', 'visible']);
 
 export class ElementTransaction {
-  constructor(shapeRegistry: ShapeRegistry, states: Map<string, StoredElement>, createId: () => string) {
-    transactionStates.set(this, { shapeRegistry, states, createId, before: new Map(), order: [], active: true });
+  constructor(shapeRegistry: ShapeRegistry, base: Map<string, StoredElement>, createId: ElementIdFactory) {
+    transactionStates.set(this, {
+      shapeRegistry,
+      base,
+      overlay: new Map(),
+      appendOrder: [],
+      appendedAt: new Map(),
+      createId,
+      before: new Map(),
+      order: [],
+      active: true
+    });
   }
 
   add<T>(input: ElementState<T>): Readonly<ElementState<T>> {
     const transaction = activeState(this);
     const state = createElementSnapshot(transaction.shapeRegistry, input);
-    if (transaction.states.has(state.id)) throw new DuplicateElementIdError(`Element id already exists: ${state.id}`);
+    if (hasElement(transaction, state.id)) throw new DuplicateElementIdError(`Element id already exists: ${state.id}`);
     remember(transaction, state.id, undefined);
-    transaction.states.set(state.id, state as StoredElement);
+    setElement(transaction, state.id, state as StoredElement);
     return snapshot(transaction, state);
   }
 
   get<T>(id: string): Readonly<ElementState<T>> | undefined {
     const transaction = activeState(this);
-    const state = transaction.states.get(id);
+    const state = getElement(transaction, id);
     return state === undefined ? undefined : snapshot<T>(transaction, state);
   }
 
@@ -59,7 +75,7 @@ export class ElementTransaction {
     });
     for (const [id, before, after] of replacements) {
       remember(transaction, id, before);
-      transaction.states.set(id, after as StoredElement);
+      setElement(transaction, id, after as StoredElement);
     }
     return Object.freeze(replacements.map(([, , state]) => snapshot<T>(transaction, state)));
   }
@@ -70,7 +86,7 @@ export class ElementTransaction {
     const matches = matchingEntries(transaction, selector);
     for (const [id, before] of matches) {
       remember(transaction, id, before);
-      transaction.states.delete(id);
+      deleteElement(transaction, id);
     }
     return Object.freeze(matches.map(([id]) => id));
   }
@@ -85,24 +101,24 @@ export class ElementTransaction {
 
   copy<T>(id: string, overrides: ElementCopyOptions<T> = {}): Readonly<ElementState<T>> {
     const transaction = activeState(this);
-    const source = transaction.states.get(id);
+    const source = getElement(transaction, id);
     if (source === undefined) throw new InvalidArgumentError(`Element does not exist: ${id}`);
     const safeOverrides = clonePatch(overrides);
-    const generatedId = transaction.createId();
+    const generatedId = transaction.createId((candidateId) => hasElement(transaction, candidateId));
     const candidate = mergeState(source, safeOverrides, generatedId);
     const copied = createElementSnapshot(transaction.shapeRegistry, candidate);
-    if (transaction.states.has(copied.id)) throw new DuplicateElementIdError(`Element id already exists: ${copied.id}`);
+    if (hasElement(transaction, copied.id)) throw new DuplicateElementIdError(`Element id already exists: ${copied.id}`);
     remember(transaction, copied.id, undefined);
-    transaction.states.set(copied.id, copied as StoredElement);
+    setElement(transaction, copied.id, copied as StoredElement);
     return snapshot<T>(transaction, copied);
   }
 
   clear(): readonly string[] {
     const transaction = activeState(this);
-    const entries = [...transaction.states.entries()];
+    const entries = currentEntries(transaction);
     for (const [id, before] of entries) {
       remember(transaction, id, before);
-      transaction.states.delete(id);
+      deleteElement(transaction, id);
     }
     return Object.freeze(entries.map(([id]) => id));
   }
@@ -111,9 +127,10 @@ export class ElementTransaction {
 export function completeElementTransaction(transaction: ElementTransaction): ElementChangeSet {
   const state = activeState(transaction);
   const changes: ElementChange[] = [];
+  const mutations = new Map<string, StoredElement | undefined>();
   for (const id of state.order) {
     const before = state.before.get(id);
-    const after = state.states.get(id);
+    const after = getElement(state, id);
     if (before === undefined && after === undefined) continue;
     if (before !== undefined && after !== undefined && equalCoreState(before, after)) continue;
     const kind = before === undefined ? 'add' : after === undefined ? 'remove' : 'update';
@@ -125,9 +142,27 @@ export function completeElementTransaction(transaction: ElementTransaction): Ele
         ...(after === undefined ? {} : { after: snapshot(state, after) })
       })
     );
+    mutations.set(id, after);
   }
+
+  const frozenChanges = Object.freeze({ changes: Object.freeze(changes) });
   state.active = false;
-  return Object.freeze({ changes: Object.freeze(changes) });
+
+  // All fallible canonical snapshots are prepared before the shared Map is touched.
+  // Existing entries are updated in place; removals and entries moved to the tail
+  // are deleted first, then final appended entries are applied in transaction order.
+  for (const [id, after] of mutations) {
+    if (after === undefined || state.appendedAt.has(id)) state.base.delete(id);
+    else state.base.set(id, after);
+  }
+  for (let index = 0; index < state.appendOrder.length; index += 1) {
+    const id = state.appendOrder[index];
+    if (state.appendedAt.get(id) !== index) continue;
+    const after = mutations.get(id);
+    if (after !== undefined) state.base.set(id, after);
+  }
+
+  return frozenChanges;
 }
 
 export function abortElementTransaction(transaction: ElementTransaction): void {
@@ -149,12 +184,74 @@ function remember(transaction: TransactionState, id: string, before: StoredEleme
 
 function matchingEntries<T>(transaction: TransactionState, selector?: ElementSelector<T>): Array<readonly [string, StoredElement]> {
   const matches = compileSelector(selector);
+  const ids = pureSelectorIds(selector);
   const result: Array<readonly [string, StoredElement]> = [];
-  for (const [id, state] of transaction.states) {
-    const isolated = snapshot<T>(transaction, state);
-    if (matches(isolated)) result.push([id, state]);
+  const candidates =
+    ids === undefined
+      ? currentEntries(transaction)
+      : ids.flatMap((id) => {
+          const state = getElement(transaction, id);
+          return state === undefined ? [] : [[id, state] as const];
+        });
+  for (const [id, state] of candidates) {
+    if (matches(state as ElementSnapshot<T>)) result.push([id, state]);
   }
   return result;
+}
+
+function getElement(transaction: TransactionState, id: string): StoredElement | undefined {
+  const overlaid = transaction.overlay.get(id);
+  if (overlaid === deletedElement) return undefined;
+  return overlaid ?? transaction.base.get(id);
+}
+
+function hasElement(transaction: TransactionState, id: string): boolean {
+  return getElement(transaction, id) !== undefined;
+}
+
+function setElement(transaction: TransactionState, id: string, state: StoredElement): void {
+  const wasPresent = hasElement(transaction, id);
+  transaction.overlay.set(id, state);
+  if (wasPresent) return;
+  const appendIndex = transaction.appendOrder.length;
+  transaction.appendOrder.push(id);
+  transaction.appendedAt.set(id, appendIndex);
+}
+
+function deleteElement(transaction: TransactionState, id: string): void {
+  transaction.overlay.set(id, deletedElement);
+  transaction.appendedAt.delete(id);
+}
+
+function currentEntries(transaction: TransactionState): Array<readonly [string, StoredElement]> {
+  const result: Array<readonly [string, StoredElement]> = [];
+  for (const [id] of transaction.base) {
+    if (transaction.appendedAt.has(id)) continue;
+    const state = getElement(transaction, id);
+    if (state !== undefined) result.push([id, state]);
+  }
+  for (let index = 0; index < transaction.appendOrder.length; index += 1) {
+    const id = transaction.appendOrder[index];
+    if (transaction.appendedAt.get(id) !== index) continue;
+    const state = getElement(transaction, id);
+    if (state !== undefined) result.push([id, state]);
+  }
+  return result;
+}
+
+function pureSelectorIds<T>(selector?: ElementSelector<T>): readonly string[] | undefined {
+  if (selector === undefined || selector === null || typeof selector !== 'object' || Array.isArray(selector)) return undefined;
+  if (
+    selector.module !== undefined ||
+    selector.layerId !== undefined ||
+    selector.type !== undefined ||
+    selector.visible !== undefined ||
+    selector.predicate !== undefined
+  ) {
+    return undefined;
+  }
+  if (selector.id !== undefined) return [selector.id];
+  return selector.ids === undefined ? undefined : [...new Set(selector.ids)];
 }
 
 function clonePatch<T>(patch: ElementPatch<T> | ElementCopyOptions<T>): ElementPatch<T> {
@@ -183,7 +280,7 @@ function mergeState<T>(source: StoredElement, patch: ElementPatch<T>, id: string
 }
 
 function snapshot<T>(transaction: TransactionState, state: StoredElement): ElementSnapshot<T> {
-  return createElementSnapshot(transaction.shapeRegistry, state as ElementState<T>);
+  return cloneElementSnapshot(transaction.shapeRegistry, state as ElementState<T>);
 }
 
 function equalCoreState(left: unknown, right: unknown, seen = new WeakMap<object, WeakSet<object>>()): boolean {
