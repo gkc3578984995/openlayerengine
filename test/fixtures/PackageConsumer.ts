@@ -1,9 +1,10 @@
-import { WindLayer, useEarth, type WindLayerInstance as RootWindLayerInstance } from '@vrsim/earth-engine-ol';
-import type { WindLayerInstance } from '@vrsim/earth-engine-ol/layers';
+import { PointLayer, useEarth } from '@vrsim/earth-engine-ol';
+import type { PointLayer as LayersPointLayer } from '@vrsim/earth-engine-ol/layers';
+import type Feature from 'ol/Feature';
+import type Point from 'ol/geom/Point';
 
-const wind = new WindLayer(useEarth());
-const layer: WindLayerInstance | undefined = wind.get('wind');
-const rootLayer: RootWindLayerInstance | undefined = layer;
+const pointLayer: LayersPointLayer = new PointLayer(useEarth());
+const point: Feature<Point> = pointLayer.add({ center: [0, 0] });
 
-layer?.setVisible(true);
-rootLayer?.getData();
+point.getGeometry()?.setCoordinates([1, 1]);
+pointLayer.getLayer().getSource()?.getFeatures();

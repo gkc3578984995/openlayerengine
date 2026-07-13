@@ -29,12 +29,7 @@ function rawPlugin() {
 // eslint-disable-next-line no-undef
 const mode = process.env.MODE;
 const isProd = mode === 'prod';
-// ol-wind 1.x publishes ESM syntax in .js files without declaring type: module, while its CJS build requires ESM-only OpenLayers.
-// Bundle it and its wind-core dependency so the published .mjs entries remain loadable by native Node ESM.
-const bundledDependencies = new Set(['ol-wind', 'wind-core']);
-const externalDependencies = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})])].filter(
-  (dependency) => !bundledDependencies.has(dependency)
-);
+const externalDependencies = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})])];
 
 function toNativeEsmSpecifier(id) {
   if ((id.startsWith('ol/') || id.startsWith('lodash/')) && !id.endsWith('.js')) return `${id}.js`;

@@ -10,7 +10,7 @@ import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
 import { TileCoord } from 'ol/tilecoord';
 import { ViewOptions } from 'ol/View';
-import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, WindLayer } from './base';
+import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from './base';
 import Base from './base/Base';
 import { ContextMenu, DynamicDraw, GlobalEvent, IContextMenuOption, Measure } from './components';
 import { DoubleClickZoom, DragPan, MouseWheelZoom } from 'ol/interaction';
@@ -402,7 +402,6 @@ export default class Earth {
         point: new PointLayer<T>(this),
         polygon: new PolygonLayer<T>(this),
         polyline: new PolylineLayer<T>(this),
-        wind: new WindLayer(this),
         reset: () => {
           this.entities?.billboard.remove();
           this.entities?.circle.remove();
@@ -411,7 +410,6 @@ export default class Earth {
           this.entities?.polygon.remove();
           this.entities?.polyline.remove();
           this.entities?.polyline.removeFlightLine();
-          this.entities?.wind.remove();
         }
       };
       this.entities.billboard.allowDestroyed = false;

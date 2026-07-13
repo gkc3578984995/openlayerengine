@@ -29,7 +29,6 @@ src/extends/transform-interaction/input/Checkbox.ts
 src/extends/transform-interaction/input/Radio.ts
 src/extends/transform-interaction/input/Switch.ts
 src/extends/transform-interaction/TransformInteraction.ts
-src/interface/default.ts
 src/interface/descriptor.ts
 test/ApiDocGenerator.test.ts
 test/Base.test.ts

@@ -75,7 +75,8 @@ describe('package exports', () => {
     const config = readFileSync(resolve(projectRoot, 'rollup.config.mjs'), 'utf8');
     const viteConfig = readFileSync(resolve(projectRoot, 'vite.config.ts'), 'utf8');
 
-    expect(packageJson.dependencies['wind-core']).toBe('1.1.2');
+    expect(packageJson.dependencies['ol-wind']).toBeUndefined();
+    expect(packageJson.dependencies['wind-core']).toBeUndefined();
     expect(packageJson.dependencies['heatmap.js']).toBeUndefined();
     expect(packageJson.dependencies.mitt).toBeUndefined();
     expect(packageJson.devDependencies['@types/heatmap.js']).toBeUndefined();
@@ -95,8 +96,9 @@ describe('package exports', () => {
     expect(config).toMatch(/Object\.keys\(pkg\.dependencies/);
     expect(config).toMatch(/Object\.keys\(pkg\.peerDependencies/);
     expect(config).toContain('id.startsWith(`${dependency}/`)');
-    expect(config).toContain("new Set(['ol-wind', 'wind-core'])");
-    expect(config).toMatch(/!bundledDependencies\.has\(dependency\)/);
+    expect(config).not.toContain('bundledDependencies');
+    expect(config).not.toContain('ol-wind');
+    expect(config).not.toContain('wind-core');
   });
 
   it('contains every declared artifact after a build', () => {

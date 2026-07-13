@@ -18,7 +18,6 @@ const earthBoundaryFiles = [
   'src/base/PointLayer.ts',
   'src/base/PolygonLayer.ts',
   'src/base/PolylineLayer.ts',
-  'src/base/WindLayer.ts',
   'src/components/Transform.ts',
   'src/extends/plot/plotDraw.ts',
   'src/extends/plot/plotEdit.ts'
@@ -119,7 +118,7 @@ function resolveEarthCallContexts(entry: FeatureSource): boolean[] {
   return calls;
 }
 
-const optionalEarthConstructors = new Set(['BillboardLayer', 'CircleLayer', 'OverlayLayer', 'PointLayer', 'PolygonLayer', 'PolylineLayer', 'WindLayer']);
+const optionalEarthConstructors = new Set(['BillboardLayer', 'CircleLayer', 'OverlayLayer', 'PointLayer', 'PolygonLayer', 'PolylineLayer']);
 
 function implicitEarthConstructions(entry: FeatureSource): string[] {
   const constructions: string[] = [];

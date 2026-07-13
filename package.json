@@ -38,9 +38,7 @@
   },
   "author": "gkc",
   "dependencies": {
-    "lodash": "^4.17.21",
-    "ol-wind": "^1.1.2",
-    "wind-core": "1.1.2"
+    "lodash": "^4.17.21"
   },
   "peerDependencies": {
     "ol": "^7.5.2"

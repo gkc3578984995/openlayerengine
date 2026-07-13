@@ -35,7 +35,6 @@ export const PRETTIER_BASELINE_ENTRIES = [
   { path: 'src/extends/transform-interaction/input/Radio.ts', sha256: '720c4d88d540815e6e3fda8c7bb0247bc118dd4ca0f5ac335327667c556aac87' },
   { path: 'src/extends/transform-interaction/input/Switch.ts', sha256: '991292d614c7189baff659cb8fd811c5e53f8d8e4165b46ff5281a91e8bcfacb' },
   { path: 'src/extends/transform-interaction/TransformInteraction.ts', sha256: '639600ac12a075ca04ff9ec65b2be854865528b5e8d19dab274fae546db2f04d' },
-  { path: 'src/interface/default.ts', sha256: 'd2cf37e62f95df87ae6dfe0279b9ab93b40ab630014e68587a25d88132825caf' },
   { path: 'src/interface/descriptor.ts', sha256: '776e9f39dd60a814c8bcb4c7de9a30e618e82e3bc0028ff170d1b15b85024033' },
   { path: 'test/ApiDocGenerator.test.ts', sha256: 'ee4835e7e1320a48da628b67bbbd300b3ff31a1da6b610f68ff9f5e85b8fd387' },
   { path: 'test/Base.test.ts', sha256: 'c08e709e291a74e2f0b90858402b113fb7a511763028fa95982fd46e816dceab' },
