@@ -1,9 +1,72 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import Transform from '../src/components/Transform';
 import { Toolbar } from '../src/extends/toolbar/Toolbar';
 import TransformInteraction from '../src/extends/transform-interaction/TransformInteraction';
+
+function analyzeToolbarBindings(source: string): { constructionCount: number; adjacentBindingCount: number; hasGlobalToolbarQuery: boolean } {
+  const sourceFile = ts.createSourceFile('Transform.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let constructionCount = 0;
+  let adjacentBindingCount = 0;
+  let hasGlobalToolbarQuery = false;
+
+  const isThisProperty = (node: ts.Node, name: string): node is ts.PropertyAccessExpression =>
+    ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword && node.name.text === name;
+
+  const isToolbarConstruction = (statement: ts.Statement): boolean => {
+    if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression)) return false;
+    const expression = statement.expression;
+    return (
+      expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      isThisProperty(expression.left, 'toolbar') &&
+      ts.isNewExpression(expression.right) &&
+      ts.isIdentifier(expression.right.expression) &&
+      expression.right.expression.text === 'Toolbar'
+    );
+  };
+
+  const isToolbarBinding = (statement: ts.Statement | undefined): boolean => {
+    if (!statement || !ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return false;
+    const expression = statement.expression;
+    return (
+      isThisProperty(expression.expression, 'bindToolbarEvents') && expression.arguments.length === 1 && isThisProperty(expression.arguments[0], 'toolbar')
+    );
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isSourceFile(node) || ts.isBlock(node)) {
+      node.statements.forEach((statement, index) => {
+        if (!isToolbarConstruction(statement)) return;
+        constructionCount += 1;
+        if (isToolbarBinding(node.statements[index + 1])) adjacentBindingCount += 1;
+      });
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'document' &&
+      node.expression.name.text === 'querySelector' &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      node.arguments[0].text === '.ol-toolbar'
+    ) {
+      hasGlobalToolbarQuery = true;
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+
+  return {
+    constructionCount,
+    adjacentBindingCount,
+    hasGlobalToolbarQuery
+  };
+}
 
 class DetailEvent<T> extends Event {
   constructor(
@@ -79,13 +142,25 @@ describe('TransformInteraction 多 Earth 隔离', () => {
 
   it('通过当前 Toolbar 实例绑定事件且不再查询全局根元素', async () => {
     const source = await readFile('src/components/Transform.ts', 'utf8');
-    const toolbarConstructions = source.match(/^[ \t]*this\.toolbar = new Toolbar\([^;\r\n]*\);[ \t]*$/gm) ?? [];
-    const adjacentToolbarBindings =
-      source.match(/^[ \t]*this\.toolbar = new Toolbar\([^;\r\n]*\);[ \t]*\r?\n[ \t]*this\.bindToolbarEvents\(this\.toolbar\);[ \t]*$/gm) ?? [];
+    const analysis = analyzeToolbarBindings(source);
 
-    expect(source).not.toContain("document.querySelector('.ol-toolbar')");
-    expect(source).toContain('this.bindToolbarEvents(this.toolbar)');
-    expect(toolbarConstructions).toHaveLength(2);
-    expect(adjacentToolbarBindings).toHaveLength(toolbarConstructions.length);
+    expect(analysis.hasGlobalToolbarQuery).toBe(false);
+    expect(analysis.constructionCount).toBe(2);
+    expect(analysis.adjacentBindingCount).toBe(analysis.constructionCount);
+  });
+
+  it('工具栏架构检查不依赖换行格式或字符串引号', () => {
+    const analysis = analyzeToolbarBindings(`
+      this.toolbar = new Toolbar(
+        opts,
+        this.earth
+      );
+      this.bindToolbarEvents(this.toolbar);
+      document.querySelector(".ol-toolbar");
+    `);
+
+    expect(analysis.constructionCount).toBe(1);
+    expect(analysis.adjacentBindingCount).toBe(1);
+    expect(analysis.hasGlobalToolbarQuery).toBe(true);
   });
 });
