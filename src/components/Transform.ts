@@ -1,26 +1,33 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import TransformInteraction from '../extends/transform-interaction/TransformInteraction';
-import type Earth from '../Earth';
-import { ISetOverlayParam, ITransformCallback, ITransformParams, ModifyType } from '../interface';
-import { ECursor, ETransform, ETranslateType } from '../enum';
-import { Feature } from 'ol';
-import { fromLonLat, toLonLat } from 'ol/proj';
-import { Coordinate } from 'ol/coordinate';
-import { LineString, Point, Polygon, Circle as CircleGeom, MultiPoint, MultiLineString, MultiPolygon } from 'ol/geom';
-import { Base, BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from '../base';
-import { unByKey } from 'ol/Observable';
-import { EventsKey } from 'ol/events';
-import { Icon, Style } from 'ol/style';
-import { Utils } from '../common';
-import cloneDeep from 'lodash/cloneDeep';
-import { IToolbarItem, Toolbar } from '../extends/toolbar/Toolbar';
-import DynamicDraw from './DynamicDraw';
-import { resolveEarth } from '../earthContext';
-import { extractGeometryInfo, geometriesEqual } from './transform/geometry';
-import { TransformHistory } from './transform/history';
-import { cloneStyleSnapshot } from './transform/styleSnapshot';
+import TransformInteraction from '../extends/transform-interaction/TransformInteraction.js';
+import type Earth from '../Earth.js';
+import { ISetOverlayParam, ITransformCallback, ITransformParams, ModifyType } from '../interface/index.js';
+import { ECursor, ETransform, ETranslateType } from '../enum/index.js';
+import Feature from 'ol/Feature.js';
+import { fromLonLat, toLonLat } from 'ol/proj.js';
+import { Coordinate } from 'ol/coordinate.js';
+import LineString from 'ol/geom/LineString.js';
+import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
+import CircleGeom from 'ol/geom/Circle.js';
+import MultiPoint from 'ol/geom/MultiPoint.js';
+import MultiLineString from 'ol/geom/MultiLineString.js';
+import MultiPolygon from 'ol/geom/MultiPolygon.js';
+import { Base, BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from '../base/index.js';
+import { unByKey } from 'ol/Observable.js';
+import { EventsKey } from 'ol/events.js';
+import Icon from 'ol/style/Icon.js';
+import Style from 'ol/style/Style.js';
+import { Utils } from '../common/index.js';
+import cloneDeep from 'lodash/cloneDeep.js';
+import { IToolbarItem, Toolbar } from '../extends/toolbar/Toolbar.js';
+import DynamicDraw from './DynamicDraw.js';
+import { resolveEarth } from '../earthContext.js';
+import { extractGeometryInfo, geometriesEqual } from './transform/geometry.js';
+import { TransformHistory } from './transform/history.js';
+import { cloneStyleSnapshot } from './transform/styleSnapshot.js';
 
 export default class Transform {
   /**

@@ -1,9 +1,9 @@
 /**
  * 粗单尖头箭头(燕尾-2控制点)
  */
-import AttackArrow from './AttackArrow';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
+import AttackArrow from './AttackArrow.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
 
 class TailedSquadCombat extends AttackArrow {
   constructor(coordinates: any, points: any, params: any) {

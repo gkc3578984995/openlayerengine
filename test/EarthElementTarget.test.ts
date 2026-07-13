@@ -1,28 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('ol/control/defaults', () => ({
+vi.mock('ol/control/defaults.js', () => ({
   defaults: () => []
 }));
 
-vi.mock('ol', async () => {
-  const actual = await vi.importActual<typeof import('ol')>('ol');
-
-  class TestView {
-    constructor(_options?: unknown) {}
-  }
-
+vi.mock('ol/Map.js', () => {
   class TestMap {
     private target?: string | HTMLElement;
-    private readonly view: TestView;
+    private readonly view: unknown;
     private readonly interactions = { getArray: () => [], forEach: () => undefined, clear: () => undefined };
     private readonly viewport = new EventTarget();
 
-    constructor(options: { target?: string | HTMLElement; view: TestView }) {
+    constructor(options: { target?: string | HTMLElement; view: unknown }) {
       this.target = options.target;
       this.view = options.view;
     }
 
-    getView(): TestView {
+    getView(): unknown {
       return this.view;
     }
 
@@ -63,8 +57,14 @@ vi.mock('ol', async () => {
     dispose(): void {}
   }
 
-  return { ...actual, Map: TestMap, View: TestView };
+  return { default: TestMap };
 });
+
+vi.mock('ol/View.js', () => ({
+  default: class TestView {
+    constructor(_options?: unknown) {}
+  }
+}));
 
 import Descriptor from '../src/components/Descriptor';
 import { destroyEarth, useEarth } from '../src/useEarth';

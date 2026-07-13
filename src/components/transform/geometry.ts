@@ -1,4 +1,10 @@
-import { Circle, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon } from 'ol/geom';
+import Circle from 'ol/geom/Circle.js';
+import LineString from 'ol/geom/LineString.js';
+import MultiLineString from 'ol/geom/MultiLineString.js';
+import MultiPoint from 'ol/geom/MultiPoint.js';
+import MultiPolygon from 'ol/geom/MultiPolygon.js';
+import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
 
 export interface GeometryInfo {
   type: string | undefined;

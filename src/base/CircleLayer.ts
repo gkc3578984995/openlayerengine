@@ -1,15 +1,16 @@
-import { FEATURE_KEYS, Utils } from '../common';
-import type Earth from '../Earth';
-import { Feature } from 'ol';
-import { Circle } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import { Fill, Style } from 'ol/style';
-import Base from './Base';
-import type { ICircleParam, ISetCircleParam } from '../interface';
-import { Coordinate } from 'ol/coordinate';
-import { resolveEarth } from '../earthContext';
-import { createPatternFill, isPatternFill } from '../common/PatternFill';
+import { FEATURE_KEYS, Utils } from '../common/index.js';
+import type Earth from '../Earth.js';
+import Feature from 'ol/Feature.js';
+import Circle from 'ol/geom/Circle.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Fill from 'ol/style/Fill.js';
+import Style from 'ol/style/Style.js';
+import Base from './Base.js';
+import type { ICircleParam, ISetCircleParam } from '../interface/index.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { resolveEarth } from '../earthContext.js';
+import { createPatternFill, isPatternFill } from '../common/PatternFill.js';
 /**
  * 创建圆`Circle`
  */
@@ -37,7 +38,7 @@ export default class CircleLayer<T = Circle> extends Base {
    * @returns 返回`Feature<Circle>`矢量元素
    */
   private createFeature(param: ICircleParam<T>): Feature<Circle> {
-    const feature = new Feature({
+    const feature = new Feature<Circle>({
       geometry: new Circle(param.center, param.radius)
     });
     this.applyCircleStyle(feature, param);

@@ -1,26 +1,29 @@
-import { DefaultEntities, IEarthConstructorOptions, IFeatureAtPixel } from './interface';
-import { Feature, Map, View } from 'ol';
-import { defaults } from 'ol/control/defaults';
-import { Coordinate } from 'ol/coordinate';
-import BaseLayer from 'ol/layer/Base';
-import TileLayer from 'ol/layer/Tile';
-import Graticule, { Options as GraticuleOptions } from 'ol/layer/Graticule';
-import { fromLonLat } from 'ol/proj';
-import OSM from 'ol/source/OSM';
-import XYZ from 'ol/source/XYZ';
-import { TileCoord } from 'ol/tilecoord';
-import { ViewOptions } from 'ol/View';
-import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from './base';
-import Base from './base/Base';
-import { ContextMenu, DynamicDraw, GlobalEvent, IContextMenuOption, Measure } from './components';
-import { DoubleClickZoom, DragPan, MouseWheelZoom } from 'ol/interaction';
-import { Geometry } from 'ol/geom';
-import { Layer } from 'ol/layer';
-import { Source } from 'ol/source';
-import LayerRenderer from 'ol/renderer/Layer';
-import ScaleLine, { Options as ScaleLineOptions } from 'ol/control/ScaleLine';
-import { Camera, Controls } from './modules';
-import Utils from './common/Utils';
+import { DefaultEntities, IEarthConstructorOptions, IFeatureAtPixel } from './interface/index.js';
+import Feature from 'ol/Feature.js';
+import Map from 'ol/Map.js';
+import View from 'ol/View.js';
+import { defaults } from 'ol/control/defaults.js';
+import { Coordinate } from 'ol/coordinate.js';
+import BaseLayer from 'ol/layer/Base.js';
+import TileLayer from 'ol/layer/Tile.js';
+import Graticule, { Options as GraticuleOptions } from 'ol/layer/Graticule.js';
+import { fromLonLat } from 'ol/proj.js';
+import OSM from 'ol/source/OSM.js';
+import XYZ from 'ol/source/XYZ.js';
+import { TileCoord } from 'ol/tilecoord.js';
+import { ViewOptions } from 'ol/View.js';
+import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from './base/index.js';
+import Base from './base/Base.js';
+import { ContextMenu, DynamicDraw, GlobalEvent, IContextMenuOption, Measure } from './components/index.js';
+import DoubleClickZoom from 'ol/interaction/DoubleClickZoom.js';
+import DragPan from 'ol/interaction/DragPan.js';
+import MouseWheelZoom from 'ol/interaction/MouseWheelZoom.js';
+import Geometry from 'ol/geom/Geometry.js';
+import Layer from 'ol/layer/Layer.js';
+import Source from 'ol/source/Source.js';
+import ScaleLine, { Options as ScaleLineOptions } from 'ol/control/ScaleLine.js';
+import { Camera, Controls } from './modules/index.js';
+import Utils from './common/Utils.js';
 
 /**
  * Earth 创建的底图标识（供 {@link Earth.removeLayer} 无参时识别）
@@ -370,9 +373,7 @@ export default class Earth {
    * 根据元素获取元素所在的图层
    * @param feature
    */
-  // NOTE: LayerRenderer 泛型此处无需精确约束，使用 any 更符合当前抽象层级
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getLayerAtFeature(feature: Feature<Geometry>): Layer<Source, LayerRenderer<any>> | undefined {
+  getLayerAtFeature(feature: Feature<Geometry>): Layer<Source> | undefined {
     const layers = this.map.getAllLayers();
     const layerId = <string>feature.get('layerId');
     const filter = layers.filter((item) => {

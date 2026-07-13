@@ -2,9 +2,9 @@
  * 进攻箭头（燕尾）
  */
 
-import AttackArrow from './AttackArrow';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
+import AttackArrow from './AttackArrow.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
 
 class TailedAttackArrow extends AttackArrow {
   constructor(coordinates: any, points: any, params: any) {

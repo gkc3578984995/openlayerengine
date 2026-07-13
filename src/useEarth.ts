@@ -1,6 +1,6 @@
-import Earth from './Earth';
-import type { UseEarthOptions } from './interface';
-import { getRegisteredEarth, registerEarth, unregisterEarth } from './earthContext';
+import Earth from './Earth.js';
+import type { UseEarthOptions } from './interface/index.js';
+import { getRegisteredEarth, registerEarth, unregisterEarth } from './earthContext.js';
 
 const DEFAULT_TARGET = 'olContainer';
 
@@ -68,4 +68,4 @@ function destroyEarth(id?: string): void {
 }
 
 export { useEarth, destroyEarth };
-export type { UseEarthOptions } from './interface';
+export type { UseEarthOptions } from './interface/index.js';

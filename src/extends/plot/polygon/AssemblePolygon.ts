@@ -1,11 +1,11 @@
 /**
  * 集结地
  */
-import { Map } from 'ol';
-import { Polygon } from 'ol/geom';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
+import Map from 'ol/Map.js';
+import Polygon from 'ol/geom/Polygon.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
 
 class AssemblePolygon extends Polygon {
   private type: EPlotType;
@@ -70,13 +70,7 @@ class AssemblePolygon extends Polygon {
       pnt2 = pnts[i + 1];
       pList.push(pnt1);
       for (let t = 0; t <= PlotUtils.FITTING_COUNT; t++) {
-        const pnt = PlotUtils.getCubicValue(
-          t / PlotUtils.FITTING_COUNT,
-          pnt1,
-          normals[i * 2],
-          normals[i * 2 + 1],
-          pnt2,
-        );
+        const pnt = PlotUtils.getCubicValue(t / PlotUtils.FITTING_COUNT, pnt1, normals[i * 2], normals[i * 2 + 1], pnt2);
         pList.push(pnt);
       }
       pList.push(pnt2);
@@ -162,7 +156,7 @@ class AssemblePolygon extends Polygon {
   /**
    * 结束绘制
    */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default AssemblePolygon;

@@ -1,18 +1,33 @@
-import Earth from '../Earth';
-import { Feature, Map } from 'ol';
-import { Geometry, LineString, Point, Polygon } from 'ol/geom';
-import { Draw } from 'ol/interaction';
-import VectorSource from 'ol/source/Vector';
-import { Fill, RegularShape, Stroke, Style, Text } from 'ol/style';
-import CircleStyle from 'ol/style/Circle';
+import Earth from '../Earth.js';
+import Feature from 'ol/Feature.js';
+import Map from 'ol/Map.js';
+import Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
+import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
+import Draw from 'ol/interaction/Draw.js';
+import VectorSource from 'ol/source/Vector.js';
+import Fill from 'ol/style/Fill.js';
+import RegularShape from 'ol/style/RegularShape.js';
+import Stroke from 'ol/style/Stroke.js';
+import Style from 'ol/style/Style.js';
+import Text from 'ol/style/Text.js';
+import CircleStyle from 'ol/style/Circle.js';
 import { getLength, getArea } from 'ol/sphere.js';
-import { Coordinate } from 'ol/coordinate';
-import { FeatureLike } from 'ol/Feature';
-import RenderFeature from 'ol/render/Feature';
-import VectorLayer from 'ol/layer/Vector';
-import { IMeasure, IMeasureEvent } from '../interface';
-import { PointLayer } from '../base';
-import { fromLonLat, toLonLat } from 'ol/proj';
+import { Coordinate } from 'ol/coordinate.js';
+import { FeatureLike } from 'ol/Feature.js';
+import RenderFeature from 'ol/render/Feature.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import { IMeasure, IMeasureEvent } from '../interface/index.js';
+import { PointLayer } from '../base/index.js';
+import { fromLonLat, toLonLat } from 'ol/proj.js';
+
+function isPrimaryMouseButton(originalEvent: Event): boolean {
+  if (typeof PointerEvent !== 'undefined' && originalEvent instanceof PointerEvent) return originalEvent.button === 0;
+  if (typeof MouseEvent !== 'undefined' && originalEvent instanceof MouseEvent) return originalEvent.button === 0;
+  return false;
+}
+
 /**
  * 测量类
  */
@@ -38,11 +53,11 @@ export default class Measure {
   /**
    * 图层
    */
-  private layer: VectorLayer<VectorSource<Geometry>>;
+  private layer: VectorLayer<VectorSource<Feature<Geometry>>>;
   /**
    * 图层数据源
    */
-  private source: VectorSource<Geometry>;
+  private source: VectorSource<Feature<Geometry>>;
   /**
    * tip样式
    */
@@ -159,7 +174,7 @@ export default class Measure {
         })
       });
     } else {
-      this.style.getStroke().setLineDash(null);
+      this.style.getStroke()?.setLineDash(null);
     }
     const styles = [this.style];
     const geometry = feature.getGeometry();
@@ -215,7 +230,7 @@ export default class Measure {
         }
         const segmentPoint = new Point(segment.getCoordinateAt(0.5));
         this.segmentStyles[count].setGeometry(segmentPoint);
-        this.segmentStyles[count].getText().setText(label + ' km');
+        this.segmentStyles[count].getText()?.setText(label + ' km');
         styles.push(this.segmentStyles[count]);
         count++;
       });
@@ -245,11 +260,11 @@ export default class Measure {
         })
       });
       this.labelStyle.setGeometry(point);
-      this.labelStyle.getText().setText('合计：' + label + unit);
+      this.labelStyle.getText()?.setText('合计：' + label + unit);
       styles.push(this.labelStyle);
     }
     if (tip && type === 'Point') {
-      this.tipStyle.getText().setText(tip);
+      this.tipStyle.getText()?.setText(tip);
       styles.push(this.tipStyle);
     }
     return styles;
@@ -271,7 +286,7 @@ export default class Measure {
         return this.styleFunction(feature, param, 'line', tip);
       },
       condition: (e) => {
-        if (e.originalEvent.button == 0) {
+        if (isPrimaryMouseButton(e.originalEvent)) {
           return true;
         } else {
           return false;
@@ -315,16 +330,14 @@ export default class Measure {
       this.measureData.totalDistance = totalDistance;
       param.callback?.call(this, this.measureData);
     });
-    this.measureExitDisposer = this.earth
-      .useGlobalEvent()
-      .addCancelableMouseOnceRightClickEventByGlobal(() => {
-        this.clearMeasureListeners();
-        if (this.draw) {
-          this.draw.finishDrawing();
-          this.map.removeInteraction(this.draw);
-        }
-        this.earth.setMouseStyle('auto');
-      });
+    this.measureExitDisposer = this.earth.useGlobalEvent().addCancelableMouseOnceRightClickEventByGlobal(() => {
+      this.clearMeasureListeners();
+      if (this.draw) {
+        this.draw.finishDrawing();
+        this.map.removeInteraction(this.draw);
+      }
+      this.earth.setMouseStyle('auto');
+    });
     this.map.addInteraction(this.draw);
   }
   /**
@@ -364,7 +377,7 @@ export default class Measure {
         return this.styleFunction(feature, param, 'line', tip);
       },
       condition: (e) => {
-        if (e.originalEvent.button == 0) {
+        if (isPrimaryMouseButton(e.originalEvent)) {
           return true;
         } else {
           return false;
@@ -380,14 +393,12 @@ export default class Measure {
       if (!this.centerLeftUpDisposer && this.centerLeftUpTimer === undefined) {
         this.centerLeftUpTimer = setTimeout(() => {
           this.centerLeftUpTimer = undefined;
-          this.centerLeftUpDisposer = this.earth
-            .useGlobalEvent()
-            .addMouseLeftUpEventByGlobal(() => {
-              if (this.draw) {
-                this.draw.finishDrawing();
-                this.draw.appendCoordinates([line.getCoordinates()[0]]);
-              }
-            });
+          this.centerLeftUpDisposer = this.earth.useGlobalEvent().addMouseLeftUpEventByGlobal(() => {
+            if (this.draw) {
+              this.draw.finishDrawing();
+              this.draw.appendCoordinates([line.getCoordinates()[0]]);
+            }
+          });
           this.pointLayer.add({
             center: line.getCoordinates()[0],
             fill: {
@@ -422,17 +433,15 @@ export default class Measure {
         });
       });
     });
-    this.measureExitDisposer = this.earth
-      .useGlobalEvent()
-      .addCancelableMouseOnceRightClickEventByGlobal(() => {
-        this.clearMeasureListeners();
-        if (this.draw) {
-          this.draw.finishDrawing();
-          this.map.removeInteraction(this.draw);
-        }
-        this.earth.setMouseStyle('auto');
-        param.callback?.call(this, this.measureData);
-      });
+    this.measureExitDisposer = this.earth.useGlobalEvent().addCancelableMouseOnceRightClickEventByGlobal(() => {
+      this.clearMeasureListeners();
+      if (this.draw) {
+        this.draw.finishDrawing();
+        this.map.removeInteraction(this.draw);
+      }
+      this.earth.setMouseStyle('auto');
+      param.callback?.call(this, this.measureData);
+    });
     this.map.addInteraction(this.draw);
   }
   /**
@@ -454,7 +463,7 @@ export default class Measure {
         return this.styleFunction(feature, param, 'Polygon', tip);
       },
       condition: (e) => {
-        if (e.originalEvent.button == 0) {
+        if (isPrimaryMouseButton(e.originalEvent)) {
           return true;
         } else {
           return false;
@@ -488,16 +497,14 @@ export default class Measure {
       this.measureData.area = this.formatArea(polygon.getGeometry()!);
       param.callback?.call(this, this.measureData);
     });
-    this.measureExitDisposer = this.earth
-      .useGlobalEvent()
-      .addCancelableMouseOnceRightClickEventByGlobal(() => {
-        this.clearMeasureListeners();
-        if (this.draw) {
-          this.draw.finishDrawing();
-          this.map.removeInteraction(this.draw);
-        }
-        this.earth.setMouseStyle('auto');
-      });
+    this.measureExitDisposer = this.earth.useGlobalEvent().addCancelableMouseOnceRightClickEventByGlobal(() => {
+      this.clearMeasureListeners();
+      if (this.draw) {
+        this.draw.finishDrawing();
+        this.map.removeInteraction(this.draw);
+      }
+      this.earth.setMouseStyle('auto');
+    });
     this.map.addInteraction(this.draw);
   }
   /**

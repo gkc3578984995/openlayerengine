@@ -1,20 +1,23 @@
-import { Utils } from '../common';
-import type Earth from '../Earth';
-import { IPolylineFlyParam, IPolylineParam, ISetPolylineParam, IStroke } from '../interface';
-import { Feature } from 'ol';
-import { LineString } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import { Circle, Fill, Stroke, Style } from 'ol/style';
-import Base from './Base';
-import { Coordinate } from 'ol/coordinate';
-import Flightline from '../extends/flight-line/FlightLine';
-import { getVectorContext } from 'ol/render';
-import RenderEvent from 'ol/render/Event';
-import { unByKey } from 'ol/Observable';
-import { EventsKey } from 'ol/events';
-import { getWidth } from 'ol/extent';
-import { resolveEarth } from '../earthContext';
+import { Utils } from '../common/index.js';
+import type Earth from '../Earth.js';
+import { IPolylineFlyParam, IPolylineParam, ISetPolylineParam, IStroke } from '../interface/index.js';
+import Feature from 'ol/Feature.js';
+import LineString from 'ol/geom/LineString.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Circle from 'ol/style/Circle.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
+import Style from 'ol/style/Style.js';
+import Base from './Base.js';
+import { Coordinate } from 'ol/coordinate.js';
+import Flightline from '../extends/flight-line/FlightLine.js';
+import { getVectorContext } from 'ol/render.js';
+import RenderEvent from 'ol/render/Event.js';
+import { unByKey } from 'ol/Observable.js';
+import { EventsKey } from 'ol/events.js';
+import { getWidth } from 'ol/extent.js';
+import { resolveEarth } from '../earthContext.js';
 
 /** Resolve the effective main-line width while keeping the legacy top-level width fallback. */
 export function resolvePolylineWidth(stroke?: IStroke, width?: number): number {
@@ -63,7 +66,7 @@ export default class Polyline<T = LineString> extends Base {
    * @returns 返回`Feature<LineString>`实例
    */
   private createFeature(param: IPolylineParam<T>): Feature<LineString> {
-    const feature = new Feature({
+    const feature = new Feature<LineString>({
       geometry: new LineString(param.positions)
     });
     // 初始 style（当不需要动态适配时使用）
@@ -91,7 +94,7 @@ export default class Polyline<T = LineString> extends Base {
         const last = coords[coords.length - 1];
         return `${coords.length}|${first[0].toFixed(4)},${first[1].toFixed(4)}|${last[0].toFixed(4)},${last[1].toFixed(4)}|${mapRes}`;
       };
-      feature.setStyle((feat: import('ol/Feature').FeatureLike, res: number) => {
+      feature.setStyle((feat: import('ol/Feature.js').FeatureLike, res: number) => {
         const geom = (feat as Feature<LineString>).getGeometry && (feat as Feature<LineString>).getGeometry();
         if (!geom || !(geom instanceof LineString)) return backgroundStyle ? [backgroundStyle, baseStyle] : baseStyle;
         const map = this.earth?.map;
@@ -123,7 +126,7 @@ export default class Polyline<T = LineString> extends Base {
         });
         cachedStyle = new Style({
           stroke,
-          text: baseStyle.getText(),
+          text: baseStyle.getText() ?? undefined,
           fill: undefined
         });
         return backgroundStyle ? [backgroundStyle, cachedStyle] : cachedStyle;

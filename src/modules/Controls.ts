@@ -1,7 +1,7 @@
-import Map from 'ol/Map';
-import Graticule, { Options as GraticuleOptions } from 'ol/layer/Graticule';
-import ScaleLine, { Options as ScaleLineOptions } from 'ol/control/ScaleLine';
-import { Stroke } from 'ol/style';
+import Map from 'ol/Map.js';
+import Graticule, { Options as GraticuleOptions } from 'ol/layer/Graticule.js';
+import ScaleLine, { Options as ScaleLineOptions } from 'ol/control/ScaleLine.js';
+import Stroke from 'ol/style/Stroke.js';
 
 /**
  * 地图控件模块：封装网格线(Graticule)与比例尺(ScaleLine)的生命周期管理。

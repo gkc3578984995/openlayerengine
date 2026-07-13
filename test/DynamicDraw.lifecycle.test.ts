@@ -35,6 +35,31 @@ describe('DynamicDraw 监听生命周期', () => {
     expect(disableGlobalMouseLeftDownEvent).not.toHaveBeenCalled();
   });
 
+  it('keeps the public pointer coordinate until finishDrawing emits drawend', () => {
+    const order: string[] = [];
+    const draw = Object.create(DynamicDraw.prototype) as any;
+    draw.lastDrawPointerDown = { coordinate: [120, 30], pixel: [12, 3] };
+    draw.lastDrawCompleted = true;
+    draw.draw = {
+      finishDrawing: vi.fn(() => {
+        order.push('finish');
+        expect(draw.lastDrawPointerDown.coordinate).toEqual([120, 30]);
+      })
+    };
+    draw.map = {
+      removeInteraction: vi.fn(() => order.push('remove'))
+    };
+    draw.clearDrawEventListeners = vi.fn(() => {
+      order.push('clear');
+      draw.lastDrawPointerDown = undefined;
+    });
+    draw.earth = { setMouseStyleToDefault: vi.fn() };
+
+    draw.exitDraw({ position: [120, 30] });
+
+    expect(order).toEqual(['finish', 'remove', 'clear']);
+  });
+
   it('uses the same background stroke for polygon preview and saved parameters', () => {
     const draw = Object.create(DynamicDraw.prototype) as any;
     const param = {

@@ -1,15 +1,16 @@
-import { FEATURE_KEYS, Utils } from '../common';
-import type Earth from '../Earth';
-import type { IPolygonParam, ISetPolygonParam } from '../interface';
-import { Feature } from 'ol';
-import { Polygon } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import { Fill, Style } from 'ol/style';
-import Base from './Base';
-import { Coordinate } from 'ol/coordinate';
-import { resolveEarth } from '../earthContext';
-import { createPatternFill, isPatternFill } from '../common/PatternFill';
+import { FEATURE_KEYS, Utils } from '../common/index.js';
+import type Earth from '../Earth.js';
+import type { IPolygonParam, ISetPolygonParam } from '../interface/index.js';
+import Feature from 'ol/Feature.js';
+import Polygon from 'ol/geom/Polygon.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Fill from 'ol/style/Fill.js';
+import Style from 'ol/style/Style.js';
+import Base from './Base.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { resolveEarth } from '../earthContext.js';
+import { createPatternFill, isPatternFill } from '../common/PatternFill.js';
 
 /**
  * 创建区域`Polygon`
@@ -39,7 +40,7 @@ export default class PolygonLayer<T = Polygon> extends Base {
    * @returns 返回`Feature<Polygon>`实例
    */
   private createFeature(param: IPolygonParam<T>): Feature<Polygon> {
-    const feature = new Feature({
+    const feature = new Feature<Polygon>({
       geometry: new Polygon(param.positions)
     });
     this.applyPolygonStyle(feature, param);

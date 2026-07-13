@@ -1,36 +1,39 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { EPlotType } from '../../enum';
-import type Earth from '../../Earth';
-import { Feature, Map } from 'ol';
-import { Geometry } from 'ol/geom';
-import AttackArrow from './geom/AttackArrow';
-import VectorSource from 'ol/source/Vector';
-import VectorLayer from 'ol/layer/Vector';
-import { Style, Fill, Stroke } from 'ol/style';
-import CircleStyle from 'ol/style/Circle';
-import { Coordinate } from 'ol/coordinate';
-import * as PlotUtils from './utils';
-import { fromLonLat } from 'ol/proj';
-import TailedAttackArrow from './geom/TailedAttackArrow';
-import FineArrow from './geom/FineArrow';
-import TailedSquadCombatArrow from './geom/TailedSquadCombatArrow';
-import AssaultDirectionArrow from './geom/AssaultDirectionArrow';
-import DoubleArrow from './geom/DoubleArrow';
-import AssemblePolygon from './polygon/AssemblePolygon';
-import Circle from './circle/Circle';
-import Ellipse from './circle/Ellipse';
-import ClosedCurvePolygon from './polygon/ClosedCurvePolygon';
-import { OverlayLayer } from '../../base';
-import { EventsKey } from 'ol/events';
-import { unByKey } from 'ol/Observable';
-import SectorPolygon from './polygon/SectorPolygon';
-import LunePolygon from './polygon/LunePolygon';
-import LunePolyline from './polyline/LunePolyline';
-import CurvePolyline from './polyline/CurvePolyline';
-import RectAnglePolygon from './polygon/RectAnglePolygon';
-import TrianglePolygon from './polygon/TrianglePolygon';
-import EquilateralTrianglePolygon from './polygon/EquilateralTrianglePolygon';
-import { resolveEarth } from '../../earthContext';
+import { EPlotType } from '../../enum/index.js';
+import type Earth from '../../Earth.js';
+import Feature from 'ol/Feature.js';
+import Map from 'ol/Map.js';
+import Geometry from 'ol/geom/Geometry.js';
+import AttackArrow from './geom/AttackArrow.js';
+import VectorSource from 'ol/source/Vector.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import Style from 'ol/style/Style.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
+import CircleStyle from 'ol/style/Circle.js';
+import { Coordinate } from 'ol/coordinate.js';
+import * as PlotUtils from './utils.js';
+import { fromLonLat } from 'ol/proj.js';
+import TailedAttackArrow from './geom/TailedAttackArrow.js';
+import FineArrow from './geom/FineArrow.js';
+import TailedSquadCombatArrow from './geom/TailedSquadCombatArrow.js';
+import AssaultDirectionArrow from './geom/AssaultDirectionArrow.js';
+import DoubleArrow from './geom/DoubleArrow.js';
+import AssemblePolygon from './polygon/AssemblePolygon.js';
+import Circle from './circle/Circle.js';
+import Ellipse from './circle/Ellipse.js';
+import ClosedCurvePolygon from './polygon/ClosedCurvePolygon.js';
+import { OverlayLayer } from '../../base/index.js';
+import { EventsKey } from 'ol/events.js';
+import { unByKey } from 'ol/Observable.js';
+import SectorPolygon from './polygon/SectorPolygon.js';
+import LunePolygon from './polygon/LunePolygon.js';
+import LunePolyline from './polyline/LunePolyline.js';
+import CurvePolyline from './polyline/CurvePolyline.js';
+import RectAnglePolygon from './polygon/RectAnglePolygon.js';
+import TrianglePolygon from './polygon/TrianglePolygon.js';
+import EquilateralTrianglePolygon from './polygon/EquilateralTrianglePolygon.js';
+import { resolveEarth } from '../../earthContext.js';
 
 // 事件类型与监听器类型定义（放在类外部避免语法错误）
 export type PlotDrawEventName = 'start' | 'add-point' | 'moving' | 'end' | 'cancel' | string;
@@ -48,7 +51,7 @@ class PlotDraw {
   /**
    * 绘制图层
    */
-  private layer: VectorLayer<VectorSource<Geometry>> | undefined;
+  private layer: VectorLayer<VectorSource<Feature<Geometry>>> | undefined;
   /**
    * 元素geometry
    */
@@ -418,7 +421,7 @@ class PlotDraw {
   public init(type: EPlotType) {
     this.earth.setMouseStyle('pointer');
     this.geom = this.createGeom(type);
-    this.feature = new Feature(this.geom);
+    this.feature = new Feature<Geometry>(this.geom);
     this.feature.set('dynamicDraw', true);
     this.layer?.getSource()?.addFeature(this.feature);
     // 创建监听事件

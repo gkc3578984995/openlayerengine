@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type Feature from 'ol/Feature';
-import type Map from 'ol/Map';
-import Point from 'ol/geom/Point';
-import type { Coordinate } from 'ol/coordinate';
+import type Feature from 'ol/Feature.js';
+import type Map from 'ol/Map.js';
+import Point from 'ol/geom/Point.js';
+import type { Coordinate } from 'ol/coordinate.js';
 
 export function getPointVisualSizePixel(feature: Feature<any>): [number, number] | undefined {
   try {

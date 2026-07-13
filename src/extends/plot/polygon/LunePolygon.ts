@@ -1,11 +1,11 @@
 /**
  * 弓形
  */
-import { Map } from 'ol';
-import { Polygon } from 'ol/geom';
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
-import * as PlotUtils from '../utils';
+import Map from 'ol/Map.js';
+import Polygon from 'ol/geom/Polygon.js';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
+import * as PlotUtils from '../utils.js';
 
 class LunePolygon extends Polygon {
   private type: EPlotType;
@@ -144,7 +144,7 @@ class LunePolygon extends Polygon {
   /**
    * 结束绘制
    */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default LunePolygon;

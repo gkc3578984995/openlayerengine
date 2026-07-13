@@ -1,4 +1,4 @@
-import type Earth from './Earth';
+import type Earth from './Earth.js';
 
 const defaultEarthKey = Symbol('defaultEarth');
 const earthRegistry = new Map<string | symbol, Earth>();

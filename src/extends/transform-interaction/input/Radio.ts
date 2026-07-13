@@ -1,4 +1,4 @@
-import Checkbox, { CheckboxOptions } from './Checkbox'
+import Checkbox, { CheckboxOptions } from './Checkbox.js';
 
 /**
  * 单选框输入组件。
@@ -6,16 +6,14 @@ import Checkbox, { CheckboxOptions } from './Checkbox'
  */
 export interface RadioOptions extends Omit<CheckboxOptions, 'after'> {
   /** 额外 class */
-  className?: string
+  className?: string;
 }
 
 class OlExtInputRadio extends Checkbox {
   constructor(options: RadioOptions = {}) {
-    super(options)
-    this.element.className = (
-      'ol-ext-check ol-ext-radio ' + (options.className || '')
-    ).trim()
+    super(options);
+    this.element.className = ('ol-ext-check ol-ext-radio ' + (options.className || '')).trim();
   }
 }
 
-export default OlExtInputRadio
+export default OlExtInputRadio;

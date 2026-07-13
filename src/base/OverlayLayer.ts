@@ -1,9 +1,10 @@
-import { Utils } from '../common';
-import type Earth from '../Earth';
-import { IOverlayParam, ISetOverlayParam } from '../interface';
-import { Map, Overlay } from 'ol';
-import { Coordinate } from 'ol/coordinate';
-import { resolveEarth } from '../earthContext';
+import { Utils } from '../common/index.js';
+import type Earth from '../Earth.js';
+import { IOverlayParam, ISetOverlayParam } from '../interface/index.js';
+import Map from 'ol/Map.js';
+import Overlay from 'ol/Overlay.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { resolveEarth } from '../earthContext.js';
 
 /**
  * 创建覆盖物`Overlay`
@@ -127,8 +128,8 @@ export default class OverlayLayer<T = unknown> {
    * overlayLayer.get("1");
    * ```
    */
-  get(id: string): Overlay;
-  get(id?: string): Overlay[] | Overlay {
+  get(id: string): Overlay | null;
+  get(id?: string): Overlay[] | Overlay | null {
     if (id) {
       const overlay = this.map.getOverlayById(id);
       return overlay;

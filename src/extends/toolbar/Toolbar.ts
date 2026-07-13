@@ -1,5 +1,5 @@
-import { OverlayLayer } from '../../base';
-import type Earth from '../../Earth';
+import { OverlayLayer } from '../../base/index.js';
+import type Earth from '../../Earth.js';
 import saveSvg from '../../assets/image/toolbar-save.svg?raw';
 import undoSvg from '../../assets/image/toolbar-undo.svg?raw';
 import redoSvg from '../../assets/image/toolbar-redo.svg?raw';

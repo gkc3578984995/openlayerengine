@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type Geometry from 'ol/geom/Geometry';
-import Point from 'ol/geom/Point';
+import type Geometry from 'ol/geom/Geometry.js';
+import Point from 'ol/geom/Point.js';
 
 export function projectVector(displacement: number[], base: number[]): number[] {
   const denominator = base[0] * base[0] + base[1] * base[1];

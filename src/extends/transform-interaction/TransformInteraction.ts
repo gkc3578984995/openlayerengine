@@ -19,18 +19,18 @@
  * - 选中集合 selection_ 是一个 Collection；调用 select / setSelection 管理。
  * - 所有对要素几何的直接写操作都在交互内部封装；外部监听 scaling/translating/rotating 及其 end 事件做持久化。
  */
-import Style from 'ol/style/Style';
-import Stroke from 'ol/style/Stroke';
-import VectorSource from 'ol/source/Vector';
-import Fill from 'ol/style/Fill';
-import VectorLayer from 'ol/layer/Vector';
-import PointGeom from 'ol/geom/Point';
-import Feature from 'ol/Feature';
-import Collection from 'ol/Collection';
-import PointerInteraction from 'ol/interaction/Pointer';
-import RegularShape from 'ol/style/RegularShape';
-import Icon from 'ol/style/Icon';
-import { fromExtent as polygonFromExtent } from 'ol/geom/Polygon';
+import Style from 'ol/style/Style.js';
+import Stroke from 'ol/style/Stroke.js';
+import VectorSource from 'ol/source/Vector.js';
+import Fill from 'ol/style/Fill.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import PointGeom from 'ol/geom/Point.js';
+import Feature from 'ol/Feature.js';
+import Collection from 'ol/Collection.js';
+import PointerInteraction from 'ol/interaction/Pointer.js';
+import RegularShape from 'ol/style/RegularShape.js';
+import Icon from 'ol/style/Icon.js';
+import { fromExtent as polygonFromExtent } from 'ol/geom/Polygon.js';
 import {
   boundingExtent as extentBoundingExtent,
   buffer as extentBuffer,
@@ -38,17 +38,17 @@ import {
   extend as extentExtend,
   getCenter as extentGetCenter,
   Extent
-} from 'ol/extent';
-import { unByKey } from 'ol/Observable';
-import PolygonGeom from 'ol/geom/Polygon';
-import MapBrowserEvent from 'ol/MapBrowserEvent';
-import BaseEvent from 'ol/events/Event';
-import Geometry from 'ol/geom/Geometry';
-import { Coordinate } from 'ol/coordinate';
-import Map from 'ol/Map';
+} from 'ol/extent.js';
+import { unByKey } from 'ol/Observable.js';
+import PolygonGeom from 'ol/geom/Polygon.js';
+import MapBrowserEvent from 'ol/MapBrowserEvent.js';
+import BaseEvent from 'ol/events/Event.js';
+import Geometry from 'ol/geom/Geometry.js';
+import { Coordinate } from 'ol/coordinate.js';
+import Map from 'ol/Map.js';
 // 视图对象无需单独类型导入（直接通过 map.getView 访问）
-import { EventsKey } from 'ol/events';
-import { ol_ext_element } from './element';
+import { EventsKey } from 'ol/events.js';
+import { ol_ext_element } from './element.js';
 import {
   getPointRotatedHalfSizePixel,
   getPointVisualRadiusPixel,
@@ -56,8 +56,8 @@ import {
   hasPointIconImage,
   isPixelInsidePointBBox,
   rotatedBBoxHalf
-} from './pointVisual';
-import { applyWrapOffset, movePoint, projectVector, vectorBetween } from './geometryTransform';
+} from './pointVisual.js';
+import { applyWrapOffset, movePoint, projectVector, vectorBetween } from './geometryTransform.js';
 // 资源通过 ESM import 让打包器处理（方案A）
 import rotateSvg from '../../assets/image/rotate.png';
 import stretchHImg from '../../assets/image/stretchH.png';
@@ -65,7 +65,12 @@ import stretchVImg from '../../assets/image/stretchV.png';
 import scalePng from '../../assets/image/scale.png';
 import translatePng from '../../assets/image/translate.png';
 import centerPng from '../../assets/image/center.png';
-// import { fromLonLat } from 'ol/proj'; // 未使用，移除避免 lint 警告
+
+function getMouseLikeOriginalEvent(originalEvent: Event): PointerEvent | MouseEvent | undefined {
+  if (typeof PointerEvent !== 'undefined' && originalEvent instanceof PointerEvent) return originalEvent;
+  if (typeof MouseEvent !== 'undefined' && originalEvent instanceof MouseEvent) return originalEvent;
+  return undefined;
+}
 // 静态资源（rollup url 插件处理）
 // 使用公共目录下的静态资源路径（开发时由 Vite public/ 提供，构建时复制到 dist/image）
 
@@ -169,7 +174,7 @@ class TransformInteraction extends PointerInteraction {
 
   private selection_: Collection<Feature<any>>;
   private handles_: Collection<Feature<any>>;
-  private overlayLayer_: VectorLayer<VectorSource>;
+  private overlayLayer_: VectorLayer<VectorSource<Feature<Geometry>>>;
   private features_?: Collection<Feature<any>>;
   private layers_: any[] | null;
   private readonly graticule?: TransformOptions['graticule'];
@@ -267,7 +272,7 @@ class TransformInteraction extends PointerInteraction {
 
     // 构建手柄叠加层（不做空间索引）
     this.overlayLayer_ = new VectorLayer({
-      source: new VectorSource({
+      source: new VectorSource<Feature<Geometry>>({
         features: this.handles_,
         useSpatialIndex: false,
         wrapX: false
@@ -308,10 +313,14 @@ class TransformInteraction extends PointerInteraction {
     this.set('stretch', options.stretch !== false);
     this.set('scale', options.scale !== false);
     this.set('rotate', options.rotate !== false);
-    this.set('keepAspectRatio', options.keepAspectRatio || ((e: MapBrowserEvent<any>) => !!e.originalEvent && (e.originalEvent as any).shiftKey));
+    this.set('keepAspectRatio', options.keepAspectRatio || ((e: MapBrowserEvent<any>) => getMouseLikeOriginalEvent(e.originalEvent)?.shiftKey === true));
     this.set(
       'modifyCenter',
-      options.modifyCenter || ((e: MapBrowserEvent<any>) => !!e.originalEvent && ((e.originalEvent as any).metaKey || (e.originalEvent as any).ctrlKey))
+      options.modifyCenter ||
+        ((e: MapBrowserEvent<any>) => {
+          const originalEvent = getMouseLikeOriginalEvent(e.originalEvent);
+          return originalEvent?.metaKey === true || originalEvent?.ctrlKey === true;
+        })
     );
     this.set('noFlip', options.noFlip || false);
     this.set('selection', options.selection !== false);
@@ -703,7 +712,7 @@ class TransformInteraction extends PointerInteraction {
       // 旋转过程中：即便是点（带 image）也保持显示 bbox；若记录了初始尺寸，则使用固定宽高
       this.overlayLayer_
         .getSource()
-        ?.addFeature(new Feature({ geometry: new PointGeom([this.center_[0] + wrapOffset, this.center_[1]]), handle: 'rotate0' }) as any);
+        ?.addFeature(new Feature<PointGeom>({ geometry: new PointGeom([this.center_[0] + wrapOffset, this.center_[1]]), handle: 'rotate0' }));
       let centerExtent = extWrap;
       if (this.mode_ === 'rotate' && this.ispt_ && this._ptRotateBBoxSize) {
         // _ptRotateBBoxSize 为旋转开始时记录的"未旋转"地图尺寸；旋转过程中按当前角度
@@ -720,7 +729,7 @@ class TransformInteraction extends PointerInteraction {
       const geom: Geometry = polygonFromExtent(centerExtent as Extent);
       const viewCenter = map.getView().getCenter();
       if (this.get('enableRotatedTransform') && viewRotation !== 0 && viewCenter) geom.rotate(viewRotation, viewCenter);
-      const f = (this.bbox_ = new Feature(geom));
+      const f = (this.bbox_ = new Feature<Geometry>(geom));
       this.overlayLayer_.getSource()?.addFeature(f);
       return;
     }
@@ -745,7 +754,7 @@ class TransformInteraction extends PointerInteraction {
     const geom: Geometry = keepRectangle ? new PolygonGeom([coordsWrap as Coordinate[]]) : polygonFromExtent(ext2);
     const viewC = map.getView().getCenter();
     if (this.get('enableRotatedTransform') && viewRotation !== 0 && viewC) geom.rotate(viewRotation, viewC);
-    const bbox = (this.bbox_ = new Feature(geom));
+    const bbox = (this.bbox_ = new Feature<Geometry>(geom));
 
     const features: Feature<any>[] = [];
     const g = (geom as PolygonGeom).getCoordinates()[0];
@@ -763,7 +772,7 @@ class TransformInteraction extends PointerInteraction {
       if (!disableRotateScale && !this.iscircle_ && !this.ispt_ && this.get('stretch') && this.get('scale')) {
         for (let i = 0; i < g.length - 1; i++) {
           features.push(
-            new Feature({
+            new Feature<PointGeom>({
               geometry: new PointGeom([(g[i][0] + g[i + 1][0]) / 2, (g[i][1] + g[i + 1][1]) / 2]),
               handle: 'scale',
               constraint: i % 2 ? 'h' : 'v',
@@ -773,10 +782,10 @@ class TransformInteraction extends PointerInteraction {
         }
       }
       if (!disableRotateScale && this.get('scale')) {
-        for (let i = 0; i < g.length - 1; i++) features.push(new Feature({ geometry: new PointGeom(g[i]), handle: 'scale', option: i }));
+        for (let i = 0; i < g.length - 1; i++) features.push(new Feature<PointGeom>({ geometry: new PointGeom(g[i]), handle: 'scale', option: i }));
       }
       if (this.get('translate') && !this.get('translateFeature')) {
-        features.push(new Feature({ geometry: new PointGeom([(g[0][0] + g[2][0]) / 2, (g[0][1] + g[2][1]) / 2]), handle: 'translate' }));
+        features.push(new Feature<PointGeom>({ geometry: new PointGeom([(g[0][0] + g[2][0]) / 2, (g[0][1] + g[2][1]) / 2]), handle: 'translate' }));
       }
     }
 
@@ -790,12 +799,12 @@ class TransformInteraction extends PointerInteraction {
         }
       }
       if (allowRotate) {
-        features.push(new Feature({ geometry: new PointGeom([(g[0][0] + g[2][0]) / 2, g[2][1]]), handle: 'rotate' }));
+        features.push(new Feature<PointGeom>({ geometry: new PointGeom([(g[0][0] + g[2][0]) / 2, g[2][1]]), handle: 'rotate' }));
       }
     }
 
     if (!disableRotateScale && this.ispt_ && this.get('scale')) {
-      for (let i = 0; i < g.length - 1; i++) features.push(new Feature({ geometry: new PointGeom(g[i]), handle: 'scale', option: i }));
+      for (let i = 0; i < g.length - 1; i++) features.push(new Feature<PointGeom>({ geometry: new PointGeom(g[i]), handle: 'scale', option: i }));
       // 当点要素具有位图 image 时，允许显示边中点拉伸手柄（与非点几 geometry 一致）
       if (!disableRotateScale && this.get('stretch') && this.selection_.getLength() === 1) {
         const pf = this.selection_.item(0) as Feature<any>;
@@ -803,7 +812,7 @@ class TransformInteraction extends PointerInteraction {
           for (let i = 0; i < g.length - 1; i++) {
             const mid = [(g[i][0] + g[i + 1][0]) / 2, (g[i][1] + g[i + 1][1]) / 2];
             features.push(
-              new Feature({
+              new Feature<PointGeom>({
                 geometry: new PointGeom(mid),
                 handle: 'scale',
                 constraint: i % 2 ? 'h' : 'v',
@@ -886,13 +895,11 @@ class TransformInteraction extends PointerInteraction {
    */
   private checkDynmicDraw_(evt: MapBrowserEvent<any>): boolean {
     let flag = false;
-    evt.map
-      .getInteractions()
-      .forEach((i) => {
-        if (i.get('dynamicDraw')) {
-          flag = true;
-        }
-      });
+    evt.map.getInteractions().forEach((i) => {
+      if (i.get('dynamicDraw')) {
+        flag = true;
+      }
+    });
     const sel = this.getFeatureAtPixel_(evt.pixel);
     const feature = sel.feature;
     if (feature) {
@@ -919,8 +926,8 @@ class TransformInteraction extends PointerInteraction {
   private handleDownEvent_(evt: MapBrowserEvent<any>): boolean | void {
     if (this.checkDynmicDraw_(evt)) return;
     // 右键交给 Transform 的原生 contextmenu 捕获监听处理，以便菜单不会在退出编辑后打开。
-    const oe: any = (evt as any).originalEvent;
-    if (oe && oe.button === 2) {
+    const originalEvent = getMouseLikeOriginalEvent(evt.originalEvent);
+    if (originalEvent?.button === 2) {
       return false; // 阻止继续走后续左键选择逻辑
     }
     if (!this._handleEvent(evt, this.selection_)) return;

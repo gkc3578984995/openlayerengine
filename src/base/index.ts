@@ -1,7 +1,7 @@
-export { default as CircleLayer } from './CircleLayer';
-export { default as PointLayer } from './PointLayer';
-export { default as PolygonLayer } from './PolygonLayer';
-export { default as PolylineLayer } from './PolylineLayer';
-export { default as BillboardLayer } from './BillboardLayer';
-export { default as OverlayLayer } from './OverlayLayer';
-export { default as Base } from './Base';
+export { default as CircleLayer } from './CircleLayer.js';
+export { default as PointLayer } from './PointLayer.js';
+export { default as PolygonLayer } from './PolygonLayer.js';
+export { default as PolylineLayer } from './PolylineLayer.js';
+export { default as BillboardLayer } from './BillboardLayer.js';
+export { default as OverlayLayer } from './OverlayLayer.js';
+export { default as Base } from './Base.js';

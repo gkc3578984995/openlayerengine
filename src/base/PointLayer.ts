@@ -1,15 +1,18 @@
-import type Earth from '../Earth';
-import { IPointParam, ISetPointParam } from '../interface';
-import { Feature } from 'ol';
-import { Point } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import Base from './Base';
-import { Circle, Fill, Stroke, Style } from 'ol/style.js';
-import { Utils } from '../common';
-import { unByKey } from 'ol/Observable';
-import { Coordinate } from 'ol/coordinate';
-import { resolveEarth } from '../earthContext';
+import type Earth from '../Earth.js';
+import { IPointParam, ISetPointParam } from '../interface/index.js';
+import Feature from 'ol/Feature.js';
+import Point from 'ol/geom/Point.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Base from './Base.js';
+import Circle from 'ol/style/Circle.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
+import Style from 'ol/style/Style.js';
+import { Utils } from '../common/index.js';
+import { unByKey } from 'ol/Observable.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { resolveEarth } from '../earthContext.js';
 
 /**
  * 创建点`Point`
@@ -38,7 +41,7 @@ export default class PointLayer<T = Point> extends Base {
    * @returns 返回`Feature<Point>`实例
    */
   private createFeature(param: IPointParam<T>): Feature<Point> {
-    const feature = new Feature({
+    const feature = new Feature<Point>({
       geometry: new Point(param.center)
     });
     let style = new Style();

@@ -1,8 +1,10 @@
-import { IPlotEditEventPayload } from '../extends/plot/plotEdit';
-import { Feature } from 'ol';
-import { Coordinate } from 'ol/coordinate';
-import { Geometry, LineString, Polygon } from 'ol/geom';
-import { IGeometryFill, IStroke } from './default';
+import { IPlotEditEventPayload } from '../extends/plot/plotEdit.js';
+import Feature from 'ol/Feature.js';
+import { Coordinate } from 'ol/coordinate.js';
+import Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
+import Polygon from 'ol/geom/Polygon.js';
+import { IGeometryFill, IStroke } from './default.js';
 
 export enum DrawType {
   /**

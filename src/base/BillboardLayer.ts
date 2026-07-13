@@ -1,15 +1,17 @@
-import type Earth from '../Earth';
-import { IBillboardParam, ISetBillboardParam } from '../interface';
-import { IconOrigin, IconAnchorUnits } from 'ol/style/Icon';
-import { Point } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import { Icon, Style } from 'ol/style';
-import Base from './Base';
-import { Utils } from '../common';
-import { Coordinate } from 'ol/coordinate';
-import { Feature } from 'ol';
-import { resolveEarth } from '../earthContext';
+import type Earth from '../Earth.js';
+import { IBillboardParam, ISetBillboardParam } from '../interface/index.js';
+import { IconOrigin, IconAnchorUnits } from 'ol/style/Icon.js';
+import Point from 'ol/geom/Point.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Icon from 'ol/style/Icon.js';
+import Style from 'ol/style/Style.js';
+import Base from './Base.js';
+import { Utils } from '../common/index.js';
+import { Coordinate } from 'ol/coordinate.js';
+import Feature from 'ol/Feature.js';
+import { resolveEarth } from '../earthContext.js';
+import { FEATURE_KEYS } from '../common/featureKeys.js';
 
 /**
  * 创建广告牌`Billboard`
@@ -38,7 +40,12 @@ export default class BillboardLayer<T = Point> extends Base {
    * @returns 返回`Feature<Point>`矢量元素
    */
   private createFeature(param: IBillboardParam<T>): Feature<Point> {
-    const feature = new Feature({
+    const resolvedAnchor = (param.anchor ?? [0.5, 0.5]).slice();
+    const storedParam: IBillboardParam<T> = {
+      ...param,
+      anchor: resolvedAnchor
+    };
+    const feature = new Feature<Point>({
       geometry: new Point(param.center)
     });
     const icon = new Icon({
@@ -48,7 +55,7 @@ export default class BillboardLayer<T = Point> extends Base {
       displacement: this.compensateDisplacement(param.displacement, param.rotation),
       scale: param.scale,
       rotation: Utils.deg2rad(param.rotation || 0),
-      anchor: param.anchor,
+      anchor: resolvedAnchor,
       anchorOrigin: param.anchorOrigin,
       anchorXUnits: param.anchorXUnits,
       anchorYUnits: param.anchorYUnits
@@ -57,7 +64,7 @@ export default class BillboardLayer<T = Point> extends Base {
     style = this.applyText(style, param.label, feature);
     style.setImage(icon);
     feature.setStyle(style);
-    this.bindFeature(feature, param, 'Billboard');
+    this.bindFeature(feature, storedParam, 'Billboard');
     // 记录屏幕空间偏移（未补偿），供 set() 只传 rotation 时重新补偿使用
     feature.set('screenDisplacement', param.displacement ? param.displacement.slice() : [0, 0]);
     return feature;
@@ -130,7 +137,7 @@ export default class BillboardLayer<T = Point> extends Base {
     interface IIconOptions {
       src?: string;
       size?: [number, number];
-      color?: string | import('ol/color').Color;
+      color?: string | import('ol/color.js').Color;
       displacement?: number[];
       scale?: number | number[];
       rotation?: number;
@@ -141,7 +148,7 @@ export default class BillboardLayer<T = Point> extends Base {
     }
     // anchor 规则：如果调用者未显式传入 anchor（undefined / null），强制回退 [0.5,0.5]（fraction 默认）
     // 这样在撤销回到初始快照时不会意外复用内部像素锚点（出现 [128,128] 等错误值）
-    const anchorProvided = param.anchor !== undefined && param.anchor !== null;
+    const resolvedAnchor = param.anchor?.slice() ?? [0.5, 0.5];
     const iconOptions: IIconOptions = {
       src: param.src || oldIcon.getSrc(),
       size: nextSize,
@@ -149,7 +156,7 @@ export default class BillboardLayer<T = Point> extends Base {
       displacement: this.compensateDisplacement(screenDisp, resolvedRotationDeg),
       scale: param.scale || oldIcon.getScale(),
       rotation: resolvedRotation,
-      anchor: anchorProvided ? param.anchor : [0.5, 0.5]
+      anchor: resolvedAnchor
     };
     // 清理 undefined 字段（手动列出避免索引签名）
     if (iconOptions.src == null) delete iconOptions.src;
@@ -167,6 +174,13 @@ export default class BillboardLayer<T = Point> extends Base {
     this.applyText(style, param.label, features[0]);
     style.setImage(newIcon);
     features[0].setStyle(style);
+    const storedParam = features[0].get(FEATURE_KEYS.param) as IBillboardParam<T> | undefined;
+    if (storedParam) {
+      features[0].set(FEATURE_KEYS.param, {
+        ...storedParam,
+        anchor: resolvedAnchor.slice()
+      });
+    }
     // 同步屏幕空间偏移，供下一次 set() 重新补偿使用
     features[0].set('screenDisplacement', screenDisp.slice());
     return features;

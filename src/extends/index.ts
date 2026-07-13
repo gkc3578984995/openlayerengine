@@ -1,2 +1,2 @@
-export * from './flight-line';
-export * from './plot/plotDraw';
+export * from './flight-line/index.js';
+export * from './plot/plotDraw.js';

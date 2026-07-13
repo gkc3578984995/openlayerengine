@@ -1,13 +1,12 @@
-import type Earth from '../Earth';
-import type Feature from 'ol/Feature';
-import type { Coordinate } from 'ol/coordinate';
-import type { Geometry } from 'ol/geom';
-import type { Layer } from 'ol/layer';
-import type { Source } from 'ol/source';
-import type LayerRenderer from 'ol/renderer/Layer';
-import { toLonLat } from 'ol/proj';
-import type { EventsKey } from 'ol/events';
-import { unByKey } from 'ol/Observable';
+import type Earth from '../Earth.js';
+import type Feature from 'ol/Feature.js';
+import type { Coordinate } from 'ol/coordinate.js';
+import type Geometry from 'ol/geom/Geometry.js';
+import type Layer from 'ol/layer/Layer.js';
+import type Source from 'ol/source/Source.js';
+import { toLonLat } from 'ol/proj.js';
+import type { EventsKey } from 'ol/events.js';
+import { unByKey } from 'ol/Observable.js';
 
 export interface IContextMenuOption {
   /** `true` 为夜间主题，省略或 `false` 为白天主题。 */
@@ -47,8 +46,7 @@ export interface IContextMenuCallbackParam {
   /** 当前命中的 OpenLayers 要素。 */
   feature?: Feature<Geometry>;
   /** 当前命中的 OpenLayers 图层。 */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  layer?: Layer<Source, LayerRenderer<any>>;
+  layer?: Layer<Source>;
 }
 
 export type ContextMenuCallback = (param: IContextMenuCallbackParam) => void;

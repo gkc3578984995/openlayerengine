@@ -1,19 +1,25 @@
-import type Earth from '../Earth';
-import { IFill, ILabel, IStroke, IBillboardParam, IPolylineParam, IPolylineFlyParam, IPointParam, ICircleParam, IPolygonParam } from '../interface';
-import { Feature } from 'ol';
-import { Geometry } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import { Style, Stroke, Fill, Text } from 'ol/style';
-import Icon from 'ol/style/Icon';
-import CircleStyle from 'ol/style/Circle';
-import { Utils } from '../common';
-import { FEATURE_KEYS, LAYER_TYPE } from '../common/featureKeys';
-import { EventsKey } from 'ol/events';
-import { unByKey } from 'ol/Observable';
-import cloneDeep from 'lodash/cloneDeep';
-import { isPatternFill } from '../common/PatternFill';
-// import BaseEvent from 'ol/events/Event';
+import type Earth from '../Earth.js';
+import { IFill, ILabel, IStroke, IBillboardParam, IPolylineParam, IPolylineFlyParam, IPointParam, ICircleParam, IPolygonParam } from '../interface/index.js';
+import Feature from 'ol/Feature.js';
+import Geometry from 'ol/geom/Geometry.js';
+import Circle from 'ol/geom/Circle.js';
+import LineString from 'ol/geom/LineString.js';
+import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Style from 'ol/style/Style.js';
+import Stroke from 'ol/style/Stroke.js';
+import Fill from 'ol/style/Fill.js';
+import Text from 'ol/style/Text.js';
+import Icon from 'ol/style/Icon.js';
+import CircleStyle from 'ol/style/Circle.js';
+import { Utils } from '../common/index.js';
+import { FEATURE_KEYS, LAYER_TYPE } from '../common/featureKeys.js';
+import { EventsKey } from 'ol/events.js';
+import { unByKey } from 'ol/Observable.js';
+import cloneDeep from 'lodash/cloneDeep.js';
+import { isPatternFill } from '../common/PatternFill.js';
 /** 所有图层参数的联合类型（用于 {@link Base.getUpdatedParam} 的返回） */
 export type AnyParam =
   IBillboardParam<unknown> | IPolylineParam<unknown> | IPolylineFlyParam<unknown> | IPointParam<unknown> | ICircleParam<unknown> | IPolygonParam<unknown>;
@@ -33,7 +39,7 @@ export default class Base {
   /**
    * 图层
    */
-  public layer: VectorLayer<VectorSource<Geometry>>;
+  public layer: VectorLayer<VectorSource<Feature<Geometry>>>;
   /**
    * feature `change` 事件同步 param 的节流间隔(ms)，默认 33（约 30fps）。
    * 拖拽高频变更时控制同步开销；在 add 元素前修改可调节粒度，设为 0 则每次变更立即同步。
@@ -54,7 +60,7 @@ export default class Base {
    */
   constructor(
     protected earth: Earth,
-    layer: VectorLayer<VectorSource<Geometry>>,
+    layer: VectorLayer<VectorSource<Feature<Geometry>>>,
     type: string,
     options?: { register?: boolean }
   ) {
@@ -122,31 +128,32 @@ export default class Base {
    * @returns 返回style实例
    */
   protected setText(style: Style, param?: ILabel, offsetY?: number): Style {
+    const currentText = style.getText();
     const text = new Text({
-      text: param?.text || style.getText()?.getText(),
-      font: param?.font || style.getText()?.getFont(),
-      offsetX: param?.offsetX || style.getText()?.getOffsetX(),
+      text: param?.text || currentText?.getText(),
+      font: param?.font || currentText?.getFont(),
+      offsetX: param?.offsetX || currentText?.getOffsetX(),
       // offsetY 公共约定为"正值向上"（与 OL 原生"正值向下"相反），写入 OL 时取反
-      offsetY: param?.offsetY ? -param.offsetY : offsetY || style.getText()?.getOffsetY(),
-      scale: param?.scale || style.getText()?.getScale(),
-      textAlign: param?.textAlign || style.getText()?.getTextAlign(),
-      textBaseline: param?.textBaseline || style.getText()?.getTextBaseline(),
-      rotation: param?.rotation != null ? Utils.deg2rad(param.rotation) : style.getText()?.getRotation(),
+      offsetY: param?.offsetY ? -param.offsetY : offsetY || currentText?.getOffsetY(),
+      scale: param?.scale || currentText?.getScale(),
+      textAlign: param?.textAlign || currentText?.getTextAlign(),
+      textBaseline: param?.textBaseline || currentText?.getTextBaseline(),
+      rotation: param?.rotation != null ? Utils.deg2rad(param.rotation) : currentText?.getRotation(),
       fill: new Fill({
-        color: param?.fill?.color || style.getText()?.getFill().getColor()
+        color: param?.fill?.color || currentText?.getFill()?.getColor()
       }),
       stroke: new Stroke({
-        color: param?.stroke?.color || style.getText()?.getStroke().getColor() || '#0000',
-        width: param?.stroke?.width || style.getText()?.getStroke().getWidth() || 0
+        color: param?.stroke?.color || currentText?.getStroke()?.getColor() || '#0000',
+        width: param?.stroke?.width || currentText?.getStroke()?.getWidth() || 0
       }),
       backgroundFill: new Fill({
-        color: param?.backgroundFill?.color || style.getText()?.getBackgroundFill().getColor() || '#0000'
+        color: param?.backgroundFill?.color || currentText?.getBackgroundFill()?.getColor() || '#0000'
       }),
       backgroundStroke: new Stroke({
-        color: param?.backgroundStroke?.color || style.getText()?.getBackgroundStroke().getColor() || '#0000',
-        width: param?.backgroundStroke?.width || style.getText()?.getBackgroundStroke().getWidth() || 0
+        color: param?.backgroundStroke?.color || currentText?.getBackgroundStroke()?.getColor() || '#0000',
+        width: param?.backgroundStroke?.width || currentText?.getBackgroundStroke()?.getWidth() || 0
       }),
-      padding: param?.padding || style.getText()?.getPadding() || undefined,
+      padding: param?.padding || currentText?.getPadding() || undefined,
       overflow: true
     });
     style.setText(text);
@@ -273,7 +280,7 @@ export default class Base {
    * @param prev 既有 label（作为各字段的回退）
    * @param feature 所属要素（用于读取存储的屏幕空间偏移）
    */
-  protected buildLabelFromText(text: Text | undefined, prev: ILabel | undefined, feature: Feature<Geometry>): ILabel | undefined {
+  protected buildLabelFromText(text: Text | null | undefined, prev: ILabel | undefined, feature: Feature<Geometry>): ILabel | undefined {
     if (!text) return prev;
     const plainText = (() => {
       const t = text.getText?.();
@@ -401,7 +408,7 @@ export default class Base {
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Point') {
       try {
-        param.center = (geometry as import('ol/geom').Point).getCoordinates();
+        param.center = (geometry as Point).getCoordinates();
       } catch {
         /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
@@ -422,8 +429,6 @@ export default class Base {
       if (scaleVal) param.scale = scaleVal;
       const rotation = icon.getRotation();
       if (rotation != null) param.rotation = Utils.rad2deg(rotation);
-      const anchor = (icon as unknown as { anchor_?: number[] }).anchor_; // 原始 anchor 数组
-      if (anchor && Array.isArray(anchor)) param.anchor = anchor as number[];
     }
     // 同步文本标签
     param.label = this.buildLabelFromText(style?.getText(), param.label, feature);
@@ -442,7 +447,7 @@ export default class Base {
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'LineString') {
       try {
-        const coords = (geometry as import('ol/geom').LineString).getCoordinates();
+        const coords = (geometry as LineString).getCoordinates();
         if (isNormalPolyline(param)) param.positions = coords;
         if (isFlyPolyline(param)) param.position = coords as number[][];
       } catch {
@@ -469,7 +474,7 @@ export default class Base {
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Point') {
       try {
-        param.center = (geometry as import('ol/geom').Point).getCoordinates();
+        param.center = (geometry as Point).getCoordinates();
       } catch {
         /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
@@ -500,7 +505,7 @@ export default class Base {
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Circle') {
       try {
-        const circle = geometry as import('ol/geom').Circle;
+        const circle = geometry as Circle;
         param.center = circle.getCenter();
         param.radius = circle.getRadius();
       } catch {
@@ -525,7 +530,7 @@ export default class Base {
     const geometry = feature.getGeometry();
     if (geometry && geometry.getType && geometry.getType() === 'Polygon') {
       try {
-        param.positions = (geometry as import('ol/geom').Polygon).getCoordinates();
+        param.positions = (geometry as Polygon).getCoordinates();
       } catch {
         /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
       }
@@ -559,7 +564,7 @@ export default class Base {
     if (layerType === 'Billboard') {
       if (geometry && geometry.getType && geometry.getType() === 'Point') {
         try {
-          const pointGeom = geometry as import('ol/geom').Point;
+          const pointGeom = geometry as Point;
           param.center = pointGeom.getCoordinates();
         } catch (_) {
           /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
@@ -580,15 +585,13 @@ export default class Base {
           if (scaleVal) param.scale = scaleVal;
           const rotation = icon.getRotation?.();
           if (rotation != null) param.rotation = Utils.rad2deg(rotation);
-          const anchor = (icon as unknown as { anchor_?: number[] }).anchor_;
-          if (anchor && Array.isArray(anchor)) param.anchor = anchor as number[];
         }
         param.label = this.buildLabelFromText(style.getText?.(), param.label, feature);
       }
     } else if (layerType === 'Polyline') {
       if (geometry && geometry.getType && geometry.getType() === 'LineString') {
         try {
-          const line = geometry as import('ol/geom').LineString;
+          const line = geometry as LineString;
           const coords = line.getCoordinates();
           // 兼容普通与飞行线
           if ('positions' in param) param.positions = coords;
@@ -606,7 +609,7 @@ export default class Base {
     } else if (layerType === 'Point') {
       if (geometry && geometry.getType && geometry.getType() === 'Point') {
         try {
-          const point = geometry as import('ol/geom').Point;
+          const point = geometry as Point;
           param.center = point.getCoordinates();
         } catch (_) {
           /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
@@ -625,7 +628,7 @@ export default class Base {
     } else if (layerType === 'Circle') {
       if (geometry && geometry.getType && geometry.getType() === 'Circle') {
         try {
-          const circle = geometry as import('ol/geom').Circle;
+          const circle = geometry as Circle;
           param.center = circle.getCenter();
           param.radius = circle.getRadius();
         } catch (_) {
@@ -639,7 +642,7 @@ export default class Base {
     } else if (layerType === 'Polygon') {
       if (geometry && geometry.getType && geometry.getType() === 'Polygon') {
         try {
-          const polygon = geometry as import('ol/geom').Polygon;
+          const polygon = geometry as Polygon;
           param.positions = polygon.getCoordinates();
         } catch (_) {
           /* 预期异常:几何类型与断言不符时跳过该字段同步，不向上抛出 */
@@ -858,7 +861,7 @@ export default class Base {
   /**
    * 获取图层
    */
-  getLayer(): VectorLayer<VectorSource<Geometry>> {
+  getLayer(): VectorLayer<VectorSource<Feature<Geometry>>> {
     return this.layer;
   }
   /**

@@ -1,11 +1,11 @@
 /**
  * 弓形线
  */
-import { Map } from 'ol';
-import { LineString } from 'ol/geom';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
+import Map from 'ol/Map.js';
+import LineString from 'ol/geom/LineString.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
 
 class LunePolyline extends LineString {
   private type: EPlotType;
@@ -138,7 +138,7 @@ class LunePolyline extends LineString {
   /**
    * 结束绘制
    */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default LunePolyline;

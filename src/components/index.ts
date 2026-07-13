@@ -1,9 +1,9 @@
-export { default as GlobalEvent } from './GlobalEvent';
-export { default as DynamicDraw } from './DynamicDraw';
-export { default as Measure } from './Measure';
-export { default as Descriptor } from './Descriptor';
-export { default as ContextMenu } from './ContextMenu';
-export { default as Transform } from './Transform';
+export { default as GlobalEvent } from './GlobalEvent.js';
+export { default as DynamicDraw } from './DynamicDraw.js';
+export { default as Measure } from './Measure.js';
+export { default as Descriptor } from './Descriptor.js';
+export { default as ContextMenu } from './ContextMenu.js';
+export { default as Transform } from './Transform.js';
 
-export type { ModuleEventCallback, GlobalEventCallback, GlobalKeyDownEventCallback, ModuleEventCallbackParams } from './GlobalEvent';
-export type { ContextMenuBefore, ContextMenuCallback, IContextMenuCallbackParam, IContextMenuItem, IContextMenuOption } from './ContextMenu';
+export type { ModuleEventCallback, GlobalEventCallback, GlobalKeyDownEventCallback, ModuleEventCallbackParams } from './GlobalEvent.js';
+export type { ContextMenuBefore, ContextMenuCallback, IContextMenuCallbackParam, IContextMenuItem, IContextMenuOption } from './ContextMenu.js';

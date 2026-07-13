@@ -1,11 +1,11 @@
 /**
  * 扇形
  */
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
-import * as PlotUtils from '../utils';
-import { Map } from 'ol';
-import { Polygon } from 'ol/geom';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
+import * as PlotUtils from '../utils.js';
+import Map from 'ol/Map.js';
+import Polygon from 'ol/geom/Polygon.js';
 
 class SectorPolygon extends Polygon {
   private type: EPlotType;
@@ -134,7 +134,7 @@ class SectorPolygon extends Polygon {
   /**
    * 结束绘制
    */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default SectorPolygon;

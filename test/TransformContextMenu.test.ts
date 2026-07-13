@@ -9,13 +9,26 @@ describe('Transform 右键菜单协调', () => {
     interaction.checkDynmicDraw_ = () => false;
     interaction.selection_ = { getLength: () => 1 };
     interaction.exitEdit = vi.fn();
-    const originalEvent = { button: 2, preventDefault: vi.fn() };
+    const previousMouseEvent = globalThis.MouseEvent;
+    class TestMouseEvent extends Event {
+      public readonly button: number;
 
-    const result = interaction.handleDownEvent_({ originalEvent, pixel: [12, 24] });
+      constructor(type: string, options: MouseEventInit = {}) {
+        super(type);
+        this.button = options.button ?? 0;
+      }
+    }
+    Object.defineProperty(globalThis, 'MouseEvent', { configurable: true, value: TestMouseEvent });
+    const originalEvent = new MouseEvent('pointerdown', { button: 2 });
 
-    expect(result).toBe(false);
-    expect(interaction.exitEdit).not.toHaveBeenCalled();
-    expect(originalEvent.preventDefault).not.toHaveBeenCalled();
+    try {
+      const result = interaction.handleDownEvent_({ originalEvent, pixel: [12, 24] });
+
+      expect(result).toBe(false);
+      expect(interaction.exitEdit).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(globalThis, 'MouseEvent', { configurable: true, value: previousMouseEvent });
+    }
   });
 
   it('退出编辑并阻止右键菜单继续打开', () => {

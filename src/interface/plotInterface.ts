@@ -1,6 +1,6 @@
-import { EPlotType } from '../enum';
-import { Feature } from 'ol';
-import { Coordinate } from 'ol/coordinate';
+import { EPlotType } from '../enum/index.js';
+import Feature from 'ol/Feature.js';
+import { Coordinate } from 'ol/coordinate.js';
 
 export interface IPlotAttackArrow {
   /**

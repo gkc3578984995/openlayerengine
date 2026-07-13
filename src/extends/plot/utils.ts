@@ -1,4 +1,4 @@
-import { Coordinate } from "ol/coordinate";
+import { Coordinate } from 'ol/coordinate.js';
 
 export type Point = Coordinate;
 export const FITTING_COUNT = 100;

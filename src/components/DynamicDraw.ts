@@ -1,25 +1,51 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { DrawType, IDrawEvent, IDrawLine, IDrawPoint, IDrawPolygon, IEditParam, IFill, IGeometryFill, IPointParam, IStroke, ModifyType } from '../interface';
-import { Feature, Map } from 'ol';
-import { Geometry, LineString, Point, Polygon, Circle as CircleGeom } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import Earth from '../Earth';
-import { Draw, Modify } from 'ol/interaction';
-import { DrawEvent } from 'ol/interaction/Draw';
-import { fromLonLat, toLonLat } from 'ol/proj';
-import { Fill, Stroke, Style } from 'ol/style';
-import CircleStyle from 'ol/style/Circle';
-import { OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, CircleLayer, Base } from '../base';
-import { isPatternFill } from '../common/PatternFill';
-import { unByKey } from 'ol/Observable';
-import { EventsKey } from 'ol/events';
-import { Coordinate } from 'ol/coordinate';
-import { Utils } from '../common';
-import PlotDraw from '../extends/plot/plotDraw';
-import PlotEdit from '../extends/plot/plotEdit';
-import { startPlotDrawing } from './dynamic-draw/plotDrawing';
-import type { PlotDrawingKind, PlotTargetLayer } from './dynamic-draw/plotDrawing';
+import {
+  DrawType,
+  IDrawEvent,
+  IDrawLine,
+  IDrawPoint,
+  IDrawPolygon,
+  IEditParam,
+  IFill,
+  IGeometryFill,
+  IPointParam,
+  IStroke,
+  ModifyType
+} from '../interface/index.js';
+import Feature from 'ol/Feature.js';
+import Map from 'ol/Map.js';
+import Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
+import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
+import CircleGeom from 'ol/geom/Circle.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Earth from '../Earth.js';
+import Draw from 'ol/interaction/Draw.js';
+import Modify from 'ol/interaction/Modify.js';
+import { DrawEvent } from 'ol/interaction/Draw.js';
+import { fromLonLat, toLonLat } from 'ol/proj.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
+import Style from 'ol/style/Style.js';
+import CircleStyle from 'ol/style/Circle.js';
+import { OverlayLayer, PointLayer, PolygonLayer, PolylineLayer, CircleLayer, Base } from '../base/index.js';
+import { isPatternFill } from '../common/PatternFill.js';
+import { unByKey } from 'ol/Observable.js';
+import { EventsKey } from 'ol/events.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { Utils } from '../common/index.js';
+import PlotDraw from '../extends/plot/plotDraw.js';
+import PlotEdit from '../extends/plot/plotEdit.js';
+import { startPlotDrawing } from './dynamic-draw/plotDrawing.js';
+import type { PlotDrawingKind, PlotTargetLayer } from './dynamic-draw/plotDrawing.js';
+
+function isPrimaryMouseButton(originalEvent: Event): boolean {
+  if (typeof PointerEvent !== 'undefined' && originalEvent instanceof PointerEvent) return originalEvent.button === 0;
+  if (typeof MouseEvent !== 'undefined' && originalEvent instanceof MouseEvent) return originalEvent.button === 0;
+  return false;
+}
 
 // 编辑历史记录类型定义（用于当前会话内 Ctrl+Z / Ctrl+Y）
 type HistoryLineRecord = { type: 'LineString'; before: Coordinate[]; after: Coordinate[]; apply: (coords: Coordinate[]) => void };
@@ -41,7 +67,7 @@ export default class DynamicDraw {
   /**
    * 图层数据源
    */
-  private source: VectorSource<Geometry>;
+  private source: VectorSource<Feature<Geometry>>;
   /**
    * 绘制工具
    */
@@ -57,7 +83,7 @@ export default class DynamicDraw {
   /**
    * 绘制图层
    */
-  private layer: VectorLayer<VectorSource<Geometry>>;
+  private layer: VectorLayer<VectorSource<Feature<Geometry>>>;
   /** 撤销栈 */
   private undoStack: HistoryRecord[] = [];
   /** 重做栈 */
@@ -69,9 +95,9 @@ export default class DynamicDraw {
   /** 基础提示内容（不含撤销/重做动态部分） */
   private baseTooltipContent = '';
   /** 使用的临时绘制 source（不再长期存储结果） */
-  private tempSource: VectorSource<Geometry>;
+  private tempSource: VectorSource<Feature<Geometry>>;
   /** 临时绘制图层（仅用于交互过程显示） */
-  private tempLayer: VectorLayer<VectorSource<Geometry>>;
+  private tempLayer: VectorLayer<VectorSource<Feature<Geometry>>>;
   /** 目标基础图层实例（懒加载） */
   private pointLayer?: PointLayer;
   private polylineLayer?: PolylineLayer;
@@ -83,6 +109,8 @@ export default class DynamicDraw {
   private drawProgressDisposers: Array<() => void> = [];
   /** 当前绘制会话注册的右键退出监听释放器 */
   private drawExitDisposer?: () => void;
+  /** 通过 Draw condition 的公开 MapBrowserEvent 记录最近一次按下位置，替代 Draw 私有按下像素字段。 */
+  private lastDrawPointerDown?: { coordinate: Coordinate; pixel: number[] };
   /** 当前编辑会话注册的右键退出监听释放器 */
   private editSessionExitDisposer?: () => void;
   /** 当前编辑会话的临时资源清理函数 */
@@ -278,11 +306,12 @@ export default class DynamicDraw {
       stopClick: true,
       geometryName: type,
       condition: (e) => {
-        if (e.originalEvent.button == 0) {
-          return true;
-        } else {
-          return false;
-        }
+        if (!isPrimaryMouseButton(e.originalEvent)) return false;
+        this.lastDrawPointerDown = {
+          coordinate: e.coordinate.slice(),
+          pixel: e.pixel.slice()
+        };
+        return true;
       },
       finishCondition: () => {
         if (type == 'Point') {
@@ -311,6 +340,7 @@ export default class DynamicDraw {
   /** 释放当前绘制会话注册的全部全局监听 */
   private clearDrawEventListeners() {
     this.clearDrawProgressListeners();
+    this.lastDrawPointerDown = undefined;
     this.drawExitDisposer?.();
     this.drawExitDisposer = undefined;
   }
@@ -339,12 +369,12 @@ export default class DynamicDraw {
    * @param callback 回调函数
    */
   private exitDraw(event: { position: Coordinate }, callback?: (e: IDrawEvent) => void) {
-    this.clearDrawEventListeners();
     if (this.draw) {
       // this.draw.removeLastPoint();
       this.draw.finishDrawing();
       this.map.removeInteraction(this.draw);
     }
+    this.clearDrawEventListeners();
     if (this.overlayKey) {
       this.overlay.remove('draw_help_tooltip');
       unByKey(this.overlayKey);
@@ -372,7 +402,7 @@ export default class DynamicDraw {
     let drawNum = 0;
     // 开始绘制回调函数
     this.draw?.on('drawstart', (event: DrawEvent) => {
-      const coordinate = this.map.getCoordinateFromPixel(event.target.downPx_);
+      const coordinate = this.resolveDrawEventCoordinate(event);
       callback.call(this, {
         type: DrawType.Drawstart,
         eventPosition: coordinate
@@ -400,7 +430,7 @@ export default class DynamicDraw {
       // 标记为已正常完成，后续若再触发 exitDraw 则不再回调 Drawexit
       this.clearDrawProgressListeners();
       let geometry;
-      const coordinate = this.map.getCoordinateFromPixel(event.target.downPx_);
+      const coordinate = this.resolveDrawEventCoordinate(event);
       let featurePosition;
       const response: IDrawEvent = {
         type: DrawType.Drawend,
@@ -508,7 +538,7 @@ export default class DynamicDraw {
           // 如果用户要求不保留结果，则从基础图层移除
           try {
             const feat = response.feature as Feature<Geometry>;
-            const l = this.earth.getLayerAtFeature(feat) as VectorLayer<VectorSource<Geometry>> | undefined;
+            const l = this.earth.getLayerAtFeature(feat) as VectorLayer<VectorSource<Feature<Geometry>>> | undefined;
             l?.getSource()?.removeFeature(feat);
           } catch {
             /* ignore */
@@ -520,6 +550,18 @@ export default class DynamicDraw {
     this.drawExitDisposer = this.earth.useGlobalEvent().addMouseRightClickEventByGlobal((event) => {
       this.exitDraw(event, param?.callback);
     });
+  }
+
+  private resolveDrawEventCoordinate(event: DrawEvent): Coordinate {
+    if (this.lastDrawPointerDown) return this.lastDrawPointerDown.coordinate.slice();
+    const geometry = event.feature.getGeometry();
+    if (geometry instanceof Point) return geometry.getCoordinates();
+    if (geometry instanceof LineString) return geometry.getLastCoordinate();
+    if (geometry instanceof Polygon) {
+      const ring = geometry.getCoordinates()[0];
+      if (ring.length > 0) return ring[ring.length - 1].slice();
+    }
+    return this.map.getView().getCenter()?.slice() ?? [0, 0];
   }
   /**
    * 处理标绘编辑
@@ -814,7 +856,7 @@ export default class DynamicDraw {
     const polygonLayer = new PolygonLayer(this.earth, { wrapX: false, register: false });
     const pointLayer = new PointLayer(this.earth, { wrapX: false, register: false });
     // 2. 原始图层与要素
-    const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
+    const layer = <VectorLayer<VectorSource<Feature<Geometry>>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) layer?.getSource()?.removeFeature(param.feature);
     const geometry = <Polygon>param.feature.getGeometry();
     const originalPositions = <Coordinate[][]>geometry.getCoordinates();
@@ -856,7 +898,7 @@ export default class DynamicDraw {
       stroke: { color: '#00aaff', width: 2 },
       fill: this.getPolygonEditPreviewFill(param.feature, param.isShowUnderlay)
     });
-    const modify = new Modify({ source: <VectorSource<Geometry>>polygonLayer.getLayer().getSource() });
+    const modify = new Modify({ source: <VectorSource<Feature<Geometry>>>polygonLayer.getLayer().getSource() });
     modify.set('dynamicDraw', true);
     let beforeRing: Coordinate[] | null = null;
     const cloneRing = (ring: Coordinate[]) => ring.map((c) => [c[0], c[1]] as Coordinate);
@@ -982,7 +1024,7 @@ export default class DynamicDraw {
     }
     const polyline = new PolylineLayer(this.earth, { wrapX: false, register: false });
     const point = new PointLayer(this.earth, { wrapX: false, register: false });
-    const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
+    const layer = <VectorLayer<VectorSource<Feature<Geometry>>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) {
       try {
         const oldParam = param.feature.get('param');
@@ -1018,7 +1060,7 @@ export default class DynamicDraw {
       point.add({ center: c, stroke: { color: '#fff' }, fill: { color: '#00aaff' } });
     }
     const line = polyline.add({ positions: editCoords, stroke: { color: '#00aaff', width: 2 } });
-    const modify = new Modify({ source: <VectorSource<Geometry>>polyline.getLayer().getSource() });
+    const modify = new Modify({ source: <VectorSource<Feature<Geometry>>>polyline.getLayer().getSource() });
     modify.set('dynamicDraw', true);
     let beforeLine: Coordinate[] | null = null;
     const cloneLine = (arr: Coordinate[]) => arr.map((c) => [c[0], c[1]] as Coordinate);
@@ -1136,7 +1178,7 @@ export default class DynamicDraw {
       this.keydownHandler = null;
     }
     const pointLayer = new PointLayer(this.earth, { wrapX: false, register: false });
-    const layer = <VectorLayer<VectorSource<Geometry>>>this.earth.getLayerAtFeature(param.feature);
+    const layer = <VectorLayer<VectorSource<Feature<Geometry>>>>this.earth.getLayerAtFeature(param.feature);
     if (!param.isShowUnderlay) {
       layer?.getSource()?.removeFeature(param.feature);
       const listenerKey = param.feature.get('listenerKey');
@@ -1159,7 +1201,7 @@ export default class DynamicDraw {
     }
     let editPos = Utils.normalizeToViewWorld(this.map, original);
     const point = pointLayer.add({ center: editPos, stroke: { color: '#00aaff', width: 2 }, fill: { color: '#ffffff61' } });
-    const modify = new Modify({ source: <VectorSource<Geometry>>pointLayer.getLayer().getSource() });
+    const modify = new Modify({ source: <VectorSource<Feature<Geometry>>>pointLayer.getLayer().getSource() });
     let beforePos: Coordinate | null = null;
     modify.on('modifystart', () => {
       beforePos = (<Point>point.getGeometry()).getCoordinates().slice() as Coordinate;
@@ -1257,7 +1299,7 @@ export default class DynamicDraw {
       const feats = layer.getLayer().getSource()?.getFeatures() || [];
       return feats.filter((f) => f.get('dynamicDraw') && (!matchType || f.getGeometry()?.getType() === matchType));
     };
-    type BaseLayerLike = { getLayer: () => VectorLayer<VectorSource<Geometry>> };
+    type BaseLayerLike = { getLayer: () => VectorLayer<VectorSource<Feature<Geometry>>> };
     if (type) {
       if (type === 'Point') return collect(this.pointLayer, 'Point');
       if (type === 'LineString') return collect(this.polylineLayer, 'LineString');
@@ -1380,7 +1422,7 @@ export default class DynamicDraw {
 
     // 6) 可选：移除由本工具创建的成果要素
     if (removeGraphics) {
-      const tryRemoveFrom = (layer?: { getLayer: () => VectorLayer<VectorSource<Geometry>>; remove: (id: string) => void }) => {
+      const tryRemoveFrom = (layer?: { getLayer: () => VectorLayer<VectorSource<Feature<Geometry>>>; remove: (id: string) => void }) => {
         if (!layer) return;
         try {
           const feats = layer.getLayer().getSource()?.getFeatures() || [];

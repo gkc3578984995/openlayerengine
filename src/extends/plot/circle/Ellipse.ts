@@ -2,11 +2,11 @@
  * Created by FDD on 2017/5/22.
  * @desc 标绘画圆算法，继承面要素相关方法和属性
  */
-import { Map } from 'ol';
-import { Polygon } from 'ol/geom';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
+import Map from 'ol/Map.js';
+import Polygon from 'ol/geom/Polygon.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
 
 class Ellipse extends Polygon {
   private type: EPlotType;
@@ -18,8 +18,6 @@ class Ellipse extends Polygon {
   public fixPointCount: number;
 
   public assembleData: IPlotAssembleData | undefined;
-
-
 
   constructor(coordinates: any, points: any, params: any) {
     super([]);
@@ -151,7 +149,7 @@ class Ellipse extends Polygon {
   /**
    * 结束绘制
    */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default Ellipse;

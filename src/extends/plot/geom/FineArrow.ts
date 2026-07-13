@@ -1,10 +1,10 @@
 /**
  * 粗单尖头箭头
  */
-import { Polygon } from 'ol/geom';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
+import Polygon from 'ol/geom/Polygon.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
 
 class FineArrow extends Polygon {
   public type: EPlotType;

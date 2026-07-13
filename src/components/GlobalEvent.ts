@@ -1,16 +1,15 @@
 /* eslint-disable @typescript-eslint/no-extra-semi */
-import { Map as Maps } from 'ol';
-import { Coordinate } from 'ol/coordinate';
-import { EventsKey } from 'ol/events';
-import Feature from 'ol/Feature';
-import { Geometry } from 'ol/geom';
-import { Layer } from 'ol/layer';
-import { unByKey } from 'ol/Observable';
-import { toLonLat } from 'ol/proj';
-import LayerRenderer from 'ol/renderer/Layer';
-import { Source } from 'ol/source';
-import Earth from '../Earth';
-export type ModuleEventCallbackParams = { position: Coordinate; feature?: Feature<Geometry>; layer?: Layer<Source, LayerRenderer<any>>; id?: any };
+import Maps from 'ol/Map.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { EventsKey } from 'ol/events.js';
+import Feature from 'ol/Feature.js';
+import Geometry from 'ol/geom/Geometry.js';
+import Layer from 'ol/layer/Layer.js';
+import { unByKey } from 'ol/Observable.js';
+import { toLonLat } from 'ol/proj.js';
+import Source from 'ol/source/Source.js';
+import Earth from '../Earth.js';
+export type ModuleEventCallbackParams = { position: Coordinate; feature?: Feature<Geometry>; layer?: Layer<Source>; id?: any };
 export type ModuleEventCallback = (param: ModuleEventCallbackParams) => void;
 export type GlobalEventCallback = (param: { position: Coordinate; pixel: number[] }) => void;
 export type GlobalKeyDownEventCallback = (param: KeyboardEvent) => void;
@@ -19,7 +18,7 @@ interface IEntity {
   id: any;
   module?: any;
   feature?: Feature<Geometry>;
-  layer?: Layer<Source, LayerRenderer<any>>;
+  layer?: Layer<Source>;
 }
 /**
  * 地图事件类：分为`全局事件`和`模块事件`

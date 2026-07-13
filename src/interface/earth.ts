@@ -1,10 +1,9 @@
-import { Feature } from 'ol';
-import { Geometry } from 'ol/geom';
-import { Layer } from 'ol/layer';
-import LayerRenderer from 'ol/renderer/Layer';
-import { Source } from 'ol/source';
-import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from '../base';
-import type { ViewOptions } from 'ol/View';
+import Feature from 'ol/Feature.js';
+import Geometry from 'ol/geom/Geometry.js';
+import Layer from 'ol/layer/Layer.js';
+import Source from 'ol/source/Source.js';
+import { BillboardLayer, CircleLayer, OverlayLayer, PointLayer, PolygonLayer, PolylineLayer } from '../base/index.js';
+import type { ViewOptions } from 'ol/View.js';
 
 export interface DefaultEntities<T = unknown> {
   /**
@@ -80,5 +79,5 @@ export interface IFeatureAtPixel {
   /**
    * 元素所在图层
    */
-  layer?: Layer<Source, LayerRenderer<any>>;
+  layer?: Layer<Source>;
 }

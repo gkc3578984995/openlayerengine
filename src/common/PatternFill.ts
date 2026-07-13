@@ -1,5 +1,5 @@
-import { createCanvasContext2D } from 'ol/dom';
-import type { IGeometryFill, IPatternFill, PatternFillType } from '../interface';
+import { createCanvasContext2D } from 'ol/dom.js';
+import type { IGeometryFill, IPatternFill, PatternFillType } from '../interface/index.js';
 
 const PATTERN_SIZES = [4, 8, 16, 32, 64, 128] as const;
 
@@ -30,7 +30,9 @@ export function normalizePatternFill(fill: IPatternFill, strokeColor?: string): 
   };
 }
 
-function drawDiagonal(context: CanvasRenderingContext2D, size: number, reverse: boolean): void {
+type PatternCanvasContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+function drawDiagonal(context: PatternCanvasContext, size: number, reverse: boolean): void {
   context.beginPath();
   if (reverse) {
     context.moveTo(0, 0);
@@ -43,7 +45,7 @@ function drawDiagonal(context: CanvasRenderingContext2D, size: number, reverse: 
 }
 
 /** 在一个 Canvas 图块中绘制内置纹理 */
-export function drawPatternFill(context: CanvasRenderingContext2D, pattern: ResolvedPatternFill): void {
+export function drawPatternFill(context: PatternCanvasContext, pattern: ResolvedPatternFill): void {
   context.strokeStyle = pattern.color;
   context.fillStyle = pattern.color;
   context.lineWidth = pattern.lineWidth;

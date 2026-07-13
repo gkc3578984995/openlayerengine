@@ -1,13 +1,13 @@
 /**
  * 矩形
  */
-import { Map } from 'ol';
-import { Polygon } from 'ol/geom';
-import { fromExtent } from 'ol/geom/Polygon';
-import { boundingExtent } from 'ol/extent';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
+import Map from 'ol/Map.js';
+import Polygon from 'ol/geom/Polygon.js';
+import { fromExtent } from 'ol/geom/Polygon.js';
+import { boundingExtent } from 'ol/extent.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
 
 class RectAnglePolygon extends Polygon {
   private type: EPlotType;
@@ -135,7 +135,7 @@ class RectAnglePolygon extends Polygon {
   /**
    * 结束绘制
    */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default RectAnglePolygon;

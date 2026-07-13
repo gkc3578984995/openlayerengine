@@ -1,14 +1,15 @@
-import { IPlotEditEventPayload } from '../extends/plot/plotEdit';
-import type Earth from '../Earth';
-import { ECursor, EPlotType, ETransform, ETranslateType } from '../enum';
-import { Feature } from 'ol';
-import { Coordinate } from 'ol/coordinate';
-import { Geometry, Point } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import { PanIntoViewOptions, Positioning } from 'ol/Overlay';
-import { Size } from 'ol/size';
-import VectorSource from 'ol/source/Vector';
-import { IconAnchorUnits, IconOrigin } from 'ol/style/Icon';
+import { IPlotEditEventPayload } from '../extends/plot/plotEdit.js';
+import type Earth from '../Earth.js';
+import { ECursor, EPlotType, ETransform, ETranslateType } from '../enum/index.js';
+import Feature from 'ol/Feature.js';
+import { Coordinate } from 'ol/coordinate.js';
+import Geometry from 'ol/geom/Geometry.js';
+import Point from 'ol/geom/Point.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import { PanIntoViewOptions, Positioning } from 'ol/Overlay.js';
+import { Size } from 'ol/size.js';
+import VectorSource from 'ol/source/Vector.js';
+import { IconAnchorUnits, IconOrigin } from 'ol/style/Icon.js';
 
 /**
  * 新增元素的基础参数
@@ -743,7 +744,7 @@ export interface ITransformParams {
   /**
    * 传入一个可参与变换的图层数组，默认全部地图图层都可参与变换
    */
-  transformLayers?: Array<VectorLayer<VectorSource<Geometry>>>;
+  transformLayers?: Array<VectorLayer<VectorSource<Feature<Geometry>>>>;
   /**
    * 传入一个可参与变换的元素数组，默认全部地图元素都可参与变换
    */

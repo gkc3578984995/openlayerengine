@@ -1,14 +1,14 @@
-import { Coordinate } from 'ol/coordinate';
-import { OverlayLayer } from '../base';
-import { Utils } from '../common';
-import type Earth from '../Earth';
-import { fromLonLat, toLonLat } from 'ol/proj';
-import { Overlay } from 'ol';
-import { LineString } from 'ol/geom';
-import { getWidth } from 'ol/extent';
-import { unByKey } from 'ol/Observable';
-import { Pixel } from 'ol/pixel';
-import { IDescriptorParams, IDescriptorSetParams, IProperties } from '../interface/descriptor';
+import { Coordinate } from 'ol/coordinate.js';
+import { OverlayLayer } from '../base/index.js';
+import { Utils } from '../common/index.js';
+import type Earth from '../Earth.js';
+import { fromLonLat, toLonLat } from 'ol/proj.js';
+import Overlay from 'ol/Overlay.js';
+import LineString from 'ol/geom/LineString.js';
+import { getWidth } from 'ol/extent.js';
+import { unByKey } from 'ol/Observable.js';
+import { Pixel } from 'ol/pixel.js';
+import { IDescriptorParams, IDescriptorSetParams, IProperties } from '../interface/descriptor.js';
 
 /**
  * 描述列表

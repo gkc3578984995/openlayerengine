@@ -1,12 +1,11 @@
 /**
  * 绘制正圆
  */
-import { IPlotAssembleData } from '../../../interface';
-import { Map } from 'ol';
-import { Polygon } from 'ol/geom';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
-
+import { IPlotAssembleData } from '../../../interface/index.js';
+import Map from 'ol/Map.js';
+import Polygon from 'ol/geom/Polygon.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
 
 class Circle extends Polygon {
   private type: EPlotType;
@@ -22,7 +21,6 @@ class Circle extends Polygon {
   public center: PlotUtils.Point = [];
 
   public radius: number = 0;
-
 
   constructor(coordinates: any, points: any, params: any) {
     super([]);
@@ -152,7 +150,7 @@ class Circle extends Polygon {
   /**
    * 结束绘制
    */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default Circle;

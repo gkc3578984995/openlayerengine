@@ -1,5 +1,5 @@
-import { Coordinate } from 'ol/coordinate';
-import View from 'ol/View';
+import { Coordinate } from 'ol/coordinate.js';
+import View from 'ol/View.js';
 
 /**
  * 相机模块：封装与视图（View）相关的平移 / 缩放 / 飞行动画。

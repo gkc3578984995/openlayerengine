@@ -123,13 +123,24 @@ describe('v1 capability baseline', () => {
     expect(nativeEscape?.testFiles).toEqual(expect.arrayContaining(['test/V1CapabilityBaseline.test.ts', 'test/types/V1PublicApi.type-test.ts']));
     expect(earthSource).toMatch(/public\s+map:\s*Map;/);
     expect(earthSource).toMatch(/public\s+view:\s*View;/);
-    expect(baseSource).toMatch(/public\s+layer:\s*VectorLayer<VectorSource<Geometry>>;/);
-    expect(baseSource).toMatch(/getLayer\(\):\s*VectorLayer<VectorSource<Geometry>>/);
+    expect(baseSource).toMatch(/public\s+layer:\s*VectorLayer<VectorSource<Feature<Geometry>>>;/);
+    expect(baseSource).toMatch(/getLayer\(\):\s*VectorLayer<VectorSource<Feature<Geometry>>>/);
   });
 
   it('freezes root exports and OSM, compact XYZ, and custom tile URL behavior', () => {
     const rootEntry = readSource('src/index.ts');
-    for (const exportedModule of ['./Earth', './modules', './components', './useEarth', './ast', './common', './base', './interface', './enum', './extends']) {
+    for (const exportedModule of [
+      './Earth.js',
+      './modules/index.js',
+      './components/index.js',
+      './useEarth.js',
+      './ast.js',
+      './common/index.js',
+      './base/index.js',
+      './interface/index.js',
+      './enum/index.js',
+      './extends/index.js'
+    ]) {
       expect(rootEntry).toContain(`'${exportedModule}'`);
     }
 

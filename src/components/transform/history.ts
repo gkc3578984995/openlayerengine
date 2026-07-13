@@ -1,4 +1,4 @@
-import type Feature from 'ol/Feature';
+import type Feature from 'ol/Feature.js';
 
 export interface FeatureSnapshot {
   id: string;

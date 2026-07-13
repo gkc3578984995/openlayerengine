@@ -1,5 +1,5 @@
 // 一个用于描述 flyLine 属性 的数据源
-import { Utils } from "../../common";
+import { Utils } from '../../common/index.js';
 import arrowSvg from '../../assets/image/arrow.svg';
 
 interface IParams {
@@ -37,15 +37,15 @@ export default class FlightLineSource {
     /**
      * 线段中点位置
      */
-    this.centerPos = Utils.linearInterpolation(this.startPos, this.endPos, 0.5)
+    this.centerPos = Utils.linearInterpolation(this.startPos, this.endPos, 0.5);
     /**
      * 控制点位置
      */
-    this.controlPos = this.getControlPoint(this.startPos, this.endPos, this.centerPos, this.controlRatio)
+    this.controlPos = this.getControlPoint(this.startPos, this.endPos, this.centerPos, this.controlRatio);
     /**
      * 保存上一个结束点位置 初始则为 开始点
      */
-    this.lastEndPos = this.startPos
+    this.lastEndPos = this.startPos;
     /**
      * 计数器 用于分段
      */
@@ -53,27 +53,27 @@ export default class FlightLineSource {
     /**
      * 曲线 数组
      */
-    this.lineCoords = []
+    this.lineCoords = [];
     /**
      * 箭头相关
      */
-  this.arrowImage = new Image()
-  // 使用打包后的资源路径
-  this.arrowImage.src = arrowSvg
-    this.arrowLoad = false
+    this.arrowImage = new Image();
+    // 使用打包后的资源路径
+    this.arrowImage.src = arrowSvg;
+    this.arrowLoad = false;
     this.arrowImage.onload = () => {
-      this.arrowLoad = true
-    }
+      this.arrowLoad = true;
+    };
   }
 
   getControlPoint(startPos: number[], endPos: number[], centerPos: number[], ratio: number) {
-  const xDiff = endPos[0] - startPos[0]
-  const addX = startPos[0] + xDiff
-  const addY = startPos[1]
-  const controlX = addX
-  const controlY = addY
-  const controlPos = [controlX, controlY]
-    return Utils.linearInterpolation(centerPos, controlPos, ratio)
+    const xDiff = endPos[0] - startPos[0];
+    const addX = startPos[0] + xDiff;
+    const addY = startPos[1];
+    const controlX = addX;
+    const controlY = addY;
+    const controlPos = [controlX, controlY];
+    return Utils.linearInterpolation(centerPos, controlPos, ratio);
   }
 
   getRenderState() {
@@ -87,7 +87,7 @@ export default class FlightLineSource {
       arrowImage: this.arrowImage,
       arrowLoad: this.arrowLoad,
       controlPos: this.controlPos
-    }
+    };
   }
 
   setRenderState(options: IParams) {

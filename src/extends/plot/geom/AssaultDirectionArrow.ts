@@ -1,8 +1,8 @@
 /**
  * 粗单直箭头
  */
-import { EPlotType } from '../../../enum';
-import FineArrow from './FineArrow';
+import { EPlotType } from '../../../enum/index.js';
+import FineArrow from './FineArrow.js';
 
 class AssaultDirection extends FineArrow {
   constructor(coordinates: any, points: any, params: any) {

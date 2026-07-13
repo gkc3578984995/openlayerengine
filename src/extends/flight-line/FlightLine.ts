@@ -1,16 +1,29 @@
-import { Feature, Map } from 'ol';
-import { Geometry, LineString, MultiLineString, Point } from 'ol/geom';
-import { Vector as VectorLayer } from 'ol/layer';
-import { unByKey } from 'ol/Observable';
-import { getVectorContext } from 'ol/render';
-import { Vector as VectorSource } from 'ol/source';
-import { Stroke, Style, Icon } from 'ol/style';
-import FlightLineSource from './FlightLineSource';
-import { IFlyPosition, IPointsFeature, IPolylineFlyParam, IPolylineParam, IRadialColor } from '../../interface/default';
-import { EventsKey } from 'ol/events';
-import { Utils } from '../../common';
-import { Coordinate } from 'ol/coordinate';
-import { getWidth } from 'ol/extent';
+import Feature from 'ol/Feature.js';
+import Map from 'ol/Map.js';
+import Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
+import MultiLineString from 'ol/geom/MultiLineString.js';
+import Point from 'ol/geom/Point.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import { unByKey } from 'ol/Observable.js';
+import { getVectorContext } from 'ol/render.js';
+import VectorSource from 'ol/source/Vector.js';
+import Stroke from 'ol/style/Stroke.js';
+import Style from 'ol/style/Style.js';
+import Icon from 'ol/style/Icon.js';
+import FlightLineSource from './FlightLineSource.js';
+import { IFlyPosition, IPointsFeature, IPolylineFlyParam, IPolylineParam, IRadialColor } from '../../interface/default.js';
+import { EventsKey } from 'ol/events.js';
+import { Utils } from '../../common/index.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { getWidth } from 'ol/extent.js';
+import type VectorContext from 'ol/render/VectorContext.js';
+
+type Canvas2DContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+function isCanvas2DContext(context: unknown): context is Canvas2DContext {
+  return typeof context === 'object' && context !== null && 'createRadialGradient' in context;
+}
 
 interface AnchorLineLayer {
   add(param: IPolylineParam<unknown>): Feature<LineString>;
@@ -28,8 +41,8 @@ export default class Flightline<T = unknown> {
   private radialColor: IRadialColor;
   private controlRatio: number;
   private eventKey: EventsKey | null;
-  private flightlineLayer: VectorLayer<VectorSource<Geometry>>;
-  private flightlineSource: VectorSource<Geometry> | null;
+  private flightlineLayer: VectorLayer<VectorSource<Feature<Geometry>>>;
+  private flightlineSource: VectorSource<Feature<Geometry>> | null;
   private params: IPolylineFlyParam<T>;
   private defaultOptions = {
     width: 2,
@@ -52,7 +65,7 @@ export default class Flightline<T = unknown> {
   };
   private lineLayers: AnchorLineLayer;
 
-  constructor(layer: VectorLayer<VectorSource<Geometry>>, params: IPolylineFlyParam<T>, id: string, lineLayers: AnchorLineLayer, map: Map) {
+  constructor(layer: VectorLayer<VectorSource<Feature<Geometry>>>, params: IPolylineFlyParam<T>, id: string, lineLayers: AnchorLineLayer, map: Map) {
     let options = Object.assign(this.defaultOptions, params);
     this.lineLayers = lineLayers;
     // 保存点的位置的数组
@@ -125,10 +138,12 @@ export default class Flightline<T = unknown> {
         }
         let curEndPos = Utils.bezierSquareCalc(startPos, controlPos, endPos, times / this.splitLength);
         lineCoords.push([lastEndPos, curEndPos]);
-        let ctx = getVectorContext(evt);
+        const canvasContext = evt.context;
+        if (!isCanvas2DContext(canvasContext)) continue;
+        const ctx = getVectorContext(evt);
         //  曲线的渲染
         // 为了找到 开始点 的屏幕坐标 以及 结束点的屏幕坐标..
-        this.curveLineRender(ctx, lineCoords, startPos, endPos);
+        this.curveLineRender(ctx, canvasContext, lineCoords, startPos, endPos);
         // 箭头的渲染
         if (this.params.isShowArrow) {
           this.arrowRender(ctx, arrowImage, arrowLoad, lastEndPos, curEndPos);
@@ -157,7 +172,7 @@ export default class Flightline<T = unknown> {
   generatePointsFeatures(positions: IFlyPosition[]) {
     let pointsFeatures = [];
     for (let i = 0, ii = positions.length; i < ii; i++) {
-      let startFeature = new Feature({
+      let startFeature = new Feature<Point>({
         geometry: new Point(positions[i].position[0]),
         FlightLineSource: new FlightLineSource({
           startPos: positions[i].position[0],
@@ -168,7 +183,7 @@ export default class Flightline<T = unknown> {
       startFeature.setId(positions[i].id + '_startPoint');
       startFeature.set('module', this.params.module);
       startFeature.set('data', this.params.data);
-      let endtFeature = new Feature({ geometry: new Point(positions[i].position[1]) });
+      let endtFeature = new Feature<Point>({ geometry: new Point(positions[i].position[1]) });
       endtFeature.setId(positions[i].id + '_endPoint');
       endtFeature.set('module', this.params.module);
       endtFeature.set('data', this.params.data);
@@ -184,21 +199,21 @@ export default class Flightline<T = unknown> {
    * @param {*} startPos 开始点 经纬度表示
    * @param {*} endPos 结束点 经纬度表示
    */
-  curveLineRender(ctx: any, lineCoords: number[], startPos: number[], endPos: number[]) {
+  curveLineRender(ctx: VectorContext, canvasContext: Canvas2DContext, lineCoords: number[], startPos: number[], endPos: number[]) {
     let geometry = new MultiLineString(lineCoords);
     let startGrdPixelPos = this.map.getPixelFromCoordinate(startPos);
     let endGrdPixelPos = this.map.getPixelFromCoordinate(endPos);
     let xDiff = endGrdPixelPos[0] - startGrdPixelPos[0];
     let yDiff = endGrdPixelPos[1] - startGrdPixelPos[1];
     let radius = Math.pow(Math.pow(xDiff, 2) + Math.pow(yDiff, 2), 0.5);
-    let grd;
+    let grd: string | CanvasGradient;
     if (typeof this.params.color == 'string') {
       grd = this.params.color;
     } else {
-      grd = ctx.context_.createRadialGradient(startGrdPixelPos[0], startGrdPixelPos[1], 0, startGrdPixelPos[0], startGrdPixelPos[1], radius);
+      grd = canvasContext.createRadialGradient(startGrdPixelPos[0], startGrdPixelPos[1], 0, startGrdPixelPos[0], startGrdPixelPos[1], radius);
       let radialColor = this.radialColor;
       for (let i in radialColor) {
-        grd.addColorStop(i, radialColor[i]);
+        grd.addColorStop(Number(i), radialColor[i]);
       }
     }
     const worldWidth = getWidth(this.map.getView().getProjection().getExtent());
@@ -226,7 +241,7 @@ export default class Flightline<T = unknown> {
    * @param {*} lastEndPos 上一个点的结束坐标 经纬度表示
    * @param {*} curEndPos 当前的结束点坐标 经纬度表示
    */
-  arrowRender(ctx: any, arrowImage: HTMLImageElement, arrowLoad: boolean, lastEndPos: number[], curEndPos: number[]) {
+  arrowRender(ctx: VectorContext, arrowImage: HTMLImageElement, arrowLoad: boolean, lastEndPos: number[], curEndPos: number[]) {
     let arrowGeometry;
     arrowGeometry = new Point(curEndPos);
     // geometrys
@@ -238,7 +253,8 @@ export default class Flightline<T = unknown> {
         new Icon({
           img: arrowImage,
           anchor: [0.75, 0.5],
-          imgSize: [16, 16],
+          width: 16,
+          height: 16,
           rotateWithView: true,
           rotation: -rotation,
           color: this.params.arrowColor

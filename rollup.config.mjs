@@ -31,11 +31,6 @@ const mode = process.env.MODE;
 const isProd = mode === 'prod';
 const externalDependencies = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})])];
 
-function toNativeEsmSpecifier(id) {
-  if ((id.startsWith('ol/') || id.startsWith('lodash/')) && !id.endsWith('.js')) return `${id}.js`;
-  return id;
-}
-
 const lodashInteropId = '\0lodash-esm-interop';
 
 function lodashEsmInteropPlugin() {
@@ -46,7 +41,7 @@ function lodashEsmInteropPlugin() {
       return null;
     },
     load(id) {
-      if (id === lodashInteropId) return "export { default as cloneDeep } from 'lodash/cloneDeep';";
+      if (id === lodashInteropId) return "export { default as cloneDeep } from 'lodash/cloneDeep.js';";
       return null;
     }
   };
@@ -62,13 +57,13 @@ export default defineConfig({
     transform: 'src/entries/transform.ts',
     plot: 'src/entries/plot.ts'
   },
-  external: (id) => id !== 'lodash' && externalDependencies.some((dependency) => id === dependency || id.startsWith(`${dependency}/`)),
+  external: (id) =>
+    id === 'ol' || id.startsWith('ol/') || (id !== 'lodash' && externalDependencies.some((dependency) => id === dependency || id.startsWith(`${dependency}/`))),
   output: {
     dir: 'dist/esm',
     entryFileNames: '[name].mjs',
     chunkFileNames: 'chunks/[name]-[hash].mjs',
     format: 'es',
-    paths: toNativeEsmSpecifier,
     sourcemap: !isProd
   },
   plugins: [

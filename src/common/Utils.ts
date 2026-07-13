@@ -1,19 +1,22 @@
-import { IPointParam } from '../interface';
-import { Feature } from 'ol';
-import { Map } from 'ol';
-import { Coordinate } from 'ol/coordinate';
-import { easeOut } from 'ol/easing';
-import { getWidth } from 'ol/extent';
-import { getCenter, boundingExtent } from 'ol/extent';
-import { Geometry, Point } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import { unByKey } from 'ol/Observable';
-import { getVectorContext } from 'ol/render';
-import RenderEvent from 'ol/render/Event';
-import VectorSource from 'ol/source/Vector';
-import { Style, Stroke, Icon } from 'ol/style';
-import CircleStyle from 'ol/style/Circle';
-import throttle from 'lodash/throttle';
+import { IPointParam } from '../interface/index.js';
+import Feature from 'ol/Feature.js';
+import Map from 'ol/Map.js';
+import { Coordinate } from 'ol/coordinate.js';
+import { easeOut } from 'ol/easing.js';
+import { getWidth } from 'ol/extent.js';
+import { getCenter, boundingExtent } from 'ol/extent.js';
+import Geometry from 'ol/geom/Geometry.js';
+import Point from 'ol/geom/Point.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import { unByKey } from 'ol/Observable.js';
+import { getVectorContext } from 'ol/render.js';
+import RenderEvent from 'ol/render/Event.js';
+import VectorSource from 'ol/source/Vector.js';
+import Style from 'ol/style/Style.js';
+import Stroke from 'ol/style/Stroke.js';
+import Icon from 'ol/style/Icon.js';
+import CircleStyle from 'ol/style/Circle.js';
+import throttle from 'lodash/throttle.js';
 import arrowSvg from '../assets/image/arrow.svg';
 
 /**
@@ -47,11 +50,7 @@ export default class Utils {
    * @param pixel 屏幕像素坐标 [x, y]
    * @param position 原始坐标
    */
-  static getFeatureToPixel(
-    map: Map,
-    pixel: number[],
-    position: Coordinate | Coordinate[] | Coordinate[][]
-  ): Coordinate | Coordinate[] | Coordinate[][] | null {
+  static getFeatureToPixel(map: Map, pixel: number[], position: Coordinate | Coordinate[] | Coordinate[][]): Coordinate | Coordinate[] | Coordinate[][] | null {
     if (!pixel || pixel.length !== 2 || position == null) return null;
     const target = map.getCoordinateFromPixel(pixel);
     if (!target) return null;
@@ -81,10 +80,8 @@ export default class Utils {
     // Point: [x,y]
     // Line / MultiPoint: [[x,y],[x,y],...]
     // Polygon(单环或多环): [[[x,y],...],[...],...]
-    const isNumberArray = (arr: unknown): arr is number[] =>
-      Array.isArray(arr) && arr.length === 2 && arr.every((n) => typeof n === 'number');
-    const isLineLike = (p: Coordinate | Coordinate[] | Coordinate[][]): p is Coordinate[] =>
-      Array.isArray(p) && p.length > 0 && isNumberArray(p[0]);
+    const isNumberArray = (arr: unknown): arr is number[] => Array.isArray(arr) && arr.length === 2 && arr.every((n) => typeof n === 'number');
+    const isLineLike = (p: Coordinate | Coordinate[] | Coordinate[][]): p is Coordinate[] => Array.isArray(p) && p.length > 0 && isNumberArray(p[0]);
     const isPolygonLike = (p: Coordinate | Coordinate[] | Coordinate[][]): p is Coordinate[][] =>
       Array.isArray(p) && p.length > 0 && Array.isArray(p[0]) && !isNumberArray(p[0]) && isNumberArray(p[0][0]);
 
@@ -145,11 +142,7 @@ export default class Utils {
     return coords;
   }
   /** 将已归一化坐标恢复到指定 world 索引 */
-  static restoreToWorldIndex<TC extends Coordinate | Coordinate[]>(
-    map: Map,
-    coords: TC,
-    targetWorldIndex: number | undefined
-  ): TC {
+  static restoreToWorldIndex<TC extends Coordinate | Coordinate[]>(map: Map, coords: TC, targetWorldIndex: number | undefined): TC {
     if (targetWorldIndex === undefined) return coords;
     const worldWidth = this.getWorldWidth(map);
     if (!worldWidth) return coords;
@@ -255,7 +248,8 @@ export default class Utils {
       image: new Icon({
         src: arrowSvg,
         anchor: [0.75, 0.5],
-        imgSize: [16, 16],
+        width: 16,
+        height: 16,
         rotateWithView: true,
         rotation: -rotation,
         color: color || '#ffcc33'
@@ -270,12 +264,7 @@ export default class Utils {
    * @param param 详细参数，详见{@link IPointParam}
    * @param layer 所属矢量图层
    */
-  static flash<T>(
-    map: Map,
-    feature: Feature<Geometry>,
-    param: IPointParam<T>,
-    layer: VectorLayer<VectorSource<Geometry>>
-  ): void {
+  static flash<T>(map: Map, feature: Feature<Geometry>, param: IPointParam<T>, layer: VectorLayer<VectorSource<Feature<Geometry>>>): void {
     const options = {
       duration: 1000,
       flashColor: param.flashColor || { R: 255, G: 0, B: 0 },
@@ -365,11 +354,7 @@ export default class Utils {
    * onMove.cancel();
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 通用函数包装约束，需 any 表示任意函数签名
-  static throttle<F extends (...args: any[]) => any>(
-    fn: F,
-    wait = 100,
-    options: { leading?: boolean; trailing?: boolean } = {}
-  ) {
+  static throttle<F extends (...args: any[]) => any>(fn: F, wait = 100, options: { leading?: boolean; trailing?: boolean } = {}) {
     return throttle(fn, wait, options);
   }
 }

@@ -3,11 +3,11 @@
  * 交互：固定点数量为2，用户点击两点确定底边，自动计算第三点生成闭合等边三角形。
  * params 可支持：{ orientation?: 1 | -1 }  // 控制第三点在底边法线方向，默认 1（左旋或上方）
  */
-import { Map } from 'ol';
-import { Polygon } from 'ol/geom';
-import * as PlotUtils from '../utils';
-import { EPlotType } from '../../../enum';
-import { IPlotAssembleData } from '../../../interface';
+import Map from 'ol/Map.js';
+import Polygon from 'ol/geom/Polygon.js';
+import * as PlotUtils from '../utils.js';
+import { EPlotType } from '../../../enum/index.js';
+import { IPlotAssembleData } from '../../../interface/index.js';
 
 class EquilateralTrianglePolygon extends Polygon {
   private type: EPlotType;
@@ -31,7 +31,9 @@ class EquilateralTrianglePolygon extends Polygon {
   }
 
   /** 获取标绘类型 */
-  getPlotType() { return this.type; }
+  getPlotType() {
+    return this.type;
+  }
 
   /** 执行动作 */
   generate() {
@@ -67,31 +69,50 @@ class EquilateralTrianglePolygon extends Polygon {
 
   /** 设置地图对象 */
   setMap(map: any) {
-    if (map && map instanceof Map) { this.map = map; } else { throw new Error('传入的不是地图对象！'); }
+    if (map && map instanceof Map) {
+      this.map = map;
+    } else {
+      throw new Error('传入的不是地图对象！');
+    }
   }
   /** 获取当前地图对象 */
-  getMap() { return this.map; }
+  getMap() {
+    return this.map;
+  }
   /** 判断是否是Plot */
-  isPlot() { return true; }
+  isPlot() {
+    return true;
+  }
 
   /** 设置坐标点 */
   setPoints(value: any) {
     this.points = !value ? [] : value.slice(0, 2); // 只保留前两个点
-    if (this.points.length >= 1) { this.generate(); }
+    if (this.points.length >= 1) {
+      this.generate();
+    }
   }
   /** 获取坐标点 */
-  getPoints() { return this.points.slice(0); }
+  getPoints() {
+    return this.points.slice(0);
+  }
   /** 获取点数量 */
-  getPointCount() { return this.points.length; }
+  getPointCount() {
+    return this.points.length;
+  }
 
   /** 更新当前坐标 */
   updatePoint(point: any, index: any) {
-    if (index >= 0 && index < this.points.length) { this.points[index] = point; this.generate(); }
+    if (index >= 0 && index < this.points.length) {
+      this.points[index] = point;
+      this.generate();
+    }
   }
   /** 更新最后一个坐标 */
-  updateLastPoint(point: any) { this.updatePoint(point, this.points.length - 1); }
+  updateLastPoint(point: any) {
+    this.updatePoint(point, this.points.length - 1);
+  }
   /** 结束绘制 */
-  finishDrawing() { }
+  finishDrawing() {}
 }
 
 export default EquilateralTrianglePolygon;
