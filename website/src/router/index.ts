@@ -11,6 +11,7 @@ import PolylineLayerView from '../views/PolylineLayerView.vue';
 import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
 import GlobalMethodsView from '../views/GlobalMethodsView.vue';
+import MigrationV2View from '../views/MigrationV2View.vue';
 import GlobalEventView from '../views/GlobalEventView.vue';
 import GlobalEventGlobalMouseView from '../views/GlobalEventGlobalMouseView.vue';
 import GlobalEventModuleEventsView from '../views/GlobalEventModuleEventsView.vue';
@@ -60,6 +61,11 @@ const router = createRouter({
           path: 'guide/global-methods',
           name: 'global-methods',
           component: GlobalMethodsView
+        },
+        {
+          path: 'guide/migration-v2',
+          name: 'migration-v2',
+          component: MigrationV2View
         },
         {
           path: 'components/layer-common',

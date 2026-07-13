@@ -67,7 +67,15 @@ const methodCols: ApiColumn[] = [
   { prop: 'returns', label: '返回值', width: 210, monospace: true }
 ];
 
-const constructorRows = [{ name: 'earth', desc: '地图实例；不传时回退到 <code>useEarth()</code> 全局单例', type: 'Earth', options: '—', default: '—' }];
+const constructorRows = [
+  {
+    name: 'earth',
+    desc: '地图实例；不传时回退到 <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth</a></code> 默认实例',
+    type: 'Earth',
+    options: '—',
+    default: '—'
+  }
+];
 
 const methodRows = getOverlayLayerMethodRows([
   { name: 'add(param)', desc: '创建 DOM 覆盖物并加入地图', params: '', returns: '' },

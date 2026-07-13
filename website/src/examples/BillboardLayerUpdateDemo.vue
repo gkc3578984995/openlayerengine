@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
 import { BillboardLayer, Earth } from '@vrsim/earth-engine-ol';
 import type { Feature } from 'ol';
 import type Point from 'ol/geom/Point';
-import '@vrsim/earth-engine-ol/dist/index.es.css';
+import '@vrsim/earth-engine-ol/style.css';
 import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
 

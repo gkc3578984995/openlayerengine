@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, shallowRef, useId } from 'vue';
-import { Earth } from '@vrsim/earth-engine-ol';
-import '@vrsim/earth-engine-ol/dist/index.es.css';
+import { Earth, useEarth } from '@vrsim/earth-engine-ol';
+import '@vrsim/earth-engine-ol/style.css';
 import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
 
@@ -12,7 +12,11 @@ const earthRef = shallowRef<Earth | null>(null);
 
 const createMap = () => {
   if (earthRef.value) return;
-  const earth = new Earth({ center: BEIJING, zoom: 5 }, { target: mapId });
+  const earth = useEarth({
+    target: mapId,
+    view: { center: BEIJING, zoom: 5 }
+  });
+  useEarth() === earth;
   earth.addLayer(createConfiguredLayer(earth, 'vector'));
   earthRef.value = earth;
 };
@@ -27,7 +31,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  earthRef.value?.destroy();
+  destroyMap();
 });
 </script>
 

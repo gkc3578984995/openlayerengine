@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
 import { Earth, PointLayer } from '@vrsim/earth-engine-ol';
-import '@vrsim/earth-engine-ol/dist/index.es.css';
+import '@vrsim/earth-engine-ol/style.css';
 import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
 
@@ -22,8 +22,22 @@ const createLayer = () => {
   if (!earth || pointLayer.value) return;
 
   const layer = new PointLayer(earth, { register: false });
-  layer.add({ id: POINT_A, center: BEIJING, size: 11, fill: { color: '#409eff' }, stroke: { color: '#1d4ed8', width: 2 }, label: { text: '北京', offsetY: -18 } });
-  layer.add({ id: POINT_B, center: SHANGHAI, size: 11, fill: { color: '#67c23a' }, stroke: { color: '#2f6b14', width: 2 }, label: { text: '上海', offsetY: -18 } });
+  layer.add({
+    id: POINT_A,
+    center: BEIJING,
+    size: 11,
+    fill: { color: '#409eff' },
+    stroke: { color: '#1d4ed8', width: 2 },
+    label: { text: '北京', offsetY: -18 }
+  });
+  layer.add({
+    id: POINT_B,
+    center: SHANGHAI,
+    size: 11,
+    fill: { color: '#67c23a' },
+    stroke: { color: '#2f6b14', width: 2 },
+    label: { text: '上海', offsetY: -18 }
+  });
   layer.setLayerOpacity(opacity.value);
   layer.setLayerIndex(zIndex.value);
   pointLayer.value = layer;

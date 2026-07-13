@@ -58,7 +58,12 @@ const methodCols = [
 const constructorRows = [{ name: 'options', desc: '图形变换配置', type: '<a href="#api-type-itransformparams">ITransformParams</a>', default: '—' }];
 
 const transformParamRows = [
-  { name: 'earth', desc: '地图实例；多地图场景应显式传入，不传时回退到全局单例', type: 'Earth?', default: '全局单例' },
+  {
+    name: 'earth',
+    desc: '地图实例；多地图场景应显式传入，不传时回退到 <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth</a></code> 默认实例',
+    type: 'Earth?',
+    default: '默认实例'
+  },
   { name: 'hitTolerance', desc: '点选容差，即鼠标命中范围向外扩展的像素数', type: 'number?', default: '2' },
   {
     name: 'translateType',

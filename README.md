@@ -21,11 +21,14 @@ npm install @vrsim/earth-engine-ol ol@^7
 ## 基础用法
 
 ```ts
-import { Earth, PointLayer } from '@vrsim/earth-engine-ol';
-import '@vrsim/earth-engine-ol/dist/index.css';
+import { PointLayer, useEarth } from '@vrsim/earth-engine-ol';
+import '@vrsim/earth-engine-ol/style.css';
 import { fromLonLat } from 'ol/proj';
 
-const earth = new Earth(undefined, { target: 'olContainer' });
+const earth = useEarth({
+  target: 'olContainer',
+  view: { center: fromLonLat([119, 39]), zoom: 5 }
+});
 earth.addLayer(earth.createOsmLayer());
 
 const points = new PointLayer(earth);
@@ -38,15 +41,21 @@ points.add({
 });
 ```
 
-也可以通过全局单例方式创建：
+`useEarth()` 是常规单地图的默认入口：首次调用创建并注册默认实例，后续调用返回同一活动实例。销毁后可再次创建。
+
+命名实例适用于同一页面的多个地图：
 
 ```ts
 import { useEarth } from '@vrsim/earth-engine-ol';
 
-const earth = useEarth(undefined, { target: 'olContainer' });
+const overview = useEarth({ id: 'overview', target: 'overview' });
+const detail = useEarth({ id: 'detail', target: 'detail' });
+
+useEarth('overview') === overview;
+useEarth('detail') === detail;
 ```
 
-多地图场景建议显式传入 `Earth` 实例，例如 `new PointLayer(earth)`，避免不同地图之间共享默认实例。
+`new Earth(viewOptions?, options?)` 仍是完整的公共构造入口。图层和工具内部会显式传递 `Earth`；常规单地图使用默认实例时不需要增加额外样板代码。
 
 ## 开发命令
 
@@ -77,7 +86,7 @@ npm run build
 npm pack
 ```
 
-发布产物位于 `dist`，包含 ESM、CJS、CSS 和类型声明。
+发布产物位于 `dist`，包含 ESM `.mjs` 入口、CSS 和类型声明。包仅发布 ESM 入口，因为 OpenLayers 本身是 ESM；应用代码应从包根、功能子路径或 `style.css` 导出导入，不要直接引用 `./dist/*`。
 
 ## 工程状态
 

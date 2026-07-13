@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
 import { Earth, PolylineLayer } from '@vrsim/earth-engine-ol';
-import '@vrsim/earth-engine-ol/dist/index.es.css';
+import '@vrsim/earth-engine-ol/style.css';
 import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
 

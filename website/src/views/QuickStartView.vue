@@ -15,21 +15,17 @@ const anchors: AnchorItem[] = [
   { id: 'next-step', label: '下一步' }
 ];
 
-const installationCode = `# 安装引擎本地 tgz 包
-npm install ./vrsim-earth-engine-ol-1.0.3.tgz
-
-# 安装 OpenLayers 依赖
-npm install ol@^7`;
+const installationCode = `npm install @vrsim/earth-engine-ol ol@^7`;
 
 const depsCode = `{
   "dependencies": {
-    "@vrsim/earth-engine-ol": "file:./vrsim-earth-engine-ol-1.0.3.tgz",
+    "@vrsim/earth-engine-ol": "^2.0.0",
     "ol": "^7.5.2"
   }
 }`;
 
-const importCode = `import { Earth, PointLayer } from '@vrsim/earth-engine-ol';
-import '@vrsim/earth-engine-ol/dist/index.es.css';`;
+const importCode = `import { PointLayer, useEarth } from '@vrsim/earth-engine-ol';
+import '@vrsim/earth-engine-ol/style.css';`;
 </script>
 
 <template>
@@ -43,13 +39,10 @@ import '@vrsim/earth-engine-ol/dist/index.es.css';`;
 
       <section id="install" class="doc-prose">
         <h2 class="doc-h2">安装</h2>
-        <p>
-          earth-engine-ol 目前以本地 <code>.tgz</code> 包形式分发，安装时需指定本地文件路径。
-          同时需要安装 <code>ol</code>（OpenLayers）作为外部依赖。
-        </p>
-        <el-alert class="doc-prose__alert" type="warning" :closable="false" show-icon>
-          <template #title>注意版本号与路径</template>
-          <p>请根据实际的 tgz 文件名和路径调整安装命令。ol 版本推荐 <code>^7.5</code>，与引擎内部使用的 OpenLayers 主版本保持一致。</p>
+        <p>安装引擎时同时显式安装 <code>ol</code>（OpenLayers）peer dependency。</p>
+        <el-alert class="doc-prose__alert" type="info" :closable="false" show-icon>
+          <template #title>ESM 包</template>
+          <p>2.0 仅提供 ESM 入口；OpenLayers 本身也是 ESM，请使用支持 ESM 的构建工具或运行时。</p>
         </el-alert>
         <CodeBlock :code="installationCode" lang="bash" />
       </section>
@@ -65,16 +58,15 @@ import '@vrsim/earth-engine-ol/dist/index.es.css';`;
 
       <section id="import" class="doc-prose">
         <h2 class="doc-h2">引入</h2>
-        <p>
-          在 Vue 组件或 TypeScript 文件中按需引入 <code>Earth</code>、<code>PointLayer</code>
-          等需要的模块，同时不要忘记引入引擎的样式文件。
-        </p>
+        <p>常规地图优先引入 <code>useEarth</code>，再按需引入 <code>PointLayer</code> 等能力；样式统一从稳定的 <code>style.css</code> 子路径导入。</p>
         <CodeBlock :code="importCode" lang="typescript" />
       </section>
 
       <section id="next-step" class="doc-prose">
         <h2 class="doc-h2">下一步</h2>
         <ul class="doc-list">
+          <li>查看 <RouterLink to="/guide/earth-create" class="doc-link">地图创建与销毁</RouterLink> 了解默认实例、命名实例与完整 Earth 构造 API。</li>
+          <li>从 1.x 升级时，查看 <RouterLink to="/guide/migration-v2" class="doc-link">2.0 迁移指南</RouterLink> 核对 ESM、子路径和样式导入变化。</li>
           <li>查看 <RouterLink to="/components/point-layer" class="doc-link">PointLayer 点图层</RouterLink> 了解添加、更新、闪烁点的完整 API。</li>
         </ul>
       </section>

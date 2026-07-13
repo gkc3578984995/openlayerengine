@@ -1,0 +1,107 @@
+<script setup lang="ts">
+import CodeBlock from '../components/docs/CodeBlock.vue';
+import PageAnchor from '../components/docs/PageAnchor.vue';
+
+interface AnchorItem {
+  id: string;
+  label: string;
+}
+
+const anchors: AnchorItem[] = [
+  { id: 'overview', label: '迁移概览' },
+  { id: 'earth-instances', label: 'Earth 实例' },
+  { id: 'styles', label: '样式入口' },
+  { id: 'subpaths', label: '导出子路径' },
+  { id: 'esm', label: '仅 ESM' },
+  { id: 'destroy', label: '销毁与重建' }
+];
+
+const instanceCode = `const defaultEarth = useEarth({ target: 'map' });
+useEarth() === defaultEarth;
+
+const overview = useEarth({ id: 'overview', target: 'overview' });
+useEarth('overview') === overview;`;
+
+const styleCode = `// 1.x：不再使用 dist/index*.css
+// 2.0：从公开样式子路径导入
+import '@vrsim/earth-engine-ol/style.css';`;
+
+const subpathCode = `import { Earth, useEarth } from '@vrsim/earth-engine-ol';
+import { Earth as CoreEarth } from '@vrsim/earth-engine-ol/core';
+import { PointLayer } from '@vrsim/earth-engine-ol/layers';
+import { DynamicDraw } from '@vrsim/earth-engine-ol/draw';
+import { Measure } from '@vrsim/earth-engine-ol/measure';
+import { TransformInteraction } from '@vrsim/earth-engine-ol/transform';
+import { PlotDraw } from '@vrsim/earth-engine-ol/plot';`;
+</script>
+
+<template>
+  <div class="doc-page-layout">
+    <article class="doc-page">
+      <header class="doc-hero">
+        <span class="doc-hero__eyebrow">快速上手</span>
+        <h1>2.0 迁移指南</h1>
+        <p>从 1.x 迁移时，重点核对实例注册、公开导出路径、样式入口和 ESM 运行环境。</p>
+      </header>
+
+      <section id="overview" class="doc-prose">
+        <h2 class="doc-h2">迁移概览</h2>
+        <ul class="doc-list">
+          <li>常规单地图继续使用 <code>useEarth()</code> 获取或创建默认实例。</li>
+          <li>多地图使用 <code>useEarth(id)</code> 或带 id 的 <code>useEarth(options)</code> 创建和复用命名实例。</li>
+          <li>样式改从公开的 <code>/style.css</code> 子路径导入，所有 <code>./dist/*</code> 深路径导入均已移除。</li>
+          <li>JavaScript 入口改为仅 ESM；包导出会把公开入口映射到显式的 <code>.mjs</code> 文件。</li>
+        </ul>
+      </section>
+
+      <section id="earth-instances" class="doc-prose">
+        <h2 class="doc-h2">Earth 实例</h2>
+        <p>
+          <code>useEarth()</code> 保持“获取或创建”语义：默认实例仍然活动时返回同一个对象。<code>useEarth(id)</code>
+          使用字符串作为注册键和首次创建时的默认挂载目标； <code>useEarth(options)</code> 可通过 id、target、view 与 controls 完整配置实例，其中带 id
+          的配置创建或复用命名实例。
+        </p>
+        <CodeBlock :code="instanceCode" lang="typescript" />
+        <p>图层和工具内部采用显式 Earth 传递来隔离多地图上下文；这不会给常规单地图用法增加样板代码。省略构造参数时，支持该行为的图层仍会回退到默认实例。</p>
+      </section>
+
+      <section id="styles" class="doc-prose">
+        <h2 class="doc-h2">样式入口</h2>
+        <p>1.x 的 <code>dist/index*.css</code> 深路径不再是公共接口。2.0 使用稳定的包导出 <code>@vrsim/earth-engine-ol/style.css</code>：</p>
+        <CodeBlock :code="styleCode" lang="typescript" />
+      </section>
+
+      <section id="subpaths" class="doc-prose">
+        <h2 class="doc-h2">导出子路径</h2>
+        <p>
+          2.0 支持包根入口以及 <code>/core</code>、<code>/layers</code>、<code>/draw</code>、<code>/measure</code>、<code>/transform</code>、<code>/plot</code>
+          功能子路径。
+        </p>
+        <CodeBlock :code="subpathCode" lang="typescript" />
+        <p>只从这些公开导出和 <code>/style.css</code> 导入；不要依赖包内 <code>./dist/*</code> 文件布局。</p>
+      </section>
+
+      <section id="esm" class="doc-prose">
+        <h2 class="doc-h2">仅 ESM</h2>
+        <p>
+          2.0 仅发布 ESM，因为 OpenLayers 本身就是 ESM。公开 exports 的 JavaScript 条件使用显式 <code>.mjs</code> 文件，不再提供 require/CJS 入口。 为兼容
+          <code>ol-wind</code> 1.1.2，构建仅将 <code>ol-wind</code> 及其 <code>wind-core</code> 依赖作为窄兼容例外打包；这不会改变包的 ESM-only 契约。
+        </p>
+      </section>
+
+      <section id="destroy" class="doc-prose">
+        <h2 class="doc-h2">销毁与重建</h2>
+        <p>
+          <code>earth.destroy()</code> 除清理地图资源外，还会注销对应的默认或命名实例。销毁完成后，再次调用相同形式的 <code>useEarth()</code>、<code
+            >useEarth(id)</code
+          >
+          或 <code>useEarth(options)</code> 会创建新的实例。
+        </p>
+      </section>
+    </article>
+
+    <aside class="doc-page-layout__aside">
+      <PageAnchor title="2.0 迁移指南" :items="anchors" />
+    </aside>
+  </div>
+</template>

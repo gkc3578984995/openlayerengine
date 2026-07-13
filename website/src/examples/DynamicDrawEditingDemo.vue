@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue';
 import { DrawType, Earth, ModifyType, type IDrawEvent, type IModifyEvent } from '@vrsim/earth-engine-ol';
-import '@vrsim/earth-engine-ol/dist/index.es.css';
+import '@vrsim/earth-engine-ol/style.css';
 import type { Feature } from 'ol';
 import type { Geometry } from 'ol/geom';
 import { fromLonLat } from 'ol/proj';
@@ -17,7 +17,9 @@ const activeEditingGeometry = ref<string | null>(null);
 const selectedGeometry = ref(editableDynamicDrawGeometries[0].value);
 const lastValidSelection = ref(selectedGeometry.value);
 const feedback = ref('选择图形后先绘制，再编辑当前成果。');
-const selectedGeometryConfig = computed(() => editableDynamicDrawGeometries.find((geometry) => geometry.value === selectedGeometry.value) ?? editableDynamicDrawGeometries[0]);
+const selectedGeometryConfig = computed(
+  () => editableDynamicDrawGeometries.find((geometry) => geometry.value === selectedGeometry.value) ?? editableDynamicDrawGeometries[0]
+);
 const geometriesByGroup = (group: (typeof dynamicDrawGeometryGroups)[number]) => editableDynamicDrawGeometries.filter((geometry) => geometry.group === group);
 const isInteractionActive = computed(() => activeDrawingGeometry.value !== null || activeEditingGeometry.value !== null);
 const canEdit = computed(() => !isInteractionActive.value && featureRef.value !== null && featureGeometry.value === selectedGeometry.value);
@@ -87,7 +89,8 @@ onBeforeUnmount(() => {
           <el-option v-for="geometry in geometriesByGroup(group)" :key="geometry.value" :label="geometry.label" :value="geometry.value" />
         </el-option-group>
       </el-select>
-      <el-button type="primary" :disabled="isInteractionActive" @click="startDrawing">绘制{{ selectedGeometryConfig.label }}</el-button><el-button :disabled="!canEdit" @click="startEditing">编辑当前图形</el-button><span>{{ feedback }}</span>
+      <el-button type="primary" :disabled="isInteractionActive" @click="startDrawing">绘制{{ selectedGeometryConfig.label }}</el-button
+      ><el-button :disabled="!canEdit" @click="startEditing">编辑当前图形</el-button><span>{{ feedback }}</span>
     </div>
     <div :id="mapId" class="example-stage"></div>
   </div>

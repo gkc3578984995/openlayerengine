@@ -83,7 +83,13 @@ const typeCols: ApiColumn[] = [
 ];
 
 const constructorRows = [
-  { name: 'earth', desc: '地图实例；不传时回退到 <code>useEarth()</code> 全局单例', type: 'Earth', options: '—', default: '—' },
+  {
+    name: 'earth',
+    desc: '地图实例；不传时回退到 <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth</a></code> 默认实例',
+    type: 'Earth',
+    options: '—',
+    default: '—'
+  },
   { name: 'options.register', desc: '是否注册到全局管理（多地图场景建议设为 <code>false</code>）', type: 'boolean', options: 'true / false', default: '—' },
   { name: 'options.wrapX', desc: '是否允许要素在 180° 经线换行显示', type: 'boolean', options: 'true / false', default: '—' }
 ];
@@ -147,10 +153,22 @@ const manualPointParamRows = [
   { name: 'center', desc: '点坐标（地图投影坐标系）', type: 'Coordinate', options: '—', default: '—' },
   { name: 'size', desc: '点大小（像素）', type: 'number', options: '—', default: '—' },
   { name: 'fill', desc: '填充样式，详见 <a href="#api-type-ifill">IFill</a>', type: '<a href="#api-type-ifill">IFill</a>', options: '—', default: '—' },
-  { name: 'stroke', desc: '描边样式，详见 <a href="#api-type-istroke">IStroke</a>', type: '<a href="#api-type-istroke">IStroke</a>', options: '—', default: '—' },
+  {
+    name: 'stroke',
+    desc: '描边样式，详见 <a href="#api-type-istroke">IStroke</a>',
+    type: '<a href="#api-type-istroke">IStroke</a>',
+    options: '—',
+    default: '—'
+  },
   { name: 'label', desc: '标签样式，详见 <a href="#api-type-ilabel">ILabel</a>', type: '<a href="#api-type-ilabel">ILabel</a>', options: '—', default: '—' },
   { name: 'isFlash', desc: '是否开启闪烁', type: 'boolean', options: 'true / false', default: 'false' },
-  { name: 'flashColor', desc: '闪烁颜色，详见 <a href="#api-type-irgbcolor">IRgbColor</a>', type: '<a href="#api-type-irgbcolor">IRgbColor</a>', options: '—', default: '{ R:255, G:0, B:0 }' },
+  {
+    name: 'flashColor',
+    desc: '闪烁颜色，详见 <a href="#api-type-irgbcolor">IRgbColor</a>',
+    type: '<a href="#api-type-irgbcolor">IRgbColor</a>',
+    options: '—',
+    default: '{ R:255, G:0, B:0 }'
+  },
   { name: 'duration', desc: '闪烁单次持续时间（ms）', type: 'number', options: '—', default: '1000' },
   { name: 'isRepeat', desc: '是否重复闪烁（<code>isFlash</code> 为 <code>true</code> 时生效）', type: 'boolean', options: 'true / false', default: 'true' }
 ];
@@ -160,10 +178,28 @@ const manualSetPointParamRows = [
   { name: 'center', desc: '更新点坐标', type: 'Coordinate', options: '—', default: '—' },
   { name: 'size', desc: '更新点大小', type: 'number', options: '—', default: '—' },
   { name: 'fill', desc: '更新填充样式，详见 <a href="#api-type-ifill">IFill</a>', type: '<a href="#api-type-ifill">IFill</a>', options: '—', default: '—' },
-  { name: 'stroke', desc: '更新描边样式，详见 <a href="#api-type-istroke">IStroke</a>', type: '<a href="#api-type-istroke">IStroke</a>', options: '—', default: '—' },
-  { name: 'label', desc: '更新标签样式，详见 <a href="#api-type-ilabel">ILabel</a>', type: '<a href="#api-type-ilabel">ILabel</a>', options: '—', default: '—' },
+  {
+    name: 'stroke',
+    desc: '更新描边样式，详见 <a href="#api-type-istroke">IStroke</a>',
+    type: '<a href="#api-type-istroke">IStroke</a>',
+    options: '—',
+    default: '—'
+  },
+  {
+    name: 'label',
+    desc: '更新标签样式，详见 <a href="#api-type-ilabel">ILabel</a>',
+    type: '<a href="#api-type-ilabel">ILabel</a>',
+    options: '—',
+    default: '—'
+  },
   { name: 'isFlash', desc: '更新是否闪烁', type: 'boolean', options: 'true / false', default: 'false' },
-  { name: 'flashColor', desc: '更新闪烁颜色，详见 <a href="#api-type-irgbcolor">IRgbColor</a>', type: '<a href="#api-type-irgbcolor">IRgbColor</a>', options: '—', default: '{ R:255, G:0, B:0 }' },
+  {
+    name: 'flashColor',
+    desc: '更新闪烁颜色，详见 <a href="#api-type-irgbcolor">IRgbColor</a>',
+    type: '<a href="#api-type-irgbcolor">IRgbColor</a>',
+    options: '—',
+    default: '{ R:255, G:0, B:0 }'
+  },
   { name: 'duration', desc: '更新闪烁单次时长（ms）', type: 'number', options: '—', default: '1000' },
   { name: 'isRepeat', desc: '更新是否重复闪烁', type: 'boolean', options: 'true / false', default: 'true' }
 ];
@@ -179,9 +215,7 @@ const manualRgbColorRows = [
   { name: 'B', desc: '蓝色通道（0-255）', type: 'number', default: '—' }
 ];
 
-const manualFillRows = [
-  { name: 'color', desc: '填充颜色', type: 'string', default: '—' }
-];
+const manualFillRows = [{ name: 'color', desc: '填充颜色', type: 'string', default: '—' }];
 
 const manualStrokeRows = [
   { name: 'color', desc: '描边颜色', type: 'string', default: '—' },
@@ -193,7 +227,7 @@ const manualStrokeRows = [
 
 const manualLabelRows = [
   { name: 'text', desc: '文本内容', type: 'string', default: '—' },
-  { name: 'font', desc: 'CSS 字体，如 <code>\'bold 13px sans-serif\'</code>', type: 'string', default: '—' },
+  { name: 'font', desc: "CSS 字体，如 <code>'bold 13px sans-serif'</code>", type: 'string', default: '—' },
   { name: 'offsetX', desc: '水平偏移（px），正值向右', type: 'number', default: '—' },
   { name: 'offsetY', desc: '垂直偏移（px），正值向上（与 OL 原生相反）', type: 'number', default: '—' },
   { name: 'scale', desc: '缩放比例', type: 'number', default: '—' },
@@ -202,7 +236,12 @@ const manualLabelRows = [
   { name: 'fill', desc: '文本填充颜色，详见 <a href="#api-type-ifill">IFill</a>', type: '<a href="#api-type-ifill">IFill</a>', default: '—' },
   { name: 'stroke', desc: '文本描边，详见 <a href="#api-type-istroke">IStroke</a>', type: '<a href="#api-type-istroke">IStroke</a>', default: '—' },
   { name: 'backgroundFill', desc: '文本背景填充，详见 <a href="#api-type-ifill">IFill</a>', type: '<a href="#api-type-ifill">IFill</a>', default: '—' },
-  { name: 'backgroundStroke', desc: '文本背景描边，详见 <a href="#api-type-istroke">IStroke</a>', type: '<a href="#api-type-istroke">IStroke</a>', default: '—' },
+  {
+    name: 'backgroundStroke',
+    desc: '文本背景描边，详见 <a href="#api-type-istroke">IStroke</a>',
+    type: '<a href="#api-type-istroke">IStroke</a>',
+    default: '—'
+  },
   { name: 'padding', desc: '文本内边距', type: 'number[]', default: '—' },
   { name: 'rotation', desc: '顺时针旋转角度（0-360）', type: 'number', default: '—' }
 ];
@@ -223,9 +262,7 @@ const labelRows = getPointLayerInterfaceRows('ILabel', manualLabelRows);
 
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">概述</h2>
-        <p>
-          PointLayer 对 OpenLayers 点图层的常见业务动作做了直接封装，支持点要素的添加，以及尺寸、描边、填充、标签和闪烁效果的更新。
-        </p>
+        <p>PointLayer 对 OpenLayers 点图层的常见业务动作做了直接封装，支持点要素的添加，以及尺寸、描边、填充、标签和闪烁效果的更新。</p>
       </section>
 
       <section id="usage" class="doc-prose">

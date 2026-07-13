@@ -73,7 +73,13 @@ const methodCols: ApiColumn[] = [
 ];
 
 const constructorRows = [
-  { name: 'earth', desc: '地图实例；不传时回退到 <code>useEarth()</code> 全局单例', type: 'Earth', options: '—', default: '—' },
+  {
+    name: 'earth',
+    desc: '地图实例；不传时回退到 <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth</a></code> 默认实例',
+    type: 'Earth',
+    options: '—',
+    default: '—'
+  },
   { name: 'options.register', desc: '是否注册到全局管理（多地图场景建议设为 <code>false</code>）', type: 'boolean', options: 'true / false', default: 'true' },
   { name: 'options.wrapX', desc: '是否允许要素跨 180° 经线换行显示', type: 'boolean', options: 'true / false', default: 'true' }
 ];

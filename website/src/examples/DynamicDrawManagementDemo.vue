@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
 import { DrawType, Earth } from '@vrsim/earth-engine-ol';
-import '@vrsim/earth-engine-ol/dist/index.es.css';
+import '@vrsim/earth-engine-ol/style.css';
 import type { Feature } from 'ol';
 import type { Geometry } from 'ol/geom';
 import { fromLonLat } from 'ol/proj';
@@ -44,7 +44,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <div class="example-demo__toolbar"><el-button type="primary" @click="drawPoint">绘制点</el-button><el-button @click="inspect">查询成果</el-button><el-button type="danger" plain :disabled="!selectedFeature" @click="removeSelected">删除当前成果</el-button><span>{{ feedback }}</span></div>
+    <div class="example-demo__toolbar">
+      <el-button type="primary" @click="drawPoint">绘制点</el-button><el-button @click="inspect">查询成果</el-button
+      ><el-button type="danger" plain :disabled="!selectedFeature" @click="removeSelected">删除当前成果</el-button><span>{{ feedback }}</span>
+    </div>
     <div :id="mapId" class="example-stage"></div>
   </div>
 </template>

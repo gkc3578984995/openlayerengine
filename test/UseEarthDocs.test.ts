@@ -1,0 +1,134 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const stableStyleImport = "import '@vrsim/earth-engine-ol/style.css';";
+const forbiddenStyleImport = /@vrsim\/earth-engine-ol\/dist\/index(?:\.es|\.cjs)?\.css/;
+
+async function readVueFiles(directory: string): Promise<Array<{ path: string; source: string }>> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return readVueFiles(path);
+      if (!entry.isFile() || !entry.name.endsWith('.vue')) return [];
+      return [{ path, source: await readFile(path, 'utf8') }];
+    })
+  );
+  return files.flat();
+}
+
+describe('useEarth documentation', () => {
+  it('uses the stable public stylesheet export throughout tracked docs and examples', async () => {
+    const [readme, quickStart, views, examples] = await Promise.all([
+      readFile('README.md', 'utf8'),
+      readFile('website/src/views/QuickStartView.vue', 'utf8'),
+      readVueFiles('website/src/views'),
+      readVueFiles('website/src/examples')
+    ]);
+
+    for (const file of [{ path: 'README.md', source: readme }, ...views, ...examples]) {
+      expect(file.source, file.path).not.toMatch(forbiddenStyleImport);
+    }
+    expect(readme).toContain(stableStyleImport);
+    expect(quickStart).toContain(stableStyleImport);
+    expect(examples.some(({ source }) => source.includes(stableStyleImport))).toBe(true);
+    for (const example of examples) expect(example.source, example.path).toContain(stableStyleImport);
+  });
+
+  it('documents the real earth creation anchors and linked API references', async () => {
+    const view = await readFile('website/src/views/EarthCreateView.vue', 'utf8');
+    const anchors = [
+      'overview',
+      'example-default-earth',
+      'example-named-earth',
+      'api-use-earth',
+      'api-constructor',
+      'api-type-use-earth-options',
+      'api-methods',
+      'tips'
+    ];
+
+    for (const anchor of anchors) {
+      expect(view).toContain(`id="${anchor}"`);
+      expect(view).toContain(`id: '${anchor}'`);
+    }
+    expect(view).toContain('<code class="code-fn"><a href="#api-use-earth">useEarth</a></code>');
+    expect(view).toMatch(/<code class="code-fn"><a href="#api-methods">destroy<\/a><\/code\s*>/);
+    expect(view).toContain('<code><a href="#api-type-use-earth-options">UseEarthOptions</a></code>');
+    expect(view).not.toContain('code-fn-inline');
+  });
+
+  it('uses the runnable default example as the displayed useEarth source', async () => {
+    const [view, demo] = await Promise.all([
+      readFile('website/src/views/EarthCreateView.vue', 'utf8'),
+      readFile('website/src/examples/EarthCreateDemo.vue', 'utf8')
+    ]);
+
+    expect(view).toContain("import EarthCreateDemo from '../examples/EarthCreateDemo.vue';");
+    expect(view).toContain("import earthCreateSource from '../examples/EarthCreateDemo.vue?raw';");
+    expect(view).toContain(':source="earthCreateSource"');
+    expect(demo).toMatch(/import\s*\{\s*Earth,\s*useEarth\s*\}\s*from '@vrsim\/earth-engine-ol';/);
+    expect(demo).toMatch(/useEarth\(\{\s*target: mapId,\s*view: \{ center: BEIJING, zoom: 5 \}\s*\}\)/s);
+    expect(demo).toContain('useEarth() === earth');
+    expect(demo).toContain("createConfiguredLayer(earth, 'vector')");
+  });
+
+  it('creates, retrieves, and cleans up two named earth instances', async () => {
+    const demo = await readFile('website/src/examples/MultiEarthDemo.vue', 'utf8');
+
+    expect(demo).toMatch(/useEarth\(\{ id: mapId1, target: mapId1, view: \{ center: BEIJING, zoom: 5 \} \}\)/);
+    expect(demo).toMatch(/useEarth\(\{ id: mapId2, target: mapId2, view: \{ center: SHANGHAI, zoom: 6 \} \}\)/);
+    expect(demo).toContain('useEarth(mapId1) === earth1');
+    expect(demo).toContain('useEarth(mapId2) === earth2');
+    expect(demo).toContain("createConfiguredLayer(earth1, 'vector')");
+    expect(demo).toContain("createConfiguredLayer(earth2, 'vector')");
+    expect(demo).toContain('earthRef1.value?.destroy()');
+    expect(demo).toContain('earthRef2.value?.destroy()');
+  });
+
+  it('keeps every runnable basemap behind the deployment map source configuration', async () => {
+    const examples = await readVueFiles('website/src/examples');
+
+    for (const example of examples) {
+      expect(example.source, example.path).not.toMatch(/https?:\/\//);
+      if (!example.source.includes('.addLayer(')) continue;
+      expect(example.source, example.path).toContain("import { createConfiguredLayer } from '../config/mapSources';");
+      expect(example.source, example.path).toContain('createConfiguredLayer(');
+    }
+  });
+
+  it('registers a complete version 2 migration guide', async () => {
+    const [navigation, router, migration] = await Promise.all([
+      readFile('website/src/config/navigation.ts', 'utf8'),
+      readFile('website/src/router/index.ts', 'utf8'),
+      readFile('website/src/views/MigrationV2View.vue', 'utf8')
+    ]);
+
+    expect(navigation).toContain("{ label: '2.0 迁移指南', to: '/guide/migration-v2' }");
+    expect(router).toContain("import MigrationV2View from '../views/MigrationV2View.vue';");
+    expect(router).toContain("path: 'guide/migration-v2'");
+    expect(router).toContain('component: MigrationV2View');
+    for (const topic of ['useEarth()', 'useEarth(id)', 'useEarth(options)', 'style.css', './dist/*', 'ESM', '.mjs', 'earth.destroy()']) {
+      expect(migration).toContain(topic);
+    }
+    for (const subpath of ['/core', '/layers', '/draw', '/measure', '/transform', '/plot']) expect(migration).toContain(subpath);
+  });
+
+  it('describes constructor fallback as the default instance rather than a global singleton', async () => {
+    const layerViews = [
+      'BillboardLayerView.vue',
+      'CircleLayerView.vue',
+      'OverlayLayerView.vue',
+      'PointLayerView.vue',
+      'PolygonLayerView.vue',
+      'PolylineLayerView.vue'
+    ];
+
+    for (const filename of layerViews) {
+      const source = await readFile(`website/src/views/${filename}`, 'utf8');
+      expect(source, filename).toContain('默认实例');
+      expect(source, filename).not.toContain('全局单例');
+    }
+  });
+});
