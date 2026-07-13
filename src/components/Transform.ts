@@ -1288,6 +1288,7 @@ export default class Transform {
         const opts: any = { point: tbPoint };
         if (type) opts.type = type;
         this.toolbar = new Toolbar(opts, this.earth);
+        this.bindToolbarEvents(this.toolbar);
       } else {
         const opts: any = { point: tbPoint };
         if (type) opts.type = type;

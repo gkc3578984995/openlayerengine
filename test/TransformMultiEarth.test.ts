@@ -79,8 +79,11 @@ describe('TransformInteraction 多 Earth 隔离', () => {
 
   it('通过当前 Toolbar 实例绑定事件且不再查询全局根元素', async () => {
     const source = await readFile('src/components/Transform.ts', 'utf8');
+    const toolbarConstructions = source.match(/this\.toolbar = new Toolbar\(/g) ?? [];
+    const toolbarBindings = source.match(/this\.bindToolbarEvents\(this\.toolbar\)/g) ?? [];
 
     expect(source).not.toContain("document.querySelector('.ol-toolbar')");
     expect(source).toContain('this.bindToolbarEvents(this.toolbar)');
+    expect(toolbarBindings.length).toBe(toolbarConstructions.length);
   });
 });
