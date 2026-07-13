@@ -21,3 +21,7 @@ export interface ElementSelector<T = unknown> {
   visible?: boolean;
   predicate?: (state: Readonly<ElementState<T>>) => boolean;
 }
+
+export type ElementPatch<T = unknown> = Partial<Omit<ElementState<T>, 'id' | 'type'>>;
+
+export type ElementCopyOptions<T = unknown> = Partial<Omit<ElementState<T>, 'id' | 'type'>>;
