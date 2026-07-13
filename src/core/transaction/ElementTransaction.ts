@@ -98,7 +98,9 @@ class ElementTransactionImpl implements ElementTransaction {
 
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[] {
     const transaction = selectableState(this);
-    return Object.freeze(matchingEntries<T>(transaction, selector).map(([, state]) => snapshot<T>(transaction, state)));
+    return withSelectorEvaluation(transaction, () =>
+      Object.freeze(matchingEntries<T>(transaction, selector).map(([, state]) => snapshot<T>(transaction, state)))
+    );
   }
 
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Readonly<ElementState<T>>[] {

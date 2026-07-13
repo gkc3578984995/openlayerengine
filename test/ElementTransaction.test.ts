@@ -440,6 +440,44 @@ describe('ElementTransaction', () => {
     expect(store.query().map(({ id }) => id)).toEqual(['point-1', 'point-2']);
   });
 
+  it('keeps query result snapshot cloning inside the selector read-only scope', () => {
+    const pointDefinition = basicShapeDefinitions.find(({ type }) => type === 'point') as ShapeDefinition<ShapeState<'point'>>;
+    let duringClone: (() => void) | undefined;
+    const definition: ShapeDefinition<ShapeState<'point'>> = {
+      ...pointDefinition,
+      clone: (shape) => {
+        duringClone?.();
+        return pointDefinition.clone(shape);
+      }
+    };
+    const store = new ElementStore(new ShapeRegistry([definition]));
+    store.add(element('point-1'));
+
+    let storeProbeCalls = 0;
+    duringClone = () => {
+      storeProbeCalls += 1;
+      expect(() => store.add(element('store-clone-side-effect'))).toThrowError(new InvalidArgumentError('Element selector predicates are read-only'));
+    };
+    expect(store.query({ id: 'point-1' }).map(({ id }) => id)).toEqual(['point-1']);
+    expect(storeProbeCalls).toBeGreaterThan(0);
+    expect(store.get('store-clone-side-effect')).toBeUndefined();
+
+    let transactionProbeCalls = 0;
+    store.transaction((transaction) => {
+      duringClone = () => {
+        transactionProbeCalls += 1;
+        expect(() => transaction.add(element('transaction-clone-side-effect'))).toThrowError(
+          new InvalidArgumentError('Element selector predicates are read-only')
+        );
+      };
+      expect(transaction.query({ id: 'point-1' }).map(({ id }) => id)).toEqual(['point-1']);
+      duringClone = undefined;
+    });
+
+    expect(transactionProbeCalls).toBeGreaterThan(0);
+    expect(store.get('transaction-clone-side-effect')).toBeUndefined();
+  });
+
   it('propagates the selector read-only scope to Store operations while allowing Store get', () => {
     const store = createStore();
     store.add(element('point-1'));
