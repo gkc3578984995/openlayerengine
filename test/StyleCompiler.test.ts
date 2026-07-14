@@ -362,6 +362,53 @@ describe('StyleCompiler', () => {
     }
   });
 
+  it('inherits circle pattern color from its own stroke, the foreground stroke, then black', () => {
+    const { compiler, canvases } = compilerWithCanvas();
+
+    render(
+      compiler,
+      {
+        strokes: [{ color: '#background' }, { color: '#foreground' }, { width: 2 }],
+        symbol: {
+          type: 'circle',
+          radius: 6,
+          fill: { type: 'pattern', pattern: 'dot' },
+          stroke: { color: '#circle' }
+        }
+      },
+      point()
+    );
+    expect(canvases.at(-1)?.context.strokeStyle).toBe('#circle');
+
+    render(
+      compiler,
+      {
+        strokes: [{ color: '#background' }, { color: '#foreground' }, { width: 2 }],
+        symbol: {
+          type: 'circle',
+          radius: 6,
+          fill: { type: 'pattern', pattern: 'dot' },
+          stroke: { width: 1 }
+        }
+      },
+      point()
+    );
+    expect(canvases.at(-1)?.context.strokeStyle).toBe('#foreground');
+
+    render(
+      compiler,
+      {
+        symbol: {
+          type: 'circle',
+          radius: 6,
+          fill: { type: 'pattern', pattern: 'dot' }
+        }
+      },
+      point()
+    );
+    expect(canvases.at(-1)?.context.strokeStyle).toBe('#000000');
+  });
+
   it('uses an OffscreenCanvas structurally when no document is available', () => {
     const harness = canvasHarness();
     class FakeOffscreenCanvas {
@@ -402,6 +449,20 @@ describe('StyleCompiler', () => {
     expect(dashAtTwo[1] / dashAtTwo[0]).toBeCloseTo(1.5);
     expect(dashAtFour.reduce((sum, value) => sum + value, 0)).toBeCloseTo(25);
     expect(dashAtFour.every((value) => Number.isFinite(value) && value > 0)).toBe(true);
+  });
+
+  it('duplicates an odd dash array before fitting one complete canvas cycle', () => {
+    const { compiler } = compilerWithCanvas();
+    const feature = line([
+      [0, 0],
+      [60, 0]
+    ]);
+    const dash = render(compiler, { strokes: [{ color: '#f00', lineDash: [1, 2, 3], fitPatternOnce: true }] }, feature, 2)[0]
+      .getStroke()
+      ?.getLineDash();
+
+    expect(dash).toEqual([2.5, 5, 7.5, 2.5, 5, 7.5]);
+    expect(dash?.reduce((sum, value) => sum + value, 0)).toBeCloseTo(30);
   });
 
   it('places start, end, per-segment, repeated, and custom-icon arrows without mutating base geometry', () => {
@@ -493,15 +554,84 @@ describe('StyleCompiler', () => {
     expect(viewChanged).not.toBe(resolutionChanged);
   });
 
-  it('handles RenderFeature without assuming mutable Feature revision APIs', () => {
+  it('does not read Feature coordinates for geometry-independent styles', () => {
+    const { compiler } = compilerWithCanvas();
+    const feature = line();
+    const geometry = feature.getGeometry();
+    const getCoordinates = vi.spyOn(geometry, 'getCoordinates');
+    const compiled = styleFunction(compiler.compile({ strokes: [{ color: '#000', width: 2 }] }));
+
+    const first = compiled(feature, 1) as Style[];
+    expect(compiled(feature, 1)).toBe(first);
+    expect(getCoordinates).not.toHaveBeenCalled();
+  });
+
+  it('extracts one path per compile when fit dashes and arrows both need geometry', () => {
+    const { compiler } = compilerWithCanvas();
+    const feature = line();
+    const getCoordinates = vi.spyOn(feature.getGeometry(), 'getCoordinates');
+    const compiled = styleFunction(
+      compiler.compile({
+        strokes: [{ color: '#000', lineDash: [2, 2], fitPatternOnce: true }],
+        decorations: [{ type: 'arrow', placement: 'end' }]
+      })
+    );
+
+    const first = compiled(feature, 1) as Style[];
+    expect(getCoordinates).toHaveBeenCalledTimes(1);
+    expect(compiled(feature, 1)).toBe(first);
+    expect(getCoordinates).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches static RenderFeature styles without reading flat coordinates', () => {
     const { compiler } = compilerWithCanvas();
     const renderFeature = new RenderFeature('LineString', [0, 0, 10, 0, 10, 10], [6], 2, {}, 'render-line');
-    const compiled = styleFunction(compiler.compile({ strokes: [{ color: '#000', width: 2 }], decorations: [{ type: 'arrow', placement: 'end' }] }));
+    const getGeometry = vi.spyOn(renderFeature, 'getGeometry');
+    const getFlatCoordinates = vi.spyOn(renderFeature, 'getFlatCoordinates');
+    const getEnds = vi.spyOn(renderFeature, 'getEnds');
+    const compiled = styleFunction(compiler.compile({ strokes: [{ color: '#000', width: 2 }] }));
 
     const styles = compiled(renderFeature, 1) as Style[];
     expect(styles[0].getStroke()?.getColor()).toBe('#000');
-    expect(geometryCoordinate(styles[1])).toEqual([10, 10]);
     expect(compiled(renderFeature, 1)).toBe(styles);
+    expect(getGeometry).not.toHaveBeenCalled();
+    expect(getFlatCoordinates).not.toHaveBeenCalled();
+    expect(getEnds).not.toHaveBeenCalled();
+  });
+
+  it('does not cache fitPatternOnce for a RenderFeature without revisions', () => {
+    const { compiler } = compilerWithCanvas();
+    const renderFeature = new RenderFeature('LineString', [0, 0, 10, 0, 10, 10], [6], 2, {}, 'render-line');
+    const getFlatCoordinates = vi.spyOn(renderFeature, 'getFlatCoordinates');
+    const compiled = styleFunction(compiler.compile({ strokes: [{ color: '#000', lineDash: [2, 2], fitPatternOnce: true }] }));
+
+    const first = compiled(renderFeature, 1) as Style[];
+    const second = compiled(renderFeature, 1) as Style[];
+    expect(second).not.toBe(first);
+    expect(getFlatCoordinates).toHaveBeenCalledTimes(2);
+  });
+
+  it('recompiles RenderFeature arrows and observes public ends changes without a coordinate fingerprint', () => {
+    const { compiler } = compilerWithCanvas();
+    const renderFeature = new RenderFeature('MultiLineString', [0, 0, 10, 0, 20, 0, 30, 0], [4, 8], 2, {}, 'render-lines');
+    const ends = renderFeature.getEnds();
+    expect(ends).not.toBeNull();
+    const getFlatCoordinates = vi.spyOn(renderFeature, 'getFlatCoordinates');
+    const compiled = styleFunction(compiler.compile({ strokes: [{ color: '#000', width: 2 }], decorations: [{ type: 'arrow', placement: 'end' }] }));
+
+    const first = compiled(renderFeature, 1) as Style[];
+    expect(first.slice(1).map(geometryCoordinate)).toEqual([
+      [10, 0],
+      [30, 0]
+    ]);
+    const unchanged = compiled(renderFeature, 1) as Style[];
+    expect(unchanged).not.toBe(first);
+
+    (ends as number[])[0] = 6;
+    const changed = compiled(renderFeature, 1) as Style[];
+    expect(changed).not.toBe(unchanged);
+    expect(changed.slice(1).map(geometryCoordinate)).toEqual([[20, 0]]);
+    expect(getFlatCoordinates).toHaveBeenCalledTimes(3);
   });
 
   it('resolves native styles one-way to the exact registered identity', () => {

@@ -24,6 +24,11 @@ interface CacheEntry {
   readonly styles: Style[];
 }
 
+interface CompilationCacheContext {
+  readonly signature: string | undefined;
+  readonly geometry: object | undefined;
+}
+
 type Coordinate2 = readonly [number, number];
 
 interface ArrowPoint {
@@ -47,23 +52,35 @@ export class StyleCompiler {
 
     const spec = cloneCoreState(style);
     assertStructuredStyleSpec(spec);
+    const needsFitPaths =
+      spec.strokes?.some((stroke) => stroke.fitPatternOnce === true && stroke.lineDash !== undefined && stroke.lineDash.length > 0) ?? false;
+    const needsDecorations = (spec.decorations?.length ?? 0) > 0;
+    const needsGeometry = needsFitPaths || needsDecorations;
     const cache = new WeakMap<object, CacheEntry>();
     const compiled: StyleFunction = (feature, resolution) => {
       const viewRotation = finiteOr(this.#getViewRotation(), 0);
-      const signature = cacheSignature(feature, resolution, viewRotation);
+      const context = compilationCacheContext(feature, resolution, viewRotation, needsGeometry);
       const key = feature as object;
-      const previous = cache.get(key);
-      if (previous?.signature === signature) return previous.styles;
+      const previous = context.signature === undefined ? undefined : cache.get(key);
+      if (previous !== undefined && previous.signature === context.signature) return previous.styles;
 
-      const styles = this.#compileStructured(spec, feature, resolution, viewRotation);
-      cache.set(key, { signature, styles });
+      const styles = this.#compileStructured(spec, context.geometry, resolution, viewRotation, needsFitPaths, needsDecorations);
+      if (context.signature !== undefined) cache.set(key, { signature: context.signature, styles });
       return styles;
     };
     return compiled;
   }
 
-  #compileStructured(spec: StyleSpec, feature: FeatureLike, resolution: number, viewRotation: number): Style[] {
-    const paths = renderedPaths(feature);
+  #compileStructured(
+    spec: StyleSpec,
+    geometry: object | undefined,
+    resolution: number,
+    viewRotation: number,
+    needsFitPaths: boolean,
+    needsDecorations: boolean
+  ): Style[] {
+    const extracted = needsFitPaths || needsDecorations ? extractGeometryPaths(geometry) : undefined;
+    const fitPaths = needsFitPaths ? (extracted?.paths ?? []) : [];
     const inheritedColor = lastExplicitStrokeColor(spec.strokes);
     const strokes = spec.strokes ?? [];
     const styles: Style[] = [];
@@ -73,9 +90,9 @@ export class StyleCompiler {
         const foreground = index === strokes.length - 1;
         styles.push(
           new Style({
-            stroke: compileStroke(strokes[index], paths, resolution),
+            stroke: compileStroke(strokes[index], fitPaths, resolution),
             ...(foreground && spec.fill !== undefined ? { fill: compileFill(spec.fill, inheritedColor, this.#createCanvasContext) } : {}),
-            ...(foreground && spec.symbol !== undefined ? { image: compileSymbol(spec.symbol, viewRotation, this.#createCanvasContext) } : {}),
+            ...(foreground && spec.symbol !== undefined ? { image: compileSymbol(spec.symbol, inheritedColor, viewRotation, this.#createCanvasContext) } : {}),
             ...(foreground && spec.text !== undefined ? { text: compileText(spec.text, inheritedColor, viewRotation, this.#createCanvasContext) } : {}),
             ...(spec.zIndex === undefined ? {} : { zIndex: spec.zIndex })
           })
@@ -85,17 +102,19 @@ export class StyleCompiler {
       styles.push(
         new Style({
           ...(spec.fill === undefined ? {} : { fill: compileFill(spec.fill, inheritedColor, this.#createCanvasContext) }),
-          ...(spec.symbol === undefined ? {} : { image: compileSymbol(spec.symbol, viewRotation, this.#createCanvasContext) }),
+          ...(spec.symbol === undefined ? {} : { image: compileSymbol(spec.symbol, inheritedColor, viewRotation, this.#createCanvasContext) }),
           ...(spec.text === undefined ? {} : { text: compileText(spec.text, inheritedColor, viewRotation, this.#createCanvasContext) }),
           ...(spec.zIndex === undefined ? {} : { zIndex: spec.zIndex })
         })
       );
     }
 
-    const linePaths = linePathsForArrows(feature);
-    for (const decoration of spec.decorations ?? []) {
-      for (const arrow of placeArrows(linePaths, decoration, resolution)) {
-        styles.push(compileArrow(decoration, arrow, inheritedColor, viewRotation, spec.zIndex));
+    if (needsDecorations) {
+      const linePaths = extracted?.type === 'LineString' || extracted?.type === 'MultiLineString' ? extracted.paths : [];
+      for (const decoration of spec.decorations ?? []) {
+        for (const arrow of placeArrows(linePaths, decoration, resolution)) {
+          styles.push(compileArrow(decoration, arrow, inheritedColor, viewRotation, spec.zIndex));
+        }
       }
     }
     return styles;
@@ -124,13 +143,14 @@ function compileFill(spec: NonNullable<StyleSpec['fill']>, inheritedColor: Color
 
 function compileSymbol(
   spec: NonNullable<StyleSpec['symbol']>,
+  inheritedColor: Color | undefined,
   viewRotation: number,
   createCanvasContext: PatternCanvasFactory | undefined
 ): CircleStyle | Icon {
   if (spec.type === 'icon') return compileIcon(spec, viewRotation);
   return new CircleStyle({
     radius: spec.radius,
-    ...(spec.fill === undefined ? {} : { fill: compileFill(spec.fill, spec.stroke?.color, createCanvasContext) }),
+    ...(spec.fill === undefined ? {} : { fill: compileFill(spec.fill, spec.stroke?.color ?? inheritedColor, createCanvasContext) }),
     ...(spec.stroke === undefined ? {} : { stroke: compileStroke(spec.stroke, [], 1) })
   });
 }
@@ -230,12 +250,13 @@ function compensateOffset(offset: readonly [number, number] | undefined, rotatio
 function fitDashPattern(lineDash: readonly number[] | undefined, paths: readonly Coordinate2[][], resolution: number): number[] | undefined {
   if (lineDash === undefined || lineDash.length === 0) return copyNumbers(lineDash);
   const safePattern = lineDash.map((value) => (Number.isFinite(value) && value > 0 ? value : 1));
-  const patternLength = safePattern.reduce((sum, value) => sum + value, 0);
+  const canvasPattern = safePattern.length % 2 === 0 ? safePattern : [...safePattern, ...safePattern];
+  const patternLength = canvasPattern.reduce((sum, value) => sum + value, 0);
   const mapLength = paths.reduce((total, path) => total + pathLength(path), 0);
   const safeResolution = Number.isFinite(resolution) && resolution > 0 ? resolution : 1;
   const pixelLength = mapLength > 0 ? mapLength / safeResolution : patternLength;
   const factor = pixelLength / patternLength;
-  return safePattern.map((value) => Math.max(Number.EPSILON, value * factor));
+  return canvasPattern.map((value) => Math.max(Number.EPSILON, value * factor));
 }
 
 function placeArrows(paths: readonly Coordinate2[][], decoration: ArrowDecorationSpec, resolution: number): ArrowPoint[] {
@@ -302,23 +323,19 @@ function sampleSegments(segments: readonly PathSegment[], distance: number): Arr
   return undefined;
 }
 
-function renderedPaths(feature: FeatureLike): Coordinate2[][] {
-  const geometry = featureGeometry(feature);
-  if (geometry === undefined) return [];
-  const type = callString(geometry, 'getType');
-  const coordinates = callUnknown(geometry, 'getCoordinates');
-  if (coordinates !== undefined) return coordinatePaths(type, coordinates);
-  return flatCoordinatePaths(geometry, type);
+interface ExtractedGeometryPaths {
+  readonly type: string | undefined;
+  readonly paths: Coordinate2[][];
 }
 
-function linePathsForArrows(feature: FeatureLike): Coordinate2[][] {
-  const geometry = featureGeometry(feature);
-  if (geometry === undefined) return [];
+function extractGeometryPaths(geometry: object | undefined): ExtractedGeometryPaths {
+  if (geometry === undefined) return { type: undefined, paths: [] };
   const type = callString(geometry, 'getType');
-  if (type !== 'LineString' && type !== 'MultiLineString') return [];
   const coordinates = callUnknown(geometry, 'getCoordinates');
-  if (coordinates !== undefined) return coordinatePaths(type, coordinates);
-  return flatCoordinatePaths(geometry, type);
+  return {
+    type,
+    paths: coordinates === undefined ? flatCoordinatePaths(geometry, type) : coordinatePaths(type, coordinates)
+  };
 }
 
 function coordinatePaths(type: string | undefined, coordinates: unknown): Coordinate2[][] {
@@ -379,21 +396,17 @@ function featureGeometry(feature: FeatureLike): object | undefined {
   return geometry !== null && typeof geometry === 'object' ? geometry : undefined;
 }
 
-function cacheSignature(feature: FeatureLike, resolution: number, viewRotation: number): string {
-  const geometry = featureGeometry(feature);
+function compilationCacheContext(feature: FeatureLike, resolution: number, viewRotation: number, needsGeometry: boolean): CompilationCacheContext {
   const featureRevision = callNumber(feature, 'getRevision');
-  const geometryRevision = geometry === undefined ? undefined : callNumber(geometry, 'getRevision');
-  const fallback = featureRevision === undefined || geometryRevision === undefined ? geometrySignature(geometry) : '';
-  return `${featureRevision ?? 'none'}|${geometryRevision ?? 'none'}|${fallback}|${resolution}|${viewRotation}`;
-}
+  if (!needsGeometry) {
+    return { signature: `${featureRevision ?? 'none'}|${resolution}|${viewRotation}`, geometry: undefined };
+  }
 
-function geometrySignature(geometry: object | undefined): string {
-  if (geometry === undefined) return 'none';
-  const type = callString(geometry, 'getType') ?? 'unknown';
-  const flat = callUnknown(geometry, 'getFlatCoordinates');
-  if (Array.isArray(flat)) return `${type}:${flat.join(',')}`;
-  const coordinates = callUnknown(geometry, 'getCoordinates');
-  return `${type}:${coordinates === undefined ? '' : JSON.stringify(coordinates)}`;
+  const geometry = featureGeometry(feature);
+  const geometryRevision = geometry === undefined ? undefined : callNumber(geometry, 'getRevision');
+  const signature =
+    featureRevision === undefined || geometryRevision === undefined ? undefined : `${featureRevision}|${geometryRevision}|${resolution}|${viewRotation}`;
+  return { signature, geometry };
 }
 
 function callUnknown(value: object, name: string): unknown {
