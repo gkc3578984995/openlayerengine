@@ -24,7 +24,7 @@
     "format": "prettier --write \"src/**/*.{ts,scss}\" \"test/**/*.{ts,mjs,json,html}\" \"scripts/**/*.mjs\" \"*.{json,md,ts,mjs}\"",
     "format:check": "node scripts/check-prettier-baseline.mjs && prettier --check --ignore-path .prettierignore \"src/**/*.{ts,scss}\" \"test/**/*.{ts,mjs,json,html}\" \"scripts/**/*.mjs\" \"*.{json,md,ts,mjs}\"",
     "verify": "npm run typecheck && npm run lint && npm run build && npm test",
-    "verify:code": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run format:check && npm run build && npm run test:code",
+    "verify:code": "npm run typecheck && npm run lint && npm run format:check && npm run build && npm run test:code && npm run test:browser && npm run test:package",
     "prepack": "npm run build",
     "doc": "typedoc --options ./typedoc.json",
     "api:sync": "npm run doc && node scripts/docs/api-docs.mjs",
@@ -33,6 +33,7 @@
     "docs:build": "npm run build && npm run api:sync && npm run api:check && npm run build --workspace=ol-doc",
     "pack:offline": "npm pack",
     "test": "vitest run",
+    "test:browser": "playwright test",
     "test:code": "vitest run --config vitest.code.config.ts",
     "test:package": "npm run build && vitest run test/PackageExports.test.ts",
     "test:watch": "vitest"
@@ -47,6 +48,7 @@
     }
   },
   "devDependencies": {
+    "@playwright/test": "1.54.2",
     "@rollup/plugin-commonjs": "^24.0.1",
     "@rollup/plugin-node-resolve": "^15.0.1",
     "@rollup/plugin-terser": "^0.4.0",

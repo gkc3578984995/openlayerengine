@@ -91,7 +91,19 @@ export class InputAdapter implements InputPort {
       const route = (event: Event) => this.#routeViewportPointer('rightclick', event);
       const captureOptions = Object.freeze({ capture: true });
       viewport.addEventListener('contextmenu', blockBrowserMenu, captureOptions);
-      viewport.addEventListener('contextmenu', route);
+      try {
+        viewport.addEventListener('contextmenu', route);
+      } catch (error) {
+        try {
+          runFinalizers([
+            () => viewport.removeEventListener('contextmenu', route),
+            () => viewport.removeEventListener('contextmenu', blockBrowserMenu, captureOptions)
+          ]);
+        } catch (rollbackError) {
+          void rollbackError;
+        }
+        throw error;
+      }
       return () =>
         runFinalizers([
           () => viewport.removeEventListener('contextmenu', route),

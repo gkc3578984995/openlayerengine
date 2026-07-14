@@ -77,6 +77,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #history: TransformHistory<T>;
   readonly #matches: (state: Readonly<ElementState>) => boolean;
   readonly #listeners = new Map<keyof InternalTransformEventMap<T>, Map<number, Listener>>();
+  readonly #toolbarCleanup = new Set<TransformToolbarViewHandle>();
   #status: InteractionStatus = 'active';
   #handle: TransformInteractionHandle | undefined;
   #toolbar: TransformToolbarViewHandle | undefined;
@@ -95,6 +96,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #ownCommit = false;
   #ownRemove = false;
   #cleanupRunning = false;
+  #toolbarCleanupRunning = false;
   #coordinatorReleased = false;
   #terminalNotified = false;
   #finishing = false;
@@ -351,6 +353,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#createToolbar();
       if (emitSelect) this.#emit('select', freeze({ type: 'select', state: this.#working }));
     } catch (error) {
+      this.#destroyToolbar();
       this.#stopTransient();
       try {
         if (this.#animationsPaused) this.#animations.resume({ id: snapshot.id });
@@ -686,12 +689,23 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   #destroyToolbar(): void {
     const toolbar = this.#toolbar;
-    this.#toolbar = undefined;
-    if (toolbar === undefined) return;
+    if (toolbar !== undefined) {
+      this.#toolbar = undefined;
+      this.#toolbarCleanup.add(toolbar);
+    }
+    if (this.#toolbarCleanupRunning) return;
+    this.#toolbarCleanupRunning = true;
     try {
-      toolbar.destroy();
-    } catch (error) {
-      this.#report(error, 'destroy-toolbar');
+      for (const pending of [...this.#toolbarCleanup]) {
+        try {
+          pending.destroy();
+          this.#toolbarCleanup.delete(pending);
+        } catch (error) {
+          this.#report(error, 'destroy-toolbar');
+        }
+      }
+    } finally {
+      this.#toolbarCleanupRunning = false;
     }
   }
 
@@ -700,7 +714,10 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#cleanupRunning = true;
     try {
       if (this.#selected !== undefined) this.#clearSelection(this.#status !== 'cancelled' || this.#store.get(this.#selected.id) !== undefined, true);
-      else this.#stopTransient();
+      else {
+        this.#stopTransient();
+        this.#destroyToolbar();
+      }
       const handle = this.#handle;
       const unsubscribeStore = this.#unsubscribeStore;
       const unsubscribeInput = this.#unsubscribeInput;
@@ -747,6 +764,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         this.#handle === undefined &&
         this.#unsubscribeStore === undefined &&
         this.#unsubscribeInput === undefined &&
+        this.#toolbarCleanup.size === 0 &&
         !this.#terminalNotified
       ) {
         this.#onTerminal();

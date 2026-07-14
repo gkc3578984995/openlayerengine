@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ol-engine v2 browser fixture</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        font-family: sans-serif;
+      }
+
+      #outside {
+        box-sizing: border-box;
+        height: 80px;
+        padding: 16px;
+        background: #f3f4f6;
+      }
+
+      #maps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        padding: 16px;
+      }
+
+      .map {
+        position: relative;
+        width: 560px;
+        height: 560px;
+        border: 1px solid #cbd5e1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="outside" data-testid="outside">地图外页面区域</div>
+    <div id="maps">
+      <div id="map-a" class="map" data-testid="map-a"></div>
+      <div id="map-b" class="map" data-testid="map-b"></div>
+    </div>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

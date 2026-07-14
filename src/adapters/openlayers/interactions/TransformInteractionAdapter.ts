@@ -93,6 +93,8 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   readonly #handles: HandleLayer;
   readonly #interaction: PointerInteraction;
   readonly #keys: EventsKey[] = [];
+  #singleClickListener: ((event: PointerMapEvent) => void) | undefined;
+  #interactionInstallAttempted = false;
   #target: TransformInteractionTarget | undefined;
   #drag: DragState | undefined;
   #hover: TransformHandleHit | undefined;
@@ -141,16 +143,20 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   open(): void {
     this.#assertActive();
     if (this.#opened) throw new InvalidArgumentError('Transform interaction is already open');
+    this.#interactionInstallAttempted = true;
     this.#map.addInteraction(this.#interaction);
-    this.#keys.push(this.#map.on('singleclick', (event) => this.#selectAt(event.pixel)));
+    const singleClickListener = (event: PointerMapEvent) => this.#selectAt(event.pixel);
+    this.#singleClickListener = singleClickListener;
+    this.#keys.push(this.#map.on('singleclick', singleClickListener));
     this.#map.getViewport().addEventListener('contextmenu', this.#onContextMenu, true);
     this.#opened = true;
   }
 
   setTarget(target: TransformInteractionTarget): void {
     this.#assertOpen();
+    const preserveDrag = this.#drag !== undefined && this.#target?.elementId === target.elementId;
     this.#target = snapshotTarget(target);
-    this.#drag = undefined;
+    if (!preserveDrag) this.#drag = undefined;
     this.#handles.setTarget(this.#target);
   }
 
@@ -186,13 +192,17 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       runFinalizers([
         () => this.#map.getViewport().removeEventListener('contextmenu', this.#onContextMenu, true),
         () => {
-          if (this.#keys.length === 0) return;
-          unByKey(this.#keys);
-          this.#keys.length = 0;
+          const listener = this.#singleClickListener;
+          if (this.#keys.length > 0) {
+            unByKey(this.#keys);
+            this.#keys.length = 0;
+          } else if (listener !== undefined) this.#map.un('singleclick', listener);
+          if (this.#singleClickListener === listener) this.#singleClickListener = undefined;
         },
         () => {
-          if (!this.#opened) return;
+          if (!this.#interactionInstallAttempted) return;
           this.#map.removeInteraction(this.#interaction);
+          this.#interactionInstallAttempted = false;
           this.#opened = false;
         },
         () => this.#interaction.setActive(false),

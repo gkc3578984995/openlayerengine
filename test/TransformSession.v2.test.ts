@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { InteractionConflictError, InvalidArgumentError } from '../src/core/errors.js';
 import type { TransformDelta } from '../src/core/ports/TransformInteractionPort.js';
+import type { TransformToolbarViewHandle } from '../src/core/ports/TransformToolbarPort.js';
 import type { Element } from '../src/facade/Element.js';
 import { TransformFacade } from '../src/facade/TransformFacade.js';
 import type { ElementService } from '../src/facade/types.js';
@@ -135,6 +136,46 @@ describe('TransformSession v2', () => {
     harness.toolbarPort.command?.('exit');
     expect(session.status).toBe('finished');
     expect(toolbar.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('rolls back an opened toolbar when selection fails during toolbar state synchronization', () => {
+    const harness = createTransformHarness({});
+    addElement(harness, 'point-a', 'point', [[0, 0]]);
+    const synchronizationFailure = new Error('toolbar synchronization failed');
+    const toolbar: TransformToolbarViewHandle = {
+      setActive: vi.fn(),
+      updateItem: vi.fn(() => {
+        throw synchronizationFailure;
+      }),
+      updateOptions: vi.fn(),
+      show: vi.fn(),
+      hide: vi.fn(),
+      destroy: vi.fn()
+    };
+    vi.spyOn(harness.toolbarPort, 'open').mockReturnValue(toolbar);
+
+    expect(() => harness.service.select('point-a', { toolbar: {} })).toThrow(synchronizationFailure);
+    expect(toolbar.destroy).toHaveBeenCalledOnce();
+    expect(harness.interaction.handle?.target).toBeUndefined();
+  });
+
+  it('retains a failed toolbar cleanup for a later destroy retry without repeating completed cleanup', () => {
+    const harness = createTransformHarness({});
+    addElement(harness, 'point-a', 'point', [[0, 0]]);
+    const session = harness.service.select('point-a', { toolbar: {} });
+    const toolbar = harness.toolbarPort.views[0];
+    toolbar.destroy.mockImplementationOnce(() => {
+      throw new Error('toolbar destroy failed');
+    });
+
+    session.cancel();
+    expect(session.toolbar).toBeUndefined();
+    expect(toolbar.destroy).toHaveBeenCalledOnce();
+    expect(harness.interaction.handle?.destroyed).toBe(true);
+
+    session.destroy();
+    session.destroy();
+    expect(toolbar.destroy).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the public Element and toolbar handles synchronized through selection and removal', () => {

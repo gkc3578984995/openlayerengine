@@ -56,6 +56,12 @@ export class ContextMenuService {
   #current: CurrentMenu | undefined;
   #theme: 'light' | 'dark' = 'light';
   #disposed = false;
+  #destroying = false;
+  #eventDisposed = false;
+  #storeDisposed = false;
+  #viewListenerDisposed = false;
+  #viewClosed = false;
+  #viewDestroyed = false;
 
   constructor(events: EventService, store: ElementStore, view: ContextMenuViewPort, errorReporter: ErrorReporter = defaultErrorReporter) {
     if (typeof errorReporter !== 'function') throw new InvalidArgumentError('Error reporter must be a function');
@@ -198,13 +204,63 @@ export class ContextMenuService {
   }
 
   destroy(): void {
-    if (this.#disposed) return;
+    if (this.#destroyComplete() || this.#destroying) return;
     this.#disposed = true;
     this.#current = undefined;
     this.#registrations.clear();
     this.#states.clear();
     this.#routeTargetGuards.length = 0;
-    runFinalizers([this.#eventDispose, this.#storeDispose, this.#viewDispose, () => this.#view.close(), () => this.#view.destroy()]);
+    this.#destroying = true;
+    try {
+      runFinalizers([
+        ...(!this.#eventDisposed
+          ? [
+              () => {
+                this.#eventDispose();
+                this.#eventDisposed = true;
+              }
+            ]
+          : []),
+        ...(!this.#storeDisposed
+          ? [
+              () => {
+                this.#storeDispose();
+                this.#storeDisposed = true;
+              }
+            ]
+          : []),
+        ...(!this.#viewListenerDisposed
+          ? [
+              () => {
+                this.#viewDispose();
+                this.#viewListenerDisposed = true;
+              }
+            ]
+          : []),
+        ...(!this.#viewClosed
+          ? [
+              () => {
+                this.#view.close();
+                this.#viewClosed = true;
+              }
+            ]
+          : []),
+        ...(!this.#viewDestroyed
+          ? [
+              () => {
+                this.#view.destroy();
+                this.#viewDestroyed = true;
+              }
+            ]
+          : [])
+      ]);
+    } finally {
+      this.#destroying = false;
+    }
+  }
+
+  #destroyComplete(): boolean {
+    return this.#eventDisposed && this.#storeDisposed && this.#viewListenerDisposed && this.#viewClosed && this.#viewDestroyed;
   }
 
   #route(event: RoutedEventMap['rightclick']): void {

@@ -328,4 +328,27 @@ describe('InputRouter', () => {
     expect(removeTarget).toHaveBeenCalledWith('keydown', expect.any(Function));
     expect(removeViewport).toHaveBeenCalledWith('contextmenu', expect.any(Function));
   });
+
+  it('rolls back both contextmenu listeners when the second native installation fails', () => {
+    const map = new MapHarness();
+    const nativeAdd = map.viewport.addEventListener.bind(map.viewport);
+    const nativeRemove = map.viewport.removeEventListener.bind(map.viewport);
+    let contextMenuAdds = 0;
+    vi.spyOn(map.viewport, 'addEventListener').mockImplementation((type, listener, options) => {
+      nativeAdd(type, listener, options);
+      if (type === 'contextmenu' && ++contextMenuAdds === 2) throw new Error('contextmenu route installation failed');
+    });
+    const remove = vi.spyOn(map.viewport, 'removeEventListener').mockImplementation((type, listener, options) => nativeRemove(type, listener, options));
+    const routed = vi.fn();
+    const adapter = new InputAdapter(map as unknown as OlMap, { atPixel: () => undefined, getScreenExtent: () => undefined }, new NativeRefRegistry());
+
+    expect(() => adapter.listen('rightclick', routed)).toThrowError('contextmenu route installation failed');
+
+    const event = nativeEvent('contextmenu', { clientX: 4, clientY: 5 }, true);
+    map.viewport.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(routed).not.toHaveBeenCalled();
+    expect(remove.mock.calls.filter(([type]) => type === 'contextmenu')).toHaveLength(2);
+    adapter.destroy();
+  });
 });

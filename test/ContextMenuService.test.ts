@@ -455,6 +455,36 @@ describe('ContextMenuService', () => {
     expect(earlyEventDispose).toHaveBeenCalledOnce();
   });
 
+  it('retries only failed destroy steps while remaining unavailable after the first destroy call', () => {
+    const eventDispose = vi.fn();
+    const storeDispose = vi.fn();
+    const viewDispose = vi.fn();
+    const close = vi.fn();
+    const destroy = vi.fn().mockImplementationOnce(() => {
+      throw new Error('view destroy failed');
+    });
+    const events = { on: vi.fn(() => eventDispose) } as unknown as EventService;
+    const store = { subscribe: vi.fn(() => storeDispose) } as unknown as ElementStore;
+    const view = {
+      listen: vi.fn(() => viewDispose),
+      setTheme: vi.fn(),
+      close,
+      destroy
+    } as unknown as ContextMenuViewPort;
+    const menus = new ContextMenuService(events, store, view);
+
+    expect(() => menus.destroy()).toThrowError('view destroy failed');
+    expect(() => menus.register({ kind: 'map' }, { items: [{ key: 'inspect', label: 'Inspect' }] })).toThrow(ObjectDisposedError);
+
+    menus.destroy();
+    menus.destroy();
+    expect(eventDispose).toHaveBeenCalledOnce();
+    expect(storeDispose).toHaveBeenCalledOnce();
+    expect(viewDispose).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(destroy).toHaveBeenCalledTimes(2);
+  });
+
   it('aborts an in-flight before render when the registration replaces itself', () => {
     const { menus, rightclick, view } = setup();
     menus.register(

@@ -1,0 +1,389 @@
+import { expect, test, type Locator, type Page } from '@playwright/test';
+
+interface ResourceSnapshot {
+  readonly lifecycle: string;
+  readonly isDestroyed: boolean;
+  readonly registryKeys: readonly string[];
+  readonly map: {
+    readonly targetAttached: boolean;
+    readonly size?: readonly [number, number];
+    readonly layers: number;
+    readonly interactions: number;
+    readonly overlays: number;
+    readonly controls: number;
+    readonly renderPasses: number;
+  };
+  readonly listeners: { readonly viewport: number; readonly contextmenu: number; readonly target: number };
+  readonly dom: {
+    readonly viewport: number;
+    readonly canvas: number;
+    readonly contextMenus: number;
+    readonly toolbars: number;
+    readonly measureTooltips: number;
+  };
+  readonly animationHandles: number;
+  readonly elementCount: number;
+}
+
+interface SessionSummary {
+  readonly status?: string;
+  readonly events: readonly Record<string, unknown>[];
+  readonly resources: ResourceSnapshot;
+}
+
+interface DrawSummary extends SessionSummary {
+  readonly resultIds: readonly string[];
+  readonly results: readonly ShapeSnapshot[];
+}
+
+interface EditSummary extends SessionSummary {
+  readonly original?: ShapeSnapshot;
+  readonly stored?: ShapeSnapshot;
+}
+
+interface TransformSummary extends SessionSummary {
+  readonly selectedId?: string;
+  readonly toolbar: boolean;
+  readonly geometry?: ShapeSnapshot;
+}
+
+interface ShapeSnapshot {
+  readonly type: string;
+  readonly controlPoints?: readonly (readonly number[])[];
+  readonly center?: readonly number[];
+  readonly radius?: number;
+}
+
+interface MeasureEvent {
+  readonly type: string;
+  readonly reason?: string;
+  readonly result?: {
+    readonly type: string;
+    readonly value: number;
+    readonly unit: string;
+    readonly formatted: string;
+    readonly coordinateCount: number;
+    readonly segmentCount: number;
+  };
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => window.__OL_ENGINE_TEST__?.ready === true)).toBe(true);
+  await expect(page.locator('#map-a canvas')).toHaveCount(1);
+  await expect(page.locator('#map-b canvas')).toHaveCount(1);
+});
+
+test('默认与命名 Earth 隔离浏览器右键，并在销毁后只解除所属 viewport', async ({ page }) => {
+  const a = await snapshot(page, 'a');
+  const b = await snapshot(page, 'b');
+
+  expect(a.lifecycle).toBe('ready');
+  expect(b.lifecycle).toBe('ready');
+  expect(a.isDestroyed).toBe(false);
+  expect(b.isDestroyed).toBe(false);
+  expect(a.registryKeys).toEqual(['<default>', 'map-b']);
+  expect(a.map.size).toEqual([560, 560]);
+  expect(b.map.size).toEqual([560, 560]);
+  expect(a.map.targetAttached).toBe(true);
+  expect(b.map.targetAttached).toBe(true);
+  expect(a.dom.canvas).toBeGreaterThan(0);
+  expect(b.dom.canvas).toBeGreaterThan(0);
+  expect(a.listeners.contextmenu).toBeGreaterThanOrEqual(2);
+  expect(b.listeners.contextmenu).toBe(a.listeners.contextmenu);
+  expect(await page.evaluate(() => window.__OL_ENGINE_TEST__.sameEarth('a'))).toBe(true);
+  expect(await page.evaluate(() => window.__OL_ENGINE_TEST__.sameEarth('b'))).toBe(true);
+
+  await expectContextMenu(page, 'a', page.locator('#map-a .ol-viewport'), true);
+  await expectContextMenu(page, 'b', page.locator('#map-b .ol-viewport'), true);
+  await expectContextMenu(page, 'outside', page.getByTestId('outside'), false);
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.destroyA(true));
+  await expect.poll(() => page.evaluate(() => window.__OL_ENGINE_TEST__.registryKeys())).toEqual(['map-b']);
+  await expectContextMenu(page, 'old-a', page.getByTestId('old-map-a-viewport'), false);
+  await expectContextMenu(page, 'b', page.locator('#map-b .ol-viewport'), true);
+
+  const afterB = await snapshot(page, 'b');
+  expect(afterB.lifecycle).toBe('ready');
+  expect(afterB.listeners.contextmenu).toBe(b.listeners.contextmenu);
+  expect(afterB.map.targetAttached).toBe(true);
+});
+
+test('真实鼠标完成 polygon、attack-arrow 与动态控制点编辑，并验证右键菜单优先级', async ({ page }) => {
+  const map = page.locator('#map-a .ol-viewport');
+  const baseline = await snapshot(page, 'a');
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.registerMenus());
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startDraw('polygon'));
+  await clickMap(map, [120, 150]);
+  await clickMap(map, [300, 135]);
+  await clickMap(map, [245, 310]);
+  await rightClickMap(map, [245, 310]);
+  await expect.poll(() => drawSummary(page).then((summary) => summary.status)).toBe('finished');
+
+  const polygon = await drawSummary(page);
+  expect(polygon.resultIds).toHaveLength(1);
+  expect(polygon.results[0]?.type).toBe('polygon');
+  expect(polygon.results[0]?.controlPoints).toHaveLength(3);
+  expect(eventTypes(polygon.events)).toContain('complete');
+  expect(polygon.events.filter((event) => event.type === 'click').map((event) => event.controlPointCount)).toEqual([1, 2, 3]);
+  expect(polygon.resources.map.interactions).toBe(baseline.map.interactions);
+  await expect(page.locator('.ol-context-menu')).toHaveCount(0);
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startDraw('attack-arrow'));
+  await clickMap(map, [110, 385]);
+  await clickMap(map, [190, 385]);
+  await clickMap(map, [265, 300]);
+  await clickMap(map, [360, 240]);
+  await rightClickMap(map, [360, 240]);
+  await expect.poll(() => drawSummary(page).then((summary) => summary.status)).toBe('finished');
+
+  const arrow = await drawSummary(page);
+  const arrowId = arrow.resultIds[0];
+  expect(arrowId).toBeTruthy();
+  expect(arrow.results[0]?.type).toBe('attack-arrow');
+  expect(arrow.results[0]?.controlPoints).toHaveLength(4);
+  expect(eventTypes(arrow.events)).toContain('complete');
+
+  await page.evaluate((id) => window.__OL_ENGINE_TEST__.startEdit(id), arrowId);
+  const editActive = await editSummary(page);
+  expect(editActive.status).toBe('active');
+  expect(editActive.resources.map.layers).toBe(baseline.map.layers + 1);
+  expect(editActive.resources.map.interactions).toBe(baseline.map.interactions + 1);
+
+  const anchor = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementPixel(id, 0), arrowId);
+  await dragMap(map, anchor, [anchor[0] + 34, anchor[1] - 24]);
+  await expect.poll(() => editSummary(page).then((summary) => summary.events.some((event) => event.type === 'modifying'))).toBe(true);
+
+  const modifying = await editSummary(page);
+  expect(modifying.events.some((event) => event.type === 'modifying' && event.operation === 'move')).toBe(true);
+  const working = [...modifying.events].reverse().find((event) => event.type === 'modifying')?.geometry;
+  expect(working).not.toEqual(modifying.original);
+  expect(modifying.stored).toEqual(modifying.original);
+
+  await rightClickMap(map, [420, 420]);
+  await expect.poll(() => editSummary(page).then((summary) => summary.status)).toBe('finished');
+  const edited = await editSummary(page);
+  expect(edited.stored).not.toEqual(edited.original);
+  expect(eventTypes(edited.events)).toContain('complete');
+  expect(edited.resources.map.layers).toBe(baseline.map.layers);
+  expect(edited.resources.map.interactions).toBe(baseline.map.interactions);
+  await expect(page.locator('.ol-context-menu')).toHaveCount(0);
+
+  await page.evaluate((id) => window.__OL_ENGINE_TEST__.registerMenus(id), arrowId);
+  await rightClickMap(map, [500, 500]);
+  await expect(page.locator('.ol-context-menu')).toBeVisible();
+  await expect(page.locator('.ol-context-menu')).toContainText('地图菜单操作');
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.closeMenu());
+  await expect(page.locator('.ol-context-menu')).toBeHidden();
+
+  const editedAnchor = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementPixel(id, 0), arrowId);
+  await rightClickMap(map, editedAnchor);
+  await expect(page.locator('.ol-context-menu')).toBeVisible();
+  await expect(page.locator('.ol-context-menu')).toContainText('元素菜单操作');
+});
+
+test('四类 Measure 均经过真实草稿输入，完成结果保留且 clear 或 cancel 回到基线', async ({ page }) => {
+  const map = page.locator('#map-a .ol-viewport');
+  const baseline = await snapshot(page, 'a');
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.registerMenus());
+
+  for (const type of ['distance-segments', 'distance-total', 'area'] as const) {
+    await page.evaluate((measureType) => window.__OL_ENGINE_TEST__.startMeasure(measureType), type);
+    const points: readonly (readonly [number, number])[] =
+      type === 'area'
+        ? [
+            [130, 150],
+            [340, 160],
+            [250, 340]
+          ]
+        : [
+            [130, 170],
+            [260, 250],
+            [390, 190]
+          ];
+    for (const point of points) await clickMap(map, point);
+
+    await expect.poll(() => measureSummary(page).then((summary) => summary.events.some((event) => event.type === 'change'))).toBe(true);
+    await expect.poll(() => snapshot(page, 'a').then((state) => state.dom.measureTooltips)).toBeGreaterThan(0);
+    await rightClickMap(map, points.at(-1) as readonly [number, number]);
+    await expect.poll(() => measureSummary(page).then((summary) => summary.status)).toBe('finished');
+
+    const complete = await measureSummary(page);
+    const result = (complete.events as unknown as readonly MeasureEvent[]).find((event) => event.type === 'complete')?.result;
+    expect(result?.type).toBe(type);
+    expect(result?.coordinateCount).toBeGreaterThanOrEqual(type === 'area' ? 3 : 2);
+    expect(result?.segmentCount).toBeGreaterThan(0);
+    expect(result?.formatted).toBeTruthy();
+    expect(complete.resources.map.overlays).toBeGreaterThan(baseline.map.overlays);
+    expect(complete.resources.dom.measureTooltips).toBeGreaterThan(0);
+    await expect(page.locator('.ol-context-menu')).toHaveCount(0);
+
+    await page.evaluate(() => window.__OL_ENGINE_TEST__.clearMeasurements());
+    await expect.poll(() => snapshot(page, 'a').then((state) => state.map.overlays)).toBe(baseline.map.overlays);
+    await expect.poll(() => snapshot(page, 'a').then((state) => state.dom.measureTooltips)).toBe(0);
+  }
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startMeasure('distance-radial'));
+  await clickMap(map, [150, 180]);
+  await clickMap(map, [360, 310]);
+  await expect.poll(() => measureSummary(page).then((summary) => summary.events.some((event) => event.type === 'change'))).toBe(true);
+  await expect.poll(() => snapshot(page, 'a').then((state) => state.map.overlays)).toBeGreaterThan(baseline.map.overlays);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.cancelMeasure());
+  await expect.poll(() => measureSummary(page).then((summary) => summary.status)).toBe('cancelled');
+
+  const cancelled = await measureSummary(page);
+  expect((cancelled.events as unknown as readonly MeasureEvent[]).some((event) => event.type === 'cancel' && event.reason === 'cancelled')).toBe(true);
+  expect(cancelled.resources.map.overlays).toBe(baseline.map.overlays);
+  expect(cancelled.resources.dom.measureTooltips).toBe(0);
+  expect(cancelled.resources.map.interactions).toBe(baseline.map.interactions);
+});
+
+test('Transform 通过 singleclick 选择并分别执行 translate、scale、rotate，再验证直接选择与清理', async ({ page }) => {
+  const map = page.locator('#map-a .ol-viewport');
+  const baseline = await snapshot(page, 'a');
+  const elementId = await page.evaluate(() => window.__OL_ENGINE_TEST__.ensureTransformElement());
+  const original = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
+  await page.evaluate((id) => window.__OL_ENGINE_TEST__.registerMenus(id), elementId);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startTransformByClick());
+
+  const selectionPixel = await page.evaluate(() => {
+    const pixels = window.__OL_ENGINE_TEST__.transformPixels() as { translate: readonly [number, number] };
+    return pixels.translate;
+  });
+  await clickMap(map, selectionPixel);
+  await expect.poll(() => transformSummary(page).then((summary) => summary.selectedId)).toBe(elementId);
+
+  const selected = await transformSummary(page);
+  expect(selected.toolbar).toBe(false);
+  expect(selected.resources.map.layers).toBe(baseline.map.layers + 1);
+  expect(selected.resources.map.interactions).toBe(baseline.map.interactions + 1);
+  expect(selected.resources.map.overlays).toBe(baseline.map.overlays);
+  expect(selected.resources.listeners.contextmenu).toBe(baseline.listeners.contextmenu + 1);
+  expect(selected.resources.map.renderPasses).toBeGreaterThan(baseline.map.renderPasses);
+  expect(selected.resources.dom.toolbars).toBe(0);
+
+  let pixels = await transformHandlePixels(page);
+  expect(pixels.probe).toBe('native');
+  await dragMap(map, pixels.scale, [pixels.scale[0] + 32, pixels.scale[1] - 26]);
+  await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('scaleEnd');
+
+  pixels = await transformHandlePixels(page);
+  await dragMap(map, pixels.translate, [pixels.translate[0] + 36, pixels.translate[1] + 26]);
+  await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('translateEnd');
+
+  pixels = await transformHandlePixels(page);
+  await dragMap(map, pixels.rotate, [pixels.rotate[0] + 62, pixels.rotate[1] + 8]);
+  await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('rotateEnd');
+
+  const transformed = await transformSummary(page);
+  expect(eventTypes(transformed.events)).toEqual(
+    expect.arrayContaining([
+      'select',
+      'translateStart',
+      'translating',
+      'translateEnd',
+      'scaleStart',
+      'scaling',
+      'scaleEnd',
+      'rotateStart',
+      'rotating',
+      'rotateEnd'
+    ])
+  );
+
+  await rightClickMap(map, [500, 500]);
+  await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('finished');
+  await expect(page.locator('.ol-context-menu')).toHaveCount(0);
+  const afterFinish = await transformSummary(page);
+  expect(afterFinish.geometry).not.toEqual(original);
+  expect(afterFinish.resources.map.layers).toBe(baseline.map.layers);
+  expect(afterFinish.resources.map.interactions).toBe(baseline.map.interactions);
+  expect(afterFinish.resources.map.overlays).toBe(baseline.map.overlays);
+  expect(afterFinish.resources.map.renderPasses).toBe(baseline.map.renderPasses);
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startTransformDirect());
+  const direct = await transformSummary(page);
+  expect(direct.status).toBe('active');
+  expect(direct.selectedId).toBe(elementId);
+  expect(direct.toolbar).toBe(true);
+  expect(direct.resources.map.layers).toBe(baseline.map.layers + 1);
+  expect(direct.resources.map.interactions).toBe(baseline.map.interactions + 1);
+  expect(direct.resources.map.renderPasses).toBeGreaterThan(baseline.map.renderPasses);
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.cancelTransform());
+  await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('cancelled');
+  const directCancelled = await transformSummary(page);
+  expect(directCancelled.resources.map.layers).toBe(baseline.map.layers);
+  expect(directCancelled.resources.map.interactions).toBe(baseline.map.interactions);
+  expect(directCancelled.resources.map.overlays).toBe(baseline.map.overlays);
+  expect(directCancelled.resources.map.renderPasses).toBe(baseline.map.renderPasses);
+});
+
+async function snapshot(page: Page, name: 'a' | 'b'): Promise<ResourceSnapshot> {
+  return page.evaluate((mapName) => window.__OL_ENGINE_TEST__.snapshot(mapName) as ResourceSnapshot, name);
+}
+
+async function drawSummary(page: Page): Promise<DrawSummary> {
+  return page.evaluate(() => window.__OL_ENGINE_TEST__.drawSummary() as DrawSummary);
+}
+
+async function editSummary(page: Page): Promise<EditSummary> {
+  return page.evaluate(() => window.__OL_ENGINE_TEST__.editSummary() as EditSummary);
+}
+
+async function measureSummary(page: Page): Promise<SessionSummary> {
+  return page.evaluate(() => window.__OL_ENGINE_TEST__.measureSummary() as SessionSummary);
+}
+
+async function transformSummary(page: Page): Promise<TransformSummary> {
+  return page.evaluate(() => window.__OL_ENGINE_TEST__.transformSummary() as TransformSummary);
+}
+
+async function transformHandlePixels(page: Page): Promise<{
+  readonly probe: string;
+  readonly keys: readonly string[];
+  readonly translate: readonly [number, number];
+  readonly scale: readonly [number, number];
+  readonly rotate: readonly [number, number];
+}> {
+  return page.evaluate(
+    () =>
+      window.__OL_ENGINE_TEST__.transformPixels() as {
+        readonly probe: string;
+        readonly keys: readonly string[];
+        readonly translate: readonly [number, number];
+        readonly scale: readonly [number, number];
+        readonly rotate: readonly [number, number];
+      }
+  );
+}
+
+async function expectContextMenu(page: Page, target: 'a' | 'b' | 'outside' | 'old-a', locator: Locator, expectedPrevented: boolean): Promise<void> {
+  await page.evaluate((name) => window.__OL_ENGINE_TEST__.armContextMenuProbe(name), target);
+  await locator.click({ button: 'right', position: { x: 30, y: 30 } });
+  await expect
+    .poll(() => page.evaluate((name) => window.__OL_ENGINE_TEST__.readContextMenuProbe(name), target))
+    .toEqual({ received: true, defaultPrevented: expectedPrevented });
+}
+
+async function clickMap(map: Locator, position: readonly [number, number]): Promise<void> {
+  await map.click({ position: { x: position[0], y: position[1] } });
+}
+
+async function rightClickMap(map: Locator, position: readonly [number, number]): Promise<void> {
+  await map.click({ button: 'right', position: { x: position[0], y: position[1] } });
+}
+
+async function dragMap(map: Locator, start: readonly [number, number], end: readonly [number, number]): Promise<void> {
+  const box = await map.boundingBox();
+  if (box === null) throw new Error('地图 viewport 不可见。');
+  await map.page().mouse.move(box.x + start[0], box.y + start[1]);
+  await map.page().mouse.down();
+  await map.page().mouse.move(box.x + end[0], box.y + end[1], { steps: 5 });
+  await map.page().mouse.up();
+}
+
+function eventTypes(events: readonly Record<string, unknown>[]): string[] {
+  return events.flatMap((event) => (typeof event.type === 'string' ? [event.type] : []));
+}
