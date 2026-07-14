@@ -21,6 +21,12 @@
     "test/ElementService.test.ts",
     "test/LayerFacade.test.ts",
     "test/HitTestAdapter.test.ts",
+    "test/InputRouter.test.ts",
+    "test/EventService.test.ts",
+    "test/InteractionCoordinator.test.ts",
+    "test/MultiEarthInputIsolation.test.ts",
+    "test/TransientNativeEventRef.test.ts",
+    "test/EventServiceTypes.test.ts",
     "test/fixtures/Task8Map.ts",
     "src/global.d.ts"
   ],

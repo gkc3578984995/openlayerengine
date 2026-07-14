@@ -131,6 +131,11 @@ export class NativeRefRegistry {
     return reference;
   }
 
+  /** @internal */
+  get activeTransientCount(): number {
+    return this.#transient.size;
+  }
+
   requireTransient<T = unknown, K extends TransientNativeRefKind = TransientNativeRefKind>(kind: K, reference: TransientNativeRef<K>): T {
     this.#assertActive();
     if (!isTransientNativeRef(reference)) throw new InvalidArgumentError('Expected an issued transient native reference');
@@ -141,8 +146,11 @@ export class NativeRefRegistry {
   }
 
   releaseTransient<K extends TransientNativeRefKind>(kind: K, reference: TransientNativeRef<K>): void {
-    this.#assertActive();
     if (!isTransientNativeRef(reference)) throw new InvalidArgumentError('Expected an issued transient native reference');
+    if (this.#disposed) {
+      if (this.#ownedTransient.has(reference)) return;
+      throw new ObjectDisposedError('Transient native reference does not belong to this Earth');
+    }
     const entry = this.#transient.get(reference);
     if (entry === undefined) {
       if (this.#ownedTransient.has(reference)) return;

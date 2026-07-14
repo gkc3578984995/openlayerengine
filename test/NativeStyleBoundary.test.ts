@@ -107,7 +107,7 @@ describe('NativeRefRegistry and native style boundary', () => {
     expect(() => registry.requireTransient('input-event', reference)).toThrow(ObjectDisposedError);
   });
 
-  it('invalidates all owned references on idempotent destroy and rejects later operations', () => {
+  it('invalidates all owned references on idempotent destroy and allows owned transient cleanup', () => {
     const registry = new NativeRefRegistry();
     const layerRef = registry.register('layer', { id: 'layer' });
     const styleRef = registry.registerStyle(new Style());
@@ -122,7 +122,7 @@ describe('NativeRefRegistry and native style boundary', () => {
     expect(() => registry.registerStyle(new Style())).toThrow(ObjectDisposedError);
     expect(() => registry.release('layer', layerRef)).toThrow(ObjectDisposedError);
     expect(() => registry.releaseStyle(styleRef)).toThrow(ObjectDisposedError);
-    expect(() => registry.releaseTransient('input-event', transientRef)).toThrow(ObjectDisposedError);
+    expect(() => registry.releaseTransient('input-event', transientRef)).not.toThrow();
   });
 
   it('lets the facade cross only an opaque token and preserves it through Store copy', () => {
