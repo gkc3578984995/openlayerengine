@@ -21,6 +21,10 @@
 
 使用 TypeScript，并保持 `strict` 兼容。格式遵循 Prettier：2 空格缩进、单引号、分号、无尾随逗号、`printWidth` 为 160。类和主要功能模块使用 PascalCase，例如 `PointLayer`、`TransformInteraction`；函数、变量和方法使用 camelCase；枚举和类型名沿用现有领域命名，例如 `DrawType`。导出 API 应优先提供清晰的类型或接口。
 
+## 协作与输出语言
+
+与用户交流时始终使用简体中文。所有计划、进度、总结和错误说明均使用简体中文；代码、变量名、类名、函数名和 API 名称保持英文。用户未特别指定时，Commit Message 使用中文。
+
 ## 测试规范
 
 测试框架为 Vitest，运行环境为 Node。新增测试文件命名为 `test/<Feature>.test.ts`，保持与 `BaseLifecycle.test.ts`、`TransformGeometry.test.ts` 等现有风格一致。修改几何变换、图层生命周期、绘制交互或共享工具时，应补充覆盖正常路径和边界场景。开发中运行 `npm test`，提交前运行 `npm run verify`。
@@ -31,7 +35,7 @@
 
 ## 提交与 Pull Request 规范
 
-近期提交信息以简短祈使句或 conventional commit 风格为主，例如 `chore: improve project quality gates...`、`refactor: ...`，也包含中文修复说明。提交应聚焦单一变更，并说明行为变化。Pull Request 应包含变更摘要、已执行的测试、关联 issue；涉及地图交互或视觉效果时，补充截图、录屏或演示说明。
+提交信息使用简短的中文祈使句或带英文类型前缀的 conventional commit 风格，例如 `修复测量会话清理`、`refactor: 重构图层生命周期`。除非用户特别要求，Commit Message 使用中文。提交应聚焦单一变更，并说明行为变化。Pull Request 应包含变更摘要、已执行的测试、关联 issue；涉及地图交互或视觉效果时，补充截图、录屏或演示说明。
 
 ## 安全与配置提示
 
