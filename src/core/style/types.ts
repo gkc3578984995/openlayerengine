@@ -103,6 +103,58 @@ export interface StyleSpec {
   zIndex?: number;
 }
 
+/**
+ * Deep structured-style patch. Arrays are replacement values; object branches
+ * are recursively merged. Explicit `undefined` removes a property. Supplying a
+ * discriminator replaces that complete variant and therefore requires the
+ * corresponding full specification.
+ */
+export type StylePatch = {
+  symbol?:
+    | CircleSymbolSpec
+    | IconSymbolSpec
+    | undefined
+    | {
+        type?: undefined;
+        radius?: CircleSymbolSpec['radius'] | undefined;
+        fill?:
+          | SolidFillSpec
+          | PatternFillSpec
+          | undefined
+          | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
+          | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+        stroke?: { [K in keyof StrokeSpec]?: StrokeSpec[K] | undefined } | undefined;
+      }
+    | ({ type?: undefined } & { [K in Exclude<keyof IconSymbolSpec, 'type'>]?: IconSymbolSpec[K] | undefined });
+  strokes?: StrokeSpec[] | undefined;
+  fill?:
+    | SolidFillSpec
+    | PatternFillSpec
+    | undefined
+    | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
+    | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+  text?:
+    | undefined
+    | (Omit<{ [K in keyof TextSpec]?: TextSpec[K] | undefined }, 'fill' | 'stroke' | 'backgroundFill' | 'backgroundStroke'> & {
+        fill?:
+          | SolidFillSpec
+          | PatternFillSpec
+          | undefined
+          | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
+          | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+        stroke?: { [K in keyof StrokeSpec]?: StrokeSpec[K] | undefined } | undefined;
+        backgroundFill?:
+          | SolidFillSpec
+          | PatternFillSpec
+          | undefined
+          | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
+          | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+        backgroundStroke?: { [K in keyof StrokeSpec]?: StrokeSpec[K] | undefined } | undefined;
+      });
+  decorations?: ArrowDecorationSpec[] | undefined;
+  zIndex?: number | undefined;
+};
+
 export type ElementStyleState = StyleSpec | NativeStyleRef;
 
 export function createNativeStyleRef(): NativeStyleRef {
