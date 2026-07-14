@@ -3,6 +3,7 @@ import type Interaction from 'ol/interaction/Interaction.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import type OlMap from 'ol/Map.js';
 import Observable from 'ol/Observable.js';
+import BaseEvent from 'ol/events/Event.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
@@ -60,13 +61,45 @@ const options: TransformInteractionOptions = {
 };
 
 describe('TransformInteractionAdapter', () => {
-  it('removes a singleclick listener when map.on mutates before throwing', () => {
+  it('accepts only singleclick events whose immediate click source was observed after the Transform session opened', () => {
     const map = new MapHarness();
-    const installationFailure = new Error('singleclick installation failed');
+    const hitTest = { atPixel: vi.fn(() => [{ elementId: 'candidate', layerId: 'default' }]) } as unknown as TransformHitTest;
+    const listener = vi.fn();
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, hitTest, {} as FeatureBinding, {} as StyleCompiler, {} as LayerRenderPort);
+    let handle: ReturnType<TransformInteractionAdapter['open']> | undefined;
+    map.once('click', () => {
+      handle = adapter.open('transform-stale-singleclick', options, listener);
+    });
+    const staleSource = new Event('pointerdown');
+    map.dispatchEvent(mapPointerEvent('click', [3, 4], staleSource));
+    if (handle === undefined) throw new Error('Transform interaction did not open from the map click.');
+    try {
+      map.dispatchEvent(mapPointerEvent('singleclick', [3, 4], staleSource));
+      expect(hitTest.atPixel).not.toHaveBeenCalled();
+      expect(listener).not.toHaveBeenCalled();
+
+      const freshSource = new Event('pointerdown');
+      map.dispatchEvent(mapPointerEvent('click', [7, 8], freshSource));
+      map.dispatchEvent(mapPointerEvent('singleclick', [7, 8], freshSource));
+      expect(hitTest.atPixel).toHaveBeenNthCalledWith(1, [7, 8], options.hitTolerance);
+      expect(listener).toHaveBeenNthCalledWith(1, { type: 'select-request', pixel: [7, 8], candidateIds: ['candidate'] });
+
+      map.dispatchEvent(mapPointerEvent('singleclick', [9, 10], freshSource));
+      expect(hitTest.atPixel).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      handle.destroy();
+    }
+  });
+
+  it.each(['click', 'singleclick'])('removes map listeners when %s registration mutates before throwing', (failureType) => {
+    const map = new MapHarness();
+    const installationFailure = new Error(`${failureType} installation failed`);
     const nativeOn = map.on.bind(map) as unknown as (type: string, listener: (event: unknown) => void) => unknown;
     vi.spyOn(map, 'on').mockImplementation(((type: string, listener: (event: unknown) => void) => {
-      nativeOn(type, listener);
-      throw installationFailure;
+      const key = nativeOn(type, listener);
+      if (type === failureType) throw installationFailure;
+      return key;
     }) as never);
     const adapter = new TransformInteractionAdapter(
       map as unknown as OlMap,
@@ -78,6 +111,7 @@ describe('TransformInteractionAdapter', () => {
 
     expect(() => adapter.open('transform-singleclick', options, vi.fn())).toThrow(installationFailure);
     expect(map.interactions.getLength()).toBe(0);
+    expect(map.getListeners('click') ?? []).toHaveLength(0);
     expect(map.getListeners('singleclick') ?? []).toHaveLength(0);
     expect(map.layers.getLength()).toBe(0);
   });
@@ -101,8 +135,13 @@ describe('TransformInteractionAdapter', () => {
 
     expect(() => adapter.open('transform-test', options, vi.fn())).toThrow(installationFailure);
     expect(map.interactions.getLength()).toBe(0);
+    expect(map.getListeners('click') ?? []).toHaveLength(0);
     expect(map.getListeners('singleclick') ?? []).toHaveLength(0);
     expect(removeViewport).toHaveBeenCalledWith('contextmenu', expect.any(Function), true);
     expect(map.layers.getLength()).toBe(0);
   });
 });
+
+function mapPointerEvent(type: 'click' | 'singleclick', pixel: readonly [number, number], originalEvent: Event): BaseEvent {
+  return Object.assign(new BaseEvent(type), { pixel, originalEvent });
+}

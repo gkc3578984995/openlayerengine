@@ -93,6 +93,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   readonly #handles: HandleLayer;
   readonly #interaction: PointerInteraction;
   readonly #keys: EventsKey[] = [];
+  #clickListener: ((event: PointerMapEvent) => void) | undefined;
   #singleClickListener: ((event: PointerMapEvent) => void) | undefined;
   #interactionInstallAttempted = false;
   #target: TransformInteractionTarget | undefined;
@@ -145,7 +146,13 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (this.#opened) throw new InvalidArgumentError('Transform interaction is already open');
     this.#interactionInstallAttempted = true;
     this.#map.addInteraction(this.#interaction);
-    const singleClickListener = (event: PointerMapEvent) => this.#selectAt(event.pixel);
+    const observedClicks = new WeakSet<Event>();
+    const clickListener = (event: PointerMapEvent) => observedClicks.add(event.originalEvent);
+    this.#clickListener = clickListener;
+    this.#keys.push(this.#map.on('click', clickListener));
+    const singleClickListener = (event: PointerMapEvent) => {
+      if (observedClicks.delete(event.originalEvent)) this.#selectAt(event.pixel);
+    };
     this.#singleClickListener = singleClickListener;
     this.#keys.push(this.#map.on('singleclick', singleClickListener));
     this.#map.getViewport().addEventListener('contextmenu', this.#onContextMenu, true);
@@ -192,11 +199,19 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       runFinalizers([
         () => this.#map.getViewport().removeEventListener('contextmenu', this.#onContextMenu, true),
         () => {
-          const listener = this.#singleClickListener;
           if (this.#keys.length > 0) {
             unByKey(this.#keys);
             this.#keys.length = 0;
-          } else if (listener !== undefined) this.#map.un('singleclick', listener);
+          }
+        },
+        () => {
+          const listener = this.#clickListener;
+          if (listener !== undefined) this.#map.un('click', listener);
+          if (this.#clickListener === listener) this.#clickListener = undefined;
+        },
+        () => {
+          const listener = this.#singleClickListener;
+          if (listener !== undefined) this.#map.un('singleclick', listener);
           if (this.#singleClickListener === listener) this.#singleClickListener = undefined;
         },
         () => {

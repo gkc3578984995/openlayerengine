@@ -73,8 +73,11 @@ interface BrowserFixture {
   clearMeasurements(): void;
   measureSummary(): unknown;
   ensureTransformElement(): string;
+  ensureTransformStaleTarget(): string;
   startTransformByClick(): unknown;
   startTransformDirect(toolbar?: boolean): unknown;
+  armTransformOnNextMapClick(): void;
+  deferredSingleClickCount(): number;
   transformSummary(): unknown;
   transformPixels(): unknown;
   hideTransformToolbar(): void;
@@ -126,6 +129,7 @@ const mapATarget = requireElement('map-a');
 const mapBTarget = requireElement('map-b');
 const contextMenuProbes = new Map<ProbeTarget, Readonly<{ received: boolean; defaultPrevented: boolean }>>();
 let oldAViewport: HTMLElement | undefined;
+let deferredSingleClickCount = 0;
 let a = createRuntime(
   useEarth({
     target: mapATarget,
@@ -239,6 +243,16 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
       }
     }).id;
   },
+  ensureTransformStaleTarget() {
+    const existing = a.earth.elements.get('transform-stale-target');
+    if (existing !== undefined) return existing.id;
+    return a.earth.elements.add({
+      id: 'transform-stale-target',
+      module: 'browser-transform-stale',
+      geometry: { type: 'point', controlPoints: [coordinateAtPixel(a, [450, 300])] },
+      style: { symbol: { type: 'circle', radius: 9, fill: { type: 'solid', color: '#dc2626' } } }
+    }).id;
+  },
   startTransformByClick() {
     endExclusiveSessions(a);
     a.transformEvents = [];
@@ -250,9 +264,25 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     endExclusiveSessions(a);
     const element = requireOwnedElement(a, 'transform-rectangle');
     a.transformEvents = [];
-    a.transform = a.earth.transform.select(element, { ...transformOptions(toolbar), selector: { id: element.id } });
+    a.transform = a.earth.transform.select(element, transformOptions(toolbar));
     subscribeTransform(a, a.transform);
     return transformSummary(a);
+  },
+  armTransformOnNextMapClick() {
+    endExclusiveSessions(a);
+    deferredSingleClickCount = 0;
+    a.earth.map.once('singleclick', () => {
+      deferredSingleClickCount += 1;
+    });
+    a.earth.map.once('click', () => {
+      const element = requireOwnedElement(a, 'transform-rectangle');
+      a.transformEvents = [];
+      a.transform = a.earth.transform.select(element, transformOptions(false));
+      subscribeTransform(a, a.transform);
+    });
+  },
+  deferredSingleClickCount() {
+    return deferredSingleClickCount;
   },
   transformSummary() {
     return transformSummary(a);
