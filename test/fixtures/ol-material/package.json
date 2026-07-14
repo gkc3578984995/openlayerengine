@@ -1,0 +1,8 @@
+{
+  "name": "ol-engine-ol-material",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "ol": "10.9.0"
+  }
+}

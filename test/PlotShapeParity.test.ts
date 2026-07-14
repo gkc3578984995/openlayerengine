@@ -9,21 +9,27 @@ import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/t
 type PlotShapeType = Exclude<ShapeType, 'point' | 'polyline' | 'polygon' | 'circle' | 'ellipse'>;
 type GoldenDigest = string;
 
-const AttackArrow = '6e5b05bb5f90cbb95737ac883cfdf130af8cb397032c679f4c0a4f8af6a2fa27';
-const TailedAttackArrow = '29a36c147642e393a5b134721984406c3d1d7fbd7afcc7e4c112bfda421a8eaf';
-const FineArrow = '061e0177f2255be187ee00f4e811191b2ca818fe403ccc8537350a88768efb46';
-const TailedSquadCombatArrow = '1a762d7ac22d4d34047e1e6dca096d430a4949bb026fc8428ea27a23f9a33faf';
-const AssaultDirectionArrow = 'a7863a0ccbaca57b30cc77b0004e0ea9d677646bf796ea62e82b70478fbcf756';
-const DoubleArrow = 'b0909cb5181d7403b0b2c8b47d7dae8bfc9728710b6646ab5695beabb7053eab';
+const AttackArrow = 'cc5ec9c94bdc16259539cb6291eb0a0eacc1fd6968237522d97a1a0d66590801';
+const TailedAttackArrow = '1d67f801db9ada98ae1428ae82cdca3732f817b6d3ba8de1ca98aa2302bdf8ef';
+const FineArrow = 'bd0b3ee618e3c4b311809abcff095830870bd089929c60014f6b0f4478ddc3ec';
+const TailedSquadCombatArrow = '71928505cddf47267dce24c756202e4244eadbf08c2b62ced27bd087b43a98d7';
+const AssaultDirectionArrow = '147223ec87e22f47e1b8fde5808130160f8b18533e6d582d15920891e1c52732';
+const DoubleArrow = '39120164d999fc8f02d7a34b5765addb96ace9b0a9857bb978bf146ee21a86b2';
 const RectAnglePolygon = '291abc7852dbdedf453ce62047fc064bb2e8acf7129c784ef86da811e05a92a1';
 const TrianglePolygon = 'e3850150b01a23d5ed37b0456922b7a985bb9e58e9e1b7185cb822d60e605156';
-const EquilateralTrianglePolygon = '1c57fa7ee83c71c093552778ac4ee531fd251968c3036e5efc59188ba25370a9';
-const AssemblePolygon = 'eb762a2d8f76b751b7bf93bada5b7151b3480fd7980ae2be29094ad7da5b8f8d';
-const ClosedCurvePolygon = 'b7654e41811017598d27523b53233c410fdf80c4bc38e026f1a9de130dfa2d7e';
-const SectorPolygon = '490fbf1bc800f1ef785942f8b595a4a7ef107a30a9f4c5cec5ac649beca694b4';
-const LunePolygon = '96ad086d2a565001d67bad37eea04c766350b3e57a12a3fc82870f0815734c85';
-const LunePolyline = '9aa379617c76dbab7d91b507a4d6d5c9f60d5a4a4347c811b6b0da7154c31261';
-const CurvePolyline = 'a692a710eb644003da3ef3bde25c3e629ad8d122ba940b9bf5ebc4307cde13e4';
+const EquilateralTrianglePolygon = '283f237fdf7f18036f0af10f413dc1b3c949a9af9cdce6ca28469247f9a8d701';
+const AssemblePolygon = '868cb4ebed90bbb976277b2e39fbbe77eb09d24fdba80df14ae03f4d2e6f2897';
+const ClosedCurvePolygon = '0125b1f3c45489e5e7424ae191216a3b8259513b199803a6e7cae8216b2b17dd';
+const SectorPolygon = '7c150d07c084dece6c98e8a9da37796a8ddae9d6ea26a75607b8437dff30d7ed';
+const LunePolygon = '09a299184625c7714921cae4a416615e9f3fb788358e673b29d2346696792b62';
+const LunePolyline = 'bfd482eef1a846c88b115c61215e81769043c65de31b2d2fcb89b759dc800da7';
+const CurvePolyline = '756bc18703f229b3d146a1659e53d41e6be87eec5b7109857773e5088ec223f2';
+
+function stableGeometryDigest(geometry: unknown): string {
+  const serialized = JSON.stringify(geometry, (_key, value) => (typeof value === 'number' ? Number(value.toPrecision(14)) : value));
+  if (serialized === undefined) throw new TypeError('几何快照无法序列化');
+  return createHash('sha256').update(serialized).digest('hex');
+}
 
 const representativeCases: readonly [type: PlotShapeType, goldenDigest: GoldenDigest, points: Coordinate[]][] = [
   [
@@ -375,7 +381,7 @@ describe('plot shape parity', () => {
     const state = shape.normalize({ type, controlPoints: points });
     const geometry = shape.toRenderGeometry(state);
 
-    expect(createHash('sha256').update(JSON.stringify(geometry)).digest('hex')).toBe(goldenDigest);
+    expect(stableGeometryDigest(geometry)).toBe(goldenDigest);
   });
 
   it('uses complete minimum control points without mutating them and always closes polygon rings', () => {

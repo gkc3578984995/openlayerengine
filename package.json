@@ -35,7 +35,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:code": "vitest run --config vitest.code.config.ts",
-    "test:package": "npm run build && vitest run test/PackageExports.test.ts",
+    "test:package": "npm run build && vitest run test/PackageExports.test.ts && node scripts/package/assert-package-contract.mjs && node scripts/package/test-offline-install.mjs",
     "test:watch": "vitest"
   },
   "author": "gkc",
