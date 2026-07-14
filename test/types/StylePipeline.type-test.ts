@@ -105,6 +105,17 @@ const deletingBranches: StylePatch = {
   zIndex: undefined
 };
 
+const deletingOptionalFields: StylePatch = {
+  symbol: { scale: undefined, opacity: undefined },
+  fill: { color: undefined, size: undefined, backgroundColor: undefined },
+  text: {
+    fontSize: undefined,
+    fill: undefined,
+    backgroundStroke: undefined,
+    padding: undefined
+  }
+};
+
 const replaceDiscriminators: StylePatch = {
   symbol: { type: 'icon', src: 'data:image/svg+xml,icon', scale: 2 },
   fill: { type: 'pattern', pattern: 'dot', dotRadius: 2 }
@@ -117,6 +128,7 @@ declare const selector: ElementSelector;
 service.set(selector, inputs[0]);
 service.patch(selector, deepPatch);
 service.patch(selector, deletingBranches);
+service.patch(selector, deletingOptionalFields);
 service.patch(selector, replaceDiscriminators);
 
 // @ts-expect-error icon styles require a source
@@ -129,5 +141,20 @@ const invalidIconReplacement: StylePatch = { symbol: { type: 'icon', opacity: 0.
 const invalidPatternReplacement: StylePatch = { fill: { type: 'pattern', dotRadius: 2 } };
 // @ts-expect-error native OL values must be wrapped by the facade escape hatch
 const invalidInput: StyleInput = nativeStyle;
+// @ts-expect-error a circle patch cannot mix icon-only fields
+const invalidMixedSymbolPatch: StylePatch = { symbol: { radius: 6, scale: 2 } };
+// @ts-expect-error native input cannot also contain structured style fields
+const invalidMixedNativeInput: StyleInput = { nativeStyle, zIndex: 2 };
+// @ts-expect-error native input cannot also contain a structured symbol
+const invalidNativeSymbolInput: StyleInput = { nativeStyle, symbol: { type: 'circle', radius: 4 } };
 
-void [missingIconSource, invalidPattern, invalidIconReplacement, invalidPatternReplacement, invalidInput];
+void [
+  missingIconSource,
+  invalidPattern,
+  invalidIconReplacement,
+  invalidPatternReplacement,
+  invalidInput,
+  invalidMixedSymbolPatch,
+  invalidMixedNativeInput,
+  invalidNativeSymbolInput
+];

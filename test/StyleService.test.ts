@@ -173,6 +173,44 @@ describe('StyleService', () => {
     expect(store.get('a')?.style).toEqual(baseStyle());
   });
 
+  it('checks selected native styles before treating an empty patch as a no-op and evaluates predicates once', () => {
+    const { store, service } = createFixture();
+    store.add(element('structured'));
+    store.add(element('native', createNativeStyleRef()));
+    const before = store.query();
+    const predicate = vi.fn(() => true);
+
+    expect(() => service.patch({ predicate }, {})).toThrow(UnsupportedOperationError);
+    expect(predicate).toHaveBeenCalledTimes(2);
+    expect(store.query()).toEqual(before);
+  });
+
+  it('clones and serializes frozen Store snapshots into deeply independent writable style data', () => {
+    const { store, service } = createFixture();
+    store.add(element('a'));
+    const snapshot = store.get('a')?.style as StyleSpec;
+
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.strokes?.[0].lineDash)).toBe(true);
+
+    const cloned = service.clone(snapshot) as StyleSpec;
+    const serialized = service.serialize(snapshot);
+
+    expect(Object.getPrototypeOf(cloned)).toBe(Object.prototype);
+    expect(Object.isFrozen(cloned)).toBe(false);
+    expect(Object.isFrozen(cloned.strokes?.[0].lineDash)).toBe(false);
+    cloned.strokes?.[0].lineDash?.push(99);
+    if (cloned.symbol?.type === 'circle') cloned.symbol.radius = 12;
+    serialized.text?.padding?.push(9);
+    if (serialized.symbol?.type === 'circle') serialized.symbol.stroke = { color: '#00ff00', width: 7 };
+
+    expect(snapshot).toEqual(baseStyle());
+    expect(cloned.strokes?.[0].lineDash).toEqual([8, 4, 99]);
+    expect(serialized.strokes?.[0].lineDash).toEqual([8, 4]);
+    expect(serialized.text?.padding).toEqual([1, 2, 3, 4, 9]);
+    expect(cloned.text?.padding).toEqual([1, 2, 3, 4]);
+  });
+
   it('preserves the explicit destructive-selector boundary', () => {
     const { store, service } = createFixture();
     store.add(element('a'));

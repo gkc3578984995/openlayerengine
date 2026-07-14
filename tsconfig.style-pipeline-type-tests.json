@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["test/types/StylePipeline.type-test.ts", "test/types/StylePipeline.exact-type-test.ts", "src/global.d.ts"],
+  "exclude": [".test", "dist", "docs", "node_modules", "website"]
+}

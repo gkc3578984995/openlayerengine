@@ -114,41 +114,108 @@ export type StylePatch = {
     | CircleSymbolSpec
     | IconSymbolSpec
     | undefined
-    | {
-        type?: undefined;
-        radius?: CircleSymbolSpec['radius'] | undefined;
+    | ({
+        type?: never;
+        radius?: CircleSymbolSpec['radius'];
         fill?:
           | SolidFillSpec
           | PatternFillSpec
           | undefined
-          | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
-          | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+          | {
+              type?: never;
+              color?: SolidFillSpec['color'];
+              pattern?: never;
+              size?: never;
+              lineWidth?: never;
+              dotRadius?: never;
+              backgroundColor?: never;
+            }
+          | {
+              type?: never;
+              pattern?: PatternFillSpec['pattern'];
+              color?: PatternFillSpec['color'] | undefined;
+              size?: PatternFillSpec['size'] | undefined;
+              lineWidth?: PatternFillSpec['lineWidth'] | undefined;
+              dotRadius?: PatternFillSpec['dotRadius'] | undefined;
+              backgroundColor?: PatternFillSpec['backgroundColor'] | undefined;
+            };
         stroke?: { [K in keyof StrokeSpec]?: StrokeSpec[K] | undefined } | undefined;
-      }
-    | ({ type?: undefined } & { [K in Exclude<keyof IconSymbolSpec, 'type'>]?: IconSymbolSpec[K] | undefined });
+      } & { [K in Exclude<keyof IconSymbolSpec, 'type'>]?: never })
+    | ({ type?: never; src?: IconSymbolSpec['src'] } & {
+        [K in Exclude<keyof IconSymbolSpec, 'type' | 'src'>]?: IconSymbolSpec[K] | undefined;
+      } & { [K in Exclude<keyof CircleSymbolSpec, 'type'>]?: never });
   strokes?: StrokeSpec[] | undefined;
   fill?:
     | SolidFillSpec
     | PatternFillSpec
     | undefined
-    | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
-    | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+    | {
+        type?: never;
+        color?: SolidFillSpec['color'];
+        pattern?: never;
+        size?: never;
+        lineWidth?: never;
+        dotRadius?: never;
+        backgroundColor?: never;
+      }
+    | {
+        type?: never;
+        pattern?: PatternFillSpec['pattern'];
+        color?: PatternFillSpec['color'] | undefined;
+        size?: PatternFillSpec['size'] | undefined;
+        lineWidth?: PatternFillSpec['lineWidth'] | undefined;
+        dotRadius?: PatternFillSpec['dotRadius'] | undefined;
+        backgroundColor?: PatternFillSpec['backgroundColor'] | undefined;
+      };
   text?:
     | undefined
-    | (Omit<{ [K in keyof TextSpec]?: TextSpec[K] | undefined }, 'fill' | 'stroke' | 'backgroundFill' | 'backgroundStroke'> & {
+    | (Omit<{ [K in keyof TextSpec]?: TextSpec[K] | undefined }, 'text' | 'fill' | 'stroke' | 'backgroundFill' | 'backgroundStroke'> & {
+        text?: TextSpec['text'];
         fill?:
           | SolidFillSpec
           | PatternFillSpec
           | undefined
-          | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
-          | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+          | {
+              type?: never;
+              color?: SolidFillSpec['color'];
+              pattern?: never;
+              size?: never;
+              lineWidth?: never;
+              dotRadius?: never;
+              backgroundColor?: never;
+            }
+          | {
+              type?: never;
+              pattern?: PatternFillSpec['pattern'];
+              color?: PatternFillSpec['color'] | undefined;
+              size?: PatternFillSpec['size'] | undefined;
+              lineWidth?: PatternFillSpec['lineWidth'] | undefined;
+              dotRadius?: PatternFillSpec['dotRadius'] | undefined;
+              backgroundColor?: PatternFillSpec['backgroundColor'] | undefined;
+            };
         stroke?: { [K in keyof StrokeSpec]?: StrokeSpec[K] | undefined } | undefined;
         backgroundFill?:
           | SolidFillSpec
           | PatternFillSpec
           | undefined
-          | ({ type?: undefined } & { [K in Exclude<keyof SolidFillSpec, 'type'>]?: SolidFillSpec[K] | undefined })
-          | ({ type?: undefined } & { [K in Exclude<keyof PatternFillSpec, 'type'>]?: PatternFillSpec[K] | undefined });
+          | {
+              type?: never;
+              color?: SolidFillSpec['color'];
+              pattern?: never;
+              size?: never;
+              lineWidth?: never;
+              dotRadius?: never;
+              backgroundColor?: never;
+            }
+          | {
+              type?: never;
+              pattern?: PatternFillSpec['pattern'];
+              color?: PatternFillSpec['color'] | undefined;
+              size?: PatternFillSpec['size'] | undefined;
+              lineWidth?: PatternFillSpec['lineWidth'] | undefined;
+              dotRadius?: PatternFillSpec['dotRadius'] | undefined;
+              backgroundColor?: PatternFillSpec['backgroundColor'] | undefined;
+            };
         backgroundStroke?: { [K in keyof StrokeSpec]?: StrokeSpec[K] | undefined } | undefined;
       });
   decorations?: ArrowDecorationSpec[] | undefined;

@@ -79,8 +79,12 @@ export class StyleService {
   }
 
   set(selector: ElementSelector, style: ElementStyleState): ElementChangeSet {
+    return this.setResolved(selector, () => style);
+  }
+
+  setResolved(selector: ElementSelector, resolveStyle: () => ElementStyleState): ElementChangeSet {
     return this.#store.transaction((transaction) => {
-      const safeStyle = cloneStyleState(style);
+      const safeStyle = cloneStyleState(resolveStyle());
       transaction.update(selector, { style: safeStyle });
     }).changes;
   }
@@ -92,12 +96,12 @@ export class StyleService {
       // This no-op keeps Task 6's destructive-selector validation and hostile
       // getter protection inside the transaction's continuous read-only scope.
       transaction.update(selector, {});
-      if (Reflect.ownKeys(safePatch).length === 0) return;
 
       const matches = transaction.query(selector);
       if (matches.some((state) => isNativeStyleRef(state.style))) {
         throw new UnsupportedOperationError('Native styles cannot be patched as structured style data');
       }
+      if (Reflect.ownKeys(safePatch).length === 0) return;
       const replacements = matches.map((state) => {
         if (isNativeStyleRef(state.style)) throw new UnsupportedOperationError('Native styles cannot be patched as structured style data');
         const merged = mergeStyle(state.style, safePatch);
@@ -117,13 +121,13 @@ export class StyleService {
   clone(style: ElementStyleState): ElementStyleState {
     if (isNativeStyleRef(style)) return style;
     assertStructuredStyleSpec(style);
-    return cloneCoreState(style);
+    return cloneMutable(cloneCoreState(style)) as StyleSpec;
   }
 
   serialize(style: ElementStyleState): StyleSpec {
     if (isNativeStyleRef(style)) throw new UnsupportedOperationError('Native styles cannot be serialized');
     assertStructuredStyleSpec(style);
-    return cloneCoreState(style);
+    return cloneMutable(cloneCoreState(style)) as StyleSpec;
   }
 }
 

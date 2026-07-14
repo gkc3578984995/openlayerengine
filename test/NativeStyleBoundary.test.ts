@@ -142,6 +142,70 @@ describe('NativeRefRegistry and native style boundary', () => {
     expect(registry.requireStyle(storedRef as NativeStyleRef)).toBe(native);
   });
 
+  it('accepts only an exact plain native-style wrapper without evaluating accessors or leaking provisional refs', () => {
+    const store = createStore();
+    const internal = new StyleService(store);
+    const registry = new NativeRefRegistry();
+    const facade = new StyleFacade(internal, registry);
+    const register = vi.spyOn(registry, 'registerProvisionalStyle');
+    store.add(element('target'));
+    const before = store.get('target');
+    const nativeStyle = new Style();
+
+    expect(() => facade.set({ id: 'target' }, { nativeStyle, zIndex: 2 } as never)).toThrow(InvalidArgumentError);
+    expect(() => facade.set({ id: 'target' }, { nativeStyle, extra: true } as never)).toThrow(InvalidArgumentError);
+
+    class NativeWrapper {
+      nativeStyle = nativeStyle;
+    }
+    expect(() => facade.set({ id: 'target' }, new NativeWrapper() as never)).toThrow(InvalidArgumentError);
+
+    const accessor = {} as { nativeStyle: Style };
+    const getter = vi.fn(() => nativeStyle);
+    Object.defineProperty(accessor, 'nativeStyle', { enumerable: true, get: getter });
+    expect(() => facade.set({ id: 'target' }, accessor as never)).toThrow(InvalidArgumentError);
+    expect(getter).not.toHaveBeenCalled();
+
+    const hostile = new Proxy(
+      { nativeStyle },
+      {
+        ownKeys() {
+          throw new Error('hostile ownKeys');
+        }
+      }
+    );
+    expect(() => facade.set({ id: 'target' }, hostile as never)).toThrow(InvalidArgumentError);
+
+    expect(register).not.toHaveBeenCalled();
+    expect(store.get('target')).toEqual(before);
+  });
+
+  it('keeps structured facade input inspection inside the Store transaction guard', () => {
+    const store = createStore();
+    const internal = new StyleService(store);
+    const registry = new NativeRefRegistry();
+    const facade = new StyleFacade(internal, registry);
+    store.add(element('target'));
+    const before = store.get('target');
+    let attempted = false;
+    const hostile = new Proxy<StyleSpec>(
+      { zIndex: 8 },
+      {
+        ownKeys(target) {
+          if (!attempted) {
+            attempted = true;
+            store.add(element('leak'));
+          }
+          return Reflect.ownKeys(target);
+        }
+      }
+    );
+
+    expect(() => facade.set({ id: 'target' }, hostile)).toThrow(InvalidArgumentError);
+    expect(store.get('leak')).toBeUndefined();
+    expect(store.get('target')).toEqual(before);
+  });
+
   it('discards provisional native styles when facade set has no match or fails', () => {
     const store = createStore();
     const internal = new StyleService(store);

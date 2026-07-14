@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { stylePresets, type StylePresetName } from '../src/builtins/styles/presets.js';
 import type { PatternFillSpec, StyleSpec } from '../src/core/style/types.js';
@@ -114,6 +116,19 @@ describe('StyleSpec capabilities', () => {
     expect(style.decorations).toHaveLength(2);
     expect(style.symbol?.type === 'icon' ? style.symbol.displacement : undefined).toEqual([10, 7]);
     expect(style.text?.padding).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('enforces exact optional-property contracts through the dedicated consumer type gate', () => {
+    const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
+    const tsc = fileURLToPath(new URL('../node_modules/typescript/bin/tsc', import.meta.url));
+    const project = fileURLToPath(new URL('../tsconfig.style-pipeline-type-tests.json', import.meta.url));
+
+    expect(() =>
+      execFileSync(process.execPath, [tsc, '--pretty', 'false', '-p', project], {
+        cwd: repositoryRoot,
+        encoding: 'utf8'
+      })
+    ).not.toThrow();
   });
 
   it('supports solid, every pattern variant, circle symbols, double outlines, and arrows', () => {
