@@ -74,9 +74,10 @@ interface BrowserFixture {
   measureSummary(): unknown;
   ensureTransformElement(): string;
   startTransformByClick(): unknown;
-  startTransformDirect(): unknown;
+  startTransformDirect(toolbar?: boolean): unknown;
   transformSummary(): unknown;
   transformPixels(): unknown;
+  hideTransformToolbar(): void;
   finishTransform(): void;
   cancelTransform(): void;
   registerMenus(elementId?: string): void;
@@ -245,11 +246,11 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     subscribeTransform(a, a.transform);
     return transformSummary(a);
   },
-  startTransformDirect() {
+  startTransformDirect(toolbar = true) {
     endExclusiveSessions(a);
     const element = requireOwnedElement(a, 'transform-rectangle');
     a.transformEvents = [];
-    a.transform = a.earth.transform.select(element, transformOptions(true));
+    a.transform = a.earth.transform.select(element, { ...transformOptions(toolbar), selector: { id: element.id } });
     subscribeTransform(a, a.transform);
     return transformSummary(a);
   },
@@ -258,6 +259,9 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   },
   transformPixels() {
     return transformPixels(a);
+  },
+  hideTransformToolbar() {
+    a.transform?.toolbar?.hide();
   },
   finishTransform() {
     a.transform?.finish();

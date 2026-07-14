@@ -62,7 +62,13 @@ interface TransformSummary {
   readonly status?: string;
   readonly selectedId?: string;
   readonly toolbar: boolean;
+  readonly events: readonly Record<string, unknown>[];
   readonly resources: RuntimeSnapshot;
+}
+
+interface TransformPixels {
+  readonly probe: string;
+  readonly translate: readonly [number, number];
 }
 
 interface CycleSummary {
@@ -81,6 +87,9 @@ interface BrowserFixture {
   startMeasure(type: 'distance-total'): MeasureSummary;
   measureSummary(): MeasureSummary;
   startTransformDirect(): TransformSummary;
+  transformPixels(): TransformPixels;
+  hideTransformToolbar(): void;
+  elementState(elementId: string): unknown;
   destroyA(preserveViewport?: boolean): Promise<void>;
   createCycleEarth(): RuntimeSnapshot;
   prepareCycleResources(): unknown;
@@ -174,7 +183,21 @@ test('连续创建和销毁同名 Earth 时完整释放资源且不影响其他�
         measureFinished: true
       });
 
+    const transformGeometry = await page.evaluate(() => (window as unknown as FixtureWindow).__OL_ENGINE_TEST__.elementState('transform-rectangle'));
+    await page.evaluate(() => (window as unknown as FixtureWindow).__OL_ENGINE_TEST__.hideTransformToolbar());
+    const transformPixels = await page.evaluate(() => (window as unknown as FixtureWindow).__OL_ENGINE_TEST__.transformPixels());
+    expect(transformPixels.probe).toBe('native');
+    await beginDragMapA(page, transformPixels.translate, [transformPixels.translate[0] + 28, transformPixels.translate[1] - 20]);
+    await expect
+      .poll(async () => {
+        const summary = await page.evaluate(() => (window as unknown as FixtureWindow).__OL_ENGINE_TEST__.cycleSummary());
+        return summary.transform.events.flatMap((event) => (typeof event.type === 'string' ? [event.type] : []));
+      })
+      .toContain('translating');
+    expect(await page.evaluate(() => (window as unknown as FixtureWindow).__OL_ENGINE_TEST__.elementState('transform-rectangle'))).toEqual(transformGeometry);
+
     await page.evaluate(() => (window as unknown as FixtureWindow).__OL_ENGINE_TEST__.destroyA(false));
+    await page.mouse.up();
     await expect
       .poll(async () => destroyedRuntimeState(await readSnapshot(page, 'a')))
       .toEqual({
@@ -236,6 +259,14 @@ async function clickMapA(page: Page, pixel: readonly [number, number], button: '
 
 async function clickMapB(page: Page, pixel: readonly [number, number], button: 'left' | 'right' = 'left'): Promise<void> {
   await clickViewport(page, '#map-b .ol-viewport', pixel, button);
+}
+
+async function beginDragMapA(page: Page, start: readonly [number, number], end: readonly [number, number]): Promise<void> {
+  const bounds = await page.locator('#map-a .ol-viewport').boundingBox();
+  if (bounds === null) throw new Error('Map A viewport is unavailable.');
+  await page.mouse.move(bounds.x + start[0], bounds.y + start[1]);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + end[0], bounds.y + end[1], { steps: 5 });
 }
 
 async function clickViewport(page: Page, selector: string, pixel: readonly [number, number], button: 'left' | 'right'): Promise<void> {

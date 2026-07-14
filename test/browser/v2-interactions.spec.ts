@@ -267,36 +267,37 @@ test('Transform 通过 singleclick 选择并分别执行 translate、scale、rot
   expect(pixels.probe).toBe('native');
   await dragMap(map, pixels.scale, [pixels.scale[0] + 32, pixels.scale[1] - 26]);
   await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('scaleEnd');
+  const scaledSession = await transformSummary(page);
+  expect(eventTypes(scaledSession.events)).toEqual(expect.arrayContaining(['scaleStart', 'scaling', 'scaleEnd']));
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.finishTransform());
+  await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('finished');
+  const scaled = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
+  expect(scaled).not.toEqual(original);
 
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startTransformDirect(false));
   pixels = await transformHandlePixels(page);
   await dragMap(map, pixels.translate, [pixels.translate[0] + 36, pixels.translate[1] + 26]);
   await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('translateEnd');
+  const translatedSession = await transformSummary(page);
+  expect(eventTypes(translatedSession.events)).toEqual(expect.arrayContaining(['translateStart', 'translating', 'translateEnd']));
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.finishTransform());
+  await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('finished');
+  const translated = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
+  expect(translated).not.toEqual(scaled);
 
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startTransformDirect(false));
   pixels = await transformHandlePixels(page);
   await dragMap(map, pixels.rotate, [pixels.rotate[0] + 62, pixels.rotate[1] + 8]);
   await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('rotateEnd');
 
   const transformed = await transformSummary(page);
-  expect(eventTypes(transformed.events)).toEqual(
-    expect.arrayContaining([
-      'select',
-      'translateStart',
-      'translating',
-      'translateEnd',
-      'scaleStart',
-      'scaling',
-      'scaleEnd',
-      'rotateStart',
-      'rotating',
-      'rotateEnd'
-    ])
-  );
+  expect(eventTypes(transformed.events)).toEqual(expect.arrayContaining(['rotateStart', 'rotating', 'rotateEnd']));
 
   await rightClickMap(map, [500, 500]);
   await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('finished');
   await expect(page.locator('.ol-context-menu')).toHaveCount(0);
   const afterFinish = await transformSummary(page);
-  expect(afterFinish.geometry).not.toEqual(original);
+  expect(afterFinish.geometry).not.toEqual(translated);
   expect(afterFinish.resources.map.layers).toBe(baseline.map.layers);
   expect(afterFinish.resources.map.interactions).toBe(baseline.map.interactions);
   expect(afterFinish.resources.map.overlays).toBe(baseline.map.overlays);
@@ -310,10 +311,19 @@ test('Transform 通过 singleclick 选择并分别执行 translate、scale、rot
   expect(direct.resources.map.layers).toBe(baseline.map.layers + 1);
   expect(direct.resources.map.interactions).toBe(baseline.map.interactions + 1);
   expect(direct.resources.map.renderPasses).toBeGreaterThan(baseline.map.renderPasses);
+  expect(direct.resources.dom.toolbars).toBe(baseline.dom.toolbars + 1);
 
+  const committed = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.hideTransformToolbar());
+  pixels = await transformHandlePixels(page);
+  await beginDragMap(map, pixels.translate, [pixels.translate[0] + 28, pixels.translate[1] - 20]);
+  await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('translating');
+  expect(await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId)).toEqual(committed);
   await page.evaluate(() => window.__OL_ENGINE_TEST__.cancelTransform());
+  await page.mouse.up();
   await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('cancelled');
   const directCancelled = await transformSummary(page);
+  expect(directCancelled.geometry).toEqual(committed);
   expect(directCancelled.resources.map.layers).toBe(baseline.map.layers);
   expect(directCancelled.resources.map.interactions).toBe(baseline.map.interactions);
   expect(directCancelled.resources.map.overlays).toBe(baseline.map.overlays);
@@ -376,12 +386,16 @@ async function rightClickMap(map: Locator, position: readonly [number, number]):
 }
 
 async function dragMap(map: Locator, start: readonly [number, number], end: readonly [number, number]): Promise<void> {
+  await beginDragMap(map, start, end);
+  await map.page().mouse.up();
+}
+
+async function beginDragMap(map: Locator, start: readonly [number, number], end: readonly [number, number]): Promise<void> {
   const box = await map.boundingBox();
   if (box === null) throw new Error('地图 viewport 不可见。');
   await map.page().mouse.move(box.x + start[0], box.y + start[1]);
   await map.page().mouse.down();
   await map.page().mouse.move(box.x + end[0], box.y + end[1], { steps: 5 });
-  await map.page().mouse.up();
 }
 
 function eventTypes(events: readonly Record<string, unknown>[]): string[] {
