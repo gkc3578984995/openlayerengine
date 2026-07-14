@@ -14,6 +14,7 @@ export class LayerManager {
   readonly #store: ElementStore;
   readonly #port: LayerPort;
   readonly #states = new Map<string, Readonly<CoreLayerState>>();
+  readonly #detachingIds = new Set<string>();
   #disposed = false;
   #mutating = false;
 
@@ -85,17 +86,28 @@ export class LayerManager {
       const state = this.#states.get(id);
       if (state === undefined) return false;
       this.#assertUnoccupied(id);
-      this.#port.detach(id);
-      this.#states.delete(id);
-      return true;
+      this.#detachingIds.add(id);
+      try {
+        this.#port.detach(id);
+        this.#states.delete(id);
+        return true;
+      } finally {
+        this.#detachingIds.delete(id);
+      }
     });
   }
 
   clear(): void {
     this.#mutation(() => {
       for (const id of this.#states.keys()) this.#assertUnoccupied(id);
-      for (const id of [...this.#states.keys()]) this.#port.detach(id);
-      this.#states.clear();
+      const ids = [...this.#states.keys()];
+      for (const id of ids) this.#detachingIds.add(id);
+      try {
+        for (const id of ids) this.#port.detach(id);
+        this.#states.clear();
+      } finally {
+        for (const id of ids) this.#detachingIds.delete(id);
+      }
     });
   }
 
@@ -103,11 +115,14 @@ export class LayerManager {
     if (this.#disposed) return;
     if (this.#mutating) throw new InvalidArgumentError('Reentrant layer mutations are not supported');
     this.#mutating = true;
+    const ids = [...this.#states.keys()];
+    for (const id of ids) this.#detachingIds.add(id);
     try {
-      for (const id of [...this.#states.keys()]) this.#port.detach(id);
+      for (const id of ids) this.#port.detach(id);
       this.#states.clear();
       this.#disposed = true;
     } finally {
+      for (const id of ids) this.#detachingIds.delete(id);
       this.#mutating = false;
     }
   }
@@ -115,6 +130,7 @@ export class LayerManager {
   requireVector(id: string): Readonly<Extract<CoreLayerState, { kind: 'vector' }>> {
     this.#assertActive();
     assertId(id);
+    if (this.#detachingIds.has(id)) throw new InvalidArgumentError(`Vector layer is being detached: ${id}`);
     const state = this.#states.get(id);
     if (state === undefined) throw new InvalidArgumentError(`Vector layer does not exist: ${id}`);
     if (state.kind !== 'vector') throw new InvalidArgumentError(`Layer is not vector: ${id}`);

@@ -47,18 +47,25 @@ export class LayerServiceImpl implements LayerService {
     return this.#mutation(() => {
       const parsed = this.#parse(spec);
       let attached = false;
+      let rolledBack = false;
       try {
         this.#manager.add(parsed.spec);
         attached = true;
-        if (parsed.provisional !== undefined) this.#commit(parsed.provisional);
+        if (parsed.provisional !== undefined) {
+          this.#commit(parsed.provisional);
+          this.#adapter.completeResourceHandoff(parsed.spec.id);
+        }
       } catch (error) {
         if (attached) {
           try {
-            this.#manager.remove(parsed.spec.id);
+            rolledBack = this.#manager.remove(parsed.spec.id);
           } catch {
             // LayerAdapter owns cleanup reporting; preserve the initiating error.
           }
-        } else if (parsed.internallyCreatedSource !== undefined) {
+        } else {
+          rolledBack = true;
+        }
+        if (rolledBack && parsed.internallyCreatedSource !== undefined) {
           try {
             parsed.internallyCreatedSource.dispose();
           } catch {
@@ -283,11 +290,16 @@ function inspectRecord(value: unknown, label: string): Record<PropertyKey, unkno
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new InvalidArgumentError(`${label} must be a plain object`);
-    const result: Record<PropertyKey, unknown> = {};
+    const result = Object.create(null) as Record<PropertyKey, unknown>;
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (descriptor === undefined || !('value' in descriptor)) throw new InvalidArgumentError(`${label} fields must be data properties`);
-      result[key] = descriptor.value;
+      Object.defineProperty(result, key, {
+        value: descriptor.value,
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
     }
     return result;
   } catch (error) {

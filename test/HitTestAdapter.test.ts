@@ -259,6 +259,24 @@ describe('HitTestAdapter', () => {
     expect(extent?.[3]).toBeGreaterThanOrEqual(12);
   });
 
+  it('conservatively expands miter joins up to their public miter limit', () => {
+    const { elements, hitTest, map } = setup();
+    const element = elements.add({
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [1, 10],
+          [2, 0]
+        ]
+      },
+      style: { strokes: [{ color: '#f00', width: 2, lineJoin: 'miter', miterLimit: 10 }] }
+    });
+    vi.spyOn(map, 'getPixelFromCoordinate').mockImplementation(((coordinate: number[]) => [coordinate[0], coordinate[1]]) as never);
+
+    expect(hitTest.getScreenExtent(element.id)).toEqual([-10, -10, 12, 20]);
+  });
+
   it('conservatively expands non-point extents for rotated image footprints', () => {
     const { elements, hitTest, map } = setup();
     const element = elements.add({

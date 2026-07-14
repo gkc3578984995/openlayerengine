@@ -103,6 +103,23 @@ describe('ElementService', () => {
     expect(() => elements.add({ geometry: { type: 'point', controlPoints: [[0, 0]] }, unknown: true } as never)).toThrow(InvalidArgumentError);
   });
 
+  it('rejects geometry accessors without invoking them', () => {
+    const { elements } = setup();
+    let getterCalls = 0;
+    const geometry = {} as Record<PropertyKey, unknown>;
+    Object.defineProperty(geometry, 'type', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return 'point';
+      }
+    });
+
+    expect(() => elements.add({ geometry } as never)).toThrow(InvalidArgumentError);
+    expect(getterCalls).toBe(0);
+    expect(elements.query()).toEqual([]);
+  });
+
   it('supports named vector layers and rejects explicit missing/non-vector targets', () => {
     const { elements, layers } = setup(['named']);
     layers.add({ kind: 'vector', id: 'business', wrapX: false });

@@ -6,6 +6,7 @@ import type Layer from 'ol/layer/Layer.js';
 import type Source from 'ol/source/Source.js';
 import type ImageStyle from 'ol/style/Image.js';
 import Style from 'ol/style/Style.js';
+import type Stroke from 'ol/style/Stroke.js';
 import type { Pixel } from '../../core/common/types.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import { InvalidArgumentError } from '../../core/errors.js';
@@ -161,8 +162,8 @@ function maxStyleFootprint(styles: readonly Style[], viewRotation: number): read
   let x = 0;
   let y = 0;
   for (const style of styles) {
-    const width = style.getStroke()?.getWidth();
-    if (width !== undefined && Number.isFinite(width)) x = y = Math.max(x, y, Math.abs(width) / 2);
+    const stroke = style.getStroke();
+    if (stroke !== null) x = y = Math.max(x, y, strokeFootprint(stroke));
 
     const image = style.getImage();
     if (image !== null) {
@@ -188,13 +189,26 @@ function textFootprint(style: Style): readonly [number, number] {
   if (![...scale, fontSize].every(Number.isFinite)) return [0, 0];
   const padding = text.getPadding() ?? [0, 0, 0, 0];
   const paddingMax = Math.max(0, ...padding.filter(Number.isFinite).map(Math.abs));
-  const stroke = Math.abs(text.getStroke()?.getWidth() ?? 0) / 2;
-  const backgroundStroke = Math.abs(text.getBackgroundStroke()?.getWidth() ?? 0) / 2;
+  const textStroke = text.getStroke();
+  const background = text.getBackgroundStroke();
+  const stroke = textStroke === null ? 0 : strokeFootprint(textStroke);
+  const backgroundStroke = background === null ? 0 : strokeFootprint(background);
   const lines = String(text.getText()).split(/\r?\n/u);
   const width = Math.max(...lines.map((line) => line.length), 1) * fontSize * 0.75 * Math.abs(scale[0]);
   const height = Math.max(lines.length, 1) * fontSize * 1.5 * Math.abs(scale[1]);
   const radius = Math.hypot(width, height) + paddingMax + stroke + backgroundStroke;
   return [Math.abs(text.getOffsetX()) + radius, Math.abs(text.getOffsetY()) + radius];
+}
+
+function strokeFootprint(stroke: Stroke): number {
+  const width = stroke.getWidth() ?? 1;
+  if (!Number.isFinite(width)) return 0;
+  let multiplier = stroke.getLineCap() === 'square' ? Math.SQRT2 : 1;
+  if (stroke.getLineJoin() === 'miter') {
+    const miterLimit = stroke.getMiterLimit() ?? 10;
+    if (Number.isFinite(miterLimit)) multiplier = Math.max(multiplier, 1, Math.abs(miterLimit));
+  }
+  return (Math.abs(width) / 2) * multiplier;
 }
 
 function isRenderableStyle(style: Style): boolean {

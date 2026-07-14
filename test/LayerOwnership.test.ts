@@ -214,9 +214,11 @@ describe('LayerAdapter ownership', () => {
     const pending = first.registerProvisional('source', source);
 
     expect(first.require('source', pending)).toBe(source);
+    expect(first.isProvisional('source', pending)).toBe(true);
     expect(() => second.commitProvisional('source', pending)).toThrow(ObjectDisposedError);
     expect(() => first.commitProvisional('layer', pending as never)).toThrow(InvalidArgumentError);
     first.commitProvisional('source', pending);
+    expect(first.isProvisional('source', pending)).toBe(false);
     expect(() => first.commitProvisional('source', pending)).toThrow(InvalidArgumentError);
     expect(first.require('source', pending)).toBe(source);
 
@@ -238,6 +240,9 @@ describe('LayerAdapter ownership', () => {
     expect(commit).toHaveBeenCalledWith('source', expect.anything());
     expect((success.adapter.requireLayer('callback') as TileLayer).getSource()).toBe(registeredSource);
     expect(success.manager.get('callback')).not.toHaveProperty('tileUrlFunction');
+    const successfulSourceDispose = vi.spyOn(registeredSource as ImageTileSource, 'dispose');
+    successLayers.remove('callback');
+    expect(successfulSourceDispose).toHaveBeenCalledTimes(1);
 
     const failed = setup();
     const failedLayers = new LayerServiceImpl(failed.manager, failed.adapter, failed.refs);
@@ -320,6 +325,57 @@ describe('LayerAdapter ownership', () => {
     expect(() => failedLayers.add({ kind: 'native', id: 'failed-layer', layer: failedLayer, ownership: 'earth' })).toThrow('user attach failed');
     expect(layerDispose).not.toHaveBeenCalled();
     expect(discard).toHaveBeenCalledWith('layer', expect.anything());
+  });
+
+  it('preserves earth-owned user resources when provisional commit fails', () => {
+    const sourceContext = setup();
+    const sourceLayers = new LayerServiceImpl(sourceContext.manager, sourceContext.adapter, sourceContext.refs);
+    const source = new ImageTileSource();
+    const sourceDispose = vi.spyOn(source, 'dispose');
+    const sourceDiscard = vi.spyOn(sourceContext.refs, 'discardProvisional');
+    vi.spyOn(sourceContext.refs, 'commitProvisional').mockImplementation(() => {
+      throw new Error('source commit failed');
+    });
+
+    expect(() => sourceLayers.add({ kind: 'tile', id: 'source-commit-failure', source, ownership: 'earth' })).toThrow('source commit failed');
+    expect(sourceContext.manager.get('source-commit-failure')).toBeUndefined();
+    expect(sourceContext.map.getLayers().getLength()).toBe(1);
+    expect(sourceDispose).not.toHaveBeenCalled();
+    expect(sourceDiscard).toHaveBeenCalledWith('source', expect.anything());
+
+    const layerContext = setup();
+    const nativeLayers = new LayerServiceImpl(layerContext.manager, layerContext.adapter, layerContext.refs);
+    const nativeLayer = new VectorLayer({});
+    const layerDispose = vi.spyOn(nativeLayer, 'dispose');
+    const layerDiscard = vi.spyOn(layerContext.refs, 'discardProvisional');
+    vi.spyOn(layerContext.refs, 'commitProvisional').mockImplementation(() => {
+      throw new Error('layer commit failed');
+    });
+
+    expect(() => nativeLayers.add({ kind: 'native', id: 'layer-commit-failure', layer: nativeLayer, ownership: 'earth' })).toThrow('layer commit failed');
+    expect(layerContext.manager.get('layer-commit-failure')).toBeUndefined();
+    expect(layerContext.map.getLayers().getArray()).not.toContain(nativeLayer);
+    expect(layerDispose).not.toHaveBeenCalled();
+    expect(layerDiscard).toHaveBeenCalledWith('layer', expect.anything());
+  });
+
+  it('activates earth ownership only after a successful provisional commit', () => {
+    const context = setup();
+    const layers = new LayerServiceImpl(context.manager, context.adapter, context.refs);
+    const source = new ImageTileSource();
+    const nativeLayer = new VectorLayer({});
+    const sourceDispose = vi.spyOn(source, 'dispose');
+    const layerDispose = vi.spyOn(nativeLayer, 'dispose');
+
+    layers.add({ kind: 'tile', id: 'owned-source', source, ownership: 'earth' });
+    layers.add({ kind: 'native', id: 'owned-layer', layer: nativeLayer, ownership: 'earth' });
+    expect(sourceDispose).not.toHaveBeenCalled();
+    expect(layerDispose).not.toHaveBeenCalled();
+
+    layers.remove('owned-source');
+    layers.remove('owned-layer');
+    expect(sourceDispose).toHaveBeenCalledTimes(1);
+    expect(layerDispose).toHaveBeenCalledTimes(1);
   });
 
   it('disposes internally-created vector and preset wrappers/sources exactly once in cleanup order', () => {

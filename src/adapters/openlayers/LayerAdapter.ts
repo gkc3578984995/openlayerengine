@@ -30,6 +30,7 @@ interface AdapterRecord {
   readonly layer: BaseLayer;
   readonly layerOwned: boolean;
   readonly adapterCreatedLayer: boolean;
+  resourceOwnershipActive: boolean;
   readonly source?: TileSource | VectorFeatureSource;
   readonly sourceMode?: 'exclusive' | 'shared';
   readonly sourceOwnership?: LayerOwnership;
@@ -40,6 +41,7 @@ interface AdapterRecord {
 interface SharedSourceRecord {
   readonly ownership: LayerOwnership;
   count: number;
+  ownershipTransferred: boolean;
 }
 
 export class LayerAdapter implements LayerPort {
@@ -87,10 +89,28 @@ export class LayerAdapter implements LayerPort {
     if (prepared.vectorSource !== undefined) this.#vectorLayerIds.set(prepared.layer, spec.id);
     if (prepared.sourceMode === 'shared' && prepared.source instanceof TileSource && prepared.sourceOwnership !== undefined) {
       const shared = this.#sharedSources.get(prepared.source);
-      if (shared === undefined) this.#sharedSources.set(prepared.source, { ownership: prepared.sourceOwnership, count: 1 });
-      else shared.count += 1;
+      if (shared === undefined) {
+        this.#sharedSources.set(prepared.source, {
+          ownership: prepared.sourceOwnership,
+          count: 1,
+          ownershipTransferred: prepared.sourceOwnership === 'earth' && prepared.resourceOwnershipActive
+        });
+      } else {
+        shared.count += 1;
+        if (prepared.sourceOwnership === 'earth' && prepared.resourceOwnershipActive) shared.ownershipTransferred = true;
+      }
     }
     return prepared.presentation;
+  }
+
+  completeResourceHandoff(id: string): void {
+    const record = this.#records.get(id);
+    if (record === undefined || record.resourceOwnershipActive) return;
+    record.resourceOwnershipActive = true;
+    if (record.sourceMode === 'shared' && record.source instanceof TileSource && record.sourceOwnership === 'earth') {
+      const shared = this.#sharedSources.get(record.source);
+      if (shared !== undefined) shared.ownershipTransferred = true;
+    }
   }
 
   update(before: Readonly<CoreLayerState>, after: Readonly<CoreLayerState>): void {
@@ -123,7 +143,7 @@ export class LayerAdapter implements LayerPort {
     }
 
     if (record.vectorSource !== undefined) this.#attempt(() => record.vectorSource?.clear(true), 'clear-vector-source');
-    if (record.layerOwned) this.#attempt(() => record.layer.dispose(), 'dispose-layer');
+    if (record.layerOwned && (record.adapterCreatedLayer || record.resourceOwnershipActive)) this.#attempt(() => record.layer.dispose(), 'dispose-layer');
     this.#releaseSource(record);
   }
 
@@ -185,6 +205,7 @@ export class LayerAdapter implements LayerPort {
           layer,
           layerOwned: true,
           adapterCreatedLayer: true,
+          resourceOwnershipActive: true,
           source,
           sourceMode: 'exclusive',
           sourceOwnership: 'earth',
@@ -199,6 +220,7 @@ export class LayerAdapter implements LayerPort {
 
     if (spec.kind === 'tile') {
       const preset = !isNativeRef(spec.source);
+      const resourceOwnershipActive = preset || !this.#nativeRefs.isProvisional('source', spec.source as Parameters<NativeRefRegistry['isProvisional']>[1]);
       const source = preset
         ? createPresetSource(spec.source as TileSourcePresetState)
         : this.#nativeRefs.require<TileSource>('source', spec.source as Parameters<NativeRefRegistry['require']>[1]);
@@ -220,6 +242,7 @@ export class LayerAdapter implements LayerPort {
           layer,
           layerOwned: true,
           adapterCreatedLayer: true,
+          resourceOwnershipActive,
           source,
           sourceMode: preset ? 'exclusive' : 'shared',
           sourceOwnership: spec.sourceOwnership,
@@ -234,7 +257,15 @@ export class LayerAdapter implements LayerPort {
     const layer = this.#nativeRefs.require<BaseLayer>('layer', spec.ref);
     if (!(layer instanceof BaseLayer)) throw new InvalidArgumentError('Native layer reference must resolve to an OpenLayers BaseLayer');
     if (this.#layerIds.has(layer) || containsManagedLayer(this.#map, layer)) throw new InvalidArgumentError('Native layer is already attached to this map');
-    return { id: spec.id, kind: spec.kind, layer, layerOwned: spec.ownership === 'earth', adapterCreatedLayer: false, presentation: presentationOf(layer) };
+    return {
+      id: spec.id,
+      kind: spec.kind,
+      layer,
+      layerOwned: spec.ownership === 'earth',
+      adapterCreatedLayer: false,
+      resourceOwnershipActive: !this.#nativeRefs.isProvisional('layer', spec.ref),
+      presentation: presentationOf(layer)
+    };
   }
 
   #assertSourceOwnership(source: TileSource, ownership: LayerOwnership): void {
@@ -282,7 +313,7 @@ export class LayerAdapter implements LayerPort {
     shared.count -= 1;
     if (shared.count > 0) return;
     this.#sharedSources.delete(source);
-    if (shared.ownership === 'earth') this.#attempt(() => source.dispose(), 'dispose-source');
+    if (shared.ownership === 'earth' && shared.ownershipTransferred) this.#attempt(() => source.dispose(), 'dispose-source');
   }
 
   #rollbackPrepared(record: AdapterRecord): void {

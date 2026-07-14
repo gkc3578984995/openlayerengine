@@ -63,6 +63,12 @@ describe('public layer specifications', () => {
       }
     });
     const symbolRecord = { kind: 'vector', [Symbol('extra')]: true };
+    const prototypeKeyRecord = { kind: 'vector', id: 'prototype-key' } as Record<PropertyKey, unknown>;
+    Object.defineProperty(prototypeKeyRecord, '__proto__', {
+      enumerable: true,
+      configurable: true,
+      value: { polluted: true }
+    });
     const invalid: unknown[] = [
       null,
       [],
@@ -74,7 +80,8 @@ describe('public layer specifications', () => {
       { kind: 'native' },
       { kind: 'vector', unknown: true },
       accessor,
-      symbolRecord
+      symbolRecord,
+      prototypeKeyRecord
     ];
 
     for (const spec of invalid) expect(() => service.add(spec as never)).toThrow(InvalidArgumentError);

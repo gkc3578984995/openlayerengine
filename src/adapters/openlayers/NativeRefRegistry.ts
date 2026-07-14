@@ -61,6 +61,12 @@ export class NativeRefRegistry {
     void this.require(kind, reference);
   }
 
+  isProvisional<K extends NativeRefKind>(kind: K, reference: NativeRef<K>): boolean {
+    this.#assertActive();
+    void this.require(kind, reference);
+    return this.#provisionalPersistent.has(reference);
+  }
+
   commitProvisional<K extends NativeRefKind>(kind: K, reference: NativeRef<K>): void {
     this.#assertActive();
     void this.require(kind, reference);

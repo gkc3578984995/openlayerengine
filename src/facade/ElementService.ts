@@ -1,6 +1,7 @@
 import type { NativeRefRegistry } from '../adapters/openlayers/NativeRefRegistry.js';
 import type { FeatureBinding } from '../adapters/openlayers/FeatureBinding.js';
 import { stylePresets } from '../builtins/styles/presets.js';
+import { cloneCoreState } from '../core/common/clone.js';
 import type { Pixel } from '../core/common/types.js';
 import type { ElementStore } from '../core/element/ElementStore.js';
 import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from '../core/element/types.js';
@@ -230,10 +231,11 @@ function inspectCreateInput(value: unknown): Record<PropertyKey, unknown> {
 }
 
 function requireGeometry(value: unknown): ElementState['geometry'] {
-  if (value === null || typeof value !== 'object' || typeof (value as { type?: unknown }).type !== 'string') {
+  const geometry = cloneCoreState(value);
+  if (geometry === null || typeof geometry !== 'object' || typeof (geometry as { type?: unknown }).type !== 'string') {
     throw new InvalidArgumentError('Element geometry must be a ShapeState');
   }
-  return value as ElementState['geometry'];
+  return geometry as ElementState['geometry'];
 }
 
 function defaultStyle(kind: ReturnType<FeatureBinding['renderKind']>): StyleSpec {

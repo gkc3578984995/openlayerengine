@@ -16,7 +16,7 @@ class FakeLayerPort implements LayerPort {
   readonly detached: string[] = [];
   onAttach?: () => void;
   onUpdate?: () => void;
-  onDetach?: () => void;
+  onDetach?: (id: string) => void;
   attachPresentation?: LayerPresentation;
 
   attach(spec: Readonly<CoreLayerSpec>): LayerPresentation {
@@ -36,7 +36,7 @@ class FakeLayerPort implements LayerPort {
   }
 
   detach(id: string): void {
-    this.onDetach?.();
+    this.onDetach?.(id);
     this.detached.push(id);
     this.attached.delete(id);
   }
@@ -181,6 +181,55 @@ describe('LayerManager', () => {
     const update = vi.spyOn(port, 'update');
     expect(() => manager.update('missing', { opacity: 2 })).toThrow(InvalidArgumentError);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('blocks Store writes to layers pending detach during remove, clear, and destroy', () => {
+    const removeSetup = setup();
+    removeSetup.manager.add({ kind: 'vector', id: 'removed', visible: true, opacity: 1, wrapX: true, declutter: false });
+    let removeError: unknown;
+    removeSetup.port.onDetach = () => {
+      try {
+        removeSetup.store.add(point('remove-reentrant', 'removed'));
+      } catch (error) {
+        removeError = error;
+      }
+    };
+
+    expect(removeSetup.manager.remove('removed')).toBe(true);
+    expect(removeError).toBeInstanceOf(InvalidArgumentError);
+    expect(removeSetup.store.query()).toEqual([]);
+
+    const clearSetup = setup();
+    clearSetup.manager.add({ kind: 'vector', id: 'clear-first', visible: true, opacity: 1, wrapX: true, declutter: false });
+    clearSetup.manager.add({ kind: 'vector', id: 'clear-second', visible: true, opacity: 1, wrapX: true, declutter: false });
+    let clearError: unknown;
+    clearSetup.port.onDetach = (id) => {
+      if (id !== 'clear-first') return;
+      try {
+        clearSetup.store.add(point('clear-reentrant', 'clear-second'));
+      } catch (error) {
+        clearError = error;
+      }
+    };
+
+    clearSetup.manager.clear();
+    expect(clearError).toBeInstanceOf(InvalidArgumentError);
+    expect(clearSetup.store.query()).toEqual([]);
+
+    const destroySetup = setup();
+    destroySetup.manager.add({ kind: 'vector', id: 'destroyed', visible: true, opacity: 1, wrapX: true, declutter: false });
+    let destroyError: unknown;
+    destroySetup.port.onDetach = () => {
+      try {
+        destroySetup.store.add(point('destroy-reentrant', 'destroyed'));
+      } catch (error) {
+        destroyError = error;
+      }
+    };
+
+    destroySetup.manager.destroy();
+    expect(destroyError).toBeInstanceOf(InvalidArgumentError);
+    expect(destroySetup.store.query()).toEqual([]);
   });
 
   it('rolls back an attached port record when its presentation is invalid', () => {
