@@ -24,6 +24,7 @@ interface TransientEntry {
 
 export class NativeRefRegistry {
   readonly #persistent = new Map<NativeRef, PersistentEntry>();
+  readonly #provisionalPersistent = new Set<NativeRef>();
   readonly #styles = new Map<NativeStyleRef, StyleLike>();
   readonly #provisionalStyles = new Set<NativeStyleRef>();
   readonly #transient = new Map<TransientNativeRef, TransientEntry>();
@@ -35,6 +36,12 @@ export class NativeRefRegistry {
     assertNativeValue(value, `Native ${kind}`);
     const reference = createNativeRef(kind);
     this.#persistent.set(reference, { kind, value });
+    return reference;
+  }
+
+  registerProvisional<K extends NativeRefKind, T>(kind: K, value: T): NativeRef<K> {
+    const reference = this.register(kind, value);
+    this.#provisionalPersistent.add(reference);
     return reference;
   }
 
@@ -52,6 +59,19 @@ export class NativeRefRegistry {
     // Persistent Store snapshots can share the token. Release is deliberately
     // only an ownership hint; Earth/registry destruction performs invalidation.
     void this.require(kind, reference);
+  }
+
+  commitProvisional<K extends NativeRefKind>(kind: K, reference: NativeRef<K>): void {
+    this.#assertActive();
+    void this.require(kind, reference);
+    if (!this.#provisionalPersistent.delete(reference)) throw new InvalidArgumentError('Persistent native reference is not provisional');
+  }
+
+  discardProvisional<K extends NativeRefKind>(kind: K, reference: NativeRef<K>): void {
+    this.#assertActive();
+    void this.require(kind, reference);
+    if (!this.#provisionalPersistent.delete(reference)) throw new InvalidArgumentError('Persistent native reference is not provisional');
+    this.#persistent.delete(reference);
   }
 
   registerStyle(style: StyleLike): NativeStyleRef {
@@ -130,6 +150,7 @@ export class NativeRefRegistry {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#persistent.clear();
+    this.#provisionalPersistent.clear();
     this.#styles.clear();
     this.#provisionalStyles.clear();
     this.#transient.clear();

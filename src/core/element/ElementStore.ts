@@ -9,6 +9,7 @@ import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } 
 export interface ElementStoreOptions {
   readonly errorReporter?: ErrorReporter;
   readonly createId?: () => string;
+  readonly validateElement?: (state: Readonly<ElementState>) => void;
 }
 
 type StoredElement = ElementSnapshot<unknown>;
@@ -18,6 +19,7 @@ export class ElementStore {
   readonly #shapeRegistry: ShapeRegistry;
   readonly #errorReporter: ErrorReporter;
   readonly #providedCreateId: (() => string) | undefined;
+  readonly #validateElement: ((state: Readonly<ElementState>) => void) | undefined;
   readonly #listeners = new Map<number, (changes: ElementChangeSet) => void>();
   readonly #notificationQueue: ElementChangeSet[] = [];
   readonly #states = new Map<string, StoredElement>();
@@ -32,6 +34,7 @@ export class ElementStore {
     this.#shapeRegistry = shapeRegistry;
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
     this.#providedCreateId = options.createId;
+    this.#validateElement = options.validateElement;
   }
 
   add<T>(input: ElementState<T>): Readonly<ElementState<T>> {
@@ -47,7 +50,13 @@ export class ElementStore {
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[] {
     this.#assertActive();
     this.#assertSelectorReadOnly();
-    const scope = createElementTransactionScope(this.#shapeRegistry, this.#states, this.#createIdFor(), () => this.#isSelectorEvaluationActive());
+    const scope = createElementTransactionScope(
+      this.#shapeRegistry,
+      this.#states,
+      this.#createIdFor(),
+      () => this.#isSelectorEvaluationActive(),
+      this.#validateElement
+    );
     this.#transactionScopes.push(scope);
     try {
       return scope.transaction.query(selector);
@@ -88,7 +97,13 @@ export class ElementStore {
     if (this.#transactionActive) throw new InvalidArgumentError('Nested element transactions are not supported');
     if (typeof work !== 'function') throw new InvalidArgumentError('Element transaction work must be a function');
 
-    const scope = createElementTransactionScope(this.#shapeRegistry, this.#states, this.#createIdFor(), () => this.#isSelectorEvaluationActive());
+    const scope = createElementTransactionScope(
+      this.#shapeRegistry,
+      this.#states,
+      this.#createIdFor(),
+      () => this.#isSelectorEvaluationActive(),
+      this.#validateElement
+    );
     this.#transactionActive = true;
     this.#transactionScopes.push(scope);
     let value!: T;

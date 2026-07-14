@@ -5,7 +5,7 @@ import type { StyleService as InternalStyleService } from '../services/style/Sty
 import type { StyleInput, StyleService } from './styleTypes.js';
 
 type NativeStyleValue = Parameters<NativeRefRegistry['registerStyle']>[0];
-type NativeStyleMatch = { readonly matched: false } | { readonly matched: true; readonly value: NativeStyleValue };
+export type NativeStyleMatch = { readonly matched: false } | { readonly matched: true; readonly value: NativeStyleValue };
 
 export class StyleFacade implements StyleService {
   readonly #service: InternalStyleService;
@@ -20,7 +20,7 @@ export class StyleFacade implements StyleService {
     let reference: NativeStyleRef | undefined;
     try {
       const changes = this.#service.setResolved(selector, () => {
-        const nativeStyle = matchNativeStyleInput(style);
+        const nativeStyle = inspectStyleInput(style);
         if (!nativeStyle.matched) return style as ElementStyleState;
         reference = this.#nativeRefs.registerProvisionalStyle(nativeStyle.value);
         return reference;
@@ -45,7 +45,7 @@ export class StyleFacade implements StyleService {
   }
 }
 
-function matchNativeStyleInput(style: StyleInput): NativeStyleMatch {
+export function inspectStyleInput(style: StyleInput): NativeStyleMatch {
   if (style === null || typeof style !== 'object') return { matched: false };
 
   let keys: (string | symbol)[];

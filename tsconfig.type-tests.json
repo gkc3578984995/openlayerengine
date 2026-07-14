@@ -12,6 +12,16 @@
     "test/ArchitectureImportGraph.test.ts",
     "test/ElementSelector.test.ts",
     "test/CoreClone.test.ts",
+    "test/LayerManager.test.ts",
+    "test/LayerSpecTypes.test.ts",
+    "test/LayerOwnership.test.ts",
+    "test/GeometryCodec.test.ts",
+    "test/FeatureBinding.test.ts",
+    "test/MixedVectorLayer.test.ts",
+    "test/ElementService.test.ts",
+    "test/LayerFacade.test.ts",
+    "test/HitTestAdapter.test.ts",
+    "test/fixtures/Task8Map.ts",
     "src/global.d.ts"
   ],
   "exclude": [".test", "dist", "docs", "node_modules", "website"]

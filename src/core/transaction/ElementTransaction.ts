@@ -23,6 +23,7 @@ interface TransactionState {
   readonly before: Map<string, StoredElement | undefined>;
   readonly order: string[];
   readonly isSelectorEvaluationActive: () => boolean;
+  readonly validateElement: (state: Readonly<ElementState>) => void;
   active: boolean;
   evaluatingSelector: boolean;
 }
@@ -53,9 +54,10 @@ export function createElementTransactionScope(
   shapeRegistry: ShapeRegistry,
   base: Map<string, StoredElement>,
   createId: ElementIdFactory,
-  isSelectorEvaluationActive: () => boolean = () => false
+  isSelectorEvaluationActive: () => boolean = () => false,
+  validateElement: (state: Readonly<ElementState>) => void = () => undefined
 ): ElementTransactionScope {
-  const transaction = new ElementTransactionImpl(shapeRegistry, base, createId, isSelectorEvaluationActive);
+  const transaction = new ElementTransactionImpl(shapeRegistry, base, createId, isSelectorEvaluationActive, validateElement);
   return Object.freeze({
     transaction,
     complete: () => completeElementTransaction(transaction),
@@ -65,7 +67,13 @@ export function createElementTransactionScope(
 }
 
 class ElementTransactionImpl implements ElementTransaction {
-  constructor(shapeRegistry: ShapeRegistry, base: Map<string, StoredElement>, createId: ElementIdFactory, isSelectorEvaluationActive: () => boolean) {
+  constructor(
+    shapeRegistry: ShapeRegistry,
+    base: Map<string, StoredElement>,
+    createId: ElementIdFactory,
+    isSelectorEvaluationActive: () => boolean,
+    validateElement: (state: Readonly<ElementState>) => void
+  ) {
     transactionStates.set(this, {
       shapeRegistry,
       base,
@@ -76,6 +84,7 @@ class ElementTransactionImpl implements ElementTransaction {
       before: new Map(),
       order: [],
       isSelectorEvaluationActive,
+      validateElement,
       active: true,
       evaluatingSelector: false
     });
@@ -85,6 +94,7 @@ class ElementTransactionImpl implements ElementTransaction {
     const transaction = writableState(this);
     const state = createElementSnapshot(transaction.shapeRegistry, input);
     if (hasElement(transaction, state.id)) throw new DuplicateElementIdError(`Element id already exists: ${state.id}`);
+    transaction.validateElement(state);
     remember(transaction, state.id, undefined);
     setElement(transaction, state.id, state as StoredElement);
     return snapshot(transaction, state);
@@ -114,6 +124,7 @@ class ElementTransactionImpl implements ElementTransaction {
         const candidate = mergeState(state, safePatch, id);
         return [id, state, createElementSnapshot(transaction.shapeRegistry, candidate)] as const;
       });
+      for (const [, , after] of replacements) transaction.validateElement(after);
       for (const [id, before, after] of replacements) {
         remember(transaction, id, before);
         setElement(transaction, id, after as StoredElement);
@@ -149,6 +160,7 @@ class ElementTransactionImpl implements ElementTransaction {
     const candidate = mergeState(source, safeOverrides, generatedId);
     const copied = createElementSnapshot(transaction.shapeRegistry, candidate);
     if (hasElement(transaction, copied.id)) throw new DuplicateElementIdError(`Element id already exists: ${copied.id}`);
+    transaction.validateElement(copied);
     remember(transaction, copied.id, undefined);
     setElement(transaction, copied.id, copied as StoredElement);
     return snapshot<T>(transaction, copied);
@@ -188,6 +200,9 @@ function completeElementTransaction(transaction: ElementTransactionImpl): Elemen
   }
 
   const frozenChanges = Object.freeze({ changes: Object.freeze(changes) });
+  for (const after of mutations.values()) {
+    if (after !== undefined) state.validateElement(after);
+  }
   // All fallible canonical snapshots are prepared before the shared Map is touched.
   // Existing entries are updated in place; removals and entries moved to the tail
   // are deleted first, then final appended entries are applied in transaction order.
