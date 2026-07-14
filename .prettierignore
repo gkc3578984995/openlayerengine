@@ -1,5 +1,4 @@
 scripts/docs/api-docs.mjs
-src/assets/style/descriptor.scss
 test/ApiDocGenerator.test.ts
 test/Base.test.ts
 test/LayerCommonDemoCoverage.test.ts

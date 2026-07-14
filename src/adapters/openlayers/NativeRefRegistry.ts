@@ -25,6 +25,7 @@ interface TransientEntry {
 export class NativeRefRegistry {
   readonly #persistent = new Map<NativeRef, PersistentEntry>();
   readonly #provisionalPersistent = new Set<NativeRef>();
+  readonly #ownedPersistent = new WeakSet<object>();
   readonly #styles = new Map<NativeStyleRef, StyleLike>();
   readonly #provisionalStyles = new Set<NativeStyleRef>();
   readonly #transient = new Map<TransientNativeRef, TransientEntry>();
@@ -35,6 +36,7 @@ export class NativeRefRegistry {
     this.#assertActive();
     assertNativeValue(value, `Native ${kind}`);
     const reference = createNativeRef(kind);
+    this.#ownedPersistent.add(reference);
     this.#persistent.set(reference, { kind, value });
     return reference;
   }
@@ -59,6 +61,36 @@ export class NativeRefRegistry {
     // Persistent Store snapshots can share the token. Release is deliberately
     // only an ownership hint; Earth/registry destruction performs invalidation.
     void this.require(kind, reference);
+  }
+
+  revoke(kind: 'element', reference: NativeRef<'element'>): void {
+    if (kind !== 'element') throw new InvalidArgumentError('Only exclusive element references can be revoked');
+    if (!isNativeRef(reference)) throw new InvalidArgumentError('Expected an issued persistent native reference');
+    if (this.#disposed) {
+      if (this.#ownedPersistent.has(reference)) return;
+      throw new ObjectDisposedError('Persistent native reference does not belong to this Earth');
+    }
+    const entry = this.#persistent.get(reference);
+    if (entry === undefined) {
+      if (this.#ownedPersistent.has(reference)) return;
+      throw new ObjectDisposedError('Persistent native reference does not belong to this Earth');
+    }
+    if (entry.kind !== kind) throw new InvalidArgumentError(`Expected native reference kind ${kind}, received ${entry.kind}`);
+    this.#provisionalPersistent.delete(reference);
+    this.#persistent.delete(reference);
+  }
+
+  hasOtherCommittedReference(kind: 'element', reference: NativeRef<'element'>): boolean {
+    this.#assertActive();
+    if (kind !== 'element') throw new InvalidArgumentError('Only exclusive element references support identity checks');
+    if (!isNativeRef(reference)) throw new InvalidArgumentError('Expected an issued persistent native reference');
+    const entry = this.#persistent.get(reference);
+    if (entry === undefined) throw new ObjectDisposedError('Persistent native reference does not belong to this Earth');
+    if (entry.kind !== kind) throw new InvalidArgumentError(`Expected native reference kind ${kind}, received ${entry.kind}`);
+    for (const [candidate, other] of this.#persistent) {
+      if (candidate !== reference && !this.#provisionalPersistent.has(candidate) && other.kind === kind && other.value === entry.value) return true;
+    }
+    return false;
   }
 
   isProvisional<K extends NativeRefKind>(kind: K, reference: NativeRef<K>): boolean {

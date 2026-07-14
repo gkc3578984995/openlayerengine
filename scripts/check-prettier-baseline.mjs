@@ -5,7 +5,6 @@ import { pathToFileURL } from 'node:url';
 
 export const PRETTIER_BASELINE_ENTRIES = [
   { path: 'scripts/docs/api-docs.mjs', sha256: 'aabba92e799db47637c8fed11b737fe6b7edc390978303958b92855aaeaa698c' },
-  { path: 'src/assets/style/descriptor.scss', sha256: '89e325516aac6fa988358db9d9d5102b85a5352c6381c0928bae7d6a653e89f5' },
   { path: 'test/ApiDocGenerator.test.ts', sha256: 'ee4835e7e1320a48da628b67bbbd300b3ff31a1da6b610f68ff9f5e85b8fd387' },
   { path: 'test/Base.test.ts', sha256: 'c08e709e291a74e2f0b90858402b113fb7a511763028fa95982fd46e816dceab' },
   { path: 'test/LayerCommonDemoCoverage.test.ts', sha256: '9f6bce69d22ceea8f07c285aad240038db76ad07f14264157a7ad67b73f0df2a' },

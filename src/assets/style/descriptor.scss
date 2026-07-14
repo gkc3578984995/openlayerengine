@@ -10,6 +10,20 @@
   font-size: 12px;
   z-index: 10;
 
+  button.close {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 16px;
+    line-height: 16px;
+    cursor: pointer;
+  }
+
   .icon {
     // pointer-events: all;
     position: absolute;
