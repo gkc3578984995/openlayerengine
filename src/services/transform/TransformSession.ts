@@ -97,6 +97,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #cleanupRunning = false;
   #coordinatorReleased = false;
   #terminalNotified = false;
+  #finishing = false;
 
   constructor(dependencies: TransformSessionDependencies) {
     this.id = dependencies.id;
@@ -157,13 +158,14 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   select(elementId: string): void {
-    this.#assertActive();
+    this.#assertMutable();
     const state = this.#requireSelectable(elementId);
     this.#activateSnapshot(state, true, true);
   }
 
   finish(): void {
-    if (this.#status !== 'active') return;
+    if (this.#status !== 'active' || this.#finishing) return;
+    this.#finishing = true;
     try {
       const working = this.#working;
       if (working !== undefined) {
@@ -184,14 +186,15 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#status = 'cancelled';
     } finally {
       this.#ownCommit = false;
+      this.#finishing = false;
     }
     this.#cleanupSession();
     this.#listeners.clear();
   }
 
   cancel(reason: InteractionCancelReason = 'cancelled'): void {
+    if (this.#status !== 'active' || this.#finishing) return;
     void reason;
-    if (this.#status !== 'active') return;
     this.#status = 'cancelled';
     this.#cleanupSession();
     this.#listeners.clear();
@@ -203,7 +206,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   undo(): boolean {
-    this.#assertActive();
+    this.#assertMutable();
     const snapshot = this.#history.undo();
     if (snapshot === undefined) return false;
     this.#applyHistory(snapshot);
@@ -212,7 +215,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   redo(): boolean {
-    this.#assertActive();
+    this.#assertMutable();
     const snapshot = this.#history.redo();
     if (snapshot === undefined) return false;
     this.#applyHistory(snapshot);
@@ -221,7 +224,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   copy(options?: ElementCopyOptions<T>): Readonly<ElementState<T>> {
-    this.#assertActive();
+    this.#assertMutable();
     const state = this.#requireWorking();
     const copied = this.#commitCopy(state, options);
     this.#writeClipboard(cloneElementSnapshot(this.#shapes, state));
@@ -230,7 +233,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   replaceSelected(elementId: string, options: InternalTransformReplaceOptions = {}): void {
-    this.#assertActive();
+    this.#assertMutable();
     const retainHistory = options.retainHistory ?? false;
     if (typeof retainHistory !== 'boolean') throw new InvalidArgumentError('Transform retainHistory must be a boolean');
     const state = this.#requireSelectable(elementId);
@@ -240,7 +243,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   remove(): void {
-    this.#assertActive();
+    this.#assertMutable();
     const state = this.#requireWorking();
     this.#assertTargetCurrent();
     this.#ownRemove = true;
@@ -384,7 +387,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   #handleInteractionEvent(event: TransformInteractionEvent): void {
-    if (this.#status !== 'active') return;
+    if (this.#status !== 'active' || this.#finishing) return;
     try {
       if (event.type === 'select-request') {
         for (const candidateId of event.candidateIds) {
@@ -761,6 +764,11 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   #assertActive(): void {
     if (this.#status !== 'active') throw new ObjectDisposedError('Transform session has finished');
+  }
+
+  #assertMutable(): void {
+    this.#assertActive();
+    if (this.#finishing) throw new InvalidArgumentError('Transform session is finishing');
   }
 }
 

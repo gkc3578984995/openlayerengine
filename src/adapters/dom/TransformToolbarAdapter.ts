@@ -2,6 +2,7 @@ import type OlMap from 'ol/Map.js';
 import Overlay from 'ol/Overlay.js';
 import { unByKey } from 'ol/Observable.js';
 import type { EventsKey } from 'ol/events.js';
+import { runFinalizers } from '../../core/common/dispose.js';
 import { InvalidArgumentError } from '../../core/errors.js';
 import type {
   TransformToolbarItemState,
@@ -40,6 +41,7 @@ class ToolbarView implements TransformToolbarViewHandle {
   readonly #keys: EventsKey[] = [];
   #options: TransformToolbarViewOptions;
   #destroyed = false;
+  #destroying = false;
 
   constructor(map: OlMap, createElement: (() => HTMLDivElement) | undefined, spec: TransformToolbarViewSpec, command: (key: string) => void) {
     this.#map = map;
@@ -97,21 +99,32 @@ class ToolbarView implements TransformToolbarViewHandle {
   }
 
   destroy(): void {
-    if (this.#destroyed) return;
-    this.#destroyed = true;
-    if (this.#keys.length > 0) unByKey(this.#keys.splice(0));
-    this.#root?.removeEventListener('click', this.#onClick);
-    if (this.#overlay !== undefined) {
-      this.#map.removeOverlay(this.#overlay);
-      this.#overlay.setElement(undefined);
-      this.#overlay.dispose();
+    if (this.#destroyed || this.#destroying) return;
+    this.#destroying = true;
+    try {
+      runFinalizers([
+        () => {
+          if (this.#keys.length === 0) return;
+          unByKey(this.#keys);
+          this.#keys.length = 0;
+        },
+        () => this.#root?.removeEventListener('click', this.#onClick),
+        () => {
+          if (this.#overlay !== undefined) this.#map.removeOverlay(this.#overlay);
+        },
+        () => this.#overlay?.setElement(undefined),
+        () => this.#overlay?.dispose(),
+        () => this.#root?.remove(),
+        () => this.#items.clear()
+      ]);
+      this.#destroyed = true;
+    } finally {
+      this.#destroying = false;
     }
-    this.#root?.remove();
-    this.#items.clear();
   }
 
   readonly #onClick = (event: MouseEvent): void => {
-    if (this.#destroyed || !(event.target instanceof Element)) return;
+    if (this.#destroyed || this.#destroying || !(event.target instanceof Element)) return;
     const target = event.target.closest<HTMLElement>('[data-transform-command]');
     const key = target?.dataset.transformCommand;
     const item = key === undefined ? undefined : this.#items.get(key);

@@ -26,8 +26,8 @@ export class TransformFacade implements TransformService {
 
   #mapOptions(options: TransformOptions | undefined): InternalTransformOptions | undefined {
     if (options === undefined) return undefined;
-    if (options === null || typeof options !== 'object' || Array.isArray(options)) throw new InvalidArgumentError('Transform options must be a plain object');
-    const { predicate, toolbar, selector, ...rest } = options;
+    const record = inspectOptions(options);
+    const { predicate, toolbar, selector, ...rest } = record;
     const mappedSelector = this.#selector(selector, predicate);
     return {
       ...rest,
@@ -53,4 +53,39 @@ export class TransformFacade implements TransformService {
   #assertOwned<T>(element: Element<T>): void {
     if (this.#elements.get<T>(element.id) !== element) throw new InvalidArgumentError('Element belongs to another Earth or generation');
   }
+}
+
+function inspectOptions(input: unknown): TransformOptions {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Transform options must be a plain object');
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) throw new InvalidArgumentError('Transform options must be a plain object');
+  const allowed = new Set([
+    'selector',
+    'predicate',
+    'layerIds',
+    'hitTolerance',
+    'translate',
+    'scale',
+    'stretch',
+    'rotate',
+    'translateBBox',
+    'noFlip',
+    'keepRectangle',
+    'buffer',
+    'pointRadius',
+    'handleStyle',
+    'handleCenter',
+    'historyLimit',
+    'toolbar',
+    'policy'
+  ]);
+  const copy = Object.create(null) as Record<string, unknown>;
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== 'string') throw new InvalidArgumentError('Transform options cannot contain symbol properties');
+    if (!allowed.has(key)) throw new InvalidArgumentError(`Unknown transform options field: ${key}`);
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (descriptor === undefined || !('value' in descriptor)) throw new InvalidArgumentError('Transform options cannot contain accessor properties');
+    copy[key] = descriptor.value;
+  }
+  return copy as TransformOptions;
 }

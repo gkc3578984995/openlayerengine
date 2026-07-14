@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InteractionConflictError } from '../src/core/errors.js';
+import { InteractionConflictError, InvalidArgumentError } from '../src/core/errors.js';
 import type { TransformDelta } from '../src/core/ports/TransformInteractionPort.js';
 import type { Element } from '../src/facade/Element.js';
+import { TransformFacade } from '../src/facade/TransformFacade.js';
 import type { ElementService } from '../src/facade/types.js';
+import type { TransformOptions } from '../src/facade/transformTypes.js';
 import { TransformSessionFacade } from '../src/facade/TransformSessionFacade.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { addElement, createTransformHarness } from './helpers/transformHarness.js';
@@ -201,6 +203,56 @@ describe('TransformSession v2', () => {
 
     expect(harness.interaction.handle?.target).toMatchObject({ canScale: false, canStretch: true });
     session.cancel();
+  });
+
+  it('rejects non-plain or accessor-backed public options without evaluating getters', () => {
+    const harness = createTransformHarness();
+    const elements = { get: () => undefined } as ElementService;
+    const facade = new TransformFacade(harness.service, elements);
+    const getter = vi.fn(() => 4);
+    const accessorOptions = {};
+    Object.defineProperty(accessorOptions, 'hitTolerance', { enumerable: true, get: getter });
+
+    expect(() => facade.start(accessorOptions as TransformOptions)).toThrow(InvalidArgumentError);
+    expect(getter).not.toHaveBeenCalled();
+    expect(() => facade.start(new (class {})() as TransformOptions)).toThrow(InvalidArgumentError);
+  });
+
+  it('does not record no-op pointer operations in history', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'point-a', 'point', [[1, 2]]);
+    const session = harness.service.select('point-a');
+
+    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+    harness.interaction.emit({ type: 'operation-end', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+
+    expect(session.undo()).toBe(false);
+    session.cancel();
+  });
+
+  it('rejects session mutations re-entered from the finish transaction notification', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'point-a', 'point', [[0, 0]]);
+    addElement(harness, 'point-b', 'point', [[9, 9]]);
+    const session = harness.service.select('point-a');
+    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+    harness.interaction.emit({ type: 'operation-end', operation: 'translate', delta: { type: 'translate', x: 2, y: 3 } });
+    let reentrantError: unknown;
+    harness.store.subscribe((changes) => {
+      if (!changes.changes.some((change) => change.id === 'point-a')) return;
+      try {
+        session.select('point-b');
+      } catch (error) {
+        reentrantError = error;
+      }
+    });
+
+    session.finish();
+
+    expect(reentrantError).toBeInstanceOf(InvalidArgumentError);
+    expect(session.status).toBe('finished');
+    expect(harness.store.get('point-a')?.geometry).toMatchObject({ controlPoints: [[2, 3]] });
+    expect(harness.store.get('point-b')?.geometry).toMatchObject({ controlPoints: [[9, 9]] });
   });
 
   it('isolates selections, previews, toolbars, and cleanup between Earth-scoped services', () => {

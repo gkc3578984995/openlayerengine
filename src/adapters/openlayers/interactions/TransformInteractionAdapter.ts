@@ -4,6 +4,7 @@ import PointerInteraction from 'ol/interaction/Pointer.js';
 import { unByKey } from 'ol/Observable.js';
 import type { EventsKey } from 'ol/events.js';
 import type { Coordinate, Pixel } from '../../../core/common/types.js';
+import { runFinalizers } from '../../../core/common/dispose.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
 import type {
@@ -81,6 +82,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   #copyActive = false;
   #opened = false;
   #destroyed = false;
+  #destroying = false;
 
   constructor(
     map: Map,
@@ -157,19 +159,33 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   }
 
   destroy(): void {
-    if (this.#destroyed) return;
-    this.#destroyed = true;
-    this.#map.getViewport().removeEventListener('contextmenu', this.#onContextMenu, true);
-    if (this.#keys.length > 0) unByKey(this.#keys.splice(0));
-    if (this.#opened) this.#map.removeInteraction(this.#interaction);
-    this.#interaction.setActive(false);
-    this.#interaction.setMap(null);
-    this.#handles.destroy();
-    this.#interaction.dispose();
-    this.#target = undefined;
-    this.#drag = undefined;
-    this.#hover = undefined;
-    this.#opened = false;
+    if (this.#destroyed || this.#destroying) return;
+    this.#destroying = true;
+    try {
+      runFinalizers([
+        () => this.#map.getViewport().removeEventListener('contextmenu', this.#onContextMenu, true),
+        () => {
+          if (this.#keys.length === 0) return;
+          unByKey(this.#keys);
+          this.#keys.length = 0;
+        },
+        () => {
+          if (!this.#opened) return;
+          this.#map.removeInteraction(this.#interaction);
+          this.#opened = false;
+        },
+        () => this.#interaction.setActive(false),
+        () => this.#interaction.setMap(null),
+        () => this.#handles.destroy(),
+        () => this.#interaction.dispose()
+      ]);
+      this.#target = undefined;
+      this.#drag = undefined;
+      this.#hover = undefined;
+      this.#destroyed = true;
+    } finally {
+      this.#destroying = false;
+    }
   }
 
   #down(event: PointerMapEvent): boolean {
@@ -268,7 +284,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   }
 
   readonly #onContextMenu = (event: MouseEvent): void => {
-    if (!this.#copyActive) return;
+    if (this.#destroying || !this.#copyActive) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     this.cancelCopyPreview();

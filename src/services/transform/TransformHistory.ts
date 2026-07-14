@@ -1,6 +1,7 @@
 import type { ElementSnapshot } from '../../core/element/snapshot.js';
 import { InvalidArgumentError } from '../../core/errors.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
+import { isNativeStyleRef } from '../../core/style/types.js';
 import { cloneElementSnapshot } from '../../core/element/snapshot.js';
 import type { TransformCommandMetadata } from './types.js';
 
@@ -48,6 +49,8 @@ export class TransformHistory<T = unknown> {
   }
 
   record(snapshot: ElementSnapshot<T>, command: TransformCommandMetadata): void {
+    const current = this.#entries[this.#index];
+    if (current !== undefined && sameValue(current.snapshot, snapshot)) return;
     this.#entries.splice(this.#index + 1);
     this.#entries.push({ snapshot: this.#clone(snapshot), command });
     if (this.#entries.length > this.#limit) this.#entries.shift();
@@ -74,6 +77,19 @@ export class TransformHistory<T = unknown> {
   #clone(snapshot: ElementSnapshot<T>): ElementSnapshot<T> {
     return cloneElementSnapshot(this.#shapes, snapshot);
   }
+}
+
+function sameValue(left: unknown, right: unknown, visited = new WeakMap<object, object>()): boolean {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (isNativeStyleRef(left) || isNativeStyleRef(right)) return false;
+  if (Object.getPrototypeOf(left) !== Object.getPrototypeOf(right)) return false;
+  if (visited.get(left) === right) return true;
+  visited.set(left, right);
+  const leftKeys = Reflect.ownKeys(left);
+  const rightKeys = Reflect.ownKeys(right);
+  if (leftKeys.length !== rightKeys.length || leftKeys.some((key) => !rightKeys.includes(key))) return false;
+  return leftKeys.every((key) => sameValue(Reflect.get(left, key), Reflect.get(right, key), visited));
 }
 
 export function metadata(operation: TransformCommandMetadata['operation']): TransformCommandMetadata {

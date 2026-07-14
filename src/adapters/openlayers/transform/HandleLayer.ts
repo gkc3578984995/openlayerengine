@@ -12,6 +12,7 @@ import Fill from 'ol/style/Fill.js';
 import Stroke from 'ol/style/Stroke.js';
 import Style from 'ol/style/Style.js';
 import type { Coordinate, Pixel } from '../../../core/common/types.js';
+import { runFinalizers } from '../../../core/common/dispose.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import type { TransformInteractionOptions, TransformInteractionTarget } from '../../../core/ports/TransformInteractionPort.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
@@ -49,6 +50,7 @@ export class HandleLayer {
   #copy: Feature<Geometry> | undefined;
   #copyGeometry: RenderGeometryState | undefined;
   #destroyed = false;
+  #destroying = false;
 
   constructor(map: Map, binding: FeatureBinding, styles: StyleCompiler, options: HandleLayerOptions) {
     this.#map = map;
@@ -149,19 +151,28 @@ export class HandleLayer {
   }
 
   destroy(): void {
-    if (this.#destroyed) return;
-    this.#destroyed = true;
-    this.clearCopyPreview();
-    this.#source.clear(true);
-    const suppression = this.#suppression;
-    this.#suppression = undefined;
-    suppression?.release();
-    this.#map.removeLayer(this.#layer);
-    this.#layer.setSource(null);
-    this.#source.dispose();
-    this.#layer.dispose();
-    this.#target = undefined;
-    this.#bbox = undefined;
+    if (this.#destroyed || this.#destroying) return;
+    this.#destroying = true;
+    try {
+      runFinalizers([
+        () => this.clearCopyPreview(),
+        () => this.#source.clear(true),
+        () => {
+          const suppression = this.#suppression;
+          suppression?.release();
+          if (this.#suppression === suppression) this.#suppression = undefined;
+        },
+        () => this.#map.removeLayer(this.#layer),
+        () => this.#layer.setSource(null),
+        () => this.#source.dispose(),
+        () => this.#layer.dispose()
+      ]);
+      this.#target = undefined;
+      this.#bbox = undefined;
+      this.#destroyed = true;
+    } finally {
+      this.#destroying = false;
+    }
   }
 
   #featuresFor(target: TransformInteractionTarget): Feature<Geometry>[] {
@@ -234,7 +245,7 @@ export class HandleLayer {
   }
 
   #assertActive(): void {
-    if (this.#destroyed) throw new ObjectDisposedError('Transform HandleLayer has been destroyed');
+    if (this.#destroyed || this.#destroying) throw new ObjectDisposedError('Transform HandleLayer has been destroyed');
   }
 }
 
