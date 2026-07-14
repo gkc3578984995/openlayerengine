@@ -221,6 +221,37 @@ describe('multi-Earth input isolation', () => {
     expect(refs.activeTransientCount).toBe(0);
   });
 
+  it('捕获阶段屏蔽右键，使 viewport 子节点可停止业务路由但不会恢复浏览器菜单', () => {
+    const map = new MapHarness();
+    const add = vi.spyOn(map.viewport, 'addEventListener');
+    const remove = vi.spyOn(map.viewport, 'removeEventListener');
+    const adapter = new InputAdapter(map as unknown as OlMap, new FakeHitTest(), new NativeRefRegistry());
+    const router = new InputRouter(adapter);
+    const routed = vi.fn();
+    router.on('rightclick', routed);
+
+    const registrations = add.mock.calls.filter(([type]) => type === 'contextmenu');
+    expect(registrations).toHaveLength(2);
+    const captureRegistration = registrations.find(([, , options]) => options === true || (typeof options === 'object' && options?.capture === true));
+    const capture = captureRegistration?.[1];
+    expect(capture).toBeTypeOf('function');
+
+    const event = eventWith('contextmenu', { clientX: 1, clientY: 2 }, true);
+    if (typeof capture === 'function') capture.call(map.viewport, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(routed).not.toHaveBeenCalled();
+
+    router.destroy();
+    adapter.destroy();
+    expect(
+      remove.mock.calls.some(
+        ([type, listener, options]) =>
+          type === 'contextmenu' && listener === capture && (options === true || (typeof options === 'object' && options?.capture === true))
+      )
+    ).toBe(true);
+  });
+
   it('uses the viewport as the Earth-local keydown fallback when the map target is detached', () => {
     const map = new MapHarness();
     vi.spyOn(map, 'getTargetElement').mockReturnValue(null);

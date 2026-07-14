@@ -87,12 +87,16 @@ export class InputAdapter implements InputPort {
       return () => viewport.removeEventListener(nativeType, listener);
     }
     if (type === 'rightclick') {
-      const listener = (event: Event) => {
-        event.preventDefault();
-        this.#routeViewportPointer('rightclick', event);
-      };
-      viewport.addEventListener('contextmenu', listener);
-      return () => viewport.removeEventListener('contextmenu', listener);
+      const blockBrowserMenu = (event: Event) => event.preventDefault();
+      const route = (event: Event) => this.#routeViewportPointer('rightclick', event);
+      const captureOptions = Object.freeze({ capture: true });
+      viewport.addEventListener('contextmenu', blockBrowserMenu, captureOptions);
+      viewport.addEventListener('contextmenu', route);
+      return () =>
+        runFinalizers([
+          () => viewport.removeEventListener('contextmenu', route),
+          () => viewport.removeEventListener('contextmenu', blockBrowserMenu, captureOptions)
+        ]);
     }
 
     const keyboardTarget = this.#map.getTargetElement() ?? viewport;
