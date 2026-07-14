@@ -11,7 +11,8 @@ import {
   numberRoundingRadius,
   requireNonCollinear,
   requireNonZeroPlanarArea,
-  requireSeparated
+  requireSeparated,
+  structuralEditableCapabilities
 } from '../definition.js';
 import {
   FITTING_COUNT,
@@ -183,6 +184,7 @@ const rectangleDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
+  autoFinish: 2,
   capabilities: nonRotatingEditableCapabilities,
   validate: (points) => {
     requireTwoDimensional(points);
@@ -198,6 +200,7 @@ const triangleDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
+  autoFinish: 3,
   capabilities: editableCapabilities,
   validate: (points) => {
     validateSegments(points);
@@ -211,6 +214,7 @@ const equilateralTriangleDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
+  autoFinish: 2,
   capabilities: editableCapabilities,
   validate: (points) => {
     requireTwoDimensional(points);
@@ -234,6 +238,7 @@ const assemblePolygonDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
+  autoFinish: 3,
   capabilities: editableCapabilities,
   validate: (points) => {
     validateSegments(points);
@@ -247,7 +252,8 @@ const closedCurvePolygonDefinition = createControlPointDefinition({
   type: 'closed-curve-polygon',
   previewMin: 2,
   completeMin: 3,
-  capabilities: editableCapabilities,
+  capabilities: structuralEditableCapabilities,
+  topology: 'closed',
   validate: (points) => {
     validateSegments(points);
     if (points.length >= 3) {
@@ -265,6 +271,7 @@ const sectorDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
+  autoFinish: 3,
   capabilities: editableCapabilities,
   validate: (points) => {
     requireTwoDimensional(points);
@@ -285,6 +292,7 @@ const lunePolygonDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
+  autoFinish: 3,
   capabilities: editableCapabilities,
   validate: (points) => {
     validateSegments(points);

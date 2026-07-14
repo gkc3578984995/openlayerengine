@@ -4,7 +4,8 @@ import type VectorSource from 'ol/source/Vector.js';
 import type { StyleFunction } from 'ol/style/Style.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import type { ElementState } from '../../core/element/types.js';
-import { ObjectDisposedError } from '../../core/errors.js';
+import { runFinalizers } from '../../core/common/dispose.js';
+import { CapabilityError, ObjectDisposedError } from '../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ElementChange, ElementChangeSet } from '../../core/transaction/types.js';
 import type { ShapeState } from '../../core/shape/types.js';
@@ -17,8 +18,36 @@ type BoundSource = VectorSource<Feature<Geometry>>;
 
 interface BindingRecord {
   readonly feature: Feature<Geometry>;
+  readonly generation: symbol;
+  readonly suppressionTokens: Set<symbol>;
+  suppressionAcquisition: Set<symbol> | undefined;
   layerId: string;
   visible: boolean;
+}
+
+interface DestroyRecordProgress {
+  readonly id: string;
+  readonly binding: BindingRecord;
+  geometryCleared: boolean;
+  styleCleared: boolean;
+  disposed: boolean;
+}
+
+interface DestroyProgress {
+  readonly records: readonly DestroyRecordProgress[];
+  unsubscribed: boolean;
+  detached: boolean;
+}
+
+type Lifecycle = 'active' | 'destroying' | 'destroyed';
+
+interface SuppressionLeaseState {
+  readonly elementId: string;
+  readonly binding: BindingRecord;
+  readonly generation: symbol;
+  readonly token: symbol;
+  owner: symbol | undefined;
+  released: boolean;
 }
 
 export interface FeatureBindingOptions {
@@ -29,6 +58,13 @@ export interface BoundFeatureIdentity {
   readonly elementId: string;
   readonly layerId: string;
   readonly visible: boolean;
+}
+
+export interface ProjectionSuppressionLease {
+  readonly elementId: string;
+  readonly active: boolean;
+  handoff(): ProjectionSuppressionLease;
+  release(): void;
 }
 
 const hiddenStyle: StyleFunction = () => [];
@@ -43,7 +79,9 @@ export class FeatureBinding {
   readonly #featureIds = new WeakMap<Feature<Geometry>, string>();
   readonly #dirty = new Set<string>();
   readonly #unsubscribe: () => void;
-  #disposed = false;
+  #lifecycle: Lifecycle = 'active';
+  #destroyProgress: DestroyProgress | undefined;
+  #destroyRunning = false;
   #reconciling = false;
 
   constructor(store: ElementStore, layers: LayerAdapter, geometry: GeometryCodec, styles: StyleCompiler, options: FeatureBindingOptions = {}) {
@@ -83,19 +121,129 @@ export class FeatureBinding {
     return feature;
   }
 
+  suppressProjection(elementId: string): ProjectionSuppressionLease {
+    this.#assertActive();
+    this.#reconcileDirty();
+    const binding = this.#bindings.get(elementId);
+    if (binding === undefined) throw new ObjectDisposedError(`Element Feature is not bound: ${elementId}`);
+
+    const token = Symbol(elementId);
+    const state: SuppressionLeaseState = {
+      elementId,
+      binding,
+      generation: binding.generation,
+      token,
+      owner: undefined,
+      released: false
+    };
+    const pendingAcquisition = binding.suppressionAcquisition;
+    if (pendingAcquisition !== undefined) {
+      binding.suppressionTokens.add(token);
+      pendingAcquisition.add(token);
+      return this.#createSuppressionLease(state);
+    }
+
+    const first = binding.suppressionTokens.size === 0;
+    binding.suppressionTokens.add(token);
+    if (first) {
+      const acquisition = new Set([token]);
+      binding.suppressionAcquisition = acquisition;
+      try {
+        const sources = this.#layers.vectorSources();
+        const removals = new Map<BoundSource, Feature<Geometry>[]>();
+        for (const source of sources) {
+          if (source.hasFeature(binding.feature)) append(removals, source, binding.feature);
+        }
+        this.#removeBatches(removals, false);
+        if (sources.some((source) => source.hasFeature(binding.feature))) {
+          throw new CapabilityError(`Element Feature could not be suppressed: ${elementId}`);
+        }
+        this.#assertActive();
+        if (this.#bindings.get(elementId) !== binding) throw new ObjectDisposedError(`Element Feature is not bound: ${elementId}`);
+        if (binding.suppressionAcquisition === acquisition) binding.suppressionAcquisition = undefined;
+      } catch (error) {
+        if (binding.suppressionAcquisition === acquisition) binding.suppressionAcquisition = undefined;
+        for (const acquisitionToken of acquisition) binding.suppressionTokens.delete(acquisitionToken);
+        this.#report(error, 'suppression-acquire', elementId);
+        try {
+          this.#reconcileElement(elementId);
+        } catch (rollbackError) {
+          this.#report(rollbackError, 'suppression-rollback', elementId);
+        }
+        if (error instanceof CapabilityError || error instanceof ObjectDisposedError) throw error;
+        throw new CapabilityError(`Element Feature could not be suppressed: ${elementId}`);
+      }
+    }
+
+    return this.#createSuppressionLease(state);
+  }
+
+  #createSuppressionLease(state: SuppressionLeaseState): ProjectionSuppressionLease {
+    const owner = Symbol(state.elementId);
+    state.owner = owner;
+    const isActive = (): boolean => this.#isSuppressionLeaseActive(state, owner);
+    const handoff = (): ProjectionSuppressionLease => {
+      if (!this.#isSuppressionLeaseOwned(state, owner)) throw new ObjectDisposedError(`Projection suppression lease is stale: ${state.elementId}`);
+      state.owner = undefined;
+      return this.#createSuppressionLease(state);
+    };
+    const release = (): void => {
+      if (!this.#isSuppressionLeaseOwned(state, owner)) return;
+      state.owner = undefined;
+      state.released = true;
+      const pending = state.binding.suppressionAcquisition?.delete(state.token) ?? false;
+      if (!state.binding.suppressionTokens.delete(state.token) || pending || state.binding.suppressionTokens.size > 0) return;
+      try {
+        this.#reconcileElement(state.elementId);
+      } catch (error) {
+        this.#dirty.add(state.elementId);
+        this.#report(error, 'suppression-release', state.elementId);
+        this.#attempt(
+          () => {
+            const removals = new Map<BoundSource, Feature<Geometry>[]>();
+            for (const source of this.#layers.vectorSources()) {
+              if (source.hasFeature(state.binding.feature)) append(removals, source, state.binding.feature);
+            }
+            this.#removeBatches(removals, false);
+          },
+          state.elementId,
+          'suppression-release-detach'
+        );
+      }
+    };
+    return Object.freeze({
+      elementId: state.elementId,
+      get active() {
+        return isActive();
+      },
+      handoff,
+      release
+    });
+  }
+
+  #isSuppressionLeaseActive(state: SuppressionLeaseState, owner: symbol): boolean {
+    return this.#isSuppressionLeaseOwned(state, owner) && !state.binding.suppressionAcquisition?.has(state.token);
+  }
+
+  #isSuppressionLeaseOwned(state: SuppressionLeaseState, owner: symbol): boolean {
+    if (this.#lifecycle !== 'active' || state.released || state.owner !== owner || !state.binding.suppressionTokens.has(state.token)) return false;
+    const current = this.#bindings.get(state.elementId);
+    return current === state.binding && current.generation === state.generation;
+  }
+
   isCurrentFeature(id: string, feature: Feature<Geometry>): boolean {
     this.#assertActive();
     return this.#bindings.get(id)?.feature === feature;
   }
 
   elementIdFor(feature: Feature<Geometry>): string | undefined {
-    if (this.#disposed) return undefined;
+    if (this.#lifecycle !== 'active') return undefined;
     const id = this.#featureIds.get(feature);
     return id !== undefined && this.#bindings.get(id)?.feature === feature ? id : undefined;
   }
 
   resolveFeature(feature: Feature<Geometry>): BoundFeatureIdentity | undefined {
-    if (this.#disposed) return undefined;
+    if (this.#lifecycle !== 'active') return undefined;
     const elementId = this.elementIdFor(feature);
     if (elementId === undefined) return undefined;
     const binding = this.#bindings.get(elementId);
@@ -122,24 +270,54 @@ export class FeatureBinding {
   }
 
   destroy(): void {
-    if (this.#disposed) return;
-    this.#unsubscribe();
-    const records = [...this.#bindings.values()];
-    const bySource = new Map<BoundSource, Feature<Geometry>[]>();
-    for (const record of records) {
-      for (const source of this.#layers.vectorSources()) {
-        if (source.hasFeature(record.feature)) append(bySource, source, record.feature);
+    if (this.#lifecycle === 'destroyed' || this.#destroyRunning) return;
+    if (this.#lifecycle === 'active') this.#beginDestroy();
+    const progress = this.#destroyProgress;
+    if (progress === undefined) return;
+
+    const finalizers: Array<() => void> = [
+      () => {
+        if (progress.unsubscribed) return;
+        this.#unsubscribe();
+        progress.unsubscribed = true;
+      },
+      () => {
+        if (progress.detached) return;
+        this.#detachDestroyRecords(progress.records);
+        progress.detached = true;
       }
+    ];
+    for (const record of progress.records) {
+      finalizers.push(
+        () => {
+          if (record.geometryCleared) return;
+          record.binding.feature.setGeometry(undefined);
+          record.geometryCleared = true;
+        },
+        () => {
+          if (record.styleCleared) return;
+          record.binding.feature.setStyle(undefined);
+          record.styleCleared = true;
+        },
+        () => {
+          if (record.disposed) return;
+          record.binding.feature.dispose();
+          record.disposed = true;
+        }
+      );
     }
-    this.#removeBatches(bySource, false);
-    for (const [id, record] of this.#bindings) this.#disposeBinding(id, record);
-    this.#bindings.clear();
-    this.#dirty.clear();
-    this.#disposed = true;
+
+    this.#destroyRunning = true;
+    try {
+      runFinalizers(finalizers);
+    } finally {
+      this.#destroyRunning = false;
+      if (this.#destroyComplete(progress)) this.#finishDestroy(progress);
+    }
   }
 
   #onChanges(changes: ElementChangeSet): void {
-    if (this.#disposed) return;
+    if (this.#lifecycle !== 'active') return;
     this.#reconcileDirty();
     this.#applyChanges(changes);
   }
@@ -154,6 +332,13 @@ export class FeatureBinding {
       changes.push(state === undefined ? { kind: 'remove', id } : { kind: this.#bindings.has(id) ? 'update' : 'add', id, after: state });
     }
     this.#applyChanges({ changes });
+  }
+
+  #reconcileElement(id: string): void {
+    this.#assertActive();
+    const state = this.#store.get(id);
+    const change: ElementChange = state === undefined ? { kind: 'remove', id } : { kind: this.#bindings.has(id) ? 'update' : 'add', id, after: state };
+    this.#applyChanges({ changes: [change] });
   }
 
   #applyChanges(changes: ElementChangeSet): void {
@@ -193,7 +378,7 @@ export class FeatureBinding {
         binding.layerId = change.after.layerId;
         binding.visible = change.after.visible;
         for (const source of sources) {
-          const shouldContain = change.after.visible && source === target;
+          const shouldContain = change.after.visible && binding.suppressionTokens.size === 0 && source === target;
           const contains = source.hasFeature(binding.feature);
           if (contains && !shouldContain) append(removals, source, binding.feature);
           else if (!contains && shouldContain) append(additions, source, binding.feature);
@@ -212,7 +397,7 @@ export class FeatureBinding {
 
   #createBinding(id: string, layerId: string): BindingRecord {
     const feature = new Feature<Geometry>();
-    const record = { feature, layerId, visible: false };
+    const record = { feature, generation: Symbol(id), suppressionTokens: new Set<symbol>(), suppressionAcquisition: undefined, layerId, visible: false };
     this.#bindings.set(id, record);
     this.#featureIds.set(feature, id);
     return record;
@@ -267,6 +452,8 @@ export class FeatureBinding {
     this.#bindings.delete(id);
     this.#featureIds.delete(binding.feature);
     this.#dirty.delete(id);
+    binding.suppressionTokens.clear();
+    binding.suppressionAcquisition = undefined;
     this.#attempt(() => binding.feature.setGeometry(undefined), id, 'clear-geometry');
     this.#attempt(() => binding.feature.setStyle(undefined), id, 'clear-style');
     this.#attempt(() => binding.feature.dispose(), id, 'dispose-feature');
@@ -294,12 +481,60 @@ export class FeatureBinding {
       });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // Projection reporting must not roll back committed Core state.
+      // 投影错误报告失败时不能回滚已经提交的 Core 状态。
     }
   }
 
   #assertActive(): void {
-    if (this.#disposed) throw new ObjectDisposedError('FeatureBinding has been destroyed');
+    if (this.#lifecycle !== 'active') throw new ObjectDisposedError('FeatureBinding has been destroyed');
+  }
+
+  #beginDestroy(): void {
+    const records = [...this.#bindings].map(([id, binding]): DestroyRecordProgress => ({
+      id,
+      binding,
+      geometryCleared: false,
+      styleCleared: false,
+      disposed: false
+    }));
+    this.#destroyProgress = { records, unsubscribed: false, detached: false };
+    this.#lifecycle = 'destroying';
+    for (const { binding } of records) {
+      binding.suppressionTokens.clear();
+      binding.suppressionAcquisition = undefined;
+    }
+  }
+
+  #detachDestroyRecords(records: readonly DestroyRecordProgress[]): void {
+    const sources = this.#layers.vectorSources();
+    const bySource = new Map<BoundSource, Feature<Geometry>[]>();
+    for (const source of sources) {
+      for (const { binding } of records) {
+        if (source.hasFeature(binding.feature)) append(bySource, source, binding.feature);
+      }
+    }
+    this.#removeBatches(bySource, false);
+    for (const source of sources) {
+      for (const { id, binding } of records) {
+        if (source.hasFeature(binding.feature)) throw new CapabilityError(`Element Feature could not be detached during destroy: ${id}`);
+      }
+    }
+  }
+
+  #destroyComplete(progress: DestroyProgress): boolean {
+    return progress.unsubscribed && progress.detached && progress.records.every((record) => record.geometryCleared && record.styleCleared && record.disposed);
+  }
+
+  #finishDestroy(progress: DestroyProgress): void {
+    if (this.#destroyProgress !== progress) return;
+    for (const { id, binding } of progress.records) {
+      this.#bindings.delete(id);
+      this.#featureIds.delete(binding.feature);
+    }
+    this.#bindings.clear();
+    this.#dirty.clear();
+    this.#destroyProgress = undefined;
+    this.#lifecycle = 'destroyed';
   }
 }
 

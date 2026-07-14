@@ -1,0 +1,809 @@
+import Feature from 'ol/Feature.js';
+import Circle from 'ol/geom/Circle.js';
+import type Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
+import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
+import Interaction from 'ol/interaction/Interaction.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import type OlMap from 'ol/Map.js';
+import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
+import { getUserProjection } from 'ol/proj.js';
+import VectorSource from 'ol/source/Vector.js';
+import type { Coordinate } from '../../../core/common/types.js';
+import { horizontalWorldFromExtent, type HorizontalWorld } from '../../../core/common/worldWrap.js';
+import { CapabilityError, InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
+import type {
+  DrawInteractionEvent,
+  DrawInteractionHandle,
+  DrawInteractionPort,
+  DrawInteractionRenderState,
+  DrawInteractionSpec
+} from '../../../core/ports/DrawInteractionPort.js';
+import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
+import type { RenderGeometryState } from '../../../core/shape/types.js';
+import type { LayerAdapter } from '../LayerAdapter.js';
+import type { StyleCompiler } from '../style/StyleCompiler.js';
+
+type PreviewFeature = Feature<Geometry>;
+type PreviewSource = VectorSource<PreviewFeature>;
+
+interface FeatureCleanupProgress {
+  readonly feature: PreviewFeature;
+  sourceDetached: boolean;
+  geometryCleared: boolean;
+  styleCleared: boolean;
+  disposed: boolean;
+}
+
+/**
+ * OpenLayers 绘制交互适配器的可选配置。
+ *
+ * @internal
+ */
+export interface DrawInteractionAdapterOptions {
+  /**
+   * 接收监听器异常和原生资源清理异常的报告器；未提供时使用库内默认报告器。
+   */
+  readonly errorReporter?: ErrorReporter;
+}
+
+/**
+ * 将语义绘制端口映射为一个 OpenLayers `Interaction` 和一个临时预览 `Feature`。
+ *
+ * @remarks
+ * 每次渲染均发布完整的 Feature 快照，避免同步 OpenLayers 监听器观察到几何与样式不一致的中间态。
+ *
+ * @internal
+ */
+export class DrawInteractionAdapter implements DrawInteractionPort {
+  readonly #map: OlMap;
+  readonly #layers: LayerAdapter;
+  readonly #styles: StyleCompiler;
+  readonly #errorReporter: ErrorReporter;
+
+  /**
+   * 创建绘制交互适配器。
+   *
+   * @param map 承载交互和预览图层的 OpenLayers 地图。
+   * @param layers 用于解析目标图层及其矢量数据源的适配器。
+   * @param styles 用于把语义样式编译为 OpenLayers 样式的编译器。
+   * @param options 错误报告等可选配置。
+   */
+  constructor(map: OlMap, layers: LayerAdapter, styles: StyleCompiler, options: DrawInteractionAdapterOptions = {}) {
+    this.#map = map;
+    this.#layers = layers;
+    this.#styles = styles;
+    this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
+  }
+
+  /**
+   * 安装一个绘制交互，并返回其完整生命周期句柄。
+   *
+   * 在方法成功返回前不会向 `listener` 发布输入事件；安装失败时会回滚已创建的原生资源。
+   *
+   * @param spec 目标图层、输入模式和自由绘制能力配置。
+   * @param listener 接收冻结后的语义绘制事件的监听器。
+   * @returns 拥有交互、预览和清理职责的绘制句柄。
+   * @throws {@link InvalidArgumentError} 当配置、监听器或目标图层不符合契约时抛出。
+   * @throws {@link AggregateError} 当安装失败且原生资源回滚不完整时抛出。
+   */
+  open(spec: Readonly<DrawInteractionSpec>, listener: (event: DrawInteractionEvent) => void): DrawInteractionHandle {
+    const safeSpec = validateSpec(spec);
+    if (typeof listener !== 'function') throw new InvalidArgumentError('Draw interaction listener must be a function');
+    const layer = this.#layers.requireLayer(safeSpec.layerId);
+    const source = this.#layers.requireVectorSource(safeSpec.layerId);
+    if (!(layer instanceof VectorLayer) || !(source instanceof VectorSource) || layer.getSource() !== source) {
+      throw new InvalidArgumentError(`Draw target must be a registered vector layer: ${safeSpec.layerId}`);
+    }
+
+    const routing: { handle?: OpenLayersDrawInteractionHandle } = {};
+    const interaction = new Interaction({ handleEvent: (event) => routing.handle?.handleEvent(event) ?? true });
+    const handle = new OpenLayersDrawInteractionHandle(
+      this.#map,
+      source as PreviewSource,
+      this.#styles,
+      interaction,
+      safeSpec,
+      listener,
+      worldFor(this.#map, source),
+      this.#errorReporter
+    );
+    routing.handle = handle;
+
+    try {
+      this.#map.addInteraction(interaction);
+      if (!containsInteraction(this.#map, interaction)) throw new InvalidArgumentError('OpenLayers did not attach the draw interaction');
+      handle.publish();
+      return handle;
+    } catch (error) {
+      try {
+        handle.rollbackOpen();
+      } catch (rollbackError) {
+        report(this.#errorReporter, rollbackError, 'open-rollback');
+        throw new AggregateError([error, rollbackError], 'Draw interaction open failed and rollback was incomplete');
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * 持有一次 OpenLayers 绘制交互的所有原生资源及重试进度。
+ *
+ * @internal
+ */
+class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
+  readonly #map: OlMap;
+  readonly #source: PreviewSource;
+  readonly #styles: StyleCompiler;
+  readonly #interaction: Interaction;
+  readonly #spec: Readonly<DrawInteractionSpec>;
+  readonly #listener: (event: DrawInteractionEvent) => void;
+  readonly #errorReporter: ErrorReporter;
+  /**
+   * 当前交互使用的水平世界范围快照；目标投影不支持水平环绕时为 `undefined`。
+   */
+  readonly world: HorizontalWorld | undefined;
+  #preview: PreviewFeature | undefined;
+  #published = false;
+  #closing = false;
+  #deactivated = false;
+  #interactionRemoved = false;
+  #destroyRunning = false;
+  #freehandActive = false;
+  #suppressNextClick = false;
+  #rendering = false;
+  readonly #renderQueue: Array<PreviewFeature | undefined> = [];
+  readonly #retired = new Map<PreviewFeature, FeatureCleanupProgress>();
+  readonly #released = new WeakSet<PreviewFeature>();
+
+  /**
+   * 创建尚未对外发布的原生交互句柄。
+   *
+   * @param map 承载原生交互的地图。
+   * @param source 存放唯一临时预览 Feature 的目标数据源。
+   * @param styles 编译预览样式的编译器。
+   * @param interaction 转发浏览器地图事件的 OpenLayers 交互。
+   * @param spec 已校验并冻结的交互配置。
+   * @param listener 接收语义输入事件的监听器。
+   * @param world 水平环绕世界范围的稳定快照。
+   * @param errorReporter 接收监听器及清理异常的报告器。
+   * @internal
+   */
+  constructor(
+    map: OlMap,
+    source: PreviewSource,
+    styles: StyleCompiler,
+    interaction: Interaction,
+    spec: Readonly<DrawInteractionSpec>,
+    listener: (event: DrawInteractionEvent) => void,
+    world: HorizontalWorld | undefined,
+    errorReporter: ErrorReporter
+  ) {
+    this.#map = map;
+    this.#source = source;
+    this.#styles = styles;
+    this.#interaction = interaction;
+    this.#spec = spec;
+    this.#listener = listener;
+    this.world = world;
+    this.#errorReporter = errorReporter;
+  }
+
+  /**
+   * 标记安装已完成，允许后续原生输入向语义监听器发布。
+   *
+   * @returns 无返回值。
+   * @internal
+   */
+  publish(): void {
+    this.#published = true;
+  }
+
+  /**
+   * 将 OpenLayers 地图浏览器事件转换为语义绘制事件。
+   *
+   * @param event OpenLayers 分发的地图浏览器事件。
+   * @returns `false` 表示事件已由绘制交互消费，`true` 表示允许后续交互继续处理。
+   * @internal
+   */
+  handleEvent(event: MapBrowserEvent): boolean {
+    if (!this.#published || this.#closing) return true;
+    const type = event.type;
+    const coordinate = safeCoordinate(event.coordinate);
+
+    if (type === 'dblclick') return false;
+
+    if (type === 'pointerdown') {
+      this.#suppressNextClick = false;
+      if (this.#spec.freehand && isShift(event) && isPrimary(event, true) && coordinate !== undefined) {
+        this.#freehandActive = true;
+        this.#emit({ type: 'freehand-start', coordinate });
+        return false;
+      }
+      return true;
+    }
+
+    if (this.#freehandActive) {
+      if (type === 'pointerdrag' && isPrimary(event, false) && coordinate !== undefined) {
+        this.#emit({ type: 'freehand-sample', coordinate });
+        return false;
+      }
+      if (type === 'pointerup' && isPrimary(event, false)) {
+        this.#freehandActive = false;
+        if (isPointerCancel(event) || coordinate === undefined) {
+          this.#suppressNextClick = true;
+          this.#emit({ type: 'freehand-cancel' });
+        } else {
+          this.#suppressNextClick = true;
+          this.#emit({ type: 'freehand-complete', coordinate });
+        }
+        return false;
+      }
+      if (type === 'pointercancel') {
+        this.#freehandActive = false;
+        this.#suppressNextClick = true;
+        this.#emit({ type: 'freehand-cancel' });
+        return false;
+      }
+      if (type === 'pointermove') return true;
+    }
+
+    if (type === 'pointermove' && isPrimary(event, false) && coordinate !== undefined) {
+      this.#emit({ type: 'move', coordinate });
+    } else if (type === 'click') {
+      if (this.#suppressNextClick) this.#suppressNextClick = false;
+      else if (isPrimary(event, true) && coordinate !== undefined) this.#emit({ type: 'click', coordinate });
+    }
+    return true;
+  }
+
+  /**
+   * 原子替换当前预览快照；传入 `undefined` 时清空预览。
+   *
+   * 同步数据源监听器触发的重入渲染会进入队列，并在当前快照事务完成后按顺序执行。
+   *
+   * @param state 完整的预览几何与样式；`undefined` 表示清空。
+   * @returns 无返回值。
+   * @throws {@link ObjectDisposedError} 当句柄已进入销毁流程时抛出。
+   * @throws {@link InvalidArgumentError} 当几何数据无效或 OpenLayers 未满足预览后置条件时抛出。
+   * @throws {@link AggregateError} 当替换失败且无法恢复先前快照时抛出。
+   * @internal
+   */
+  render(state: Readonly<DrawInteractionRenderState> | undefined): void {
+    if (this.#closing) throw new ObjectDisposedError('Draw interaction has been destroyed');
+    this.#renderQueue.push(state === undefined ? undefined : createPreviewFeature(state, this.#styles));
+    if (this.#rendering) return;
+
+    this.#rendering = true;
+    let failed = false;
+    let firstFailure: unknown;
+    try {
+      while (this.#renderQueue.length > 0) {
+        const prepared = this.#renderQueue.shift();
+        if (this.#closing) {
+          if (prepared !== undefined) this.#retire(prepared, true, 'render-closing-cleanup');
+          continue;
+        }
+        try {
+          this.#renderPrepared(prepared);
+          if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
+        } catch (error) {
+          if (!failed) {
+            failed = true;
+            firstFailure = error;
+          }
+        }
+      }
+    } finally {
+      this.#rendering = false;
+    }
+    if (failed) throw firstFailure;
+  }
+
+  /**
+   * 应用一个已经完成几何和样式编译的预览快照。
+   *
+   * @param prepared 待安装的完整 Feature；`undefined` 表示清空当前预览。
+   * @returns 无返回值。
+   * @internal
+   */
+  #renderPrepared(prepared: PreviewFeature | undefined): void {
+    if (prepared === undefined) {
+      this.#clearPreviewAtomically();
+      return;
+    }
+    const current = this.#preview;
+    if (current === undefined) {
+      this.#addInitialPreview(prepared);
+      return;
+    }
+    this.#replacePreviewAtomically(current, prepared);
+  }
+
+  /**
+   * 停止事件并释放交互、队列和全部预览 Feature。
+   *
+   * 各清理步骤独立执行；若本次存在失败，会在尝试其余步骤后抛出首个异常，后续调用只重试尚未满足后置条件的步骤。
+   *
+   * @returns 无返回值。
+   * @throws 清理原生资源时遇到的首个异常。
+   * @internal
+   */
+  destroy(): void {
+    if (this.#destroyComplete() || this.#destroyRunning) return;
+    this.#closing = true;
+    this.#published = false;
+    this.#freehandActive = false;
+    this.#suppressNextClick = false;
+    const failures: unknown[] = [];
+    this.#destroyRunning = true;
+    try {
+      if (!this.#deactivated) {
+        const failureCount = failures.length;
+        capture(failures, () => this.#interaction.setActive(false));
+        inspect(
+          failures,
+          () => this.#interaction.getActive(),
+          (active) => {
+            if (!active) this.#deactivated = true;
+          }
+        );
+        if (!this.#deactivated && failures.length === failureCount) {
+          failures.push(new CapabilityError('OpenLayers did not deactivate the draw interaction'));
+        }
+      }
+
+      const preview = this.#preview;
+      if (preview !== undefined) {
+        this.#preview = undefined;
+        this.#enqueueRetirement(preview, false);
+      }
+      for (const queued of this.#renderQueue.splice(0)) {
+        if (queued !== undefined) this.#enqueueRetirement(queued, true);
+      }
+      this.#cleanupRetired(failures);
+
+      if (!this.#interactionRemoved) {
+        const failureCount = failures.length;
+        capture(failures, () => this.#map.removeInteraction(this.#interaction));
+        inspect(
+          failures,
+          () => containsInteraction(this.#map, this.#interaction),
+          (attached) => {
+            if (!attached) this.#interactionRemoved = true;
+          }
+        );
+        if (!this.#interactionRemoved && failures.length === failureCount) {
+          failures.push(new CapabilityError('OpenLayers did not remove the draw interaction'));
+        }
+      }
+    } finally {
+      this.#destroyRunning = false;
+    }
+
+    for (const failure of failures) report(this.#errorReporter, failure, 'destroy');
+    if (failures.length > 0) throw failures[0];
+  }
+
+  /**
+   * 回滚尚未发布或发布过程中失败的安装。
+   *
+   * @returns 无返回值。
+   * @throws {@link CapabilityError} 当有限次回滚后仍有原生资源未释放时抛出。
+   * @internal
+   */
+  rollbackOpen(): void {
+    this.#closing = true;
+    this.#published = false;
+    let firstFailure: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        this.destroy();
+        if (this.#destroyComplete()) return;
+        firstFailure ??= new CapabilityError('Draw interaction open rollback did not complete');
+      } catch (error) {
+        firstFailure ??= error;
+        report(this.#errorReporter, error, 'open-rollback-retry');
+      }
+    }
+
+    for (let attempt = 0; attempt < 2 && containsInteraction(this.#map, this.#interaction); attempt += 1) {
+      try {
+        this.#map.getInteractions().remove(this.#interaction);
+      } catch (error) {
+        firstFailure ??= error;
+        report(this.#errorReporter, error, 'open-rollback-collection-remove');
+      }
+    }
+    if (!containsInteraction(this.#map, this.#interaction)) {
+      this.#interactionRemoved = true;
+      try {
+        this.destroy();
+      } catch (error) {
+        firstFailure ??= error;
+      }
+      if (this.#destroyComplete()) return;
+    }
+    throw firstFailure ?? new CapabilityError('Draw interaction open rollback did not complete');
+  }
+
+  /**
+   * 安全调用语义监听器，并把监听器异常交给错误报告器。
+   *
+   * @param event 待冻结并发布的绘制事件。
+   * @returns 无返回值。
+   * @internal
+   */
+  #emit(event: DrawInteractionEvent): void {
+    try {
+      this.#listener(freezeEvent(event));
+    } catch (error) {
+      report(this.#errorReporter, error, `listener:${event.type}`);
+    }
+  }
+
+  /**
+   * 安装首次预览，并在同步监听器抛错时恢复明确的所有权状态。
+   *
+   * @param feature 已准备完成的首次预览 Feature。
+   * @returns 无返回值。
+   * @throws 安装预览或验证安装后置条件时产生的异常。
+   * @internal
+   */
+  #addInitialPreview(feature: PreviewFeature): void {
+    try {
+      this.#source.addFeature(feature);
+      if (!this.#source.hasFeature(feature)) throw new InvalidArgumentError('OpenLayers did not attach the draw preview');
+      if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
+      this.#preview = feature;
+    } catch (error) {
+      if (this.#source.hasFeature(feature)) {
+        try {
+          this.#source.removeFeature(feature);
+        } catch (rollbackError) {
+          if (this.#source.hasFeature(feature) && !this.#closing) this.#preview = feature;
+          report(this.#errorReporter, rollbackError, 'render-add-rollback');
+        }
+      }
+      const attached = this.#source.hasFeature(feature);
+      if (!attached || this.#closing) {
+        this.#preview = undefined;
+        this.#retire(feature, !attached, 'render-add-cleanup');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 用完整 Feature 快照替换现有预览；失败时优先恢复原快照。
+   *
+   * @param current 当前由句柄拥有的预览 Feature。
+   * @param prepared 待发布的完整替换 Feature。
+   * @returns 无返回值。
+   * @throws {@link AggregateError} 当替换和恢复均未得到原快照时抛出。
+   * @internal
+   */
+  #replacePreviewAtomically(current: PreviewFeature, prepared: PreviewFeature): void {
+    try {
+      this.#source.removeFeature(current);
+      if (this.#source.hasFeature(current)) throw new InvalidArgumentError('OpenLayers did not detach the preceding draw preview');
+      if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
+      this.#source.addFeature(prepared);
+      if (!this.#source.hasFeature(prepared)) throw new InvalidArgumentError('OpenLayers did not attach the replacement draw preview');
+      if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
+      this.#preview = prepared;
+      this.#retire(current, true, 'render-retire');
+    } catch (error) {
+      if (this.#closing) {
+        this.#preview = undefined;
+        this.#retire(current, !this.#source.hasFeature(current), 'render-closing-current-cleanup');
+        this.#retire(prepared, !this.#source.hasFeature(prepared), 'render-closing-prepared-cleanup');
+        throw error;
+      }
+      const rollbackFailures: unknown[] = [];
+      if (this.#source.hasFeature(prepared)) {
+        try {
+          this.#source.removeFeature(prepared);
+        } catch (rollbackError) {
+          rollbackFailures.push(rollbackError);
+          report(this.#errorReporter, rollbackError, 'render-replace-remove-rollback');
+        }
+      }
+      if (!this.#source.hasFeature(prepared) && !this.#source.hasFeature(current)) {
+        try {
+          this.#source.addFeature(current);
+        } catch (rollbackError) {
+          rollbackFailures.push(rollbackError);
+          report(this.#errorReporter, rollbackError, 'render-replace-add-rollback');
+        }
+      }
+      if (this.#source.hasFeature(current) && !this.#source.hasFeature(prepared)) {
+        this.#preview = current;
+        this.#retire(prepared, true, 'render-replacement-cleanup');
+        throw error;
+      }
+      this.#closing = true;
+      this.#published = false;
+      if (this.#source.hasFeature(prepared)) {
+        this.#preview = prepared;
+        this.#retire(current, true, 'render-replacement-abandoned-current');
+      } else {
+        this.#preview = undefined;
+        this.#retire(current, true, 'render-replacement-abandoned-current');
+        this.#retire(prepared, true, 'render-replacement-abandoned-prepared');
+      }
+      throw new AggregateError([error, ...rollbackFailures], 'Draw preview replacement failed and rollback was incomplete');
+    }
+  }
+
+  /**
+   * 从数据源清空当前预览；同步监听器抛错时尝试恢复原快照。
+   *
+   * @returns 无返回值。
+   * @throws {@link AggregateError} 当清空失败且无法恢复原快照时抛出。
+   * @throws 清空失败但原快照已经恢复时产生的原始异常。
+   * @internal
+   */
+  #clearPreviewAtomically(): void {
+    const current = this.#preview;
+    if (current === undefined) return;
+    try {
+      this.#source.removeFeature(current);
+      if (this.#source.hasFeature(current)) throw new InvalidArgumentError('OpenLayers did not remove the draw preview');
+      if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
+      this.#preview = undefined;
+      this.#retire(current, true, 'render-clear-retire');
+    } catch (error) {
+      if (this.#closing) {
+        this.#preview = undefined;
+        this.#retire(current, !this.#source.hasFeature(current), 'render-clear-closing-cleanup');
+        throw error;
+      }
+      const rollbackFailures: unknown[] = [];
+      if (!this.#source.hasFeature(current)) {
+        try {
+          this.#source.addFeature(current);
+          if (!this.#source.hasFeature(current)) throw new CapabilityError('OpenLayers did not restore the preceding draw preview');
+        } catch (rollbackError) {
+          rollbackFailures.push(rollbackError);
+          report(this.#errorReporter, rollbackError, 'render-clear-rollback');
+        }
+      }
+      if (!this.#source.hasFeature(current)) {
+        this.#preview = undefined;
+        this.#closing = true;
+        this.#published = false;
+        this.#retire(current, true, 'render-clear-abandoned');
+        throw new AggregateError([error, ...rollbackFailures], 'Draw preview clear failed and rollback was incomplete');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 登记退休 Feature、立即尝试清理，并报告本次清理异常。
+   *
+   * @param feature 不再作为当前预览使用的 Feature。
+   * @param sourceDetached 调用前该 Feature 是否已脱离目标数据源。
+   * @param operation 错误报告中使用的操作名称。
+   * @returns 无返回值。
+   * @internal
+   */
+  #retire(feature: PreviewFeature, sourceDetached: boolean, operation: string): void {
+    this.#enqueueRetirement(feature, sourceDetached);
+    const failures: unknown[] = [];
+    this.#cleanupRetired(failures);
+    for (const failure of failures) report(this.#errorReporter, failure, operation);
+  }
+
+  /**
+   * 为退休 Feature 建立或合并幂等清理进度。
+   *
+   * @param feature 需要释放的 Feature。
+   * @param sourceDetached 已知的数据源脱离状态。
+   * @returns 无返回值。
+   * @internal
+   */
+  #enqueueRetirement(feature: PreviewFeature, sourceDetached: boolean): void {
+    if (this.#released.has(feature)) return;
+    const existing = this.#retired.get(feature);
+    if (existing !== undefined) {
+      if (sourceDetached) existing.sourceDetached = true;
+      return;
+    }
+    this.#retired.set(feature, {
+      feature,
+      sourceDetached,
+      geometryCleared: false,
+      styleCleared: false,
+      disposed: false
+    });
+  }
+
+  /**
+   * 尝试推进全部退休 Feature，并移除已经完全清理的记录。
+   *
+   * @param failures 收集本轮所有互不阻断的清理异常。
+   * @returns 无返回值。
+   * @internal
+   */
+  #cleanupRetired(failures: unknown[]): void {
+    for (const progress of [...this.#retired.values()]) {
+      this.#cleanupRetiredFeature(progress, failures);
+      if (progress.sourceDetached && progress.geometryCleared && progress.styleCleared && progress.disposed) {
+        this.#retired.delete(progress.feature);
+        this.#released.add(progress.feature);
+      }
+    }
+  }
+
+  /**
+   * 独立推进单个 Feature 的数据源脱离、几何清空、样式清空和释放步骤。
+   *
+   * @param progress 当前 Feature 的持久清理进度。
+   * @param failures 收集本轮清理异常。
+   * @returns 无返回值。
+   * @internal
+   */
+  #cleanupRetiredFeature(progress: FeatureCleanupProgress, failures: unknown[]): void {
+    const feature = progress.feature;
+    if (!progress.sourceDetached) {
+      const failureCount = failures.length;
+      capture(failures, () => this.#source.removeFeature(feature));
+      inspect(
+        failures,
+        () => this.#source.hasFeature(feature),
+        (attached) => {
+          progress.sourceDetached = !attached;
+        }
+      );
+      if (!progress.sourceDetached && failures.length === failureCount) {
+        failures.push(new CapabilityError('OpenLayers did not remove a retired draw preview'));
+      }
+    }
+    if (!progress.geometryCleared) {
+      const failureCount = failures.length;
+      capture(failures, () => feature.setGeometry(undefined));
+      inspect(
+        failures,
+        () => feature.getGeometry() === undefined,
+        (cleared) => {
+          progress.geometryCleared = cleared;
+        }
+      );
+      if (!progress.geometryCleared && failures.length === failureCount) {
+        failures.push(new CapabilityError('OpenLayers did not clear a retired draw preview geometry'));
+      }
+    }
+    if (!progress.styleCleared) {
+      const failureCount = failures.length;
+      capture(failures, () => feature.setStyle(undefined));
+      inspect(
+        failures,
+        () => feature.getStyle() === undefined,
+        (cleared) => {
+          progress.styleCleared = cleared;
+        }
+      );
+      if (!progress.styleCleared && failures.length === failureCount) {
+        failures.push(new CapabilityError('OpenLayers did not clear a retired draw preview style'));
+      }
+    }
+    if (!progress.disposed) {
+      const failureCount = failures.length;
+      capture(failures, () => feature.dispose());
+      progress.disposed = failures.length === failureCount;
+    }
+  }
+
+  /**
+   * 判断句柄拥有的所有原生资源是否均已完成清理。
+   *
+   * @returns 全部清理完成时返回 `true`。
+   * @internal
+   */
+  #destroyComplete(): boolean {
+    return this.#deactivated && this.#interactionRemoved && this.#preview === undefined && this.#renderQueue.length === 0 && this.#retired.size === 0;
+  }
+}
+
+function validateSpec(spec: Readonly<DrawInteractionSpec>): Readonly<DrawInteractionSpec> {
+  if (spec === null || typeof spec !== 'object') throw new InvalidArgumentError('Draw interaction spec must be an object');
+  if (typeof spec.layerId !== 'string' || spec.layerId.trim().length === 0) {
+    throw new InvalidArgumentError('Draw interaction layerId must be a non-empty string');
+  }
+  if (spec.mode !== 'point' && spec.mode !== 'vertices') throw new InvalidArgumentError('Unknown draw interaction mode');
+  if (typeof spec.freehand !== 'boolean') throw new InvalidArgumentError('Draw interaction freehand must be boolean');
+  return Object.freeze({ layerId: spec.layerId, mode: spec.mode, freehand: spec.freehand });
+}
+
+function worldFor(map: OlMap, source: VectorSource): HorizontalWorld | undefined {
+  const projection = getUserProjection() ?? source.getProjection() ?? map.getView().getProjection();
+  return horizontalWorldFromExtent(projection.getExtent(), source.getWrapX() === true && projection.canWrapX());
+}
+
+function containsInteraction(map: OlMap, interaction: Interaction): boolean {
+  return map.getInteractions().getArray().includes(interaction);
+}
+
+function createPreviewFeature(state: Readonly<DrawInteractionRenderState>, styles: StyleCompiler): PreviewFeature {
+  const geometry = createGeometry(state.geometry);
+  const compiled = styles.compile(state.style);
+  const feature = new Feature<Geometry>(geometry);
+  feature.setStyle(compiled);
+  return feature;
+}
+
+function createGeometry(state: RenderGeometryState): Geometry {
+  if (state.type === 'point') return new Point(copyCoordinate(state.coordinates));
+  if (state.type === 'polyline') return new LineString(state.coordinates.map(copyCoordinate));
+  if (state.type === 'polygon') return new Polygon(state.coordinates.map((ring) => ring.map(copyCoordinate)));
+  if (!Number.isFinite(state.radius) || state.radius < 0) throw new InvalidArgumentError('Draw preview circle radius must be a finite non-negative number');
+  return new Circle(copyCoordinate(state.center), state.radius);
+}
+
+function copyCoordinate(value: Coordinate): number[] {
+  const coordinate = safeCoordinate(value);
+  if (coordinate === undefined) throw new InvalidArgumentError('Draw preview coordinate must contain two or three finite numbers');
+  return [...coordinate];
+}
+
+function safeCoordinate(value: unknown): Coordinate | undefined {
+  if (!Array.isArray(value) || (value.length !== 2 && value.length !== 3) || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
+    return undefined;
+  }
+  return Object.freeze([...value]) as Coordinate;
+}
+
+function isShift(event: MapBrowserEvent): boolean {
+  return field(event.originalEvent, 'shiftKey') === true;
+}
+
+function isPointerCancel(event: MapBrowserEvent): boolean {
+  return event.type === 'pointercancel' || field(event.originalEvent, 'type') === 'pointercancel';
+}
+
+function isPrimary(event: MapBrowserEvent, requireLeftButton: boolean): boolean {
+  if (field(event.originalEvent, 'isPrimary') === false) return false;
+  const button = field(event.originalEvent, 'button');
+  return !requireLeftButton || typeof button !== 'number' || button === 0;
+}
+
+function field(value: unknown, key: string): unknown {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function freezeEvent(event: DrawInteractionEvent): DrawInteractionEvent {
+  if (event.type === 'freehand-cancel') return Object.freeze({ type: event.type });
+  return Object.freeze({ type: event.type, coordinate: safeCoordinate(event.coordinate) as Coordinate });
+}
+
+function report(errorReporter: ErrorReporter, error: unknown, operation: string): void {
+  try {
+    const result = (errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
+      source: 'DrawInteractionAdapter',
+      operation
+    });
+    void Promise.resolve(result).catch(() => undefined);
+  } catch {
+    // 错误报告器自身的异常不能破坏原生资源所有权。
+  }
+}
+
+function capture(failures: unknown[], work: () => void): void {
+  try {
+    work();
+  } catch (error) {
+    failures.push(error);
+  }
+}
+
+function inspect<T>(failures: unknown[], read: () => T, accept: (value: T) => void): void {
+  try {
+    accept(read());
+  } catch (error) {
+    failures.push(error);
+  }
+}

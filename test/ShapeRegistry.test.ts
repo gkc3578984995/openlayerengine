@@ -168,6 +168,110 @@ function coordinatesAreFinite(value: unknown): boolean {
 }
 
 describe('ShapeRegistry', () => {
+  it('snapshots and freezes semantic completion, edit topology, and freehand policies', () => {
+    const editTopology = {
+      describe: () => ({ handles: [{ index: 0, coordinate: [0, 0] as const, removable: false }], insertions: [] }),
+      move: (_state: ShapeState<'point'>, _index: number, coordinate: readonly [number, number]) => ({
+        type: 'point' as const,
+        controlPoints: [coordinate]
+      })
+    };
+    const freehand = {
+      appendSample: (_samples: readonly (readonly [number, number])[], coordinate: readonly [number, number]) => [coordinate],
+      normalizeSamples: () => ({ type: 'point' as const, controlPoints: [[0, 0] as const] })
+    };
+    const original: ShapeDefinition<ShapeState<'point'>> = {
+      type: 'point',
+      capabilities: new Set(['draw', 'edit', 'vertexEdit', 'freehand']),
+      editTopology,
+      freehand,
+      createDraft: (controlPoints) => ({ type: 'point', controlPoints }),
+      normalize: (input) => input as ShapeState<'point'>,
+      clone: (state) => ({ type: 'point', controlPoints: state.controlPoints.map((coordinate) => [...coordinate]) }),
+      isComplete: () => true,
+      tryComplete: (state) => ({ status: 'complete', state }),
+      toRenderGeometry: (state) => ({ type: 'point', coordinates: state.controlPoints[0] })
+    };
+    const snapshot = new ShapeRegistry([original]).get('point');
+
+    editTopology.describe = () => ({ handles: [], insertions: [] });
+    freehand.normalizeSamples = () => undefined;
+
+    expect(Object.isFrozen(snapshot.editTopology)).toBe(true);
+    expect(Object.isFrozen(snapshot.freehand)).toBe(true);
+    expect(snapshot.editTopology?.describe({ type: 'point', controlPoints: [[9, 9]] }).handles).toHaveLength(1);
+    expect(snapshot.freehand?.normalizeSamples([], 'preview')).toEqual({ type: 'point', controlPoints: [[0, 0]] });
+    expect(snapshot.tryComplete({ type: 'point', controlPoints: [[1, 1]] })).toMatchObject({ status: 'complete' });
+  });
+
+  it('rejects accessor-backed nested shape policies without invoking getters', () => {
+    let reads = 0;
+    const topology = { move: (state: ShapeState<'point'>) => state } as Record<string, unknown>;
+    Object.defineProperty(topology, 'describe', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return () => ({ handles: [], insertions: [] });
+      }
+    });
+    const definition: ShapeDefinition<ShapeState<'point'>> = {
+      type: 'point',
+      capabilities: new Set(['edit', 'vertexEdit']),
+      editTopology: topology as never,
+      createDraft: (controlPoints) => ({ type: 'point', controlPoints }),
+      normalize: (input) => input as ShapeState<'point'>,
+      clone: (state) => state,
+      isComplete: () => true,
+      tryComplete: (state) => ({ status: 'complete', state }),
+      toRenderGeometry: () => ({ type: 'point', coordinates: [0, 0] })
+    };
+
+    expect(() => new ShapeRegistry([definition])).toThrow(InvalidArgumentError);
+    expect(reads).toBe(0);
+  });
+
+  it('rejects capability and topology operation drift', () => {
+    const base: ShapeDefinition<ShapeState<'point'>> = {
+      type: 'point',
+      capabilities: new Set(['edit', 'vertexEdit', 'controlPointInsert']),
+      editTopology: {
+        describe: () => ({ handles: [{ index: 0, coordinate: [0, 0], removable: false }], insertions: [] }),
+        move: (state) => state
+      },
+      createDraft: (controlPoints) => ({ type: 'point', controlPoints }),
+      normalize: (input) => input as ShapeState<'point'>,
+      clone: (state) => state,
+      isComplete: () => true,
+      tryComplete: (state) => ({ status: 'complete', state }),
+      toRenderGeometry: () => ({ type: 'point', coordinates: [0, 0] })
+    };
+
+    expect(() => new ShapeRegistry([base])).toThrow(InvalidArgumentError);
+    expect(
+      () =>
+        new ShapeRegistry([
+          {
+            ...base,
+            capabilities: new Set(['edit', 'vertexEdit']),
+            editTopology: { ...base.editTopology, insert: (state: ShapeState<'point'>) => state }
+          }
+        ])
+    ).toThrow(InvalidArgumentError);
+    expect(
+      () =>
+        new ShapeRegistry([
+          {
+            ...base,
+            capabilities: new Set(['vertexEdit']),
+            editTopology: {
+              describe: base.editTopology?.describe as NonNullable<typeof base.editTopology>['describe'],
+              move: base.editTopology?.move as NonNullable<typeof base.editTopology>['move']
+            }
+          }
+        ])
+    ).toThrow(InvalidArgumentError);
+  });
+
   it('keeps the public builtins index limited to the stable shape tuple', () => {
     expect(Object.keys(publicBuiltinShapes)).toEqual(['shapeTypes']);
   });
@@ -177,9 +281,11 @@ describe('ShapeRegistry', () => {
     const first: ShapeDefinition<ShapeState<'point'>> = {
       type: 'point',
       capabilities: new Set(['draw']),
+      createDraft: (controlPoints) => ({ type: 'point', controlPoints }),
       normalize: (input) => input as ShapeState<'point'>,
       clone: (state) => state,
       isComplete: () => true,
+      tryComplete: (state) => ({ status: 'complete', state }),
       toRenderGeometry: () => ({ type: 'point', coordinates: [0, 0] })
     };
 
@@ -197,6 +303,9 @@ describe('ShapeRegistry', () => {
       type: 'point',
       capabilities,
       controlPointPolicy,
+      createDraft() {
+        return { type: this.type, controlPoints: [[0, 0]] };
+      },
       normalize() {
         return { type: this.type, controlPoints: [[0, 0]] };
       },
@@ -205,6 +314,9 @@ describe('ShapeRegistry', () => {
       },
       isComplete() {
         return this.type === 'point';
+      },
+      tryComplete(state) {
+        return { status: 'complete', state: this.normalize(state) };
       },
       toRenderGeometry(state) {
         return { type: 'point', coordinates: this.normalize(state).controlPoints[0] };
@@ -236,9 +348,11 @@ describe('ShapeRegistry', () => {
     let policyReads = 0;
     const methods = {
       capabilities: new Set<ShapeCapability>(['draw']),
+      createDraft: (controlPoints: readonly (readonly [number, number])[]) => ({ type: 'point' as const, controlPoints }),
       normalize: (input: unknown) => input as ShapeState<'point'>,
       clone: (state: ShapeState<'point'>) => state,
       isComplete: () => true,
+      tryComplete: (state: ShapeState<'point'>) => ({ status: 'complete' as const, state }),
       toRenderGeometry: () => ({ type: 'point' as const, coordinates: [0, 0] as const })
     };
     const accessorDefinition = { ...methods } as Record<PropertyKey, unknown>;
@@ -276,14 +390,15 @@ describe('ShapeRegistry', () => {
   it('reports the exact deliberate capability matrix instead of treating every shape alike', () => {
     const registry = createBuiltinShapeRegistry();
     const standard = ['draw', 'edit', 'translate', 'rotate', 'scale', 'vertexEdit'] as const;
+    const structural = ['controlPointInsert', 'controlPointRemove'] as const;
     const expected = new Map<ShapeType, readonly string[]>([
       ['point', [...standard, 'anchor']],
-      ['polyline', [...standard, 'path']],
-      ['polygon', standard],
+      ['polyline', [...standard, ...structural, 'path', 'freehand']],
+      ['polygon', [...standard, ...structural, 'freehand']],
       ['circle', ['draw', 'edit', 'translate', 'scale', 'vertexEdit']],
       ['ellipse', ['draw', 'edit', 'translate', 'scale', 'vertexEdit']],
-      ['attack-arrow', standard],
-      ['tailed-attack-arrow', standard],
+      ['attack-arrow', [...standard, ...structural]],
+      ['tailed-attack-arrow', [...standard, ...structural]],
       ['fine-arrow', standard],
       ['tailed-squad-combat-arrow', standard],
       ['assault-direction-arrow', standard],
@@ -292,11 +407,11 @@ describe('ShapeRegistry', () => {
       ['triangle', standard],
       ['equilateral-triangle', standard],
       ['assemble-polygon', standard],
-      ['closed-curve-polygon', standard],
+      ['closed-curve-polygon', [...standard, ...structural]],
       ['sector', standard],
       ['lune-polygon', standard],
       ['lune-polyline', [...standard, 'path']],
-      ['curve-polyline', [...standard, 'path']]
+      ['curve-polyline', [...standard, ...structural, 'path']]
     ]);
 
     for (const type of shapeTypes) expect(new Set(registry.get(type).capabilities), type).toEqual(new Set(expected.get(type)));
@@ -324,8 +439,12 @@ describe('ShapeRegistry', () => {
       const definition = registry.get(type);
       const state = definition.normalize(inputs[type]);
       const geometry = definition.toRenderGeometry(state);
+      const controlPoints = definition.editTopology?.describe(state).handles.map(({ coordinate }) => coordinate);
+      const draft = controlPoints === undefined ? undefined : definition.createDraft(controlPoints);
 
       expect(definition.type).toBe(type);
+      expect(draft, `${type} did not recreate a draft from its semantic handles`).toBeDefined();
+      expect(draft?.type).toBe(type);
       expect(definition.isComplete(state), `${type} fixture was not a completed state`).toBe(true);
       expect(coordinatesAreFinite(geometry), `${type} emitted a non-finite geometry`).toBe(true);
     }

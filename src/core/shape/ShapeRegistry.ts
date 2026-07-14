@@ -1,9 +1,30 @@
 import { CapabilityError, InvalidArgumentError } from '../errors.js';
 import { snapshotImmutableSet } from './immutableSet.js';
-import { shapeTypes, type ControlPointPolicy, type ShapeCapability, type ShapeDefinition, type ShapeState, type ShapeType } from './types.js';
+import {
+  shapeTypes,
+  type ControlPointPolicy,
+  type ShapeCapability,
+  type ShapeDefinition,
+  type ShapeEditTopology,
+  type ShapeFreehandPolicy,
+  type ShapeState,
+  type ShapeType
+} from './types.js';
 
 const canonicalShapeTypes: ReadonlySet<string> = new Set(shapeTypes);
-const canonicalCapabilities: ReadonlySet<string> = new Set<ShapeCapability>(['draw', 'edit', 'translate', 'rotate', 'scale', 'vertexEdit', 'anchor', 'path']);
+const canonicalCapabilities: ReadonlySet<string> = new Set<ShapeCapability>([
+  'draw',
+  'edit',
+  'translate',
+  'rotate',
+  'scale',
+  'vertexEdit',
+  'controlPointInsert',
+  'controlPointRemove',
+  'freehand',
+  'anchor',
+  'path'
+]);
 
 function ownDataSnapshot(input: unknown, label: string): Record<string, unknown> {
   if (input === null || typeof input !== 'object') throw new InvalidArgumentError(`${label} must be a plain object`);
@@ -25,15 +46,15 @@ function requiredValue(record: Record<string, unknown>, key: string, label: stri
   return record[key];
 }
 
-function requiredFunction(record: Record<string, unknown>, key: string): (...args: never[]) => unknown {
-  const value = requiredValue(record, key, 'Shape definition');
-  if (typeof value !== 'function') throw new InvalidArgumentError(`Shape definition ${key} must be a function`);
+function requiredFunction(record: Record<string, unknown>, key: string, label = 'Shape definition'): (...args: never[]) => unknown {
+  const value = requiredValue(record, key, label);
+  if (typeof value !== 'function') throw new InvalidArgumentError(`${label} ${key} must be a function`);
   return value as (...args: never[]) => unknown;
 }
 
-function optionalFunction(record: Record<string, unknown>, key: string): ((...args: never[]) => unknown) | undefined {
+function optionalFunction(record: Record<string, unknown>, key: string, label = 'Shape definition'): ((...args: never[]) => unknown) | undefined {
   if (!Object.prototype.hasOwnProperty.call(record, key) || record[key] === undefined) return undefined;
-  if (typeof record[key] !== 'function') throw new InvalidArgumentError(`Shape definition ${key} must be a function`);
+  if (typeof record[key] !== 'function') throw new InvalidArgumentError(`${label} ${key} must be a function`);
   return record[key] as (...args: never[]) => unknown;
 }
 
@@ -64,6 +85,52 @@ function parseCapability(value: unknown): ShapeCapability {
   return value as ShapeCapability;
 }
 
+function parseEditTopology<S extends ShapeState>(input: unknown): ShapeEditTopology<S> {
+  const record = ownDataSnapshot(input, 'Shape edit topology');
+  const insert = optionalFunction(record, 'insert', 'Shape edit topology');
+  const remove = optionalFunction(record, 'remove', 'Shape edit topology');
+  return Object.freeze({
+    describe: requiredFunction(record, 'describe', 'Shape edit topology'),
+    move: requiredFunction(record, 'move', 'Shape edit topology'),
+    ...(insert === undefined ? {} : { insert }),
+    ...(remove === undefined ? {} : { remove })
+  }) as unknown as ShapeEditTopology<S>;
+}
+
+function parseFreehandPolicy<S extends ShapeState>(input: unknown): ShapeFreehandPolicy<S> {
+  const record = ownDataSnapshot(input, 'Shape freehand policy');
+  return Object.freeze({
+    appendSample: requiredFunction(record, 'appendSample', 'Shape freehand policy'),
+    normalizeSamples: requiredFunction(record, 'normalizeSamples', 'Shape freehand policy')
+  }) as unknown as ShapeFreehandPolicy<S>;
+}
+
+function assertCapabilityContracts<S extends ShapeState>(
+  capabilities: ReadonlySet<ShapeCapability>,
+  editTopology?: ShapeEditTopology<S>,
+  freehand?: ShapeFreehandPolicy<S>
+): void {
+  const requireExact = (capability: ShapeCapability, implemented: boolean): void => {
+    if (capabilities.has(capability) !== implemented) {
+      throw new InvalidArgumentError(`Shape capability ${capability} must match its semantic operation`);
+    }
+  };
+
+  requireExact('vertexEdit', editTopology !== undefined);
+  requireExact('controlPointInsert', editTopology?.insert !== undefined);
+  requireExact('controlPointRemove', editTopology?.remove !== undefined);
+  requireExact('freehand', freehand !== undefined);
+  if (capabilities.has('vertexEdit') && !capabilities.has('edit')) {
+    throw new InvalidArgumentError('Vertex-edit capability requires edit capability');
+  }
+  if ((capabilities.has('controlPointInsert') || capabilities.has('controlPointRemove')) && !capabilities.has('edit')) {
+    throw new InvalidArgumentError('Structural control-point capabilities require edit capability');
+  }
+  if (capabilities.has('freehand') && !capabilities.has('draw')) {
+    throw new InvalidArgumentError('Freehand capability requires draw capability');
+  }
+}
+
 function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>): ShapeDefinition<S> {
   const record = ownDataSnapshot(definition, 'Shape definition');
   const rawType = requiredValue(record, 'type', 'Shape definition');
@@ -74,20 +141,23 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
     Object.prototype.hasOwnProperty.call(record, 'controlPointPolicy') && record.controlPointPolicy !== undefined
       ? parsePolicy(record.controlPointPolicy)
       : undefined;
-  const finalize = optionalFunction(record, 'finalize');
-  const getControlPoints = optionalFunction(record, 'getControlPoints');
-  const updateControlPoint = optionalFunction(record, 'updateControlPoint');
+  const editTopology =
+    Object.prototype.hasOwnProperty.call(record, 'editTopology') && record.editTopology !== undefined ? parseEditTopology<S>(record.editTopology) : undefined;
+  const freehand =
+    Object.prototype.hasOwnProperty.call(record, 'freehand') && record.freehand !== undefined ? parseFreehandPolicy<S>(record.freehand) : undefined;
+  assertCapabilityContracts(capabilities, editTopology, freehand);
   const snapshot = {
     type,
     capabilities,
     ...(policy === undefined ? {} : { controlPointPolicy: policy }),
+    ...(editTopology === undefined ? {} : { editTopology }),
+    ...(freehand === undefined ? {} : { freehand }),
+    createDraft: requiredFunction(record, 'createDraft'),
     normalize: requiredFunction(record, 'normalize'),
     clone: requiredFunction(record, 'clone'),
     isComplete: requiredFunction(record, 'isComplete'),
-    ...(finalize === undefined ? {} : { finalize }),
-    toRenderGeometry: requiredFunction(record, 'toRenderGeometry'),
-    ...(getControlPoints === undefined ? {} : { getControlPoints }),
-    ...(updateControlPoint === undefined ? {} : { updateControlPoint })
+    tryComplete: requiredFunction(record, 'tryComplete'),
+    toRenderGeometry: requiredFunction(record, 'toRenderGeometry')
   } as unknown as ShapeDefinition<S>;
   return Object.freeze(snapshot);
 }

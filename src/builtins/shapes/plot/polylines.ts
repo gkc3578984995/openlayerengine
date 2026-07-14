@@ -1,7 +1,15 @@
 import { InvalidArgumentError } from '../../../core/errors.js';
 import type { Coordinate } from '../../../core/common/types.js';
 import type { ShapeDefinition } from '../../../core/shape/types.js';
-import { cloneCoordinate, coordinatesEqual, createControlPointDefinition, pathCapabilities, requireNonCollinear, requireSeparated } from '../definition.js';
+import {
+  cloneCoordinate,
+  coordinatesEqual,
+  createControlPointDefinition,
+  pathCapabilities,
+  requireNonCollinear,
+  requireSeparated,
+  structuralPathCapabilities
+} from '../definition.js';
 import { arcPoints, assertFinitePoints, azimuth, circleCenter, curvePoints, distance, isClockWise } from './math.js';
 
 function validatePlotPoints(points: readonly Coordinate[]): void {
@@ -44,6 +52,7 @@ const lunePolylineDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
+  autoFinish: 3,
   capabilities: pathCapabilities,
   validate: (points) => {
     validatePlotPoints(points);
@@ -60,7 +69,8 @@ const curvePolylineDefinition = createControlPointDefinition({
   type: 'curve-polyline',
   previewMin: 2,
   completeMin: 2,
-  capabilities: pathCapabilities,
+  capabilities: structuralPathCapabilities,
+  topology: 'open',
   validate: (points) => {
     validatePlotPoints(points);
     validateGeneratedPath(points, curvePolyline);

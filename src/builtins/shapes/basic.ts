@@ -6,11 +6,13 @@ import {
   cloneCoordinate,
   closeRing,
   createControlPointDefinition,
+  freehandPolygonCapabilities,
+  freehandPolylineCapabilities,
   getOwnDataValue,
   getPlainDataRecord,
   nonRotatingEditableCapabilities,
   normalizeCoordinate,
-  pathCapabilities,
+  normalizeCoordinateArray,
   pointCapabilities,
   requireNonZeroPlanarArea,
   requireSeparated
@@ -21,6 +23,7 @@ const pointDefinition = createControlPointDefinition({
   previewMin: 1,
   completeMin: 1,
   completeMax: 1,
+  autoFinish: 1,
   capabilities: pointCapabilities,
   render: (points) => ({ type: 'point', coordinates: cloneCoordinate(points[0]) })
 });
@@ -29,7 +32,9 @@ const polylineDefinition = createControlPointDefinition({
   type: 'polyline',
   previewMin: 2,
   completeMin: 2,
-  capabilities: pathCapabilities,
+  capabilities: freehandPolylineCapabilities,
+  topology: 'open',
+  freehand: true,
   render: (points) => ({ type: 'polyline', coordinates: points.map(cloneCoordinate) })
 });
 
@@ -37,6 +42,9 @@ const polygonDefinition = createControlPointDefinition({
   type: 'polygon',
   previewMin: 2,
   completeMin: 3,
+  capabilities: freehandPolygonCapabilities,
+  topology: 'closed',
+  freehand: true,
   validate: (points) => {
     requireNonZeroPlanarArea(points, 'Polygon control points must enclose a non-zero area');
   },
@@ -127,59 +135,88 @@ function createCircleRadiusHandle(center: Coordinate, radius: number): Coordinat
   throw new InvalidArgumentError('Circle has no stable canonical radius handle at this center');
 }
 
+function createCircleDraft(controlPoints: readonly Coordinate[]): ShapeState<'circle'> | undefined {
+  const points = normalizeCoordinateArray(controlPoints, 'circle control points');
+  if (points.length < 2) return undefined;
+  if (points.length > 2) throw new InvalidArgumentError('Circle accepts exactly two control points');
+  const [center, radiusPoint] = points;
+  if (center.length !== radiusPoint.length) throw new InvalidArgumentError('Circle control points must use a uniform dimension');
+  if (center.length === 3 && radiusPoint[2] !== center[2]) {
+    throw new InvalidArgumentError('Circle radius control point must remain on the center Z plane');
+  }
+  const deltaX = radiusPoint[0] - center[0];
+  const deltaY = radiusPoint[1] - center[1];
+  const radius = Math.hypot(deltaX, deltaY);
+  if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY) || !Number.isFinite(radius)) {
+    throw new InvalidArgumentError('Circle radius exceeds the finite numeric range');
+  }
+  return normalizeCircle({ type: 'circle', center, radius });
+}
+
+function moveCircleControlPoint(state: ShapeState<'circle'>, index: number, coordinate: Coordinate): ShapeState<'circle'> {
+  const normalized = normalizeCircle(state);
+  const replacement = normalizeCoordinate(coordinate);
+  if (replacement.length !== normalized.center.length) throw new InvalidArgumentError('Circle control points must preserve the center dimension');
+  if (index === 0) {
+    createCircleRadiusHandle(replacement, normalized.radius);
+    return { type: 'circle', center: replacement, radius: normalized.radius };
+  }
+  if (index === 1) {
+    if (normalized.center.length === 3 && replacement[2] !== normalized.center[2]) {
+      throw new InvalidArgumentError('Circle radius control point must remain on the center Z plane');
+    }
+    try {
+      const currentHandle = createCircleRadiusHandle(normalized.center, normalized.radius);
+      if (currentHandle[0] === replacement[0] && currentHandle[1] === replacement[1]) return normalized;
+    } catch (error) {
+      if (!(error instanceof InvalidArgumentError)) throw error;
+    }
+    const deltaX = replacement[0] - normalized.center[0];
+    const deltaY = replacement[1] - normalized.center[1];
+    const radius = Math.hypot(deltaX, deltaY);
+    if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY) || !Number.isFinite(radius)) {
+      throw new InvalidArgumentError('Circle radius exceeds the finite numeric range');
+    }
+    createCircleRadiusHandle(normalized.center, radius);
+    return normalizeCircle({
+      type: 'circle',
+      center: cloneCoordinate(normalized.center),
+      radius
+    });
+  }
+  throw new InvalidArgumentError(`Control-point index is out of range: ${index}`);
+}
+
 const circleDefinition = Object.freeze<ShapeDefinition<ShapeState<'circle'>>>({
   type: 'circle',
   capabilities: nonRotatingEditableCapabilities,
-  controlPointPolicy: Object.freeze({ previewMin: 2, completeMin: 2, completeMax: 2 }),
+  controlPointPolicy: Object.freeze({ previewMin: 2, completeMin: 2, completeMax: 2, autoFinish: 2 }),
+  editTopology: Object.freeze({
+    describe: (state: ShapeState<'circle'>) => {
+      const normalized = normalizeCircle(state);
+      return {
+        handles: [
+          { index: 0, coordinate: cloneCoordinate(normalized.center), role: 'center', removable: false },
+          { index: 1, coordinate: createCircleRadiusHandle(normalized.center, normalized.radius), role: 'radius', removable: false }
+        ],
+        insertions: []
+      };
+    },
+    move: moveCircleControlPoint
+  }),
+  createDraft: createCircleDraft,
   normalize: normalizeCircle,
   clone: (state) => normalizeCircle(state),
   isComplete: (state) => {
     normalizeCircle(state);
     return true;
   },
-  finalize: (state) => normalizeCircle(state),
+  tryComplete: (state) => ({ status: 'complete', state: normalizeCircle(state) }),
   toRenderGeometry: (state) => {
     const normalized = normalizeCircle(state);
     const geometry = { type: 'circle' as const, center: cloneCoordinate(normalized.center), radius: normalized.radius };
     assertFiniteRenderGeometry(geometry);
     return geometry;
-  },
-  getControlPoints: (state) => {
-    const normalized = normalizeCircle(state);
-    return [cloneCoordinate(normalized.center), createCircleRadiusHandle(normalized.center, normalized.radius)];
-  },
-  updateControlPoint: (state, index, coordinate) => {
-    const normalized = normalizeCircle(state);
-    const replacement = normalizeCoordinate(coordinate);
-    if (replacement.length !== normalized.center.length) throw new InvalidArgumentError('Circle control points must preserve the center dimension');
-    if (index === 0) {
-      createCircleRadiusHandle(replacement, normalized.radius);
-      return { type: 'circle', center: replacement, radius: normalized.radius };
-    }
-    if (index === 1) {
-      if (normalized.center.length === 3 && replacement[2] !== normalized.center[2]) {
-        throw new InvalidArgumentError('Circle radius control point must remain on the center Z plane');
-      }
-      try {
-        const currentHandle = createCircleRadiusHandle(normalized.center, normalized.radius);
-        if (currentHandle[0] === replacement[0] && currentHandle[1] === replacement[1]) return normalized;
-      } catch (error) {
-        if (!(error instanceof InvalidArgumentError)) throw error;
-      }
-      const deltaX = replacement[0] - normalized.center[0];
-      const deltaY = replacement[1] - normalized.center[1];
-      const radius = Math.hypot(deltaX, deltaY);
-      if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY) || !Number.isFinite(radius)) {
-        throw new InvalidArgumentError('Circle radius exceeds the finite numeric range');
-      }
-      createCircleRadiusHandle(normalized.center, radius);
-      return normalizeCircle({
-        type: 'circle',
-        center: cloneCoordinate(normalized.center),
-        radius
-      });
-    }
-    throw new InvalidArgumentError(`Control-point index is out of range: ${index}`);
   }
 });
 
@@ -203,6 +240,7 @@ const ellipseDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
+  autoFinish: 2,
   coordinateDimension: 2,
   capabilities: nonRotatingEditableCapabilities,
   validate: (points) => {

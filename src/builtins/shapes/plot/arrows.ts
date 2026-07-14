@@ -12,7 +12,8 @@ import {
   haveSamePlanarDirection,
   requireNonCollinear,
   requireNonZeroPlanarArea,
-  requireSeparated
+  requireSeparated,
+  structuralEditableCapabilities
 } from '../definition.js';
 import {
   HALF_PI,
@@ -29,6 +30,7 @@ import {
 } from './math.js';
 
 const plotAreaCapabilities: ReadonlySet<ShapeCapability> = editableCapabilities;
+const plotStructuralAreaCapabilities: ReadonlySet<ShapeCapability> = structuralEditableCapabilities;
 
 interface ArrowFactors {
   readonly headHeight: number;
@@ -338,7 +340,8 @@ const attackArrowDefinition = createControlPointDefinition({
   type: 'attack-arrow',
   previewMin: 2,
   completeMin: 3,
-  capabilities: plotAreaCapabilities,
+  capabilities: plotStructuralAreaCapabilities,
+  topology: 'arrow',
   validate: (points) => {
     validateArrowPath(points);
     if (points.length >= 3) validateGeneratedArrow(points, attackArrow);
@@ -350,7 +353,8 @@ const tailedAttackArrowDefinition = createControlPointDefinition({
   type: 'tailed-attack-arrow',
   previewMin: 2,
   completeMin: 3,
-  capabilities: plotAreaCapabilities,
+  capabilities: plotStructuralAreaCapabilities,
+  topology: 'arrow',
   validate: (points) => {
     validateArrowPath(points);
     if (points.length >= 3) validateGeneratedArrow(points, tailedAttackArrow);
@@ -363,6 +367,7 @@ const fineArrowDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
+  autoFinish: 2,
   capabilities: plotAreaCapabilities,
   validate: (points) => validateFixedAreaArrow(points, (controlPoints) => fineArrow(controlPoints, fineArrowFactors)),
   render: polygonRender((points) => fineArrow(points, fineArrowFactors))
@@ -373,6 +378,7 @@ const tailedSquadCombatArrowDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
+  autoFinish: 2,
   capabilities: plotAreaCapabilities,
   validate: (points) =>
     validateFixedAreaArrow(points, (controlPoints) => {
@@ -387,6 +393,7 @@ const assaultDirectionArrowDefinition = createControlPointDefinition({
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
+  autoFinish: 2,
   capabilities: plotAreaCapabilities,
   validate: (points) => validateFixedAreaArrow(points, (controlPoints) => fineArrow(controlPoints, assaultDirectionArrowFactors)),
   render: polygonRender((points) => fineArrow(points, assaultDirectionArrowFactors))
@@ -407,13 +414,17 @@ const doubleArrowDefinition = createControlPointDefinition({
     if (points.length >= 3) validateGeneratedArrow(points, doubleArrow);
   },
   render: polygonRender(doubleArrow),
-  finalize: (state) => {
-    if (state.controlPoints.length !== 3 && state.controlPoints.length !== 4) return state;
+  complete: (state) => {
+    if (state.controlPoints.length < 3) return { status: 'incomplete' };
+    if (state.controlPoints.length !== 3 && state.controlPoints.length !== 4) return { status: 'complete', state };
     const points = state.controlPoints.map(cloneCoordinate);
     if (points.length === 3) points.push(temporaryFourthPoint(points[0], points[1], points[2]));
     return {
-      type: 'double-arrow',
-      controlPoints: [...points, midpoint(points[0], points[1])]
+      status: 'complete',
+      state: {
+        type: 'double-arrow',
+        controlPoints: [...points, midpoint(points[0], points[1])]
+      }
     };
   }
 });

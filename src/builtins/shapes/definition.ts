@@ -1,6 +1,16 @@
 import { InvalidArgumentError } from '../../core/errors.js';
 import type { Coordinate } from '../../core/common/types.js';
-import type { RenderGeometryState, ShapeCapability, ShapeDefinition, ShapeState, ShapeType } from '../../core/shape/types.js';
+import type {
+  ControlPointInsertion,
+  RenderGeometryState,
+  ShapeCapability,
+  ShapeCompletion,
+  ShapeDefinition,
+  ShapeEditTopology,
+  ShapeFreehandPolicy,
+  ShapeState,
+  ShapeType
+} from '../../core/shape/types.js';
 import { createImmutableSet } from '../../core/shape/immutableSet.js';
 
 export function immutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
@@ -9,6 +19,10 @@ export function immutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
 
 export const editableCapabilities = immutableSet<ShapeCapability>(['draw', 'edit', 'translate', 'rotate', 'scale', 'vertexEdit']);
 export const pathCapabilities = immutableSet<ShapeCapability>([...editableCapabilities, 'path']);
+export const structuralEditableCapabilities = immutableSet<ShapeCapability>([...editableCapabilities, 'controlPointInsert', 'controlPointRemove']);
+export const structuralPathCapabilities = immutableSet<ShapeCapability>([...structuralEditableCapabilities, 'path']);
+export const freehandPolylineCapabilities = immutableSet<ShapeCapability>([...structuralPathCapabilities, 'freehand']);
+export const freehandPolygonCapabilities = immutableSet<ShapeCapability>([...structuralEditableCapabilities, 'freehand']);
 export const pointCapabilities = immutableSet<ShapeCapability>([...editableCapabilities, 'anchor']);
 export const nonRotatingEditableCapabilities = immutableSet<ShapeCapability>(['draw', 'edit', 'translate', 'scale', 'vertexEdit']);
 
@@ -22,6 +36,11 @@ export function normalizeCoordinate(input: unknown, label = 'coordinate'): Coord
     throw new InvalidArgumentError(`${label} must contain two or three finite numbers`);
   }
   return values.length === 3 ? [values[0] as number, values[1] as number, values[2] as number] : [values[0] as number, values[1] as number];
+}
+
+export function normalizeCoordinateArray(input: unknown, label = 'coordinates'): Coordinate[] {
+  const values = readDensePlainArray(input, label);
+  return values.map((value, index) => normalizeCoordinate(value, `${label}[${index}]`));
 }
 
 export function coordinatesEqual(left: Coordinate, right: Coordinate): boolean {
@@ -143,6 +162,8 @@ export function haveSamePlanarDirection(origin: Coordinate, first: Coordinate, s
   return Math.abs(cross) <= tolerance && vectors.firstX * vectors.secondX + vectors.firstY * vectors.secondY > 0;
 }
 
+type ControlPointTopologyMode = 'fixed' | 'open' | 'closed' | 'arrow';
+
 interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> {
   readonly type: T;
   readonly previewMin: number;
@@ -151,9 +172,11 @@ interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> 
   readonly autoFinish?: number;
   readonly coordinateDimension?: 2 | 3;
   readonly capabilities?: ReadonlySet<ShapeCapability>;
+  readonly topology?: ControlPointTopologyMode;
+  readonly freehand?: boolean;
   readonly validate?: (points: readonly Coordinate[]) => void;
   readonly render: (points: readonly Coordinate[]) => RenderGeometryState;
-  readonly finalize?: (state: ShapeState<T>) => ShapeState<T>;
+  readonly complete?: (state: ShapeState<T>) => ShapeCompletion<ShapeState<T>>;
 }
 
 export function getPlainDataRecord(input: unknown, label = 'Shape state'): object {
@@ -234,6 +257,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
   options: ControlPointDefinitionOptions<T>
 ): ShapeDefinition<ShapeState<T>> {
   const hasCompleteCount = (count: number): boolean => count >= options.completeMin && (options.completeMax === undefined || count <= options.completeMax);
+  const topologyMode = options.topology ?? 'fixed';
 
   const normalize = (input: unknown): ShapeState<T> => {
     const record = getPlainDataRecord(input);
@@ -254,6 +278,183 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     return { type: options.type, controlPoints: points } as unknown as ShapeState<T>;
   };
 
+  const createDraft = (controlPoints: readonly Coordinate[]): ShapeState<T> | undefined => {
+    const points = normalizeCoordinateArray(controlPoints, 'controlPoints');
+    if (points.length < options.previewMin) return undefined;
+    return normalize({ type: options.type, controlPoints: points });
+  };
+
+  const move = (state: ShapeState<T>, index: number, coordinate: Coordinate): ShapeState<T> => {
+    const normalized = normalize(state);
+    if (!Number.isInteger(index) || index < 0 || index >= normalized.controlPoints.length) {
+      throw new InvalidArgumentError(`Control-point index is out of range: ${index}`);
+    }
+    const points = normalized.controlPoints.map(cloneCoordinate);
+    points[index] = normalizeCoordinate(coordinate);
+    return normalize({ type: options.type, controlPoints: points });
+  };
+
+  const midpointCoordinate = (left: Coordinate, right: Coordinate): Coordinate => {
+    if (left.length !== right.length) throw new InvalidArgumentError(`${options.type} control-point topology requires uniform dimensions`);
+    const component = (leftValue: number, rightValue: number): number => {
+      const direct = (leftValue + rightValue) / 2;
+      const value = Number.isFinite(direct) ? direct : leftValue / 2 + rightValue / 2;
+      if (!Number.isFinite(value)) throw new InvalidArgumentError(`${options.type} insertion midpoint exceeds the finite numeric range`);
+      return value;
+    };
+    return left.length === 3 && right.length === 3
+      ? [component(left[0], right[0]), component(left[1], right[1]), component(left[2], right[2])]
+      : [component(left[0], right[0]), component(left[1], right[1])];
+  };
+
+  const createInsertionCandidate = (index: number, left: Coordinate, right: Coordinate): ControlPointInsertion | undefined => {
+    const coordinate = midpointCoordinate(left, right);
+    if (coordinatesEqual(coordinate, left) || coordinatesEqual(coordinate, right)) return undefined;
+    return { index, coordinate };
+  };
+
+  const rawInsertionCandidates = (points: readonly Coordinate[]): readonly ControlPointInsertion[] => {
+    if (topologyMode === 'fixed') return [];
+    if (topologyMode === 'arrow') {
+      if (points.length < 3) return [];
+      const tailCenter = midpointCoordinate(points[0], points[1]);
+      const insertions: ControlPointInsertion[] = [];
+      for (let index = 2; index < points.length; index += 1) {
+        const candidate = createInsertionCandidate(index, index === 2 ? tailCenter : points[index - 1], points[index]);
+        if (candidate !== undefined) insertions.push(candidate);
+      }
+      return insertions;
+    }
+
+    const insertions: ControlPointInsertion[] = [];
+    for (let index = 1; index < points.length; index += 1) {
+      const candidate = createInsertionCandidate(index, points[index - 1], points[index]);
+      if (candidate !== undefined) insertions.push(candidate);
+    }
+    if (topologyMode === 'closed' && points.length >= 3) {
+      const candidate = createInsertionCandidate(points.length, points[points.length - 1], points[0]);
+      if (candidate !== undefined) insertions.push(candidate);
+    }
+    return insertions;
+  };
+
+  const isStructurallyRemovable = (count: number, index: number): boolean => {
+    if (topologyMode === 'fixed' || count <= options.completeMin) return false;
+    return topologyMode !== 'arrow' || index >= 2;
+  };
+
+  const insertControlPoint = (points: readonly Coordinate[], index: number, coordinate: Coordinate): ShapeState<T> => {
+    const result = points.map(cloneCoordinate);
+    result.splice(index, 0, normalizeCoordinate(coordinate));
+    return normalize({ type: options.type, controlPoints: result });
+  };
+
+  const insertionCandidates = (points: readonly Coordinate[]): readonly ControlPointInsertion[] =>
+    rawInsertionCandidates(points).filter((candidate) => {
+      try {
+        insertControlPoint(points, candidate.index, candidate.coordinate);
+        return true;
+      } catch (error) {
+        if (error instanceof InvalidArgumentError) return false;
+        throw error;
+      }
+    });
+
+  const removableState = (points: readonly Coordinate[], index: number): ShapeState<T> | undefined => {
+    if (!Number.isInteger(index) || index < 0 || index >= points.length || !isStructurallyRemovable(points.length, index)) return undefined;
+    const result = points.map(cloneCoordinate);
+    result.splice(index, 1);
+    try {
+      const normalized = normalize({ type: options.type, controlPoints: result });
+      return hasCompleteCount(normalized.controlPoints.length) ? normalized : undefined;
+    } catch (error) {
+      if (error instanceof InvalidArgumentError) return undefined;
+      throw error;
+    }
+  };
+
+  const editTopology: ShapeEditTopology<ShapeState<T>> = {
+    describe: (state) => {
+      const normalized = normalize(state);
+      return {
+        handles: normalized.controlPoints.map((coordinate, index) => ({
+          index,
+          coordinate: cloneCoordinate(coordinate),
+          role: topologyMode === 'arrow' && index < 2 ? 'tail' : 'control',
+          removable: removableState(normalized.controlPoints, index) !== undefined
+        })),
+        insertions: insertionCandidates(normalized.controlPoints).map(({ index, coordinate }) => ({ index, coordinate: cloneCoordinate(coordinate) }))
+      };
+    },
+    move,
+    ...(topologyMode === 'fixed'
+      ? {}
+      : {
+          insert: (state: ShapeState<T>, index: number, coordinate: Coordinate): ShapeState<T> => {
+            const normalized = normalize(state);
+            if (!Number.isInteger(index) || !insertionCandidates(normalized.controlPoints).some((candidate) => candidate.index === index)) {
+              throw new InvalidArgumentError(`Control-point insertion index is unavailable: ${index}`);
+            }
+            return insertControlPoint(normalized.controlPoints, index, coordinate);
+          },
+          remove: (state: ShapeState<T>, index: number): ShapeState<T> => {
+            const normalized = normalize(state);
+            const result = removableState(normalized.controlPoints, index);
+            if (result === undefined) throw new InvalidArgumentError(`Control point cannot be removed: ${index}`);
+            return result;
+          }
+        })
+  };
+
+  const tryComplete = (state: ShapeState<T>): ShapeCompletion<ShapeState<T>> => {
+    const normalized = normalize(state);
+    const outcome =
+      options.complete?.(normalized) ??
+      (hasCompleteCount(normalized.controlPoints.length) ? { status: 'complete', state: normalized } : { status: 'incomplete' });
+    if (outcome.status === 'incomplete') return { status: 'incomplete' };
+    if (outcome.status !== 'complete') throw new InvalidArgumentError(`${options.type} completion returned an unsupported status`);
+    const completed = normalize(outcome.state);
+    if (!hasCompleteCount(completed.controlPoints.length)) throw new InvalidArgumentError(`${options.type} completion returned an incomplete state`);
+    return { status: 'complete', state: completed };
+  };
+
+  const normalizeFreehandSamples = (samples: readonly Coordinate[]): Coordinate[] => {
+    const normalized = normalizeCoordinateArray(samples, 'freehand samples');
+    const dimension = normalized[0]?.length;
+    if (dimension !== undefined && normalized.some((sample) => sample.length !== dimension)) {
+      throw new InvalidArgumentError(`${options.type} freehand samples must use a uniform dimension`);
+    }
+    return normalized;
+  };
+
+  const freehand: ShapeFreehandPolicy<ShapeState<T>> | undefined = options.freehand
+    ? {
+        appendSample: (samples, coordinate) => {
+          const normalizedSamples = normalizeFreehandSamples(samples);
+          const next = normalizeCoordinate(coordinate, 'freehand sample');
+          const dimension = normalizedSamples[0]?.length ?? next.length;
+          if (next.length !== dimension) {
+            throw new InvalidArgumentError(`${options.type} freehand samples must use a uniform dimension`);
+          }
+          if (normalizedSamples.length === 0 || !coordinatesEqual(normalizedSamples[normalizedSamples.length - 1], next)) normalizedSamples.push(next);
+          return normalizedSamples;
+        },
+        normalizeSamples: (samples, phase) => {
+          if (phase !== 'preview' && phase !== 'complete') throw new InvalidArgumentError(`Unknown freehand phase: ${String(phase)}`);
+          const normalizedSamples = normalizeFreehandSamples(samples);
+          try {
+            const draft = createDraft(normalizedSamples);
+            if (draft === undefined || phase === 'preview') return draft;
+            const completion = tryComplete(draft);
+            return completion.status === 'complete' ? completion.state : undefined;
+          } catch (error) {
+            if (error instanceof InvalidArgumentError) return undefined;
+            throw error;
+          }
+        }
+      }
+    : undefined;
+
   const definition: ShapeDefinition<ShapeState<T>> = {
     type: options.type,
     capabilities: options.capabilities ?? editableCapabilities,
@@ -263,29 +464,17 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
       ...(options.completeMax === undefined ? {} : { completeMax: options.completeMax }),
       ...(options.autoFinish === undefined ? {} : { autoFinish: options.autoFinish })
     }),
+    editTopology: Object.freeze(editTopology),
+    ...(freehand === undefined ? {} : { freehand: Object.freeze(freehand) }),
+    createDraft,
     normalize,
     clone: (state) => normalize(state),
     isComplete: (state) => hasCompleteCount(normalize(state).controlPoints.length),
-    finalize: (state) => {
-      const normalized = normalize(state);
-      const finalized = normalize(options.finalize === undefined ? normalized : options.finalize(normalized));
-      if (!hasCompleteCount(finalized.controlPoints.length)) throw new InvalidArgumentError(`${options.type} is not complete`);
-      return finalized;
-    },
+    tryComplete,
     toRenderGeometry: (state) => {
       const geometry = options.render(normalize(state).controlPoints);
       assertFiniteRenderGeometry(geometry);
       return geometry;
-    },
-    getControlPoints: (state) => normalize(state).controlPoints,
-    updateControlPoint: (state, index, coordinate) => {
-      const normalized = normalize(state);
-      if (!Number.isInteger(index) || index < 0 || index >= normalized.controlPoints.length) {
-        throw new InvalidArgumentError(`Control-point index is out of range: ${index}`);
-      }
-      const points = normalized.controlPoints.map(cloneCoordinate);
-      points[index] = normalizeCoordinate(coordinate);
-      return normalize({ type: options.type, controlPoints: points });
     }
   };
 

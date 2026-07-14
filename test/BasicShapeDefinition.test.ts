@@ -11,17 +11,17 @@ function definition<T extends ShapeType>(type: T): ShapeDefinition<ShapeState<T>
 }
 
 describe('basic shape definitions', () => {
-  it('rejects a custom finalizer result that remains incomplete', () => {
+  it('rejects a custom complete outcome that remains incomplete', () => {
     const shape = createControlPointDefinition({
       type: 'polyline',
       previewMin: 1,
       completeMin: 2,
       render: (points) => ({ type: 'polyline', coordinates: points }),
-      finalize: (state) => state
+      complete: (state) => ({ status: 'complete', state })
     });
     const preview = shape.normalize({ type: 'polyline', controlPoints: [[0, 0]] });
 
-    expect(() => shape.finalize?.(preview)).toThrow(InvalidArgumentError);
+    expect(() => shape.tryComplete(preview)).toThrow(InvalidArgumentError);
   });
 
   it('normalize validates and copies coordinates without mutating caller data', () => {
@@ -288,7 +288,7 @@ describe('basic shape definitions', () => {
     }
   });
 
-  it('clone creates independent coordinates and updateControlPoint leaves the source unchanged', () => {
+  it('clone creates independent coordinates and topology move leaves the source unchanged', () => {
     const polygon = definition('polygon');
     const state = polygon.normalize({
       type: 'polygon',
@@ -299,7 +299,7 @@ describe('basic shape definitions', () => {
       ]
     });
     const cloned = polygon.clone(state);
-    const updated = polygon.updateControlPoint?.(state, 1, [5, 1]);
+    const updated = polygon.editTopology?.move(state, 1, [5, 1]);
 
     expect(cloned).toEqual(state);
     expect(cloned).not.toBe(state);
@@ -386,34 +386,36 @@ describe('basic shape definitions', () => {
     const state = circle.normalize({ type: 'circle', center: [2, 3], radius: 4 });
 
     expect('controlPoints' in state).toBe(false);
-    expect(circle.getControlPoints?.(state)).toEqual([
+    expect(circle.editTopology?.describe(state).handles.map(({ coordinate }) => coordinate)).toEqual([
       [2, 3],
       [6, 3]
     ]);
-    expect(circle.updateControlPoint?.(state, 0, [7, 8])).toEqual({ type: 'circle', center: [7, 8], radius: 4 });
-    expect(circle.updateControlPoint?.(state, 1, [2, 8])).toEqual({ type: 'circle', center: [2, 3], radius: 5 });
+    expect(circle.editTopology?.move(state, 0, [7, 8])).toEqual({ type: 'circle', center: [7, 8], radius: 4 });
+    expect(circle.editTopology?.move(state, 1, [2, 8])).toEqual({ type: 'circle', center: [2, 3], radius: 5 });
   });
 
   it('keeps circle methods detached-safe and preserves 3D handles', () => {
     const circle = definition('circle');
-    const { clone, finalize, getControlPoints, isComplete, toRenderGeometry, updateControlPoint } = circle;
+    const { clone, editTopology, isComplete, toRenderGeometry, tryComplete } = circle;
+    if (editTopology === undefined) throw new Error('Expected circle edit topology');
+    const { describe, move } = editTopology;
     const state = circle.normalize({ type: 'circle', center: [2, 3, 9], radius: 4 });
 
-    expect(circle.controlPointPolicy).toEqual({ previewMin: 2, completeMin: 2, completeMax: 2 });
+    expect(circle.controlPointPolicy).toEqual({ previewMin: 2, completeMin: 2, completeMax: 2, autoFinish: 2 });
     expect(clone(state)).toEqual(state);
     expect(isComplete(state)).toBe(true);
-    expect(finalize?.(state)).toEqual(state);
+    expect(tryComplete(state)).toEqual({ status: 'complete', state });
     expect(toRenderGeometry(state)).toEqual({ type: 'circle', center: [2, 3, 9], radius: 4 });
-    expect(getControlPoints?.(state)).toEqual([
+    expect(describe(state).handles.map(({ coordinate }) => coordinate)).toEqual([
       [2, 3, 9],
       [6, 3, 9]
     ]);
-    expect(updateControlPoint?.(state, 0, [7, 8, 9])).toEqual({ type: 'circle', center: [7, 8, 9], radius: 4 });
-    expect(updateControlPoint?.(state, 1, [2, 8, 9])).toEqual({ type: 'circle', center: [2, 3, 9], radius: 5 });
-    expect(() => updateControlPoint?.(state, 1, [2, 8, 99])).toThrow(InvalidArgumentError);
+    expect(move(state, 0, [7, 8, 9])).toEqual({ type: 'circle', center: [7, 8, 9], radius: 4 });
+    expect(move(state, 1, [2, 8, 9])).toEqual({ type: 'circle', center: [2, 3, 9], radius: 5 });
+    expect(() => move(state, 1, [2, 8, 99])).toThrow(InvalidArgumentError);
 
     const zero = circle.normalize({ type: 'circle', center: [2, 3, 9], radius: 0 });
-    expect(getControlPoints?.(zero)).toEqual([
+    expect(describe(zero).handles.map(({ coordinate }) => coordinate)).toEqual([
       [2, 3, 9],
       [2, 3, 9]
     ]);
@@ -424,33 +426,33 @@ describe('basic shape definitions', () => {
     const maximum = Number.MAX_VALUE;
     const state = circle.normalize({ type: 'circle', center: [maximum, maximum, maximum], radius: maximum });
     const geometry = circle.toRenderGeometry(state);
-    const handles = circle.getControlPoints?.(state);
+    const handles = circle.editTopology?.describe(state).handles.map(({ coordinate }) => coordinate);
 
     expect(geometry.type).toBe('circle');
     expect(geometry.type === 'circle' && geometry.center.every(Number.isFinite) && Number.isFinite(geometry.radius)).toBe(true);
     expect(handles?.every((coordinate) => coordinate.every(Number.isFinite))).toBe(true);
-    expect(() => circle.updateControlPoint?.(state, 1, [-maximum, maximum, maximum])).toThrow(InvalidArgumentError);
+    expect(() => circle.editTopology?.move(state, 1, [-maximum, maximum, maximum])).toThrow(InvalidArgumentError);
   });
 
   it('chooses a representable radius-handle direction at extreme circle centers', () => {
     const circle = definition('circle');
     const state = circle.normalize({ type: 'circle', center: [Number.MAX_VALUE, 0], radius: 1 });
-    const handles = circle.getControlPoints?.(state);
+    const handles = circle.editTopology?.describe(state).handles.map(({ coordinate }) => coordinate);
     if (handles === undefined) throw new Error('Expected circle control points');
 
     expect(handles[1]).not.toEqual(handles[0]);
     expect(Math.hypot(handles[1][0] - handles[0][0], handles[1][1] - handles[0][1])).toBe(1);
-    expect(circle.updateControlPoint?.(state, 1, handles[1])).toEqual(state);
+    expect(circle.editTopology?.move(state, 1, handles[1])).toEqual(state);
 
     const unrepresentable = circle.normalize({ type: 'circle', center: [Number.MAX_VALUE, Number.MAX_VALUE], radius: 1 });
-    expect(() => circle.getControlPoints?.(unrepresentable)).toThrow(InvalidArgumentError);
+    expect(() => circle.editTopology?.describe(unrepresentable)).toThrow(InvalidArgumentError);
     const imprecise = circle.normalize({ type: 'circle', center: [1e16, 1e16], radius: 1.5 });
-    expect(() => circle.getControlPoints?.(imprecise)).toThrow(InvalidArgumentError);
+    expect(() => circle.editTopology?.describe(imprecise)).toThrow(InvalidArgumentError);
 
     const diagonal = circle.normalize({ type: 'circle', center: [1e16, 1e16], radius: Math.hypot(2, 2) });
-    const diagonalHandles = circle.getControlPoints?.(diagonal);
+    const diagonalHandles = circle.editTopology?.describe(diagonal).handles.map(({ coordinate }) => coordinate);
     if (diagonalHandles === undefined) throw new Error('Expected diagonal circle control points');
-    expect(circle.updateControlPoint?.(diagonal, 1, diagonalHandles[1])).toEqual(diagonal);
+    expect(circle.editTopology?.move(diagonal, 1, diagonalHandles[1])).toEqual(diagonal);
 
     for (const [deltaX, deltaY] of [
       [4, 2],
@@ -459,9 +461,9 @@ describe('basic shape definitions', () => {
       [8, 4]
     ] as const) {
       const lattice = circle.normalize({ type: 'circle', center: [1e16, 1e16], radius: Math.hypot(deltaX, deltaY) });
-      const latticeHandles = circle.getControlPoints?.(lattice);
+      const latticeHandles = circle.editTopology?.describe(lattice).handles.map(({ coordinate }) => coordinate);
       if (latticeHandles === undefined) throw new Error('Expected lattice circle control points');
-      expect(circle.updateControlPoint?.(lattice, 1, latticeHandles[1])).toEqual(lattice);
+      expect(circle.editTopology?.move(lattice, 1, latticeHandles[1])).toEqual(lattice);
     }
   });
 
@@ -472,11 +474,11 @@ describe('basic shape definitions', () => {
 
     for (let deltaX = 2; deltaX <= 16; deltaX += 2) {
       for (let deltaY = 2; deltaY <= 16; deltaY += 2) {
-        const updated = circle.updateControlPoint?.(initial, 1, [center[0] + deltaX, center[1] + deltaY]);
+        const updated = circle.editTopology?.move(initial, 1, [center[0] + deltaX, center[1] + deltaY]);
         if (updated === undefined) throw new Error('Expected circle control-point updates');
-        const handles = circle.getControlPoints?.(updated);
+        const handles = circle.editTopology?.describe(updated).handles.map(({ coordinate }) => coordinate);
         if (handles === undefined) throw new Error('Expected canonical circle handles');
-        expect(circle.updateControlPoint?.(updated, 1, handles[1])).toEqual(updated);
+        expect(circle.editTopology?.move(updated, 1, handles[1])).toEqual(updated);
       }
     }
   });
@@ -485,7 +487,7 @@ describe('basic shape definitions', () => {
     const circle = definition('circle');
     const state = circle.normalize({ type: 'circle', center: [0, 0], radius: 1.5 });
 
-    expect(() => circle.updateControlPoint?.(state, 0, [1e16, 1e16])).toThrow(InvalidArgumentError);
+    expect(() => circle.editTopology?.move(state, 0, [1e16, 1e16])).toThrow(InvalidArgumentError);
   });
 
   it('renders extreme ellipses with finite coordinates using overflow-safe bounds', () => {
@@ -596,9 +598,9 @@ describe('basic shape definitions', () => {
       ]
     });
 
-    expect(() => polygon.updateControlPoint?.(state, -1, [1, 1])).toThrow(InvalidArgumentError);
-    expect(() => polygon.updateControlPoint?.(state, 3, [1, 1])).toThrow(InvalidArgumentError);
-    expect(() => polygon.updateControlPoint?.(state, 1, [Infinity, 1])).toThrow(InvalidArgumentError);
+    expect(() => polygon.editTopology?.move(state, -1, [1, 1])).toThrow(InvalidArgumentError);
+    expect(() => polygon.editTopology?.move(state, 3, [1, 1])).toThrow(InvalidArgumentError);
+    expect(() => polygon.editTopology?.move(state, 1, [Infinity, 1])).toThrow(InvalidArgumentError);
   });
 
   it('distinguishes renderable previews from complete canonical states', () => {
@@ -622,8 +624,8 @@ describe('basic shape definitions', () => {
     expect(polygon.controlPointPolicy).toEqual({ previewMin: 2, completeMin: 3 });
     expect(polygon.isComplete(preview)).toBe(false);
     expect(polygon.isComplete(complete)).toBe(true);
-    expect(() => polygon.finalize?.(preview)).toThrow(InvalidArgumentError);
-    expect(polygon.finalize?.(complete)).toEqual(complete);
+    expect(polygon.tryComplete(preview)).toEqual({ status: 'incomplete' });
+    expect(polygon.tryComplete(complete)).toEqual({ status: 'complete', state: complete });
   });
 
   it.each([

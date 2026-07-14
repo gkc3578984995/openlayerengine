@@ -22,11 +22,12 @@ export function createElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: El
 
   const definition = shapeRegistry.get(cloned.type);
   const normalized = definition.normalize(cloned.geometry);
-  const finalized = definition.finalize?.(normalized) ?? normalized;
-  const canonical = definition.normalize(finalized);
+  const completion = definition.tryComplete(normalized);
+  if (completion.status !== 'complete') throw new InvalidArgumentError(`Element geometry is incomplete: ${cloned.type}`);
+  const canonical = definition.normalize(completion.state);
   const geometry = definition.clone(canonical) as ShapeState;
   if (geometry.type !== cloned.type) throw new InvalidArgumentError('Shape definition returned a mismatched geometry type');
-  if (!definition.isComplete(geometry)) throw new InvalidArgumentError(`Element geometry is incomplete after finalization: ${cloned.type}`);
+  if (!definition.isComplete(geometry)) throw new InvalidArgumentError(`Element geometry is incomplete after completion: ${cloned.type}`);
 
   return freezeElementState(cloned, geometry);
 }

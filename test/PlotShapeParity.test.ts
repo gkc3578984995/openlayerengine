@@ -313,7 +313,7 @@ describe('plot shape parity', () => {
     expect(() => definition(type).normalize({ type, controlPoints })).toThrow(InvalidArgumentError);
   });
 
-  it('rejects a finalized double arrow whose generated complete state cannot render', () => {
+  it('rejects a completed double arrow whose generated canonical state cannot render', () => {
     const type = 'double-arrow';
     const shape = definition(type);
 
@@ -326,7 +326,7 @@ describe('plot shape parity', () => {
           [1.7976931348623137e308, 1.7976931348623137e308]
         ]
       });
-      shape.finalize(state);
+      shape.tryComplete(state);
     }).toThrow(InvalidArgumentError);
   });
 
@@ -573,16 +573,16 @@ describe('plot shape parity', () => {
         [2, 0]
       ]
     ]
-  ] as const)('%s renders preview state but refuses to finalize it', (type, controlPoints) => {
+  ] as const)('%s renders preview state but reports it incomplete', (type, controlPoints) => {
     const shape = definition(type);
     const preview = shape.normalize({ type, controlPoints });
 
     expect(shape.isComplete(preview)).toBe(false);
     expect(shape.toRenderGeometry(preview)).toBeDefined();
-    expect(() => shape.finalize?.(preview)).toThrow();
+    expect(shape.tryComplete(preview)).toEqual({ status: 'incomplete' });
   });
 
-  it('finalizes four clicked double-arrow points into the canonical five-point state', () => {
+  it('completes four clicked double-arrow points into the canonical five-point state', () => {
     const shape = definition('double-arrow');
     const preview = shape.normalize({
       type: 'double-arrow',
@@ -596,19 +596,22 @@ describe('plot shape parity', () => {
 
     expect(shape.controlPointPolicy).toEqual({ previewMin: 2, completeMin: 5, completeMax: 5, autoFinish: 4 });
     expect(shape.isComplete(preview)).toBe(false);
-    expect(shape.finalize?.(preview)).toEqual({
-      type: 'double-arrow',
-      controlPoints: [
-        [0, 0],
-        [4, 0],
-        [3, 3],
-        [1, 3],
-        [2, 0]
-      ]
+    expect(shape.tryComplete(preview)).toEqual({
+      status: 'complete',
+      state: {
+        type: 'double-arrow',
+        controlPoints: [
+          [0, 0],
+          [4, 0],
+          [3, 3],
+          [1, 3],
+          [2, 0]
+        ]
+      }
     });
   });
 
-  it('refuses to finalize an incomplete two-point double arrow', () => {
+  it('reports an incomplete two-point double arrow without throwing', () => {
     const shape = definition('double-arrow');
     const preview = shape.normalize({
       type: 'double-arrow',
@@ -629,10 +632,10 @@ describe('plot shape parity', () => {
         ]
       ]
     });
-    expect(() => shape.finalize?.(preview)).toThrow(InvalidArgumentError);
+    expect(shape.tryComplete(preview)).toEqual({ status: 'incomplete' });
   });
 
-  it('keeps an already canonical five-point double arrow complete when finalized', () => {
+  it('keeps an already canonical five-point double arrow complete', () => {
     const shape = definition('double-arrow');
     const state = shape.normalize({
       type: 'double-arrow',
@@ -646,10 +649,10 @@ describe('plot shape parity', () => {
     });
 
     expect(shape.isComplete(state)).toBe(true);
-    expect(shape.finalize?.(state)).toEqual(state);
+    expect(shape.tryComplete(state)).toEqual({ status: 'complete', state });
   });
 
-  it('finalizes a three-point double arrow after right-click into a canonical five-point state', () => {
+  it('completes a three-point double arrow after right-click into a canonical five-point state', () => {
     const shape = definition('double-arrow');
     const preview = shape.normalize({
       type: 'double-arrow',
@@ -659,12 +662,14 @@ describe('plot shape parity', () => {
         [3, 3]
       ]
     });
-    const finalized = shape.finalize?.(preview);
+    const completion = shape.tryComplete(preview);
 
-    expect(finalized?.controlPoints).toHaveLength(5);
-    expect(finalized?.controlPoints.slice(0, 3)).toEqual(preview.controlPoints);
-    expect(finalized?.controlPoints[4]).toEqual([2, 0]);
-    expect(finalized === undefined ? false : shape.isComplete(finalized)).toBe(true);
+    expect(completion.status).toBe('complete');
+    if (completion.status !== 'complete') throw new Error('Expected complete double arrow');
+    expect(completion.state.controlPoints).toHaveLength(5);
+    expect(completion.state.controlPoints.slice(0, 3)).toEqual(preview.controlPoints);
+    expect(completion.state.controlPoints[4]).toEqual([2, 0]);
+    expect(shape.isComplete(completion.state)).toBe(true);
   });
 
   it('clone and control-point updates remain independent for curved plot shapes', () => {
@@ -678,7 +683,7 @@ describe('plot shape parity', () => {
       ]
     });
     const clone = shape.clone(state);
-    const updated = shape.updateControlPoint?.(state, 1, [2, 5]);
+    const updated = shape.editTopology?.move(state, 1, [2, 5]);
 
     expect(clone.controlPoints[0]).not.toBe(state.controlPoints[0]);
     expect(updated?.controlPoints).toEqual([
@@ -1381,8 +1386,8 @@ describe('plot shape parity', () => {
       ]
     });
 
-    expect(() => shape.updateControlPoint?.(state, 2, [3, 2])).toThrow(InvalidArgumentError);
-    expect(() => shape.updateControlPoint?.(state, 1, [Infinity, 2])).toThrow(InvalidArgumentError);
+    expect(() => shape.editTopology?.move(state, 2, [3, 2])).toThrow(InvalidArgumentError);
+    expect(() => shape.editTopology?.move(state, 1, [Infinity, 2])).toThrow(InvalidArgumentError);
     expect(state.controlPoints).toEqual([
       [0, 0],
       [2, 1]

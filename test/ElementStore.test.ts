@@ -27,6 +27,87 @@ function pointElement(overrides: Partial<ElementState<{ label: string }>> = {}):
 }
 
 describe('ElementStore', () => {
+  it('tracks an opaque generation across updates and changes it only after remove plus re-add', () => {
+    const store = createStore();
+    const added = store.transaction((transaction) => transaction.add(pointElement()));
+    const firstGeneration = added.generation('point-1');
+    expect(firstGeneration).toBeDefined();
+    expect(store.generationOf('point-1')).toBe(firstGeneration);
+    expect(store.isGenerationCurrent('point-1', firstGeneration as never)).toBe(true);
+
+    store.update({ id: 'point-1' }, { visible: false });
+    expect(store.generationOf('point-1')).toBe(firstGeneration);
+
+    store.remove({ id: 'point-1' });
+    expect(store.generationOf('point-1')).toBeUndefined();
+    store.add(pointElement({ geometry: { type: 'point', controlPoints: [[30, 40]] } }));
+    const secondGeneration = store.generationOf('point-1');
+    expect(secondGeneration).toBeDefined();
+    expect(secondGeneration).not.toBe(firstGeneration);
+    expect(store.removeIfGeneration('point-1', firstGeneration as never)).toBe(false);
+    expect(store.get('point-1')).toBeDefined();
+    expect(store.removeIfGeneration('point-1', secondGeneration as never)).toBe(true);
+    expect(store.get('point-1')).toBeUndefined();
+  });
+
+  it('captures the committed generation before synchronous Store subscribers can replace the id', () => {
+    const store = createStore();
+    let replaced = false;
+    store.subscribe(({ changes }) => {
+      if (replaced || !changes.some((change) => change.kind === 'add' && change.id === 'point-1')) return;
+      replaced = true;
+      store.remove({ id: 'point-1' });
+      store.add(pointElement({ geometry: { type: 'point', controlPoints: [[90, 90]] } }));
+    });
+
+    const added = store.transaction((transaction) => transaction.add(pointElement()));
+
+    expect(added.generation('point-1')).toBeDefined();
+    expect(store.isGenerationCurrent('point-1', added.generation('point-1') as never)).toBe(false);
+    expect(store.get('point-1')?.geometry).toEqual({ type: 'point', controlPoints: [[90, 90]] });
+  });
+
+  it('preserves the generation when remove plus add is folded into one atomic update', () => {
+    const store = createStore();
+    store.add(pointElement());
+    const generation = store.generationOf('point-1');
+
+    const replaced = store.transaction((transaction) => {
+      transaction.remove({ id: 'point-1' });
+      return transaction.add(pointElement({ geometry: { type: 'point', controlPoints: [[70, 80]] } }));
+    });
+
+    expect(replaced.changes.changes).toMatchObject([{ kind: 'update', id: 'point-1' }]);
+    expect(replaced.generation('point-1')).toBe(generation);
+    expect(store.generationOf('point-1')).toBe(generation);
+  });
+
+  it('advances the opaque revision for every committed content change without changing the generation', () => {
+    const store = createStore();
+    store.add(pointElement());
+    const generation = store.generationOf('point-1');
+    const addedRevision = store.revisionOf('point-1');
+
+    store.update({ id: 'point-1' }, { visible: false });
+    const updatedRevision = store.revisionOf('point-1');
+    expect(updatedRevision).toBeDefined();
+    expect(updatedRevision).not.toBe(addedRevision);
+    expect(store.generationOf('point-1')).toBe(generation);
+
+    // 同一事务内 remove+add 会折叠为一次内容更新：generation 保持，revision 必须继续前进。
+    store.transaction((transaction) => {
+      transaction.remove({ id: 'point-1' });
+      transaction.add(pointElement({ geometry: { type: 'point', controlPoints: [[70, 80]] } }));
+    });
+    const replacedRevision = store.revisionOf('point-1');
+    expect(replacedRevision).toBeDefined();
+    expect(replacedRevision).not.toBe(updatedRevision);
+    expect(store.generationOf('point-1')).toBe(generation);
+
+    store.remove({ id: 'point-1' });
+    expect(store.revisionOf('point-1')).toBeUndefined();
+  });
+
   it('adds a normalized isolated state and retrieves an isolated snapshot by id', () => {
     const store = createStore();
     const input = pointElement();
@@ -135,7 +216,7 @@ describe('ElementStore', () => {
     expect(() => store.update({ id: 'missing' }, { animation: { type: 'blink' } } as never)).toThrow(InvalidArgumentError);
   });
 
-  it('persists finalized canonical geometry and rejects a finalizer result that remains incomplete', () => {
+  it('persists completed canonical geometry and rejects a complete outcome that remains incomplete', () => {
     const plotStore = new ElementStore(new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]));
     const doubleArrow = plotStore.add({
       id: 'double-arrow-1',
@@ -158,10 +239,11 @@ describe('ElementStore', () => {
     const incompleteFinalizer: ShapeDefinition<ShapeState<'point'>> = {
       type: 'point',
       capabilities: new Set(),
+      createDraft: (controlPoints) => ({ type: 'point', controlPoints }),
       normalize: (input) => input as ShapeState<'point'>,
       clone: (shape) => ({ type: 'point', controlPoints: shape.controlPoints.map((coordinate) => [...coordinate]) }),
       isComplete: (shape) => shape.controlPoints.length === 1,
-      finalize: () => ({ type: 'point', controlPoints: [] }),
+      tryComplete: () => ({ status: 'complete', state: { type: 'point', controlPoints: [] } }),
       toRenderGeometry: (shape) => ({ type: 'point', coordinates: shape.controlPoints[0] })
     };
     const incompleteStore = new ElementStore(new ShapeRegistry([incompleteFinalizer]));

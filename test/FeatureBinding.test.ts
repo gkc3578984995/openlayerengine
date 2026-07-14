@@ -11,6 +11,7 @@ import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState } from '../src/core/element/types.js';
+import { CapabilityError, ObjectDisposedError } from '../src/core/errors.js';
 import { LayerManager } from '../src/core/layer/LayerManager.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../src/core/style/types.js';
@@ -114,6 +115,363 @@ describe('FeatureBinding', () => {
     store.show({ id: 'first' });
     expect(adapter.requireVectorSource('second').hasFeature(feature)).toBe(true);
     expect(feature.getStyle()).toBeDefined();
+  });
+
+  it('keeps a persistent Feature detached until the final nested suppression lease is released', () => {
+    const { adapter, binding } = setup([point('suppressed')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('suppressed');
+
+    const first = binding.suppressProjection('suppressed');
+    const second = binding.suppressProjection('suppressed');
+
+    expect(first.active).toBe(true);
+    expect(second.active).toBe(true);
+    expect(source.hasFeature(feature)).toBe(false);
+
+    first.release();
+    first.release();
+    binding.reconcile();
+    expect(first.active).toBe(false);
+    expect(source.hasFeature(feature)).toBe(false);
+
+    second.release();
+    second.release();
+    expect(second.active).toBe(false);
+    expect(source.hasFeature(feature)).toBe(true);
+  });
+
+  it('hands off suppression ownership without changing source membership', () => {
+    const { adapter, binding } = setup([point('handoff')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('handoff');
+    const removeFeatures = vi.spyOn(source, 'removeFeatures');
+    const addFeatures = vi.spyOn(source, 'addFeatures');
+
+    const predecessor = binding.suppressProjection('handoff');
+    const successor = predecessor.handoff();
+
+    expect(predecessor.active).toBe(false);
+    expect(successor.active).toBe(true);
+    expect(source.hasFeature(feature)).toBe(false);
+    expect(removeFeatures).toHaveBeenCalledTimes(1);
+    expect(addFeatures).not.toHaveBeenCalled();
+    expect(() => predecessor.handoff()).toThrowError(ObjectDisposedError);
+
+    predecessor.release();
+    expect(source.hasFeature(feature)).toBe(false);
+    successor.release();
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(addFeatures).toHaveBeenCalledTimes(1);
+    expect(() => successor.handoff()).toThrowError(ObjectDisposedError);
+  });
+
+  it('projects Store updates while suppressed and restores only the latest layer and visibility', () => {
+    const { adapter, binding, store } = setup([point('moving')]);
+    const originalSource = adapter.requireVectorSource('default');
+    const nextSource = adapter.requireVectorSource('second');
+    const feature = binding.requireFeature('moving');
+    const geometry = feature.getGeometry();
+    const style = feature.getStyle();
+    const lease = binding.suppressProjection('moving');
+
+    store.update(
+      { id: 'moving' },
+      {
+        geometry: { type: 'point', controlPoints: [[9, 10]] },
+        layerId: 'second',
+        style: { symbol: { type: 'circle', radius: 7, fill: { type: 'solid', color: '#ff0000' } } }
+      }
+    );
+
+    expect(binding.requireFeature('moving')).toBe(feature);
+    expect(feature.getGeometry()).toBe(geometry);
+    expect((geometry as Point).getCoordinates()).toEqual([9, 10]);
+    expect(feature.getStyle()).not.toBe(style);
+    expect(originalSource.hasFeature(feature)).toBe(false);
+    expect(nextSource.hasFeature(feature)).toBe(false);
+
+    store.hide({ id: 'moving' });
+    store.show({ id: 'moving' });
+    expect(nextSource.hasFeature(feature)).toBe(false);
+    store.hide({ id: 'moving' });
+    lease.release();
+    expect(nextSource.hasFeature(feature)).toBe(false);
+
+    store.show({ id: 'moving' });
+    expect(originalSource.hasFeature(feature)).toBe(false);
+    expect(nextSource.hasFeature(feature)).toBe(true);
+  });
+
+  it('rolls back suppression acquisition when the persistent Feature cannot be detached', () => {
+    const { adapter, binding, errorReporter } = setup([point('blocked-suppression')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('blocked-suppression');
+    vi.spyOn(source, 'removeFeatures').mockImplementation(() => {
+      throw new Error('batch removal failed');
+    });
+    vi.spyOn(source, 'removeFeature').mockImplementation(() => {
+      throw new Error('single removal failed');
+    });
+
+    expect(() => binding.suppressProjection('blocked-suppression')).toThrowError(CapabilityError);
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(binding.requireFeature('blocked-suppression')).toBe(feature);
+    expect(errorReporter).toHaveBeenCalled();
+  });
+
+  it('does not leak a token when suppression setup fails before source detachment', () => {
+    const { adapter, binding, errorReporter } = setup([point('setup-failure')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('setup-failure');
+    vi.spyOn(adapter, 'vectorSources').mockImplementationOnce(() => {
+      throw new Error('source enumeration failed');
+    });
+
+    expect(() => binding.suppressProjection('setup-failure')).toThrowError(CapabilityError);
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(errorReporter).toHaveBeenCalled();
+
+    const lease = binding.suppressProjection('setup-failure');
+    expect(lease.active).toBe(true);
+    expect(source.hasFeature(feature)).toBe(false);
+    lease.release();
+    expect(source.hasFeature(feature)).toBe(true);
+  });
+
+  it('invalidates the whole reentrant suppression cohort when the initial detachment fails', () => {
+    const { adapter, binding } = setup([point('reentrant-suppression')]);
+    const defaultSource = adapter.requireVectorSource('default');
+    const secondSource = adapter.requireVectorSource('second');
+    const feature = binding.requireFeature('reentrant-suppression');
+    secondSource.addFeature(feature);
+    let nestedLease: ReturnType<FeatureBinding['suppressProjection']> | undefined;
+    defaultSource.once('removefeature', () => {
+      nestedLease = binding.suppressProjection('reentrant-suppression');
+      expect(nestedLease.active).toBe(false);
+    });
+    const removeFeatures = vi.spyOn(secondSource, 'removeFeatures').mockImplementation(() => {
+      throw new Error('batch removal failed');
+    });
+    const removeFeature = vi.spyOn(secondSource, 'removeFeature').mockImplementation(() => {
+      throw new Error('single removal failed');
+    });
+
+    expect(() => binding.suppressProjection('reentrant-suppression')).toThrowError(CapabilityError);
+    expect(nestedLease?.active).toBe(false);
+    expect(() => nestedLease?.handoff()).toThrowError(ObjectDisposedError);
+    expect(() => nestedLease?.release()).not.toThrow();
+    expect(secondSource.hasFeature(feature)).toBe(true);
+
+    removeFeatures.mockRestore();
+    removeFeature.mockRestore();
+    const retry = binding.suppressProjection('reentrant-suppression');
+    expect(retry.active).toBe(true);
+    expect(defaultSource.hasFeature(feature)).toBe(false);
+    expect(secondSource.hasFeature(feature)).toBe(false);
+    retry.release();
+    expect(defaultSource.hasFeature(feature)).toBe(true);
+  });
+
+  it('allows a pending reentrant suppression lease to hand off before the cohort commits', () => {
+    const { adapter, binding } = setup([point('reentrant-handoff')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('reentrant-handoff');
+    let predecessor: ReturnType<FeatureBinding['suppressProjection']> | undefined;
+    let successor: ReturnType<FeatureBinding['suppressProjection']> | undefined;
+    source.once('removefeature', () => {
+      predecessor = binding.suppressProjection('reentrant-handoff');
+      successor = predecessor.handoff();
+    });
+
+    const outer = binding.suppressProjection('reentrant-handoff');
+
+    expect(predecessor?.active).toBe(false);
+    expect(successor?.active).toBe(true);
+    outer.release();
+    expect(source.hasFeature(feature)).toBe(false);
+    successor?.release();
+    expect(source.hasFeature(feature)).toBe(true);
+  });
+
+  it('accepts suppression when a source listener throws after detachment succeeds', () => {
+    const { adapter, binding, errorReporter } = setup([point('listener-failure')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('listener-failure');
+    source.on('removefeature', () => {
+      throw new Error('remove listener failed after mutation');
+    });
+
+    const lease = binding.suppressProjection('listener-failure');
+
+    expect(lease.active).toBe(true);
+    expect(source.hasFeature(feature)).toBe(false);
+    expect(errorReporter).toHaveBeenCalled();
+    lease.release();
+    expect(source.hasFeature(feature)).toBe(true);
+  });
+
+  it('does not resurrect a binding when a source listener destroys it during acquisition', () => {
+    const { adapter, binding } = setup([point('reentrant-destroy')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('reentrant-destroy');
+    source.once('removefeature', () => binding.destroy());
+
+    expect(() => binding.suppressProjection('reentrant-destroy')).toThrowError(ObjectDisposedError);
+    expect(source.getFeatures()).toEqual([]);
+    expect(binding.elementIdFor(feature)).toBeUndefined();
+    expect(() => binding.requireFeature('reentrant-destroy')).toThrowError(ObjectDisposedError);
+  });
+
+  it('orphans old-generation leases when an id is removed and recreated', () => {
+    const { adapter, binding, store } = setup([point('generation')]);
+    const source = adapter.requireVectorSource('default');
+    const previousFeature = binding.requireFeature('generation');
+    const staleLease = binding.suppressProjection('generation');
+
+    store.remove({ id: 'generation' });
+    expect(staleLease.active).toBe(false);
+    expect(() => staleLease.handoff()).toThrowError(ObjectDisposedError);
+    expect(binding.elementIdFor(previousFeature)).toBeUndefined();
+
+    store.add(point('generation', 'default', { geometry: { type: 'point', controlPoints: [[30, 40]] } }));
+    const currentFeature = binding.requireFeature('generation');
+    expect(currentFeature).not.toBe(previousFeature);
+    expect(source.hasFeature(currentFeature)).toBe(true);
+
+    staleLease.release();
+    staleLease.release();
+    expect(source.hasFeature(currentFeature)).toBe(true);
+    expect((currentFeature.getGeometry() as Point).getCoordinates()).toEqual([30, 40]);
+  });
+
+  it('makes final release non-throwing when Store replay is unavailable', () => {
+    const { adapter, binding, errorReporter, store } = setup([point('release-failure')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('release-failure');
+    const lease = binding.suppressProjection('release-failure');
+    store.destroy();
+
+    expect(() => lease.release()).not.toThrow();
+    expect(() => lease.release()).not.toThrow();
+    expect(lease.active).toBe(false);
+    expect(source.hasFeature(feature)).toBe(false);
+    expect(errorReporter).toHaveBeenCalled();
+
+    expect(() => binding.destroy()).not.toThrow();
+  });
+
+  it('keeps a failed release detached and repairs it from Store truth on reconcile', () => {
+    const { adapter, binding, codec, errorReporter } = setup([point('dirty-release')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('dirty-release');
+    const lease = binding.suppressProjection('dirty-release');
+    const project = vi.spyOn(codec, 'project').mockImplementationOnce(() => {
+      throw new Error('release projection failed');
+    });
+
+    expect(() => lease.release()).not.toThrow();
+    expect(source.hasFeature(feature)).toBe(false);
+    expect(errorReporter).toHaveBeenCalled();
+
+    project.mockRestore();
+    binding.reconcile();
+    expect(source.hasFeature(feature)).toBe(true);
+    expect((feature.getGeometry() as Point).getCoordinates()).toEqual([1, 2]);
+  });
+
+  it('reports failed source restoration without throwing and repairs it later', () => {
+    const { adapter, binding, errorReporter } = setup([point('restore-failure')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('restore-failure');
+    const lease = binding.suppressProjection('restore-failure');
+    const addFeatures = vi.spyOn(source, 'addFeatures').mockImplementation(() => {
+      throw new Error('batch add failed');
+    });
+    const addFeature = vi.spyOn(source, 'addFeature').mockImplementation(() => {
+      throw new Error('single add failed');
+    });
+
+    expect(() => lease.release()).not.toThrow();
+    expect(source.hasFeature(feature)).toBe(false);
+    expect(errorReporter).toHaveBeenCalled();
+
+    addFeatures.mockRestore();
+    addFeature.mockRestore();
+    binding.reconcile();
+    expect(source.hasFeature(feature)).toBe(true);
+  });
+
+  it('replays Store truth over direct native mutation before revealing a released Feature', () => {
+    const { adapter, binding } = setup([point('release-replay')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('release-replay');
+    const lease = binding.suppressProjection('release-replay');
+    feature.setId('forged');
+    feature.setGeometry(new Point([90, 91]));
+    feature.setStyle(new Style());
+
+    lease.release();
+
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(feature.getId()).toBe('release-replay');
+    expect((feature.getGeometry() as Point).getCoordinates()).toEqual([1, 2]);
+    expect(feature.getStyle()).not.toBeInstanceOf(Style);
+  });
+
+  it('replays only the released element without repairing unrelated native mutations', () => {
+    const { binding } = setup([point('released'), point('unrelated')]);
+    const unrelated = binding.requireFeature('unrelated');
+    unrelated.setGeometry(new Point([101, 102]));
+    const lease = binding.suppressProjection('released');
+
+    lease.release();
+
+    expect((binding.requireFeature('unrelated').getGeometry() as Point).getCoordinates()).toEqual([101, 102]);
+  });
+
+  it('never assigns reverse identity to an adapter-owned preview Feature', () => {
+    const { binding, store } = setup([point('persistent')]);
+    const preview = new Feature<Geometry>(new Point([70, 80]));
+    preview.setId('persistent');
+
+    expect(binding.elementIdFor(preview)).toBeUndefined();
+    expect(binding.resolveFeature(preview)).toBeUndefined();
+    preview.setGeometry(new Point([90, 100]));
+    expect(store.get('persistent')?.geometry).toEqual({ type: 'point', controlPoints: [[1, 2]] });
+    expect((binding.requireFeature('persistent').getGeometry() as Point).getCoordinates()).toEqual([1, 2]);
+  });
+
+  it('rejects missing and stale suppression handles while keeping cleanup idempotent', () => {
+    const { binding } = setup([point('destroyed-lease')]);
+    expect(() => binding.suppressProjection('missing')).toThrowError(ObjectDisposedError);
+    const lease = binding.suppressProjection('destroyed-lease');
+
+    binding.destroy();
+
+    expect(lease.active).toBe(false);
+    expect(() => lease.release()).not.toThrow();
+    expect(() => lease.release()).not.toThrow();
+    expect(() => lease.handoff()).toThrowError(ObjectDisposedError);
+    expect(() => binding.suppressProjection('destroyed-lease')).toThrowError(ObjectDisposedError);
+  });
+
+  it('isolates suppression ownership between FeatureBinding instances with the same element id', () => {
+    const first = setup([point('shared-id')]);
+    const second = setup([point('shared-id')]);
+    const firstSource = first.adapter.requireVectorSource('default');
+    const secondSource = second.adapter.requireVectorSource('default');
+    const firstFeature = first.binding.requireFeature('shared-id');
+    const secondFeature = second.binding.requireFeature('shared-id');
+
+    const lease = first.binding.suppressProjection('shared-id');
+    expect(firstSource.hasFeature(firstFeature)).toBe(false);
+    expect(secondSource.hasFeature(secondFeature)).toBe(true);
+
+    first.binding.destroy();
+    lease.release();
+    expect(second.binding.requireFeature('shared-id')).toBe(secondFeature);
+    expect(secondSource.hasFeature(secondFeature)).toBe(true);
   });
 
   it('replays Store truth after direct native mutation on the next real committed update', () => {
@@ -269,5 +627,48 @@ describe('FeatureBinding', () => {
     expect(disposals.map((spy) => spy.mock.calls.length)).toEqual([1, 1]);
     store.add(point('after-destroy'));
     expect(adapter.requireVectorSource('default').getFeatures()).toEqual([]);
+  });
+
+  it('invalidates suppression leases before source callbacks run during destroy', () => {
+    const { adapter, binding } = setup([point('destroying-lease')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('destroying-lease');
+    const lease = binding.suppressProjection('destroying-lease');
+    source.addFeature(feature);
+    source.once('removefeature', () => lease.release());
+
+    binding.destroy();
+
+    expect(lease.active).toBe(false);
+    expect(source.getFeatures()).toEqual([]);
+    expect(feature.getGeometry()).toBeUndefined();
+    expect(binding.elementIdFor(feature)).toBeUndefined();
+  });
+
+  it('runs every destroy finalizer and retries only unfinished cleanup', () => {
+    const { adapter, binding } = setup([point('retry-destroy')]);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('retry-destroy');
+    const enumerationFailure = new Error('source enumeration failed');
+    vi.spyOn(adapter, 'vectorSources').mockImplementationOnce(() => {
+      throw enumerationFailure;
+    });
+    const setGeometry = vi.spyOn(feature, 'setGeometry');
+    const setStyle = vi.spyOn(feature, 'setStyle');
+    const dispose = vi.spyOn(feature, 'dispose');
+
+    expect(() => binding.destroy()).toThrow(enumerationFailure);
+    expect(() => binding.requireFeature('retry-destroy')).toThrowError(ObjectDisposedError);
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(setGeometry).toHaveBeenCalledTimes(1);
+    expect(setStyle).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+
+    binding.destroy();
+    binding.destroy();
+    expect(source.hasFeature(feature)).toBe(false);
+    expect(setGeometry).toHaveBeenCalledTimes(1);
+    expect(setStyle).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 });
