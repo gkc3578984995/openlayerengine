@@ -6,7 +6,7 @@ import { compileSelector } from '../../core/element/selector.js';
 import { cloneElementSnapshot, createElementSnapshot, type ElementSnapshot } from '../../core/element/snapshot.js';
 import type { ElementCopyOptions, ElementState } from '../../core/element/types.js';
 import { CapabilityError, InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
-import type { AnimationControlPort } from '../../core/ports/AnimationControlPort.js';
+import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type {
   TransformDelta,
@@ -43,7 +43,7 @@ export interface TransformSessionDependencies {
   readonly styles: StyleService;
   readonly coordinator: InteractionCoordinator;
   readonly interaction: TransformInteractionPort;
-  readonly animations: AnimationControlPort;
+  readonly animations: TransformAnimationPort;
   readonly transients: TransientAnimationPort;
   readonly toolbarPort?: TransformToolbarPort;
   readonly input?: TransformKeyboardInput;
@@ -64,7 +64,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #styles: StyleService;
   readonly #coordinator: InteractionCoordinator;
   readonly #interaction: TransformInteractionPort;
-  readonly #animations: AnimationControlPort;
+  readonly #animations: TransformAnimationPort;
   readonly #transients: TransientAnimationPort;
   readonly #toolbarPort: TransformToolbarPort | undefined;
   readonly #input: TransformKeyboardInput | undefined;
@@ -339,7 +339,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const handle = this.#requireHandle();
     try {
       handle.setTarget(this.#presentation(this.#working));
-      this.#animationsPaused = this.#animations.pause({ id: snapshot.id }) > 0;
+      this.#animations.setPreview(this.#working);
       this.#transient = this.#transients.playTransient({
         ownerId: this.id,
         renderLayerId: handle.renderLayerId,
@@ -352,7 +352,16 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       if (emitSelect) this.#emit('select', freeze({ type: 'select', state: this.#working }));
     } catch (error) {
       this.#stopTransient();
-      if (this.#animationsPaused) this.#animations.resume({ id: snapshot.id });
+      try {
+        if (this.#animationsPaused) this.#animations.resume({ id: snapshot.id });
+      } catch (cleanupError) {
+        this.#report(cleanupError, 'selection-rollback-resume-animations');
+      }
+      try {
+        this.#animations.clearPreview(snapshot.id);
+      } catch (cleanupError) {
+        this.#report(cleanupError, 'selection-rollback-clear-preview');
+      }
       this.#animationsPaused = false;
       this.#selected = undefined;
       this.#working = undefined;
@@ -404,6 +413,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         this.#emit(type, freeze({ type, state, key: event.key, ...(event.cursor === undefined ? {} : { cursor: event.cursor }) }) as never);
       } else if (event.type === 'operation-start') {
         this.#operationOrigin = cloneElementSnapshot(this.#shapes, this.#requireWorking());
+        this.#pauseAnimationsFor(event.operation);
         this.#emitOperation('start', event.operation, event.delta);
       } else if (event.type === 'operation-change') {
         this.#applyOperation(event.operation, event.delta, false);
@@ -429,6 +439,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
     this.#working = transformSnapshot(this.#shapes, this.#styles, origin, delta);
     this.#requireHandle().setTarget(this.#presentation(this.#working));
+    this.#animations.setPreview(this.#working);
     this.#updateToolbarPosition();
     this.#emitOperation(end ? 'end' : 'change', operation, delta);
     if (operation === 'vertex') this.#emit('edit', freeze({ type: 'edit', state: this.#working, operation }));
@@ -436,6 +447,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#history.record(this.#working, metadata(operation));
       this.#operationOrigin = undefined;
       this.#syncToolbarState();
+      this.#resumePausedAnimations();
     }
   }
 
@@ -460,6 +472,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     } else {
       this.#working = cloneElementSnapshot(this.#shapes, snapshot);
       this.#requireHandle().setTarget(this.#presentation(this.#working));
+      this.#animations.setPreview(this.#working);
       this.#updateToolbarPosition();
     }
     this.#emit('edit', freeze({ type: 'edit', state: this.#requireWorking(), operation: 'vertex' }));
@@ -609,6 +622,13 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const state = this.#working;
     const id = this.#selected?.id;
     this.#stopTransient();
+    if (id !== undefined) {
+      try {
+        this.#animations.clearPreview(id);
+      } catch (error) {
+        this.#report(error, 'clear-animation-preview');
+      }
+    }
     if (id !== undefined && this.#animationsPaused) {
       try {
         if (resumeAnimations) this.#animations.resume({ id });
@@ -631,6 +651,20 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#expectedRevision = undefined;
     this.#copyPreview = false;
     if (emitSelectEnd && state !== undefined) this.#emit('selectEnd', freeze({ type: 'selectEnd', state }));
+  }
+
+  #pauseAnimationsFor(operation: TransformOperation): void {
+    if (this.#animationsPaused || (operation !== 'translate' && operation !== 'scale' && operation !== 'stretch')) return;
+    const working = this.#requireWorking();
+    if (this.#shapes.get(working.type).toRenderGeometry(working.geometry as never).type !== 'point') return;
+    this.#animationsPaused = this.#animations.pause({ id: working.id }) > 0;
+  }
+
+  #resumePausedAnimations(): void {
+    if (!this.#animationsPaused) return;
+    const id = this.#selected?.id;
+    if (id !== undefined) this.#animations.resume({ id });
+    this.#animationsPaused = false;
   }
 
   #stopTransient(): void {

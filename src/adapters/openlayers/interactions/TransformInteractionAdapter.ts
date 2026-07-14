@@ -7,6 +7,7 @@ import type { Coordinate, Pixel } from '../../../core/common/types.js';
 import { runFinalizers } from '../../../core/common/dispose.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
+import type { LayerRenderPort } from '../../../core/ports/LayerRenderPort.js';
 import type {
   TransformCopyPreview,
   TransformDelta,
@@ -31,20 +32,39 @@ export class TransformInteractionAdapter implements TransformInteractionPort {
   readonly #hitTest: TransformHitTest;
   readonly #binding: FeatureBinding;
   readonly #styles: StyleCompiler;
+  readonly #render: LayerRenderPort;
   readonly #errorReporter: ErrorReporter;
 
-  constructor(map: Map, hitTest: TransformHitTest, binding: FeatureBinding, styles: StyleCompiler, options: TransformInteractionAdapterOptions = {}) {
+  constructor(
+    map: Map,
+    hitTest: TransformHitTest,
+    binding: FeatureBinding,
+    styles: StyleCompiler,
+    render: LayerRenderPort,
+    options: TransformInteractionAdapterOptions = {}
+  ) {
     this.#map = map;
     this.#hitTest = hitTest;
     this.#binding = binding;
     this.#styles = styles;
+    this.#render = render;
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
   }
 
   open(sessionId: string, options: TransformInteractionOptions, listener: (event: TransformInteractionEvent) => void): TransformInteractionHandle {
     if (typeof sessionId !== 'string' || sessionId.trim().length === 0) throw new InvalidArgumentError('Transform session id must be a non-empty string');
     if (typeof listener !== 'function') throw new InvalidArgumentError('Transform interaction listener must be a function');
-    const handle = new OpenLayersTransformHandle(this.#map, this.#hitTest, this.#binding, this.#styles, sessionId, options, listener, this.#errorReporter);
+    const handle = new OpenLayersTransformHandle(
+      this.#map,
+      this.#hitTest,
+      this.#binding,
+      this.#styles,
+      this.#render,
+      sessionId,
+      options,
+      listener,
+      this.#errorReporter
+    );
     try {
       handle.open();
       return handle;
@@ -89,6 +109,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     hitTest: TransformHitTest,
     binding: FeatureBinding,
     styles: StyleCompiler,
+    render: LayerRenderPort,
     sessionId: string,
     options: TransformInteractionOptions,
     listener: (event: TransformInteractionEvent) => void,
@@ -99,7 +120,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#options = validateOptions(options);
     this.#listener = listener;
     this.#errorReporter = errorReporter;
-    this.#handles = new HandleLayer(map, binding, styles, { sessionId, interaction: this.#options });
+    this.#handles = new HandleLayer(map, binding, styles, render, { sessionId, interaction: this.#options });
     this.#interaction = new PointerInteraction({
       handleDownEvent: (event) => this.#down(event),
       handleDragEvent: (event) => this.#dragEvent(event),
@@ -110,7 +131,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   }
 
   get renderLayerId(): string {
-    return this.#handles.renderLayerId;
+    return this.#handles.activeRenderLayerId;
   }
 
   get renderTargetId(): string {

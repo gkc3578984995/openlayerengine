@@ -13,8 +13,10 @@ import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.
 import { OverlayAdapter } from '../src/adapters/openlayers/OverlayAdapter.js';
 import { OverlayFacade } from '../src/facade/OverlayFacade.js';
 import { OverlayService } from '../src/services/overlay/OverlayService.js';
+import { AnimationManagerImpl } from '../src/services/animation/AnimationManager.js';
 import type { InternalDescriptorEvent, InternalDescriptorSpec } from '../src/services/overlay/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { FakeLayerRenderPort } from './helpers/animationHarness.js';
 
 const overlayHarness = vi.hoisted(() => ({ instances: [] as unknown[], failNext: undefined as string | undefined }));
 
@@ -281,6 +283,28 @@ describe('Descriptor lifecycle', () => {
     expect(port.layoutSubscriptions).toBe(1);
     expect(port.actions.has('descriptor-1')).toBe(true);
     expect(port.drags.has('descriptor-1')).toBe(true);
+  });
+
+  it('使用真实 AnimationManager 管理 fixed-line 并在 Descriptor 销毁时释放 RenderPass', () => {
+    const port = new FakeOverlayPort();
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    const render = new FakeLayerRenderPort();
+    const manager = new AnimationManagerImpl({ store, shapes, render });
+    const service = new OverlayService(port, store, manager, { descriptorLayerId: 'default' });
+
+    const descriptor = service.createDescriptor(descriptorSpec('real-animation'));
+    expect(manager.activeCount).toBe(1);
+    expect(render.openCalls.get('default')).toBe(1);
+    expect(render.frame('default', 0).contributions).toEqual([
+      expect.objectContaining({ targetId: 'descriptor:real-animation:fixed-line', channel: 'descriptor-fixed-line' })
+    ]);
+
+    descriptor.destroy();
+    expect(manager.activeCount).toBe(0);
+    expect(render.activeLoopCount).toBe(0);
+    service.destroy();
+    manager.destroy();
   });
 
   it('rolls back all earlier resources when action, drag, layout, or animation creation fails', () => {

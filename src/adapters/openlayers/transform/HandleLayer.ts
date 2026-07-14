@@ -14,6 +14,7 @@ import Style from 'ol/style/Style.js';
 import type { Coordinate, Pixel } from '../../../core/common/types.js';
 import { runFinalizers } from '../../../core/common/dispose.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
+import type { LayerRenderPort, LayerRenderTargetHandle } from '../../../core/ports/LayerRenderPort.js';
 import type { TransformInteractionOptions, TransformInteractionTarget } from '../../../core/ports/TransformInteractionPort.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { ProjectionSuppressionLease, FeatureBinding } from '../FeatureBinding.js';
@@ -41,6 +42,7 @@ export class HandleLayer {
   readonly #map: Map;
   readonly #binding: FeatureBinding;
   readonly #styles: StyleCompiler;
+  readonly #render: LayerRenderPort;
   readonly #options: TransformInteractionOptions;
   readonly #source: VectorSource<Feature<Geometry>>;
   readonly #layer: VectorLayer<VectorSource<Feature<Geometry>>>;
@@ -49,13 +51,17 @@ export class HandleLayer {
   #bbox: Feature<Geometry> | undefined;
   #copy: Feature<Geometry> | undefined;
   #copyGeometry: RenderGeometryState | undefined;
+  #renderTarget: LayerRenderTargetHandle | undefined;
+  #renderTargetLayerId: string | undefined;
+  #blinkVisible = true;
   #destroyed = false;
   #destroying = false;
 
-  constructor(map: Map, binding: FeatureBinding, styles: StyleCompiler, options: HandleLayerOptions) {
+  constructor(map: Map, binding: FeatureBinding, styles: StyleCompiler, render: LayerRenderPort, options: HandleLayerOptions) {
     this.#map = map;
     this.#binding = binding;
     this.#styles = styles;
+    this.#render = render;
     this.#options = options.interaction;
     this.renderLayerId = `transform-handles:${options.sessionId}`;
     this.renderTargetId = `transform-bbox:${options.sessionId}`;
@@ -68,6 +74,10 @@ export class HandleLayer {
     return this.#target;
   }
 
+  get activeRenderLayerId(): string {
+    return this.#target?.layerId ?? this.renderLayerId;
+  }
+
   get extent(): TransformExtent | undefined {
     return this.#target === undefined ? undefined : bufferedExtent(this.#map, this.#target.geometry, this.#options);
   }
@@ -76,29 +86,44 @@ export class HandleLayer {
     this.#assertActive();
     const features = this.#featuresFor(target);
     let suppression: ProjectionSuppressionLease | undefined;
+    let registration: LayerRenderTargetHandle | undefined;
     try {
+      if (this.#renderTarget === undefined || this.#renderTargetLayerId !== target.layerId) {
+        registration = this.#registerRenderTarget(target.layerId);
+      }
       suppression = this.#binding.suppressProjection(target.elementId);
       this.#source.clear(true);
       this.#source.addFeatures(features);
+      this.#bbox?.setStyle(this.#blinkVisible ? bboxStyle : hiddenStyle);
       const previous = this.#suppression;
+      const previousRegistration = this.#renderTarget;
       this.#target = target;
       this.#suppression = suppression;
       suppression = undefined;
+      if (registration !== undefined) {
+        this.#renderTarget = registration;
+        this.#renderTargetLayerId = target.layerId;
+        registration = undefined;
+        previousRegistration?.destroy();
+      }
       previous?.release();
       this.#copy = undefined;
       this.#copyGeometry = undefined;
     } finally {
       suppression?.release();
+      registration?.destroy();
     }
   }
 
   clearTarget(): void {
     if (this.#destroyed) return;
+    this.#releaseRenderTarget();
     this.#source.clear(true);
     this.#target = undefined;
     this.#bbox = undefined;
     this.#copy = undefined;
     this.#copyGeometry = undefined;
+    this.#blinkVisible = true;
     const suppression = this.#suppression;
     this.#suppression = undefined;
     suppression?.release();
@@ -145,9 +170,10 @@ export class HandleLayer {
   }
 
   setBlink(visible: boolean): void {
+    if (this.#blinkVisible === visible) return;
+    this.#blinkVisible = visible;
     if (this.#bbox === undefined) return;
     this.#bbox.setStyle(visible ? bboxStyle : hiddenStyle);
-    this.#layer.changed();
   }
 
   destroy(): void {
@@ -155,6 +181,7 @@ export class HandleLayer {
     this.#destroying = true;
     try {
       runFinalizers([
+        () => this.#releaseRenderTarget(),
         () => this.clearCopyPreview(),
         () => this.#source.clear(true),
         () => {
@@ -229,6 +256,25 @@ export class HandleLayer {
       }
     }
     return [preview, bbox, ...handles];
+  }
+
+  #registerRenderTarget(layerId: string): LayerRenderTargetHandle {
+    return this.#render.registerTarget({
+      layerId,
+      targetId: this.renderTargetId,
+      apply: (value) => this.setBlink(value.visible ?? true),
+      clear: () => this.setBlink(true)
+    });
+  }
+
+  #releaseRenderTarget(): void {
+    const target = this.#renderTarget;
+    if (target === undefined) return;
+    target.destroy();
+    if (this.#renderTarget === target) {
+      this.#renderTarget = undefined;
+      this.#renderTargetLayerId = undefined;
+    }
   }
 
   #handle(

@@ -2,7 +2,7 @@ import type { ElementStore } from '../../core/element/ElementStore.js';
 import { compileSelector } from '../../core/element/selector.js';
 import type { ElementSelector } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
-import type { AnimationControlPort } from '../../core/ports/AnimationControlPort.js';
+import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { TransformInteractionPort } from '../../core/ports/TransformInteractionPort.js';
 import type { TransformToolbarPort } from '../../core/ports/TransformToolbarPort.js';
@@ -34,7 +34,7 @@ export interface TransformServiceDependencies {
   readonly styles: StyleService;
   readonly coordinator: InteractionCoordinator;
   readonly interaction: TransformInteractionPort;
-  readonly animations: AnimationControlPort;
+  readonly animations: TransformAnimationPort;
   readonly transients: TransientAnimationPort;
   readonly toolbar?: TransformToolbarPort;
   readonly input?: TransformKeyboardInput;
@@ -48,7 +48,7 @@ export class TransformService implements InternalTransformService {
   readonly #styles: StyleService;
   readonly #coordinator: InteractionCoordinator;
   readonly #interaction: TransformInteractionPort;
-  readonly #animations: AnimationControlPort;
+  readonly #animations: TransformAnimationPort;
   readonly #transients: TransientAnimationPort;
   readonly #toolbar: TransformToolbarPort | undefined;
   readonly #input: TransformKeyboardInput | undefined;

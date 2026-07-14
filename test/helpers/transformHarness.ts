@@ -4,7 +4,7 @@ import { plotShapeDefinitions } from '../../src/builtins/shapes/plot/index.js';
 import type { Coordinate } from '../../src/core/common/types.js';
 import { ElementStore } from '../../src/core/element/ElementStore.js';
 import type { ElementState } from '../../src/core/element/types.js';
-import type { AnimationControlHandle, AnimationControlPort } from '../../src/core/ports/AnimationControlPort.js';
+import type { AnimationControlHandle, TransformAnimationPort } from '../../src/core/ports/AnimationControlPort.js';
 import type {
   TransformCopyPreview,
   TransformInteractionEvent,
@@ -47,17 +47,21 @@ export class FakeTransformPort implements TransformInteractionPort {
 }
 
 export class FakeTransformHandle implements TransformInteractionHandle {
-  readonly renderLayerId: string;
   readonly renderTargetId: string;
   readonly log: string[];
+  readonly #fallbackRenderLayerId: string;
   target: TransformInteractionTarget | undefined;
   copyPreview: TransformCopyPreview | undefined;
   destroyed = false;
 
   constructor(sessionId: string, log: string[]) {
-    this.renderLayerId = `layer:${sessionId}`;
+    this.#fallbackRenderLayerId = `layer:${sessionId}`;
     this.renderTargetId = `target:${sessionId}`;
     this.log = log;
+  }
+
+  get renderLayerId(): string {
+    return this.target?.layerId ?? this.#fallbackRenderLayerId;
   }
 
   setTarget(target: TransformInteractionTarget): void {
@@ -86,7 +90,7 @@ export class FakeTransformHandle implements TransformInteractionHandle {
   }
 }
 
-class FakeAnimations implements AnimationControlPort {
+class FakeAnimations implements TransformAnimationPort {
   readonly log: string[];
 
   constructor(log: string[]) {
@@ -110,6 +114,14 @@ class FakeAnimations implements AnimationControlPort {
   stop(selector: { id?: string }): number {
     this.log.push(`animation:stop:${selector.id ?? '*'}`);
     return 1;
+  }
+
+  setPreview(state: Readonly<ElementState>): void {
+    this.log.push(`animation:preview:set:${state.id}`);
+  }
+
+  clearPreview(elementId: string): void {
+    this.log.push(`animation:preview:clear:${elementId}`);
   }
 }
 
@@ -192,7 +204,15 @@ interface KeyboardInput {
   preventDefault(): void;
 }
 
-export function createTransformHarness(toolbar = false as false | InternalTransformToolbarOptions) {
+export interface TransformHarnessAnimationPorts {
+  readonly animations: TransformAnimationPort;
+  readonly transients: TransientAnimationPort;
+}
+
+export function createTransformHarness(
+  toolbar = false as false | InternalTransformToolbarOptions,
+  createAnimationPorts?: (context: Readonly<{ store: ElementStore; shapes: ShapeRegistry }>) => TransformHarnessAnimationPorts
+) {
   const log: string[] = [];
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   const store = new ElementStore(shapes);
@@ -201,6 +221,10 @@ export function createTransformHarness(toolbar = false as false | InternalTransf
   const interaction = new FakeTransformPort(log);
   const toolbarPort = new FakeToolbarPort();
   const input = new FakeTransformInput();
+  const animationPorts = createAnimationPorts?.({ store, shapes }) ?? {
+    animations: new FakeAnimations(log),
+    transients: new FakeTransients(log)
+  };
   let id = 0;
   const service = new TransformService({
     store,
@@ -208,8 +232,8 @@ export function createTransformHarness(toolbar = false as false | InternalTransf
     styles,
     coordinator,
     interaction,
-    animations: new FakeAnimations(log),
-    transients: new FakeTransients(log),
+    animations: animationPorts.animations,
+    transients: animationPorts.transients,
     toolbar: toolbarPort,
     input,
     createId: () => `copy-${++id}`,

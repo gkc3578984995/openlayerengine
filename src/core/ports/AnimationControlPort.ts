@@ -1,5 +1,5 @@
 import type { AnimationChannel, AnimationSpec, AnimationStatus } from '../animation/types.js';
-import type { ElementSelector } from '../element/types.js';
+import type { ElementSelector, ElementState } from '../element/types.js';
 
 export interface AnimationControlHandle {
   readonly status: AnimationStatus;
@@ -12,3 +12,10 @@ export interface AnimationControlPort {
   resume(selector: ElementSelector, channels?: readonly AnimationChannel[]): number;
   stop(selector: ElementSelector, channels?: readonly AnimationChannel[]): number;
 }
+
+export interface AnimationPreviewPort {
+  setPreview(state: Readonly<ElementState>): void;
+  clearPreview(elementId: string): void;
+}
+
+export type TransformAnimationPort = AnimationControlPort & AnimationPreviewPort;

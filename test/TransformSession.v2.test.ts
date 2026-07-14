@@ -52,13 +52,17 @@ describe('TransformSession v2', () => {
     expect(session.selectedId).toBe('point-a');
     expect(select).toHaveBeenCalledOnce();
     expect(harness.interaction.handle?.target).toMatchObject({ elementId: 'point-a', canTranslate: true });
+    expect(harness.log).toContain('animation:preview:set:point-a');
+    expect(harness.log).not.toContain('animation:pause:point-a');
 
     const initial: TransformDelta = { type: 'translate', x: 0, y: 0 };
     const moved: TransformDelta = { type: 'translate', x: 5, y: -1 };
     harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: initial });
+    expect(harness.log).toContain('animation:pause:point-a');
     harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: moved });
     expect(harness.store.get('point-a')?.geometry).toEqual({ type: 'point', controlPoints: [[1, 2]] });
     harness.interaction.emit({ type: 'operation-end', operation: 'translate', delta: moved });
+    expect(harness.log).toContain('animation:resume:point-a');
     expect(start).toHaveBeenCalledOnce();
     expect(progress).toHaveBeenCalledOnce();
     expect(end).toHaveBeenCalledOnce();
@@ -81,6 +85,8 @@ describe('TransformSession v2', () => {
     const session = harness.service.select('line-a');
     harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
     harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: { type: 'translate', x: 9, y: 4 } });
+    expect(harness.log).not.toContain('animation:pause:line-a');
+    expect(harness.log.filter((entry) => entry === 'animation:preview:set:line-a').length).toBeGreaterThan(1);
 
     const decision = harness.coordinator.handleContextMenu({ type: 'rightclick', coordinate: [0, 0], pixel: [0, 0], nativeEventRef: {} as never });
 
