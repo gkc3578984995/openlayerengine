@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MeasurementAdapter } from '../src/adapters/openlayers/MeasurementAdapter.js';
+import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import type { Coordinate } from '../src/core/common/types.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
+import { InvalidArgumentError } from '../src/core/errors.js';
 import type { ElementState } from '../src/core/element/types.js';
 import type {
   DrawInteractionEvent,
@@ -19,6 +21,8 @@ import { InteractionCoordinator } from '../src/services/events/InteractionCoordi
 import { MeasureService } from '../src/services/measure/MeasureService.js';
 import { INTERNAL_MEASURE_MODULE, type MeasurementOverlayService, type MeasurementTooltipPort } from '../src/services/measure/types.js';
 import { StyleService } from '../src/services/style/StyleService.js';
+import { MeasureFacade } from '../src/facade/MeasureFacade.js';
+import type { InternalMeasureService, InternalMeasureSession } from '../src/services/measure/types.js';
 import type { InternalOverlaySpec } from '../src/services/overlay/types.js';
 import type { OverlayHandle } from '../src/services/overlay/OverlayHandle.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
@@ -351,6 +355,67 @@ describe('MeasureSession', () => {
     expect(line?.meters).toBeLessThan(1010);
     expect(area?.squareMeters).toBeGreaterThan(980_000);
     expect(area?.squareMeters).toBeLessThan(1_020_000);
+  });
+
+  it('maps the supported structured text fields to tooltip CSS', () => {
+    const refs = new NativeRefRegistry();
+    const assigned = new Map<string, string>();
+    const style = new Proxy({ setProperty: (key: string, value: string) => assigned.set(key, value) } as Record<string, unknown>, {
+      set: (target, key, value) => {
+        target[String(key)] = value;
+        assigned.set(String(key), String(value));
+        return true;
+      }
+    });
+    const element = { className: '', style, textContent: '' } as unknown as HTMLElement;
+    const adapter = new MeasurementAdapter({ nativeRefs: refs, createElement: () => element });
+
+    adapter.create({
+      fontSize: 18,
+      fill: { type: 'pattern', pattern: 'diagonal', color: '#f00' },
+      stroke: { color: '#000', width: 2 },
+      backgroundFill: { type: 'solid', color: '#fff' },
+      backgroundStroke: { color: '#00f', width: 3 },
+      scale: [2, 3],
+      rotation: 0.5,
+      textBaseline: 'middle',
+      justify: 'right'
+    });
+
+    expect(assigned.get('fontSize')).toBe('18px');
+    expect(assigned.get('-webkit-text-stroke')).toBe('2px #000');
+    expect(assigned.get('borderWidth')).toBe('3px');
+    expect(assigned.get('transform')).toBe('scale(2, 3) rotate(0.5rad)');
+    expect(assigned.get('verticalAlign')).toBe('middle');
+    expect(assigned.get('textAlign')).toBe('right');
+    expect(assigned.get('backgroundImage')).toContain('repeating-linear-gradient');
+  });
+
+  it('rejects unknown facade options and event names instead of silently changing behavior', () => {
+    const listeners = new Map<string, (event: never) => void>();
+    const session: InternalMeasureSession = {
+      status: 'active',
+      finished: new Promise(() => undefined),
+      finish: () => undefined,
+      cancel: () => undefined,
+      destroy: () => undefined,
+      on: ((type: string, listener: (event: never) => void) => {
+        listeners.set(type, listener);
+        return () => listeners.delete(type);
+      }) as InternalMeasureSession['on']
+    };
+    const service = {
+      start: vi.fn(() => session),
+      clear: vi.fn(),
+      destroy: vi.fn()
+    } as InternalMeasureService;
+    const facade = new MeasureFacade(service);
+
+    expect(() => facade.start({ type: 'distance-total', showTotals: true } as never)).toThrow(InvalidArgumentError);
+    expect(service.start).not.toHaveBeenCalled();
+    const publicSession = facade.start({ type: 'distance-total' });
+    expect(() => publicSession.on('bogus' as never, vi.fn())).toThrow(InvalidArgumentError);
+    expect(listeners.size).toBe(0);
   });
 });
 

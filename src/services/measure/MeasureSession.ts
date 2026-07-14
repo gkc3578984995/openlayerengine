@@ -87,7 +87,10 @@ export class MeasureSession implements InternalMeasureSession {
       this.#subscriptions.push(
         this.#drawSession.on('change', (event) => this.#handleChange(event)),
         this.#drawSession.on('complete', (event) => this.#handleComplete(event)),
-        this.#drawSession.on('cancel', (event) => this.#handleCancel(event.reason))
+        this.#drawSession.on('cancel', (event) => {
+          if (this.#drawSession.status === 'active') this.#resetDraft();
+          else this.#handleCancel(event.reason);
+        })
       );
     } catch (error) {
       this.#drawSession.destroy();
@@ -186,6 +189,11 @@ export class MeasureSession implements InternalMeasureSession {
     this.#cleanupSubscriptions();
     this.#listeners.clear();
     this.#notifyTerminal();
+  }
+
+  #resetDraft(): void {
+    this.#removePreview();
+    this.#destroyTooltips();
   }
 
   #calculate(geometry: ShapeState): InternalMeasureResult | undefined {

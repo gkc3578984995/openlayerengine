@@ -31,6 +31,7 @@ export class MeasureService implements InternalMeasureService {
   readonly #errorReporter: ErrorReporter;
   readonly #sessions = new Set<MeasureSession>();
   #nextId = 0;
+  #destroyRequested = false;
   #disposed = false;
 
   constructor(dependencies: MeasureServiceDependencies) {
@@ -91,7 +92,8 @@ export class MeasureService implements InternalMeasureService {
   }
 
   destroy(): void {
-    if (this.#disposed) return;
+    if (this.#disposed || this.#destroyRequested) return;
+    this.#destroyRequested = true;
     const sessions = [...this.#sessions];
     this.#sessions.clear();
     let failure: unknown;
@@ -142,7 +144,7 @@ export class MeasureService implements InternalMeasureService {
   }
 
   #assertActive(): void {
-    if (this.#disposed) throw new ObjectDisposedError('MeasureService has been destroyed');
+    if (this.#disposed || this.#destroyRequested) throw new ObjectDisposedError('MeasureService has been destroyed');
   }
 }
 
@@ -171,6 +173,9 @@ function normalizeText(styles: StyleService, input: unknown): NormalizedMeasureO
           padding: [4, 4, 4, 4]
         }
       : inspectRecord(input, 'Measure text style');
+  for (const key of ['rotateWithView', 'overflow', 'placement', 'maxAngle', 'repeat', 'keepUpright']) {
+    if (hasOwn(text, key)) throw new InvalidArgumentError(`Measure text style does not support ${key}`);
+  }
   const style = styles.clone({ text: { text: '', ...cloneCoreState(text) } } as ElementStyleState) as StyleSpec;
   const normalized = style.text;
   if (normalized === undefined) throw new InvalidArgumentError('Measure text style is invalid');

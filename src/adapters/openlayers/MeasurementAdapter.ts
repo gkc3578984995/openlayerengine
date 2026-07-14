@@ -126,12 +126,81 @@ function applyTextStyle(element: HTMLElement, style: Readonly<Omit<TextSpec, 'te
   if (style.fontSize !== undefined) element.style.fontSize = typeof style.fontSize === 'number' ? `${style.fontSize}px` : style.fontSize;
   if (style.fontWeight !== undefined) element.style.fontWeight = String(style.fontWeight);
   if (style.fontStyle !== undefined) element.style.fontStyle = style.fontStyle;
-  if (style.fill?.color !== undefined) element.style.color = colorToCss(style.fill.color);
-  if (style.backgroundFill?.color !== undefined) element.style.backgroundColor = colorToCss(style.backgroundFill.color);
+  if (style.fill !== undefined) applyForeground(element, style.fill);
+  if (style.stroke !== undefined) {
+    const width = style.stroke.width ?? 1;
+    const color = style.stroke.color === undefined ? '#000000' : colorToCss(style.stroke.color);
+    element.style.setProperty('-webkit-text-stroke', `${width}px ${color}`);
+    element.style.textShadow = textShadow(width, color);
+  }
+  if (style.backgroundFill !== undefined) applyBackground(element, style.backgroundFill);
+  if (style.backgroundStroke !== undefined) {
+    element.style.borderStyle = 'solid';
+    element.style.borderWidth = `${style.backgroundStroke.width ?? 1}px`;
+    if (style.backgroundStroke.color !== undefined) element.style.borderColor = colorToCss(style.backgroundStroke.color);
+  }
   if (style.padding !== undefined) element.style.padding = style.padding.map((value) => `${value}px`).join(' ');
   if (style.textAlign !== undefined) element.style.textAlign = style.textAlign === 'start' || style.textAlign === 'end' ? style.textAlign : style.textAlign;
+  if (style.justify !== undefined) element.style.textAlign = style.justify;
+  if (style.textBaseline !== undefined) element.style.verticalAlign = baseline(style.textBaseline);
   if (style.offsetX !== undefined) element.style.marginLeft = `${style.offsetX}px`;
   if (style.offsetY !== undefined) element.style.marginTop = `${style.offsetY}px`;
+  const transforms: string[] = [];
+  if (style.scale !== undefined) {
+    const scale = Array.isArray(style.scale) ? style.scale : [style.scale, style.scale];
+    transforms.push(`scale(${scale[0]}, ${scale[1]})`);
+  }
+  if (style.rotation !== undefined) transforms.push(`rotate(${style.rotation}rad)`);
+  if (transforms.length > 0) {
+    element.style.transform = transforms.join(' ');
+    element.style.transformOrigin = 'center';
+  }
+}
+
+function applyForeground(element: HTMLElement, fill: NonNullable<TextSpec['fill']>): void {
+  if (fill.type === 'solid') {
+    element.style.color = colorToCss(fill.color);
+    return;
+  }
+  element.style.color = 'transparent';
+  element.style.backgroundImage = patternImage(fill);
+  element.style.backgroundClip = 'text';
+  element.style.setProperty('-webkit-background-clip', 'text');
+}
+
+function applyBackground(element: HTMLElement, fill: NonNullable<TextSpec['backgroundFill']>): void {
+  if (fill.type === 'solid') element.style.backgroundColor = colorToCss(fill.color);
+  else {
+    if (fill.backgroundColor !== undefined) element.style.backgroundColor = colorToCss(fill.backgroundColor);
+    element.style.backgroundImage = patternImage(fill);
+  }
+}
+
+function patternImage(fill: Extract<NonNullable<TextSpec['fill']>, { type: 'pattern' }>): string {
+  const color = fill.color === undefined ? '#ffffff' : colorToCss(fill.color);
+  const size = Math.max(1, fill.size ?? 8);
+  const width = Math.max(1, fill.lineWidth ?? 1);
+  if (fill.pattern === 'dot') {
+    const radius = Math.max(0.5, fill.dotRadius ?? width);
+    return `radial-gradient(circle, ${color} ${radius}px, transparent ${radius}px)`;
+  }
+  if (fill.pattern === 'horizontal') return `repeating-linear-gradient(0deg, ${color} 0 ${width}px, transparent ${width}px ${size}px)`;
+  if (fill.pattern === 'vertical') return `repeating-linear-gradient(90deg, ${color} 0 ${width}px, transparent ${width}px ${size}px)`;
+  if (fill.pattern === 'cross') {
+    return `repeating-linear-gradient(45deg, ${color} 0 ${width}px, transparent ${width}px ${size}px), repeating-linear-gradient(-45deg, ${color} 0 ${width}px, transparent ${width}px ${size}px)`;
+  }
+  return `repeating-linear-gradient(45deg, ${color} 0 ${width}px, transparent ${width}px ${size}px)`;
+}
+
+function textShadow(width: number, color: string): string {
+  const offset = Math.max(1, width);
+  return [`${offset}px 0 ${color}`, `${-offset}px 0 ${color}`, `0 ${offset}px ${color}`, `0 ${-offset}px ${color}`].join(', ');
+}
+
+function baseline(value: NonNullable<TextSpec['textBaseline']>): string {
+  if (value === 'top' || value === 'hanging') return 'top';
+  if (value === 'bottom' || value === 'alphabetic' || value === 'ideographic') return 'bottom';
+  return 'middle';
 }
 
 function colorToCss(color: Color): string {

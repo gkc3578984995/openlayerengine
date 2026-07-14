@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
-import { InteractionConflictError } from '../src/core/errors.js';
+import { InteractionConflictError, ObjectDisposedError } from '../src/core/errors.js';
 import type { DrawInteractionEvent, DrawInteractionHandle, DrawInteractionPort, DrawInteractionSpec } from '../src/core/ports/DrawInteractionPort.js';
 import type { EditInteractionPort } from '../src/core/ports/EditInteractionPort.js';
 import type { LineMeasurement, MeasurementPort, SurfaceMeasurement } from '../src/core/ports/MeasurementPort.js';
@@ -29,6 +29,10 @@ class DrawPort implements DrawInteractionPort {
 
   click(coordinate: readonly [number, number]): void {
     this.listener?.({ type: 'click', coordinate });
+  }
+
+  emit(event: DrawInteractionEvent): void {
+    this.listener?.(event);
   }
 }
 
@@ -116,5 +120,37 @@ describe('Measure interaction coordination', () => {
 
     expect(decision).toBe('consume');
     await expect(session.finished).resolves.toMatchObject({ value: 1 });
+  });
+
+  it('keeps the measure active after a non-terminal freehand cancellation and later releases it', async () => {
+    const { measure, port } = setup();
+    const session = measure.start({ type: 'distance-total' });
+
+    port.emit({ type: 'freehand-start', coordinate: [0, 0] });
+    port.emit({ type: 'freehand-cancel' });
+
+    expect(session.status).toBe('active');
+    expect(() => measure.start({ type: 'distance-segments', policy: 'reject' })).toThrow(InteractionConflictError);
+    session.cancel();
+    await expect(session.finished).resolves.toBeUndefined();
+    expect(measure.start({ type: 'distance-segments', policy: 'reject' }).status).toBe('active');
+  });
+
+  it('blocks reentrant starts while destroy callbacks are running', () => {
+    const { measure } = setup();
+    const session = measure.start({ type: 'distance-total' });
+    let reentrantError: unknown;
+    session.on('cancel', () => {
+      try {
+        measure.start({ type: 'distance-segments' });
+      } catch (error) {
+        reentrantError = error;
+      }
+    });
+
+    measure.destroy();
+
+    expect(reentrantError).toBeInstanceOf(ObjectDisposedError);
+    expect(() => measure.start({ type: 'distance-segments' })).toThrow(ObjectDisposedError);
   });
 });

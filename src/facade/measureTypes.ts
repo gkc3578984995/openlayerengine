@@ -15,7 +15,7 @@ export interface MeasureOptions {
   readonly formatter?: (value: number, unit: MeasureResult['unit']) => string;
   readonly line?: StrokeSpec;
   readonly point?: CircleSymbolSpec | false;
-  readonly text?: Omit<TextSpec, 'text'>;
+  readonly text?: Omit<TextSpec, 'text' | 'rotateWithView' | 'overflow' | 'placement' | 'maxAngle' | 'repeat' | 'keepUpright'>;
   readonly showTotal?: boolean;
   readonly policy?: InteractionPolicy;
 }

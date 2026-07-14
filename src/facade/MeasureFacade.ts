@@ -62,12 +62,17 @@ class PublicMeasureSession implements MeasureSession {
       return this.#session.on('complete', (event) =>
         (listener as (event: MeasureSessionEventMap['complete']) => void)(Object.freeze({ type: 'complete', result: toPublicResult(event.result) }))
       );
-    return this.#session.on('cancel', listener as (event: InternalMeasureSessionEventMap['cancel']) => void);
+    if (type === 'cancel') return this.#session.on('cancel', listener as (event: InternalMeasureSessionEventMap['cancel']) => void);
+    throw new InvalidArgumentError(`Unknown Measure session event: ${String(type)}`);
   }
 }
 
 function copyOptions(input: MeasureOptions): InternalMeasureOptions {
   const record = inspectRecord(input, 'Measure options');
+  const allowed = new Set(['type', 'layerId', 'unit', 'precision', 'formatter', 'line', 'point', 'text', 'showTotal', 'policy']);
+  for (const key of Reflect.ownKeys(record)) {
+    if (typeof key !== 'string' || !allowed.has(key)) throw new InvalidArgumentError(`Unknown Measure options field: ${String(key)}`);
+  }
   return {
     ...(hasOwn(record, 'type') ? { type: record.type as MeasureOptions['type'] } : { type: undefined as never }),
     ...(hasOwn(record, 'layerId') ? { layerId: record.layerId as MeasureOptions['layerId'] } : {}),
