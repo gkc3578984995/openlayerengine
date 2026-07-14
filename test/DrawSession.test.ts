@@ -111,6 +111,7 @@ describe('DrawSession', () => {
     'draw-session-rightclick-exit',
     'draw-keep-graphics',
     'draw-point-limit',
+    'draw-style-preview-result-parity',
     'draw-result-query',
     'draw-result-remove',
     'draw-session-destroy'
@@ -145,6 +146,8 @@ describe('DrawSession', () => {
         [3, 2]
       ]
     });
+    const previewStyle = port.previews.at(-1)?.style;
+    expect(previewStyle).toEqual(style);
     expect(store.query()).toEqual([]);
 
     port.emit({ type: 'click', coordinate: [3, 2] });
@@ -160,6 +163,7 @@ describe('DrawSession', () => {
         [3, 2]
       ]
     });
+    expect(store.query()[0].style).toEqual(previewStyle);
     expect(events).toEqual(['start', 'click', 'change', 'click', 'change', 'complete']);
     expect(port.destroy).toHaveBeenCalledOnce();
     expect(await session.finished).toEqual(session.results);

@@ -1,29 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import Base from '../src/base/Base';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
+import { ObjectDisposedError } from '../src/core/errors.js';
+import { createFacadeHarness } from './helpers/facadeHarness.js';
 
-describe('Base lifecycle', () => {
-  it('destroy removes OL layer and unregisters from Earth', () => {
-    const removedLayers: unknown[] = [];
-    const removedKeys: string[] = [];
-    const layer = new VectorLayer({ source: new VectorSource() });
-    const earth = {
-      map: { addLayer: () => {} },
-      _autoRegisterLayer: () => {},
-      removeLayer: (target: unknown) => {
-        removedLayers.push(target);
-        return target;
-      },
-      removeRegisteredLayer: (key: string) => {
-        removedKeys.push(key);
-        return true;
-      }
-    } as any;
-    const base = new Base(earth, layer, 'Point');
+describe('Layer 生命周期 v2 回归', () => {
+  it('remove 同时移除原生图层并使旧句柄失效', () => {
+    const harness = createFacadeHarness();
+    const layer = harness.layers.add({ kind: 'vector', id: 'temporary' });
+    const native = layer.olLayer;
 
-    expect(base.destroy()).toBe(true);
-    expect(removedLayers).toEqual([layer]);
-    expect(removedKeys).toEqual([base.registryKey]);
+    layer.remove();
+
+    expect(harness.map.getAllLayers()).not.toContain(native);
+    expect(harness.layers.get('temporary')).toBeUndefined();
+    expect(() => layer.state).toThrow(ObjectDisposedError);
+    expect(() => layer.remove()).not.toThrow();
+    harness.destroy();
   });
 });

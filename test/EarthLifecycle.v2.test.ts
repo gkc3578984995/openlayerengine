@@ -3,6 +3,7 @@ import Earth, { setEarthContextFactoryForTests, type EarthOptions } from '../src
 import { lookupRegisteredEarth, resetEarthRegistryForTests } from '../src/facade/earthRegistry.js';
 import { useEarth } from '../src/facade/useEarth.js';
 import type { EngineContext } from '../src/internal/EngineContext.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
 let restoreFactory: (() => void) | undefined;
 
@@ -13,6 +14,13 @@ afterEach(() => {
 });
 
 describe('Earth v2 生命周期', () => {
+  coversCapabilities(
+    'earth-explicit-unregistered-instance',
+    'earth-instance-destroy-recreate',
+    'earth-named-instance-get-or-create',
+    'earth-destroy-lifecycle'
+  );
+
   it('按 ready、destroying、destroyed 同步迁移且重复销毁为 no-op', () => {
     const owner: { earth?: Earth } = {};
     const observed: string[] = [];

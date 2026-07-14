@@ -10,7 +10,6 @@ import type { Layer } from './Layer.js';
 import type { ElementService, LayerService } from './types.js';
 
 export type EarthEventType = 'pointermove' | 'click' | 'leftdown' | 'leftup' | 'doubleclick' | 'rightclick' | 'keydown';
-export type EventDisposer = () => void;
 
 export type EarthPointerEvent<T extends Exclude<EarthEventType, 'keydown'> = Exclude<EarthEventType, 'keydown'>> = {
   readonly type: T;
@@ -55,14 +54,14 @@ export interface EventService {
     options?: 'keydown' extends T
       ? Pick<EventSubscriptionOptions, 'signal'> & Readonly<Partial<Record<'selector' | 'module', never>>>
       : EventSubscriptionOptions
-  ): EventDisposer;
+  ): () => void;
   once<T extends EarthEventType>(
     type: T,
     listener: (event: EarthEventMap[T]) => void,
     options?: 'keydown' extends T
       ? Pick<EventSubscriptionOptions, 'signal'> & Readonly<Partial<Record<'selector' | 'module', never>>>
       : EventSubscriptionOptions
-  ): EventDisposer;
+  ): () => void;
   has(type: EarthEventType, module?: string): boolean;
   clearModule(module: string, type?: EarthEventType): void;
 }
@@ -72,12 +71,12 @@ interface InternalEventService {
     type: T,
     listener: (event: RoutedEventMap[T]) => void,
     options?: { readonly selector?: ElementSelector; readonly module?: string }
-  ): EventDisposer;
+  ): () => void;
   once<T extends EarthEventType>(
     type: T,
     listener: (event: RoutedEventMap[T]) => void,
     options?: { readonly selector?: ElementSelector; readonly module?: string }
-  ): EventDisposer;
+  ): () => void;
   has(type: EarthEventType, module?: string): boolean;
   clearModule(module: string, type?: EarthEventType): void;
   destroy(): void;
@@ -86,7 +85,7 @@ interface InternalEventService {
 interface PublicSubscription {
   readonly type: EarthEventType;
   readonly module?: string;
-  readonly dispose: EventDisposer;
+  readonly dispose: () => void;
 }
 
 export class EventFacade implements EventService {
@@ -111,7 +110,7 @@ export class EventFacade implements EventService {
     options?: 'keydown' extends T
       ? Pick<EventSubscriptionOptions, 'signal'> & Readonly<Partial<Record<'selector' | 'module', never>>>
       : EventSubscriptionOptions
-  ): EventDisposer {
+  ): () => void {
     return this.#register(type, listener, options, false);
   }
 
@@ -121,7 +120,7 @@ export class EventFacade implements EventService {
     options?: 'keydown' extends T
       ? Pick<EventSubscriptionOptions, 'signal'> & Readonly<Partial<Record<'selector' | 'module', never>>>
       : EventSubscriptionOptions
-  ): EventDisposer {
+  ): () => void {
     return this.#register(type, listener, options, true);
   }
 
@@ -132,7 +131,7 @@ export class EventFacade implements EventService {
 
   clearModule(module: string, type?: EarthEventType): void {
     this.#assertActive();
-    const finalizers: EventDisposer[] = [];
+    const finalizers: (() => void)[] = [];
     for (const subscription of [...this.#subscriptions.values()]) {
       if (subscription.module === module && (type === undefined || subscription.type === type)) finalizers.push(subscription.dispose);
     }
@@ -157,7 +156,7 @@ export class EventFacade implements EventService {
       | ('keydown' extends T ? Pick<EventSubscriptionOptions, 'signal'> & Readonly<Partial<Record<'selector' | 'module', never>>> : EventSubscriptionOptions)
       | undefined,
     once: boolean
-  ): EventDisposer {
+  ): () => void {
     this.#assertActive();
     if (typeof listener !== 'function') throw new InvalidArgumentError('Event listener must be a function');
     const inspected = inspectOptions(type, options);
@@ -165,7 +164,7 @@ export class EventFacade implements EventService {
 
     const id = ++this.#nextId;
     let active = true;
-    let internalDispose: EventDisposer = () => undefined;
+    let internalDispose: () => void = () => undefined;
     let abortInstalled = false;
     const abort = (): void => dispose();
     const dispose = (): void => {

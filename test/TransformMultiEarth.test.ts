@@ -1,166 +1,86 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { readFile } from 'node:fs/promises';
-import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
-import Transform from '../src/components/Transform';
-import { Toolbar } from '../src/extends/toolbar/Toolbar';
-import TransformInteraction from '../src/extends/transform-interaction/TransformInteraction';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { addElement, createTransformHarness } from './helpers/transformHarness.js';
 
-function analyzeToolbarBindings(source: string): { constructionCount: number; adjacentBindingCount: number; hasGlobalToolbarQuery: boolean } {
-  const sourceFile = ts.createSourceFile('Transform.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  let constructionCount = 0;
-  let adjacentBindingCount = 0;
-  let hasGlobalToolbarQuery = false;
+describe('Transform 多 Earth 隔离', () => {
+  coversCapabilities('transform-multi-earth-isolation');
 
-  const isThisProperty = (node: ts.Node, name: string): node is ts.PropertyAccessExpression =>
-    ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword && node.name.text === name;
+  it('相同 Element ID 的选择与变换只修改当前上下文', () => {
+    const first = createTransformHarness();
+    const second = createTransformHarness();
+    addElement(first, 'shared', 'point', [[1, 2]]);
+    addElement(second, 'shared', 'point', [[10, 20]]);
+    const firstSession = first.service.select('shared');
+    const secondSession = second.service.select('shared');
+    const secondTranslate = vi.fn();
+    secondSession.on('translating', secondTranslate);
 
-  const isToolbarConstruction = (statement: ts.Statement): boolean => {
-    if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression)) return false;
-    const expression = statement.expression;
-    return (
-      expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      isThisProperty(expression.left, 'toolbar') &&
-      ts.isNewExpression(expression.right) &&
-      ts.isIdentifier(expression.right.expression) &&
-      expression.right.expression.text === 'Toolbar'
-    );
-  };
+    first.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+    first.interaction.emit({ type: 'operation-change', operation: 'translate', delta: { type: 'translate', x: 5, y: -1 } });
+    first.interaction.emit({ type: 'operation-end', operation: 'translate', delta: { type: 'translate', x: 5, y: -1 } });
+    firstSession.finish();
 
-  const isToolbarBinding = (statement: ts.Statement | undefined): boolean => {
-    if (!statement || !ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return false;
-    const expression = statement.expression;
-    return (
-      isThisProperty(expression.expression, 'bindToolbarEvents') && expression.arguments.length === 1 && isThisProperty(expression.arguments[0], 'toolbar')
-    );
-  };
-
-  const visit = (node: ts.Node): void => {
-    if (ts.isSourceFile(node) || ts.isBlock(node)) {
-      node.statements.forEach((statement, index) => {
-        if (!isToolbarConstruction(statement)) return;
-        constructionCount += 1;
-        if (isToolbarBinding(node.statements[index + 1])) adjacentBindingCount += 1;
-      });
-    }
-
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === 'document' &&
-      node.expression.name.text === 'querySelector' &&
-      ts.isStringLiteralLike(node.arguments[0]) &&
-      node.arguments[0].text === '.ol-toolbar'
-    ) {
-      hasGlobalToolbarQuery = true;
-    }
-
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-
-  return {
-    constructionCount,
-    adjacentBindingCount,
-    hasGlobalToolbarQuery
-  };
-}
-
-class DetailEvent<T> extends Event {
-  constructor(
-    type: string,
-    readonly detail: T
-  ) {
-    super(type);
-  }
-}
-
-describe('TransformInteraction 多 Earth 隔离', () => {
-  it('只检查当前地图的动态绘制交互', () => {
-    const interaction = Object.create(TransformInteraction.prototype) as any;
-    interaction.getFeatureAtPixel_ = () => ({});
-    const currentMap = { getInteractions: () => ({ forEach: () => undefined }) };
-
-    expect(interaction.checkDynmicDraw_({ map: currentMap, pixel: [0, 0] })).toBe(false);
+    expect(first.store.get('shared')?.geometry).toEqual({ type: 'point', controlPoints: [[6, 1]] });
+    expect(second.store.get('shared')?.geometry).toEqual({ type: 'point', controlPoints: [[10, 20]] });
+    expect(secondSession.status).toBe('active');
+    expect(second.interaction.handle?.target?.geometry).toEqual({ type: 'point', coordinates: [10, 20] });
+    expect(secondTranslate).not.toHaveBeenCalled();
+    secondSession.cancel();
   });
 
-  it('通过稳定方法暴露控制框并刷新手柄', () => {
-    const interaction = Object.create(TransformInteraction.prototype) as any;
-    const bbox = {};
-    interaction.bbox_ = bbox;
-    interaction.drawSketch_ = vi.fn();
+  it('当前上下文的右键提交不会结束另一上下文的会话', () => {
+    const first = createTransformHarness();
+    const second = createTransformHarness();
+    addElement(first, 'first', 'point', [[0, 0]]);
+    addElement(second, 'second', 'point', [[2, 2]]);
+    const firstSession = first.service.select('first');
+    const secondSession = second.service.select('second');
 
-    interaction.refreshSketch(true);
+    const decision = first.coordinator.handleContextMenu({
+      type: 'rightclick',
+      coordinate: [0, 0],
+      pixel: [0, 0],
+      nativeEventRef: {} as never
+    });
 
-    expect(interaction.getBoundingBoxFeature()).toBe(bbox);
-    expect(interaction.drawSketch_).toHaveBeenCalledWith(true);
+    expect(decision).toBe('consume');
+    expect(firstSession.status).toBe('finished');
+    expect(secondSession.status).toBe('active');
+    secondSession.cancel();
   });
 
-  it('暴露每个 Toolbar 实例自己的根元素', () => {
-    const firstRoot = new EventTarget();
-    const secondRoot = new EventTarget();
-    const firstToolbar = Object.create(Toolbar.prototype) as any;
-    const secondToolbar = Object.create(Toolbar.prototype) as any;
-    firstToolbar.rootEl = firstRoot;
-    secondToolbar.rootEl = secondRoot;
+  it('工具栏命令只作用于所属 Transform 会话', () => {
+    const first = createTransformHarness({});
+    const second = createTransformHarness({});
+    addElement(first, 'first', 'point', [[0, 0]]);
+    addElement(second, 'second', 'point', [[2, 2]]);
+    const firstSession = first.service.select('first', { toolbar: {} });
+    const secondSession = second.service.select('second', { toolbar: {} });
 
-    expect(firstToolbar.getRootElement()).toBe(firstRoot);
-    expect(secondToolbar.getRootElement()).toBe(secondRoot);
+    first.toolbarPort.command?.('exit');
+
+    expect(firstSession.status).toBe('finished');
+    expect(first.toolbarPort.views[0]?.destroy).toHaveBeenCalledOnce();
+    expect(secondSession.status).toBe('active');
+    expect(second.toolbarPort.views[0]?.destroy).not.toHaveBeenCalled();
+    secondSession.cancel();
   });
 
-  it('只响应当前 Transform 所属 Toolbar 根元素的事件', () => {
-    const firstRoot = new EventTarget();
-    const secondRoot = new EventTarget();
-    const firstToolbar = { getRootElement: () => firstRoot } as any;
-    const secondToolbar = { getRootElement: () => secondRoot } as any;
-    const firstTransform = Object.create(Transform.prototype) as any;
-    const secondTransform = Object.create(Transform.prototype) as any;
-    firstTransform.baseTransformTipFlag = 'first';
-    secondTransform.baseTransformTipFlag = 'second';
-    firstTransform.updateHelpTooltip = vi.fn();
-    secondTransform.updateHelpTooltip = vi.fn();
-    firstTransform.handleToolbarClick = vi.fn();
-    secondTransform.handleToolbarClick = vi.fn();
+  it('销毁一个 TransformService 不会清理另一上下文的资源', () => {
+    const first = createTransformHarness();
+    const second = createTransformHarness();
+    addElement(first, 'first', 'point', [[0, 0]]);
+    addElement(second, 'second', 'point', [[2, 2]]);
+    const firstSession = first.service.select('first');
+    const secondSession = second.service.select('second');
 
-    firstTransform.bindToolbarEvents(firstToolbar);
-    secondTransform.bindToolbarEvents(secondToolbar);
+    first.service.destroy();
 
-    const enterDetail = { key: 'remove', item: { title: '删除' } };
-    const detail = { key: 'remove', item: enterDetail.item, pixel: [12, 34] };
-    firstRoot.dispatchEvent(new DetailEvent('toolbar:itementer', enterDetail));
-    firstRoot.dispatchEvent(new DetailEvent('toolbar:itemleave', enterDetail));
-    firstRoot.dispatchEvent(new DetailEvent('toolbar:itemclick', detail));
-
-    expect(firstTransform.updateHelpTooltip).toHaveBeenCalledWith('删除');
-    expect(firstTransform.updateHelpTooltip).toHaveBeenCalledWith('first');
-    expect(firstTransform.handleToolbarClick).toHaveBeenCalledWith(detail, detail.pixel);
-    expect(secondTransform.updateHelpTooltip).not.toHaveBeenCalled();
-    expect(secondTransform.handleToolbarClick).not.toHaveBeenCalled();
-  });
-
-  it('通过当前 Toolbar 实例绑定事件且不再查询全局根元素', async () => {
-    const source = await readFile('src/components/Transform.ts', 'utf8');
-    const analysis = analyzeToolbarBindings(source);
-
-    expect(analysis.hasGlobalToolbarQuery).toBe(false);
-    expect(analysis.constructionCount).toBe(2);
-    expect(analysis.adjacentBindingCount).toBe(analysis.constructionCount);
-  });
-
-  it('工具栏架构检查不依赖换行格式或字符串引号', () => {
-    const analysis = analyzeToolbarBindings(`
-      this.toolbar = new Toolbar(
-        opts,
-        this.earth
-      );
-      this.bindToolbarEvents(this.toolbar);
-      document.querySelector(".ol-toolbar");
-    `);
-
-    expect(analysis.constructionCount).toBe(1);
-    expect(analysis.adjacentBindingCount).toBe(1);
-    expect(analysis.hasGlobalToolbarQuery).toBe(true);
+    expect(firstSession.status).toBe('cancelled');
+    expect(first.interaction.handle?.destroyed).toBe(true);
+    expect(secondSession.status).toBe('active');
+    expect(second.interaction.handle?.destroyed).toBe(false);
+    expect(second.store.get('second')).toBeDefined();
+    secondSession.cancel();
   });
 });

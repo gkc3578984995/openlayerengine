@@ -140,7 +140,8 @@ describe('ContextMenuService', () => {
     'contextmenu-close-triggers',
     'contextmenu-event-isolation',
     'contextmenu-registration-cleanup',
-    'contextmenu-transform-arbitration'
+    'contextmenu-transform-arbitration',
+    'layer-contextmenu-state-cleanup'
   );
 
   it('resolves Element, module, and map registrations in priority order and preserves nested items', () => {

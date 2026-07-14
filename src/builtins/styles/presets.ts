@@ -25,6 +25,10 @@ const presetFactories = {
   'line-default': (): StyleSpec => ({
     strokes: [{ color: '#1677ff', width: 3, lineCap: 'round', lineJoin: 'round' }]
   }),
+  'arrow-default': (): StyleSpec => ({
+    strokes: [{ color: '#1677ff', width: 3, lineCap: 'round', lineJoin: 'round' }],
+    decorations: [{ type: 'arrow', placement: 'end' }]
+  }),
   'polygon-default': (): StyleSpec => ({
     strokes: [{ color: '#1677ff', width: 2 }],
     fill: { type: 'solid', color: [22, 119, 255, 0.2] }

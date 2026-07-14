@@ -3,7 +3,6 @@ import type {
   EarthEventType,
   EarthKeyboardEvent,
   EarthPointerEvent,
-  EventDisposer,
   EventService,
   EventSubscriptionOptions
 } from '../../src/facade/EventFacade.js';
@@ -26,7 +25,7 @@ const explicitUndefined: EventSubscriptionOptions = { signal: undefined };
 const mixedOptions: EventSubscriptionOptions = { selector: { id: 'element' }, module: 'draw' };
 void [explicitUndefined, mixedOptions];
 
-const clickDisposer: EventDisposer = events.on('click', (event) => {
+const clickDisposer: () => void = events.on('click', (event) => {
   type _Type = Expect<Equal<typeof event.type, 'click'>>;
   type _Event = Expect<Equal<typeof event.originalEvent, Event>>;
   type _Coordinate = Expect<Equal<typeof event.coordinate, readonly [number, number] | readonly [number, number, number]>>;
@@ -38,14 +37,14 @@ const clickDisposer: EventDisposer = events.on('click', (event) => {
   event.phase;
 });
 
-const moveDisposer: EventDisposer = events.on('pointermove', (event) => {
+const moveDisposer: () => void = events.on('pointermove', (event) => {
   type _Move = Expect<Equal<typeof event, EarthPointerEvent<'pointermove'>>>;
   const phase: 'enter' | 'move' | 'leave' | undefined = event.phase;
   void (0 as unknown as _Move);
   void phase;
 });
 
-const keyDisposer: EventDisposer = events.once('keydown', (event) => {
+const keyDisposer: () => void = events.once('keydown', (event) => {
   type _Key = Expect<Equal<typeof event, EarthKeyboardEvent>>;
   type _Native = Expect<Equal<typeof event.originalEvent, KeyboardEvent>>;
   type _NoInternalRef = Expect<Equal<Extract<keyof typeof event, 'nativeEventRef'>, never>>;

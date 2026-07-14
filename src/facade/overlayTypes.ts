@@ -63,8 +63,6 @@ export interface DescriptorListItem<Value = string | number> {
 }
 
 export type DescriptorContent = readonly DescriptorListItem[] | string | HTMLElement;
-export type DescriptorCloseAction = 'hide' | 'destroy';
-export type DescriptorFixedMode = 'position' | 'pixel';
 
 export interface DescriptorEvent<T = unknown> {
   readonly type: 'click' | 'close';
@@ -74,25 +72,22 @@ export interface DescriptorEvent<T = unknown> {
   readonly index?: number;
 }
 
-interface DescriptorCommonSpec<T> {
+export type DescriptorSpec<T = unknown> = {
   readonly id?: string;
   readonly position: Coordinate;
   readonly offset?: Pixel;
   readonly header?: string;
   readonly footer?: string;
   readonly close?: boolean;
-  readonly closeAction?: DescriptorCloseAction;
+  readonly closeAction?: 'hide' | 'destroy';
   readonly onClose?: (event: DescriptorEvent<T>) => void;
   readonly onItemClick?: (event: DescriptorEvent<T>) => void;
   readonly draggable?: boolean;
   readonly fixedLine?: boolean;
   readonly fixedLineColor?: string;
-  readonly fixedMode?: DescriptorFixedMode;
+  readonly fixedMode?: 'position' | 'pixel';
   readonly data?: T;
-}
-
-export type DescriptorSpec<T = unknown> = DescriptorCommonSpec<T> &
-  ({ readonly type: 'list'; readonly content: readonly DescriptorListItem[] } | { readonly type: 'custom'; readonly content: string | HTMLElement });
+} & ({ readonly type: 'list'; readonly content: readonly DescriptorListItem[] } | { readonly type: 'custom'; readonly content: string | HTMLElement });
 
 export interface DescriptorPatch<T = unknown> {
   readonly content?: DescriptorContent;
@@ -101,13 +96,13 @@ export interface DescriptorPatch<T = unknown> {
   readonly header?: string | undefined;
   readonly footer?: string | undefined;
   readonly close?: boolean;
-  readonly closeAction?: DescriptorCloseAction;
+  readonly closeAction?: 'hide' | 'destroy';
   readonly onClose?: ((event: DescriptorEvent<T>) => void) | undefined;
   readonly onItemClick?: ((event: DescriptorEvent<T>) => void) | undefined;
   readonly draggable?: boolean;
   readonly fixedLine?: boolean;
   readonly fixedLineColor?: string;
-  readonly fixedMode?: DescriptorFixedMode;
+  readonly fixedMode?: 'position' | 'pixel';
   readonly data?: T | undefined;
 }
 

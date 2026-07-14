@@ -1,53 +1,28 @@
-import type Feature from 'ol/Feature.js';
-import type Geometry from 'ol/geom/Geometry.js';
-import { describe, expect, it, vi } from 'vitest';
-import BillboardLayer from '../src/base/BillboardLayer.js';
+import Point from 'ol/geom/Point.js';
+import Icon from 'ol/style/Icon.js';
+import { describe, expect, it } from 'vitest';
+import { compileStyles } from './helpers/styleCompilerHarness.js';
 
-function createEarth() {
-  return {
-    map: { addLayer: vi.fn() },
-    _autoRegisterLayer: vi.fn(),
-    removeLayer: vi.fn(),
-    removeRegisteredLayer: vi.fn()
-  } as never;
-}
+const iconSource = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="24"/%3E';
 
-describe('BillboardLayer anchor snapshots', () => {
-  it('stores the default center anchor explicitly', () => {
-    const layer = new BillboardLayer(createEarth());
-    const feature = layer.add({
-      id: 'billboard-default-anchor',
-      center: [0, 0],
-      src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>'
-    });
+describe('Icon anchor v2 回归', () => {
+  it('保留显式像素锚点而不读取归一化后的内部值', () => {
+    const image = compileStyles(
+      {
+        symbol: {
+          type: 'icon',
+          src: iconSource,
+          size: [32, 24],
+          anchor: [8, 9],
+          anchorOrigin: 'top-left',
+          anchorXUnits: 'pixels',
+          anchorYUnits: 'pixels'
+        }
+      },
+      new Point([0, 0])
+    )[0]?.getImage();
 
-    expect(feature.get('param').anchor).toEqual([0.5, 0.5]);
-    expect(layer.getUpdatedParam(feature as Feature<Geometry>)?.anchor).toEqual([0.5, 0.5]);
-  });
-
-  it('preserves the caller anchor instead of reading the normalized OpenLayers anchor', () => {
-    const layer = new BillboardLayer(createEarth());
-    const initialAnchor = [0.2, 0.75];
-    const feature = layer.add({
-      id: 'billboard-anchor',
-      center: [0, 0],
-      src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
-      size: [16, 16],
-      scale: 2,
-      displacement: [8, 4],
-      anchor: initialAnchor,
-      anchorXUnits: 'fraction',
-      anchorYUnits: 'fraction'
-    });
-
-    expect(layer.getUpdatedParam(feature as Feature<Geometry>)?.anchor).toEqual([0.2, 0.75]);
-    expect(feature.get('param').anchor).not.toBe(initialAnchor);
-
-    const nextAnchor = [0.8, 0.25];
-    layer.set({ id: 'billboard-anchor', anchor: nextAnchor });
-
-    expect(feature.get('param').anchor).toEqual([0.8, 0.25]);
-    expect(feature.get('param').anchor).not.toBe(nextAnchor);
-    expect(layer.getUpdatedParam(feature as Feature<Geometry>)?.anchor).toEqual([0.8, 0.25]);
+    expect(image).toBeInstanceOf(Icon);
+    expect((image as Icon).getAnchor()).toEqual([8, 9]);
   });
 });

@@ -1,265 +1,92 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Feature from 'ol/Feature.js';
-import BaseObject from 'ol/Object.js';
-import View from 'ol/View.js';
-import LineString from 'ol/geom/LineString.js';
-import Draw, { DrawEvent } from 'ol/interaction/Draw.js';
-import VectorSource from 'ol/source/Vector.js';
-import { Style } from 'ol/style';
-import DynamicDraw from '../src/components/DynamicDraw';
+import { describe, expect, it, vi } from 'vitest';
+import type { StyleSpec } from '../src/core/style/types.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { createDrawLifecycleHarness, finishActiveSession } from './helpers/drawMeasureLifecycleHarness.js';
 
-class TestPointerEvent extends Event {
-  readonly altKey = false;
-  readonly button: number;
-  readonly ctrlKey = false;
-  readonly isPrimary = true;
-  readonly metaKey = false;
-  readonly pointerId = 1;
-  readonly pointerType = 'mouse';
-  readonly shiftKey: boolean;
+const lineStyle: StyleSpec = {
+  strokes: [
+    { color: '#00ff36', width: 8, lineDash: [10, 6] },
+    { color: '#ffcc33', width: 2 }
+  ]
+};
 
-  constructor(type: string, options: { button: number; shiftKey: boolean }) {
-    super(type);
-    this.button = options.button;
-    this.shiftKey = options.shiftKey;
-  }
-}
+describe('v2 动态绘制监听与资源生命周期', () => {
+  it('会话替换只销毁旧会话拥有的端口和输入监听', async () => {
+    coversCapabilities('draw-session-events', 'draw-session-destroy');
+    const harness = createDrawLifecycleHarness();
+    const first = harness.draw.start({ type: 'polyline', layerId: 'draw-layer', style: lineStyle });
+    const cancelled = vi.fn();
+    first.on('cancel', cancelled);
+    harness.drawPort.emit({ type: 'click', coordinate: [0, 0] });
+    const firstRecord = harness.drawPort.records[0];
 
-function createPointerEvent(
-  type: 'pointerdown' | 'pointerdrag' | 'pointerup',
-  coordinate: number[],
-  pixel: number[],
-  options: { button: number; shiftKey: boolean }
-) {
-  const originalEvent = new TestPointerEvent(type, options);
-  return {
-    type,
-    originalEvent,
-    coordinate: coordinate.slice(),
-    pixel: pixel.slice(),
-    activePointers: type === 'pointerup' ? [] : [originalEvent],
-    preventDefault: vi.fn()
-  } as any;
-}
+    const second = harness.draw.start({ type: 'point', layerId: 'draw-layer', limit: 1 });
 
-function createDrawHarness(type: 'LineString' | 'Circle', wireDrawLifecycle = false) {
-  const view = new View({ center: [0, 0], zoom: 2 });
-  const map = Object.assign(new BaseObject(), {
-    render: vi.fn(),
-    getView: () => view,
-    addInteraction(interaction: Draw) {
-      interaction.setMap(map as any);
-    },
-    removeInteraction(interaction: Draw) {
-      interaction.setMap(null);
-    }
-  });
-  const dynamicDraw = Object.create(DynamicDraw.prototype) as any;
-  dynamicDraw.map = map;
-  dynamicDraw.tempSource = new VectorSource();
-  dynamicDraw.drawProgressDisposers = [];
-  dynamicDraw.overlay = { remove: vi.fn() };
-  dynamicDraw.earth = {
-    setMouseStyle: vi.fn(),
-    useGlobalEvent: () => ({
-      addMouseRightClickEventByGlobal: vi.fn(() => vi.fn()),
-      addMouseMoveEventByGlobal: vi.fn(() => vi.fn()),
-      addMouseLeftDownEventByGlobal: vi.fn(() => vi.fn())
-    })
-  };
-  dynamicDraw.initHelpTooltip = vi.fn();
-  dynamicDraw.buildDrawPreviewStyle = vi.fn(() => new Style());
-  if (!wireDrawLifecycle) dynamicDraw.drawChange = vi.fn();
+    await expect(first.finished).resolves.toEqual([]);
+    expect(first.status).toBe('cancelled');
+    expect(cancelled).toHaveBeenCalledWith(expect.objectContaining({ reason: 'replaced' }));
+    expect(firstRecord.destroyCalls).toBe(1);
+    expect(firstRecord.active).toBe(false);
+    expect(harness.drawPort.records[1].active).toBe(true);
+    expect(harness.input.disposals).toBe(1);
+    expect(harness.input.activeCount).toBe(1);
 
-  dynamicDraw.initDraw(type);
-
-  return { dynamicDraw, interaction: dynamicDraw.draw as Draw };
-}
-
-describe('DynamicDraw 监听生命周期', () => {
-  beforeEach(() => {
-    vi.stubGlobal('PointerEvent', TestPointerEvent);
+    second.cancel();
+    expect(harness.drawPort.records[1].destroyCalls).toBe(1);
+    expect(harness.input.activeCount).toBe(0);
+    harness.destroy();
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+  it('自由绘制通过语义端口提交坐标并在达到 limit 后释放全部监听', async () => {
+    coversCapabilities('draw-keep-graphics', 'draw-point-limit');
+    const harness = createDrawLifecycleHarness();
+    const session = harness.draw.start({ type: 'polyline', layerId: 'draw-layer', style: lineStyle, limit: 1 });
+    const completed = vi.fn();
+    session.on('complete', completed);
 
-  it('退出绘制时只注销自身的全局监听', () => {
-    const progressDisposer = vi.fn();
-    const exitDisposer = vi.fn();
-    const disableGlobalMouseRightClickEvent = vi.fn();
-    const disableGlobalMouseMoveEvent = vi.fn();
-    const disableGlobalMouseLeftDownEvent = vi.fn();
-    const draw = Object.create(DynamicDraw.prototype) as any;
-    draw.drawProgressDisposers = [progressDisposer];
-    draw.drawExitDisposer = exitDisposer;
-    draw.lastDrawCompleted = true;
-    draw.earth = {
-      useGlobalEvent: () => ({
-        hasGlobalMouseRightClickEvent: () => true,
-        hasGlobalMouseMoveEvent: () => true,
-        hasGlobalMouseLeftDownEvent: () => true,
-        disableGlobalMouseRightClickEvent,
-        disableGlobalMouseMoveEvent,
-        disableGlobalMouseLeftDownEvent
-      }),
-      setMouseStyleToDefault: vi.fn()
-    };
+    harness.drawPort.emit({ type: 'freehand-start', coordinate: [120, 30] });
+    harness.drawPort.emit({ type: 'freehand-sample', coordinate: [130, 40] });
+    harness.drawPort.emit({ type: 'freehand-complete', coordinate: [140, 50] });
 
-    draw.exitDraw({ position: [120, 30] });
-
-    expect(progressDisposer).toHaveBeenCalledTimes(1);
-    expect(exitDisposer).toHaveBeenCalledTimes(1);
-    expect(disableGlobalMouseRightClickEvent).not.toHaveBeenCalled();
-    expect(disableGlobalMouseMoveEvent).not.toHaveBeenCalled();
-    expect(disableGlobalMouseLeftDownEvent).not.toHaveBeenCalled();
-  });
-
-  it('keeps the public pointer coordinate until finishDrawing emits drawend', () => {
-    const order: string[] = [];
-    const draw = Object.create(DynamicDraw.prototype) as any;
-    draw.lastDrawPointerDown = { coordinate: [120, 30], pixel: [12, 3] };
-    draw.lastDrawCompleted = true;
-    draw.draw = {
-      finishDrawing: vi.fn(() => {
-        order.push('finish');
-        expect(draw.lastDrawPointerDown.coordinate).toEqual([120, 30]);
-      })
-    };
-    draw.map = {
-      removeInteraction: vi.fn(() => order.push('remove'))
-    };
-    draw.clearDrawEventListeners = vi.fn(() => {
-      order.push('clear');
-      draw.lastDrawPointerDown = undefined;
+    const results = await session.finished;
+    expect(session.status).toBe('finished');
+    expect(results).toHaveLength(1);
+    expect(results[0].geometry).toEqual({
+      type: 'polyline',
+      controlPoints: [
+        [120, 30],
+        [130, 40],
+        [140, 50]
+      ]
     });
-    draw.earth = { setMouseStyleToDefault: vi.fn() };
-
-    draw.exitDraw({ position: [120, 30] });
-
-    expect(order).toEqual(['finish', 'remove', 'clear']);
+    expect(completed).toHaveBeenCalledOnce();
+    expect(harness.drawPort.records[0].destroyCalls).toBe(1);
+    expect(harness.input.activeCount).toBe(0);
+    harness.destroy();
   });
 
-  it.each(['LineString', 'Circle'] as const)('records the primary Shift freehand pointer coordinate for %s', (type) => {
-    const { dynamicDraw, interaction } = createDrawHarness(type);
+  it('右键完成在端口清理前提交结果且不保留临时预览', async () => {
+    coversCapabilities('draw-session-rightclick-exit', 'draw-result-query');
+    const harness = createDrawLifecycleHarness();
+    const session = harness.draw.start({ type: 'polyline', layerId: 'draw-layer', style: lineStyle });
+    harness.drawPort.emit({ type: 'click', coordinate: [0, 0] });
+    harness.drawPort.emit({ type: 'click', coordinate: [10, 5] });
+    const record = harness.drawPort.records[0];
+    expect(record.renders.some((preview) => preview !== undefined)).toBe(true);
 
-    interaction.handleEvent(createPointerEvent('pointerdown', [12000000, 3000000], [12, 3], { button: 0, shiftKey: true }));
+    expect(finishActiveSession(harness.coordinator, [10, 5])).toBe('consume');
 
-    expect(dynamicDraw.lastDrawPointerDown).toEqual({ coordinate: [12000000, 3000000], pixel: [12, 3] });
-    expect(interaction.getFreehand()).toBe(true);
-
-    interaction.handleEvent(createPointerEvent('pointerdrag', [12000001, 3000001], [24, 15], { button: -1, shiftKey: true }));
-    interaction.handleEvent(createPointerEvent('pointerup', [12000001, 3000001], [24, 15], { button: -1, shiftKey: true }));
-
-    expect(interaction.getFreehand()).toBe(true);
-    interaction.setMap(null);
-  });
-
-  it('replaces a rejected ordinary drag position with the next Shift freehand pointerdown', () => {
-    const { dynamicDraw, interaction } = createDrawHarness('LineString');
-    const drawStart = vi.fn();
-    interaction.on('drawstart', drawStart);
-
-    interaction.handleEvent(createPointerEvent('pointerdown', [120, 30], [12, 3], { button: 0, shiftKey: false }));
-    interaction.handleEvent(createPointerEvent('pointerdrag', [140, 50], [40, 30], { button: -1, shiftKey: false }));
-    interaction.handleEvent(createPointerEvent('pointerup', [140, 50], [40, 30], { button: -1, shiftKey: false }));
-
-    expect(drawStart).not.toHaveBeenCalled();
-    expect(dynamicDraw.lastDrawPointerDown).toEqual({ coordinate: [120, 30], pixel: [12, 3] });
-
-    interaction.handleEvent(createPointerEvent('pointerdown', [150, 60], [50, 40], { button: 0, shiftKey: true }));
-
-    expect(dynamicDraw.lastDrawPointerDown).toEqual({ coordinate: [150, 60], pixel: [50, 40] });
-
-    const fallbackEvent = new DrawEvent(
-      'drawstart',
-      new Feature(
-        new LineString([
-          [150, 60],
-          [160, 70]
-        ])
-      )
-    );
-    expect(dynamicDraw.resolveDrawEventCoordinate(fallbackEvent)).toEqual([150, 60]);
-    interaction.setMap(null);
-  });
-
-  it('clears the public pointer position after drawend', () => {
-    const { dynamicDraw, interaction } = createDrawHarness('LineString', true);
-    dynamicDraw.getBaseLayer = vi.fn();
-    dynamicDraw.lastDrawPointerDown = { coordinate: [120, 30], pixel: [12, 3] };
-
-    try {
-      interaction.dispatchEvent(
-        new DrawEvent(
-          'drawend',
-          new Feature(
-            new LineString([
-              [120, 30],
-              [130, 40]
-            ])
-          )
-        )
-      );
-      expect(dynamicDraw.lastDrawPointerDown).toBeUndefined();
-    } finally {
-      interaction.setMap(null);
-    }
-  });
-
-  it('clears the public pointer position after drawabort', () => {
-    const { dynamicDraw, interaction } = createDrawHarness('LineString', true);
-    dynamicDraw.lastDrawPointerDown = { coordinate: [120, 30], pixel: [12, 3] };
-
-    try {
-      interaction.dispatchEvent(
-        new DrawEvent(
-          'drawabort',
-          new Feature(
-            new LineString([
-              [120, 30],
-              [130, 40]
-            ])
-          )
-        )
-      );
-      expect(dynamicDraw.lastDrawPointerDown).toBeUndefined();
-    } finally {
-      interaction.setMap(null);
-    }
-  });
-
-  it('uses the same background stroke for polygon preview and saved parameters', () => {
-    const draw = Object.create(DynamicDraw.prototype) as any;
-    const param = {
-      strokeColor: '#ffcc33',
-      strokeWidth: 2,
-      backgroundStroke: { color: '#00ff36', width: 8, lineDash: [10, 6] }
-    };
-    const saved = draw.buildDrawPolygonStyle(param);
-    const preview = draw.buildDrawPreviewStyle('Polygon', param);
-    expect(saved.backgroundStroke).toEqual(param.backgroundStroke);
-    expect(Array.isArray(preview) ? preview : [preview]).toHaveLength(2);
-    expect((Array.isArray(preview) ? preview[0] : preview).getStroke()?.getColor()).toBe('#00ff36');
-  });
-
-  it('uses the saved legacy stroke for line preview when no inner stroke is provided', () => {
-    const draw = Object.create(DynamicDraw.prototype) as any;
-    const saved = draw.buildDrawLineStyle({ strokeWidth: 2 });
-    const preview = draw.buildDrawPreviewStyle('LineString', { strokeWidth: 2 });
-    const foreground = Array.isArray(preview) ? preview.at(-1) : preview;
-    expect(foreground.getStroke()?.getColor()).toBe(saved.stroke.color);
-    expect(foreground.getStroke()?.getWidth()).toBe(saved.stroke.width);
-    expect(foreground.getStroke()?.getLineDash()).toBeNull();
-  });
-
-  it('applies saved stroke defaults to partial layered preview strokes', () => {
-    const draw = Object.create(DynamicDraw.prototype) as any;
-    const preview = draw.buildDrawPreviewStyle('Polygon', { backgroundStroke: { color: '#00ff36' }, strokeColor: '#f00' });
-    const styles = Array.isArray(preview) ? preview : [preview];
-    expect(styles[0].getStroke()?.getWidth()).toBe(2);
-    expect(styles[1].getStroke()?.getWidth()).toBe(2);
+    const [result] = await session.finished;
+    expect(result.geometry).toEqual({
+      type: 'polyline',
+      controlPoints: [
+        [0, 0],
+        [10, 5]
+      ]
+    });
+    expect(harness.draw.query({ id: result.id })).toEqual([result]);
+    expect(record.destroyCalls).toBe(1);
+    expect(record.active).toBe(false);
+    harness.destroy();
   });
 });

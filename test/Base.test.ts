@@ -1,135 +1,43 @@
-import { describe, it, expect, vi } from 'vitest';
-import Base from '../src/base/Base';
-import { Feature } from 'ol';
-import { Point, Polygon, Circle as GeomCircle, Geometry } from 'ol/geom';
-import VectorLayer from 'ol/layer/Vector';
-import VectorSource from 'ol/source/Vector';
-import { Style, Stroke, Fill, Text } from 'ol/style';
-import CircleStyle from 'ol/style/Circle';
+import Point from 'ol/geom/Point.js';
+import { describe, expect, it } from 'vitest';
+import { ObjectDisposedError } from '../src/core/errors.js';
+import { createFacadeHarness } from './helpers/facadeHarness.js';
 
-/** 构造满足 Base 构造器依赖的最小 mock Earth */
-function makeMockEarth() {
-  return {
-    map: { addLayer: () => {} },
-    _autoRegisterLayer: () => {},
-    removeLayer: () => undefined,
-    removeRegisteredLayer: () => false
-  } as any;
-}
+describe('Base 能力迁移到 Element/Layer facade', () => {
+  it('图层透明度使用 0 到 1 的公共状态并原子校验', () => {
+    const harness = createFacadeHarness();
+    const layer = harness.layers.add({ kind: 'vector', id: 'business', opacity: 0.5 });
 
-function makeBase(type = 'Point') {
-  const layer = new VectorLayer({ source: new VectorSource() });
-  return { base: new Base(makeMockEarth(), layer, type), layer };
-}
-
-describe('Base.setLayerOpacity', () => {
-  it('converts percentages to OpenLayers opacity and defaults to 100', () => {
-    const { base, layer } = makeBase();
-
-    expect(base.setLayerOpacity()).toBe(true);
-    expect(layer.getOpacity()).toBe(1);
-    expect(base.setLayerOpacity(50)).toBe(true);
-    expect(layer.getOpacity()).toBe(0.5);
-    expect(base.setLayerOpacity(0)).toBe(true);
-    expect(layer.getOpacity()).toBe(0);
+    expect(layer.opacity).toBe(0.5);
+    layer.update({ opacity: 0 });
+    expect(layer.opacity).toBe(0);
+    expect(() => layer.update({ opacity: 2 })).toThrow();
+    expect(layer.opacity).toBe(0);
+    harness.destroy();
   });
 
-  it('rejects invalid percentages without changing the current opacity', () => {
-    const { base, layer } = makeBase();
-    base.setLayerOpacity(50);
+  it('元素状态是唯一真源，业务输入和原生 Feature 修改不会反向污染快照', () => {
+    const harness = createFacadeHarness();
+    const data = { name: '原始' };
+    const element = harness.elements.add({
+      id: 'point',
+      geometry: { type: 'point', controlPoints: [[1, 2]] },
+      style: { symbol: { type: 'circle', radius: 5, fill: { type: 'solid', color: '#f00' } } },
+      module: 'planning',
+      data
+    });
 
-    expect(base.setLayerOpacity(-1)).toBe(false);
-    expect(base.setLayerOpacity(101)).toBe(false);
-    expect(base.setLayerOpacity(Number.NaN)).toBe(false);
-    expect(layer.getOpacity()).toBe(0.5);
-  });
-});
+    data.name = '外部修改';
+    (element.olFeature.getGeometry() as Point).setCoordinates([99, 99]);
+    expect(element.state.data).toEqual({ name: '原始' });
+    expect(element.state.geometry.controlPoints).toEqual([[1, 2]]);
+    expect(Object.isFrozen(element.state)).toBe(true);
 
-describe('Base 右键菜单状态生命周期', () => {
-  it('永久删除要素时清理其模块菜单状态', () => {
-    const clearContextMenuState = vi.fn();
-    const earth = { ...makeMockEarth(), clearContextMenuState };
-    const layer = new VectorLayer({ source: new VectorSource() });
-    const base = new Base(earth, layer, 'Point');
-    const feature = new Feature<Point>({ geometry: new Point([10, 20]) });
-    feature.setId('vehicle-01');
-    feature.set('module', 'vehicle');
-    const source = layer.getSource();
-    if (!source) throw new Error('预期矢量图层存在数据源');
-    source.addFeature(feature);
-
-    base.remove('vehicle-01');
-
-    expect(clearContextMenuState).toHaveBeenCalledWith('vehicle', 'vehicle-01');
-  });
-});
-
-describe('Base.getUpdatedParam — Point', () => {
-  it('从几何与样式同步 center / size / stroke / fill / label', () => {
-    const { base } = makeBase('Point');
-    const feature = new Feature<Point>({ geometry: new Point([10, 20]) });
-    feature.set('layerType', 'Point');
-    feature.set('param', { center: [0, 0], size: 4 });
-    feature.setStyle(
-      new Style({
-        image: new CircleStyle({
-          radius: 6,
-          fill: new Fill({ color: 'blue' }),
-          stroke: new Stroke({ color: 'red', width: 2 })
-        }),
-        text: new Text({ text: 'hello', fill: new Fill({ color: 'black' }) })
-      })
-    );
-    const updated = base.getUpdatedParam(feature as Feature<Geometry>)!;
-    expect(updated.center).toEqual([10, 20]);
-    expect(updated.size).toBe(6);
-    expect(updated.stroke.color).toBe('red');
-    expect(updated.stroke.width).toBe(2);
-    expect(updated.fill.color).toBe('blue');
-    expect(updated.label.text).toBe('hello');
-  });
-
-  it('不修改 feature 上绑定的原 param（深拷贝）', () => {
-    const { base } = makeBase('Point');
-    const feature = new Feature<Point>({ geometry: new Point([10, 20]) });
-    feature.set('layerType', 'Point');
-    const original = { center: [0, 0], size: 4 };
-    feature.set('param', original);
-    feature.setStyle(new Style({ image: new CircleStyle({ radius: 8 }) }));
-    base.getUpdatedParam(feature as Feature<Geometry>);
-    // 原对象未被写回
-    expect(original.center).toEqual([0, 0]);
-    expect(original.size).toBe(4);
-    expect(feature.get('param')).toBe(original);
-  });
-
-  it('无 param 时返回 undefined', () => {
-    const { base } = makeBase('Point');
-    const feature = new Feature<Point>({ geometry: new Point([0, 0]) });
-    expect(base.getUpdatedParam(feature as Feature<Geometry>)).toBeUndefined();
-  });
-});
-
-describe('Base.getUpdatedParam — Polygon / Circle 几何同步', () => {
-  it('Polygon 同步 positions', () => {
-    const { base } = makeBase('Polygon');
-    const coords = [[[0, 0], [10, 0], [10, 10], [0, 0]]];
-    const feature = new Feature({ geometry: new Polygon(coords) });
-    feature.set('layerType', 'Polygon');
-    feature.set('param', { positions: [] });
-    feature.setStyle(new Style({}));
-    const updated = base.getUpdatedParam(feature as Feature<Geometry>)!;
-    expect(updated.positions).toEqual(coords);
-  });
-
-  it('Circle 同步 center 与 radius', () => {
-    const { base } = makeBase('Circle');
-    const feature = new Feature({ geometry: new GeomCircle([5, 5], 42) });
-    feature.set('layerType', 'Circle');
-    feature.set('param', { center: [0, 0], radius: 0 });
-    feature.setStyle(new Style({}));
-    const updated = base.getUpdatedParam(feature as Feature<Geometry>)!;
-    expect(updated.center).toEqual([5, 5]);
-    expect(updated.radius).toBe(42);
+    element.update({ geometry: { type: 'point', controlPoints: [[3, 4]] } });
+    expect((element.olFeature.getGeometry() as Point).getCoordinates()).toEqual([3, 4]);
+    expect(harness.elements.query({ module: 'planning' })).toEqual([element]);
+    element.remove();
+    expect(() => element.state).toThrow(ObjectDisposedError);
+    harness.destroy();
   });
 });

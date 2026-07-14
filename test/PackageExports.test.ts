@@ -2,24 +2,30 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
-type ConditionalExport = {
-  types: string;
-  import: string;
-};
+interface ConditionalExport {
+  readonly types: string;
+  readonly import: string;
+}
 
-type PackageJson = {
-  version: string;
-  dependencies: Record<string, string>;
-  devDependencies: Record<string, string>;
-  scripts: Record<string, string>;
-  main: string;
-  module: string;
-  types: string;
-  style: string;
-  exports: Record<string, ConditionalExport | string>;
-  sideEffects: string[];
-};
+interface PackageJson {
+  readonly version: string;
+  readonly type: string;
+  readonly dependencies?: Record<string, string>;
+  readonly optionalDependencies?: Record<string, string>;
+  readonly bundleDependencies?: readonly string[];
+  readonly bundledDependencies?: readonly string[];
+  readonly peerDependencies: Record<string, string>;
+  readonly peerDependenciesMeta: Record<string, { readonly optional: boolean }>;
+  readonly devDependencies: Record<string, string>;
+  readonly main: string;
+  readonly module: string;
+  readonly types: string;
+  readonly style: string;
+  readonly exports: Record<string, ConditionalExport | string>;
+  readonly sideEffects: readonly string[];
+}
 
 const projectRoot = resolve(__dirname, '..');
 const packageJson = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as PackageJson;
@@ -32,32 +38,22 @@ function listFiles(directory: string, extension: string): string[] {
   });
 }
 
-const conditionalExports = {
-  '.': ['./dist/types/index.d.ts', './dist/esm/index.mjs'],
-  './core': ['./dist/types/entries/core.d.ts', './dist/esm/core.mjs'],
-  './layers': ['./dist/types/base/index.d.ts', './dist/esm/layers.mjs'],
-  './draw': ['./dist/types/entries/draw.d.ts', './dist/esm/draw.mjs'],
-  './measure': ['./dist/types/entries/measure.d.ts', './dist/esm/measure.mjs'],
-  './transform': ['./dist/types/entries/transform.d.ts', './dist/esm/transform.mjs'],
-  './plot': ['./dist/types/entries/plot.d.ts', './dist/esm/plot.mjs']
-} as const;
+describe('2.0 发布入口', () => {
+  coversCapabilities(
+    'public-root-api',
+    'public-style-explicit-entry',
+    'public-base-subclass-extension',
+    'public-low-level-plot-api',
+    'public-feature-metadata-keys',
+    'public-legacy-type-only-ast'
+  );
 
-describe('package exports', () => {
-  it('publishes the version 2 root and feature contracts', () => {
+  it('只发布 ESM 根入口和样式入口', () => {
     expect(packageJson.version).toBe('2.0.0');
+    expect(packageJson.type).toBe('module');
+    expect(Object.keys(packageJson.exports)).toEqual(['.', './style.css']);
+    expect(packageJson.exports['.']).toEqual({ types: './dist/types/index.d.ts', import: './dist/esm/index.mjs' });
     expect(packageJson.exports['./style.css']).toBe('./dist/style.css');
-    expect(packageJson.exports['./dist/*']).toBeUndefined();
-
-    for (const [subpath, targets] of Object.entries(conditionalExports)) {
-      const entry = packageJson.exports[subpath];
-
-      expect(entry).toBeTypeOf('object');
-      expect(Object.keys(entry as ConditionalExport)).toEqual(['types', 'import']);
-      expect(Object.values(entry as ConditionalExport)).toEqual(targets);
-      expect((entry as ConditionalExport).import).toMatch(/\.mjs$/);
-      expect((entry as ConditionalExport & { require?: string }).require).toBeUndefined();
-    }
-
     expect(packageJson.main).toBe('./dist/esm/index.mjs');
     expect(packageJson.module).toBe('./dist/esm/index.mjs');
     expect(packageJson.types).toBe('./dist/types/index.d.ts');
@@ -65,67 +61,41 @@ describe('package exports', () => {
     expect(packageJson.sideEffects).toEqual(['./dist/style.css']);
   });
 
-  it('keeps styles out of the JavaScript root entry', () => {
-    const rootEntry = readFileSync(resolve(projectRoot, 'src/index.ts'), 'utf8');
-
-    expect(rootEntry).not.toMatch(/(?:import|export)\s+['"][^'"]+\.(?:css|scss)['"]/);
+  it('没有普通、可选或打包运行时依赖，并把 OL 保持为可选 peer', () => {
+    expect(packageJson.dependencies ?? {}).toEqual({});
+    expect(packageJson.optionalDependencies ?? {}).toEqual({});
+    expect(packageJson.bundleDependencies ?? packageJson.bundledDependencies ?? []).toEqual([]);
+    expect(packageJson.peerDependencies).toEqual({ ol: '^10.9.0' });
+    expect(packageJson.peerDependenciesMeta).toEqual({ ol: { optional: true } });
+    expect(packageJson.devDependencies.ol).toBe('10.9.0');
+    expect(packageJson.devDependencies['@types/lodash']).toBeUndefined();
   });
 
-  it('declares every Rollup entry and derives externals from dependencies and peers', () => {
+  it('Rollup 只构建根入口并仅外置 OL', () => {
     const config = readFileSync(resolve(projectRoot, 'rollup.config.mjs'), 'utf8');
-    const viteConfig = readFileSync(resolve(projectRoot, 'vite.config.ts'), 'utf8');
 
-    expect(packageJson.dependencies['ol-wind']).toBeUndefined();
-    expect(packageJson.dependencies['wind-core']).toBeUndefined();
-    expect(packageJson.dependencies['heatmap.js']).toBeUndefined();
-    expect(packageJson.dependencies.mitt).toBeUndefined();
-    expect(packageJson.devDependencies['@types/heatmap.js']).toBeUndefined();
-    expect(packageJson.devDependencies['rollup-plugin-postcss']).toBeUndefined();
-    for (const dependency of ['rollup-plugin-copy', 'rollup-plugin-shader', 'copyfiles', 'vite-plugin-string']) {
-      expect(packageJson.devDependencies[dependency]).toBeUndefined();
-    }
-    expect(packageJson.scripts.copy).toBeUndefined();
-    expect(packageJson.scripts.tsc).toBeUndefined();
-    expect(config).not.toMatch(/rollup-plugin-(?:copy|shader)/);
-    expect(viteConfig).not.toContain('vite-plugin-string');
-
-    for (const entryName of ['index', 'core', 'layers', 'draw', 'measure', 'transform', 'plot']) {
-      expect(config).toMatch(new RegExp(`\\b${entryName}:\\s*['"]src/`));
-    }
-
-    expect(config).toMatch(/Object\.keys\(pkg\.dependencies/);
-    expect(config).toMatch(/Object\.keys\(pkg\.peerDependencies/);
-    expect(config).toContain('id.startsWith(`${dependency}/`)');
-    expect(config).not.toContain('bundledDependencies');
-    expect(config).not.toContain('ol-wind');
-    expect(config).not.toContain('wind-core');
+    expect(config).toMatch(/input:\s*\{\s*index:\s*['"]src\/index\.ts['"]\s*\}/s);
+    expect(config).toContain("id === 'ol' || id.startsWith('ol/')");
+    expect(config).not.toMatch(/\b(?:core|layers|draw|measure|transform|plot):\s*['"]src\//);
+    expect(config).not.toContain('lodash');
+    expect(config).not.toContain('externalDependencies');
   });
 
-  it('contains every declared artifact after a build', () => {
+  it('构建结果只包含声明的入口且不泄漏源码别名', () => {
     const dist = resolve(projectRoot, 'dist');
-
     if (!existsSync(dist)) return;
 
-    expect(existsSync(resolve(dist, 'cjs'))).toBe(false);
-
-    const builtFiles = [...Object.values(conditionalExports).flat(), './dist/style.css'];
-
-    for (const file of builtFiles) {
+    for (const file of ['dist/esm/index.mjs', 'dist/types/index.d.ts', 'dist/style.css']) {
       expect(existsSync(resolve(projectRoot, file))).toBe(true);
     }
-  });
-
-  it('does not expose the private source alias to consumers', () => {
-    const sourceLeaks = listFiles(resolve(projectRoot, 'src'), '.ts').filter((file) => readFileSync(file, 'utf8').includes('@/'));
-    expect(sourceLeaks).toEqual([]);
-
-    const types = resolve(projectRoot, 'dist/types');
-    if (!existsSync(types)) return;
-    const declarationLeaks = listFiles(types, '.d.ts').filter((file) => readFileSync(file, 'utf8').includes('@/'));
+    for (const removed of ['core.mjs', 'layers.mjs', 'draw.mjs', 'measure.mjs', 'transform.mjs', 'plot.mjs']) {
+      expect(existsSync(resolve(projectRoot, 'dist/esm', removed))).toBe(false);
+    }
+    const declarationLeaks = listFiles(resolve(projectRoot, 'dist/types'), '.d.ts').filter((file) => readFileSync(file, 'utf8').includes('@/'));
     expect(declarationLeaks).toEqual([]);
   });
 
-  it('typechecks a strict consumer without skipping dependency declarations', () => {
+  it('严格类型消费者只通过根入口使用 v2 API', () => {
     if (!existsSync(resolve(projectRoot, 'dist/types/index.d.ts'))) return;
 
     execFileSync(
@@ -137,13 +107,11 @@ describe('package exports', () => {
         '--skipLibCheck',
         'false',
         '--target',
-        'ES2020',
+        'ES2022',
         '--module',
         'ESNext',
         '--moduleResolution',
         'Bundler',
-        '--esModuleInterop',
-        'true',
         '--types',
         'node',
         resolve(projectRoot, 'test/fixtures/PackageConsumer.ts')
@@ -152,21 +120,28 @@ describe('package exports', () => {
     );
   });
 
-  it('loads the built core entry with native Node ESM resolution', () => {
-    const coreEntry = resolve(projectRoot, 'dist/esm/core.mjs');
-
-    if (!existsSync(coreEntry)) return;
+  it('Node 可加载根 ESM，并拒绝所有旧 subpath', () => {
+    if (!existsSync(resolve(projectRoot, 'dist/esm/index.mjs'))) return;
 
     const output = execFileSync(
       process.execPath,
       [
         '--input-type=module',
         '--eval',
-        "const module = await import('./dist/esm/core.mjs'); console.log(['Earth', 'useEarth', 'destroyEarth', 'Camera', 'Controls'].filter(name => name in module).join(','));"
+        "const api = await import('@vrsim/earth-engine-ol'); console.log(['Earth','Element','Layer','useEarth'].filter(name => name in api).join(','));"
       ],
       { cwd: projectRoot, encoding: 'utf8' }
     );
+    expect(output.trim()).toBe('Earth,Element,Layer,useEarth');
 
-    expect(output.trim()).toBe('Earth,useEarth,destroyEarth,Camera,Controls');
+    for (const subpath of ['core', 'layers', 'draw', 'measure', 'transform', 'plot']) {
+      expect(() =>
+        execFileSync(process.execPath, ['--input-type=module', '--eval', `await import('@vrsim/earth-engine-ol/${subpath}')`], {
+          cwd: projectRoot,
+          encoding: 'utf8',
+          stdio: 'pipe'
+        })
+      ).toThrow();
+    }
   });
 });

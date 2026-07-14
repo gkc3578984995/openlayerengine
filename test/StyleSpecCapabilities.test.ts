@@ -9,6 +9,7 @@ const presetNames = [
   'point-default',
   'icon-default',
   'line-default',
+  'arrow-default',
   'polygon-default',
   'measure-default',
   'draw-preview',

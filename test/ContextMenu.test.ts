@@ -1,228 +1,423 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
+import Feature from 'ol/Feature.js';
+import type OlMap from 'ol/Map.js';
 import { describe, expect, it, vi } from 'vitest';
-import ContextMenu, { IContextMenuItem } from '../src/components/ContextMenu';
+import { ContextMenuViewAdapter } from '../src/adapters/dom/ContextMenuViewAdapter.js';
+import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
+import { ElementStore } from '../src/core/element/ElementStore.js';
+import type { ElementState } from '../src/core/element/types.js';
+import { InvalidArgumentError } from '../src/core/errors.js';
+import { createTransientNativeRef } from '../src/core/native/types.js';
+import type { ContextMenuViewEvent, ContextMenuViewModel, ContextMenuViewPort } from '../src/core/ports/ContextMenuViewPort.js';
+import type { InputEventMap, InputPort, InputType } from '../src/core/ports/InputPort.js';
+import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import { ContextMenuFacade, type ContextMenuItemSpec } from '../src/facade/ContextMenuFacade.js';
+import { constructElementHandle, type Element } from '../src/facade/Element.js';
+import type { ElementService, LayerService } from '../src/facade/types.js';
+import { ContextMenuService } from '../src/services/context-menu/ContextMenuService.js';
+import { EventService } from '../src/services/events/EventService.js';
+import { InputRouter } from '../src/services/events/InputRouter.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
-function createFakeElement() {
-  const listeners = new Map<string, ((event: any) => void)[]>();
-  const element: any = {
-    children: [] as any[],
-    parent: undefined as any,
-    className: '',
-    classList: { add: vi.fn(), toggle: vi.fn() },
-    dataset: {},
-    style: {},
-    setAttribute: vi.fn(),
-    appendChild(child: any) {
-      child.parent = element;
-      this.children.push(child);
-    },
-    replaceChildren(...children: any[]) {
-      this.children = [];
-      children.forEach((child) => this.appendChild(child));
-    },
-    addEventListener(type: string, listener: (event: any) => void) {
-      listeners.set(type, [...(listeners.get(type) || []), listener]);
-    },
-    removeEventListener(type: string, listener: (event: any) => void) {
-      listeners.set(
-        type,
-        (listeners.get(type) || []).filter((item) => item !== listener)
-      );
-    },
-    dispatchEvent(event: any) {
-      event.target ??= element;
-      (listeners.get(event.type) || []).forEach((listener) => listener(event));
-      if (event.bubbles !== false && !event.cancelBubble) element.parent?.dispatchEvent(event);
-    }
-  };
-  Object.defineProperty(element, 'childElementCount', { get: () => element.children.length });
-  return element;
-}
+type InputListener = (event: InputEventMap[InputType]) => void;
 
-function withFakeDom<T>(callback: (viewport: any) => T): T {
-  const originalDocument = globalThis.document;
-  const viewport = createFakeElement();
-  Object.defineProperty(globalThis, 'document', {
-    configurable: true,
-    value: {
-      createElement: () => createFakeElement(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn()
-    }
-  });
-  try {
-    return callback(viewport);
-  } finally {
-    Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
+class FakeInputPort implements InputPort {
+  readonly listeners = new Map<InputType, InputListener>();
+
+  listen<T extends InputType>(type: T, listener: (event: InputEventMap[T]) => void): () => void {
+    this.listeners.set(type, listener as InputListener);
+    return () => this.listeners.delete(type);
+  }
+
+  emit<T extends InputType>(type: T, event: InputEventMap[T]): void {
+    this.listeners.get(type)?.(event);
   }
 }
 
-function makeContextMenu(): ContextMenu {
-  const viewport = {
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined
-  };
-  const earth = {
-    map: {
-      getViewport: () => viewport,
-      on: () => undefined
-    }
-  } as any;
-  return new ContextMenu(earth);
+class FakeContextMenuView implements ContextMenuViewPort {
+  model: ContextMenuViewModel | undefined;
+  theme: 'light' | 'dark' = 'light';
+  #listener: ((event: ContextMenuViewEvent) => void) | undefined;
+
+  listen(listener: (event: ContextMenuViewEvent) => void): () => void {
+    this.#listener = listener;
+    return () => {
+      if (this.#listener === listener) this.#listener = undefined;
+    };
+  }
+
+  show(model: ContextMenuViewModel): void {
+    this.model = model;
+  }
+
+  close(): void {
+    this.model = undefined;
+  }
+
+  setTheme(theme: 'light' | 'dark'): void {
+    this.theme = theme;
+  }
+
+  destroy(): void {
+    this.model = undefined;
+    this.#listener = undefined;
+  }
+
+  emit(event: ContextMenuViewEvent): void {
+    this.#listener?.(event);
+  }
 }
 
-const vehicleMenus: IContextMenuItem[] = [
+const nativeEventRef = createTransientNativeRef('input-event');
+
+function element(overrides: Partial<ElementState> = {}): ElementState {
+  return {
+    id: 'a',
+    type: 'point',
+    geometry: { type: 'point', controlPoints: [[1, 2]] },
+    style: { symbol: { type: 'circle', radius: 5, fill: { type: 'solid', color: '#f00' } } },
+    data: { owner: 'first' },
+    module: 'vehicle',
+    layerId: 'layer-a',
+    visible: true,
+    ...overrides
+  };
+}
+
+function createHarness<View extends ContextMenuViewPort>(view: View) {
+  const port = new FakeInputPort();
+  const router = new InputRouter(port);
+  const store = new ElementStore(new ShapeRegistry(basicShapeDefinitions));
+  store.add(element());
+  store.add(element({ id: 'b', data: { owner: 'second' }, layerId: 'layer-b' }));
+  const events = new EventService(router, store, vi.fn());
+  const menus = new ContextMenuService(events, store, view, vi.fn());
+  const handles = new Map<string, Element>();
+  for (const id of ['a', 'b']) {
+    const feature = new Feature();
+    handles.set(
+      id,
+      constructElementHandle({
+        id,
+        feature,
+        isCurrent: () => store.get(id) !== undefined,
+        getState: () => {
+          const state = store.get(id);
+          if (state === undefined) throw new Error(`Element 已移除：${id}`);
+          return state;
+        },
+        update: vi.fn(),
+        remove: vi.fn(),
+        removedByHandle: false
+      })
+    );
+  }
+  const elements = { get: (id: string) => handles.get(id) } as unknown as ElementService;
+  const layers = { get: () => undefined } as unknown as LayerService;
+  const facade = new ContextMenuFacade(menus, elements, layers);
+  const rightclick = (elementId?: string): void => {
+    port.emit('rightclick', {
+      type: 'rightclick',
+      coordinate: Object.freeze([120, 39]),
+      pixel: Object.freeze([100, 100]),
+      ...(elementId === undefined ? {} : { elementId }),
+      nativeEventRef
+    });
+  };
+  const destroy = (): void => {
+    menus.destroy();
+    events.destroy();
+    router.destroy();
+  };
+  return { destroy, facade, handles, menus, rightclick, store, view };
+}
+
+function requireHandle(handles: ReadonlyMap<string, Element>, id: string): Element {
+  const handle = handles.get(id);
+  if (handle === undefined) throw new Error(`测试句柄不存在：${id}`);
+  return handle;
+}
+
+const vehicleMenus: readonly ContextMenuItemSpec[] = [
   { key: 'openTrack', label: '查看航迹', visible: true, mutexKey: 'closeTrack' },
   { key: 'closeTrack', label: '关闭航迹', visible: false, mutexKey: 'openTrack' },
   {
     key: 'openInfo',
     label: '查看信息',
-    child: [{ key: 'openData', label: '查看数据' }]
+    children: [{ key: 'openData', label: '查看数据' }]
   }
 ];
 
-function setModuleContext(menu: ContextMenu, featureId = 'car-01') {
-  const contextMenu = menu as any;
-  contextMenu.currentContext = {
-    scope: 'module',
-    position: [120, 39],
-    pixel: [100, 100],
-    module: 'vehicle',
-    featureId
-  };
-  return contextMenu;
+describe('ContextMenuFacade 与 ContextMenuService 状态回归', () => {
+  coversCapabilities(
+    'contextmenu-default-menu',
+    'contextmenu-module-menu',
+    'contextmenu-nested-items',
+    'contextmenu-disabled-items',
+    'contextmenu-before-guard',
+    'contextmenu-default-item-state',
+    'contextmenu-feature-item-state',
+    'contextmenu-mutex-state',
+    'contextmenu-theme',
+    'contextmenu-callback-payload',
+    'contextmenu-close-triggers',
+    'contextmenu-event-isolation'
+  );
+
+  it('按元素隔离模块菜单状态并同步互斥项', () => {
+    const harness = createHarness(new FakeContextMenuView());
+    const first = requireHandle(harness.handles, 'a');
+    const second = requireHandle(harness.handles, 'b');
+    harness.facade.register({ module: 'vehicle' }, { items: vehicleMenus });
+
+    expect(harness.facade.getItemState(first, 'openTrack')?.visible).toBe(true);
+    expect(harness.facade.getItemState(first, 'closeTrack')?.visible).toBe(false);
+    expect(harness.facade.toggleItem(first, 'openTrack').visible).toBe(false);
+    expect(harness.facade.getItemState(first, 'closeTrack')?.visible).toBe(true);
+    expect(harness.facade.getItemState(second, 'openTrack')?.visible).toBe(true);
+
+    harness.facade.clearElementState('a');
+    expect(harness.facade.getItemState(first, 'openTrack')?.visible).toBe(true);
+    harness.destroy();
+  });
+
+  it('独立保存地图菜单状态并支持明暗主题切换', () => {
+    const harness = createHarness(new FakeContextMenuView());
+    harness.facade.register('map', { items: [{ key: 'measure', label: '测量', visible: true }] });
+
+    harness.facade.setItemState('map', 'measure', { visible: false });
+    expect(harness.facade.getItemState('map', 'measure')).toEqual({ visible: false, disabled: false });
+    expect(harness.facade.toggleTheme()).toBe('dark');
+    expect(harness.view.theme).toBe('dark');
+    expect(harness.facade.toggleTheme()).toBe('light');
+    expect(harness.view.theme).toBe('light');
+    harness.destroy();
+  });
+
+  it('拒绝重复 key 和无法解析互斥项的菜单树', () => {
+    const harness = createHarness(new FakeContextMenuView());
+
+    expect(() =>
+      harness.facade.register('map', {
+        items: [
+          { key: 'duplicate', label: 'a' },
+          { key: 'duplicate', label: 'b' }
+        ]
+      })
+    ).toThrow(InvalidArgumentError);
+    expect(() => harness.facade.register({ module: 'vehicle' }, { items: [{ key: 'track', label: '查看航迹', mutexKey: 'missing' }] })).toThrow(
+      InvalidArgumentError
+    );
+    harness.destroy();
+  });
+
+  it('在展示模块菜单前执行公开权限守卫并禁用无权限项', () => {
+    const harness = createHarness(new FakeContextMenuView());
+    const before = vi.fn(() => false);
+    harness.facade.register({ module: 'vehicle' }, { items: [{ key: 'open', label: '打开' }], before });
+
+    harness.rightclick('a');
+
+    expect(harness.view.model?.items).toEqual([{ key: 'open', label: '打开', disabled: true }]);
+    expect(before).toHaveBeenCalledWith(expect.objectContaining({ item: { key: 'open', label: '打开' }, element: requireHandle(harness.handles, 'a') }));
+    harness.destroy();
+  });
+
+  it('在公开选择回调前切换互斥状态并在选择后关闭菜单', () => {
+    const harness = createHarness(new FakeContextMenuView());
+    const first = requireHandle(harness.handles, 'a');
+    const observed: boolean[] = [];
+    const callback = vi.fn(() => observed.push(harness.facade.getItemState(first, 'openTrack')?.visible ?? true));
+    harness.facade.register({ module: 'vehicle' }, { items: vehicleMenus, onSelect: callback });
+
+    harness.rightclick('a');
+    harness.view.emit({ type: 'select', key: 'openTrack' });
+
+    expect(observed).toEqual([false]);
+    expect(harness.facade.getItemState(first, 'closeTrack')?.visible).toBe(true);
+    expect(callback).toHaveBeenCalledOnce();
+    expect(harness.view.model).toBeUndefined();
+    harness.destroy();
+  });
+
+  it('仅对叶子项执行权限判断且不把父菜单注册为动作', () => {
+    const harness = createHarness(new FakeContextMenuView());
+    const callback = vi.fn();
+    const before = vi.fn((context: { readonly item: ContextMenuItemSpec }) => context.item.key !== 'openData');
+    harness.facade.register({ module: 'vehicle' }, { items: [vehicleMenus[2]], before, onSelect: callback });
+
+    harness.rightclick('a');
+    const parent = harness.view.model?.items[0];
+
+    expect(parent).toMatchObject({ key: 'openInfo', children: [{ key: 'openData', disabled: true }] });
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(before).toHaveBeenCalledWith(
+      expect.objectContaining({ item: expect.objectContaining({ key: 'openData' }), element: requireHandle(harness.handles, 'a') })
+    );
+    harness.view.emit({ type: 'select', key: 'openInfo' });
+    harness.view.emit({ type: 'select', key: 'openData' });
+    expect(callback).not.toHaveBeenCalled();
+    harness.destroy();
+  });
+
+  it('真实 DOM 视图阻断菜单 pointerdown 冒泡到地图视口', () => {
+    const fakeDocument = new FakeDocument();
+    vi.stubGlobal('document', fakeDocument);
+    vi.stubGlobal('Element', FakeDomElement);
+    vi.stubGlobal('Node', FakeDomElement);
+    let destroy: (() => void) | undefined;
+    try {
+      const map = new MenuMapHarness();
+      const harness = createHarness(new ContextMenuViewAdapter(map as unknown as OlMap));
+      destroy = harness.destroy;
+      harness.facade.register('map', { items: [{ key: 'map', label: '地图菜单' }] });
+      harness.rightclick();
+      const root = map.viewport.children[0];
+      if (root === undefined) throw new Error('菜单根节点未创建');
+      const viewportPointerDown = vi.fn();
+      map.viewport.addEventListener('pointerdown', viewportPointerDown);
+      const event = fakeEvent('pointerdown', root);
+
+      root.dispatchEvent(event);
+
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(viewportPointerDown).not.toHaveBeenCalled();
+    } finally {
+      destroy?.();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+interface FakeMenuEvent {
+  readonly type: string;
+  target: unknown;
+  cancelBubble: boolean;
+  readonly preventDefault: ReturnType<typeof vi.fn>;
+  stopPropagation(): void;
 }
 
-function withFakeDocument<T>(callback: () => T): T {
-  const originalDocument = globalThis.document;
-  const createElement = () => {
-    const element: any = {
-      children: [] as any[],
-      className: '',
-      classList: { add: vi.fn() },
-      dataset: {},
-      setAttribute: vi.fn(),
-      appendChild(child: any) {
-        this.children.push(child);
-      }
-    };
-    Object.defineProperty(element, 'childElementCount', { get: () => element.children.length });
-    return element;
+type FakeMenuListener = (event: FakeMenuEvent) => void;
+
+function fakeEvent(type: string, target: unknown): FakeMenuEvent {
+  return {
+    type,
+    target,
+    cancelBubble: false,
+    preventDefault: vi.fn(),
+    stopPropagation() {
+      this.cancelBubble = true;
+    }
   };
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: { createElement } });
-  try {
-    return callback();
-  } finally {
-    Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
+}
+
+class FakeClassList {
+  readonly values = new Set<string>();
+
+  add(...names: string[]): void {
+    names.forEach((name) => this.values.add(name));
+  }
+
+  toggle(name: string, force?: boolean): boolean {
+    const enabled = force ?? !this.values.has(name);
+    if (enabled) this.values.add(name);
+    else this.values.delete(name);
+    return enabled;
   }
 }
 
-describe('ContextMenu 状态', () => {
-  it('按模块和要素 ID 隔离状态，同时同步互斥菜单项', () => {
-    const menu = makeContextMenu();
-    expect(menu.addModuleMenu('vehicle', vehicleMenus)).toBe(true);
+class FakeDomElement {
+  readonly children: FakeDomElement[] = [];
+  readonly classList = new FakeClassList();
+  readonly dataset: Record<string, string> = {};
+  readonly style: Record<string, string> = {};
+  readonly listeners = new Map<string, FakeMenuListener[]>();
+  parent: FakeDomElement | undefined;
+  className = '';
+  textContent = '';
+  disabled = false;
+  type = '';
 
-    expect(menu.getModuleMenuState('vehicle', 'car-01', 'openTrack')).toBe(true);
-    expect(menu.getModuleMenuState('vehicle', 'car-01', 'closeTrack')).toBe(false);
-    expect(menu.toggleModuleMenuState('vehicle', 'car-01', 'openTrack')).toBe(false);
-    expect(menu.getModuleMenuState('vehicle', 'car-01', 'closeTrack')).toBe(true);
-    expect(menu.getModuleMenuState('vehicle', 'car-02', 'openTrack')).toBe(true);
+  constructor(readonly tagName: string) {}
 
-    expect(menu.clearModuleMenuState('vehicle', 'car-01')).toBe(true);
-    expect(menu.getModuleMenuState('vehicle', 'car-01', 'openTrack')).toBe(true);
-  });
+  setAttribute(): void {}
 
-  it('默认菜单状态独立保存，并支持主题切换', () => {
-    const menu = makeContextMenu();
-    expect(menu.addDefaultMenu([{ key: 'measure', label: '测量', visible: true }])).toBe(true);
-    expect(menu.setDefaultMenuState('measure', false)).toBe(true);
-    expect(menu.getDefaultMenuState('measure')).toBe(false);
-    expect(menu.toggleTheme()).toBe(true);
-    expect(menu.toggleTheme()).toBe(false);
-  });
+  appendChild(child: FakeDomElement): FakeDomElement {
+    child.parent = this;
+    this.children.push(child);
+    return child;
+  }
 
-  it('拒绝存在重复或未解析 key 的无效菜单树', () => {
-    const menu = makeContextMenu();
-    expect(
-      menu.addDefaultMenu([
-        { key: 'duplicate', label: 'a' },
-        { key: 'duplicate', label: 'b' }
-      ])
-    ).toBe(false);
-    expect(menu.addModuleMenu('vehicle', [{ key: 'track', label: '查看航迹', mutexKey: 'missing' }])).toBe(false);
-  });
+  replaceChildren(...children: FakeDomElement[]): void {
+    this.children.splice(0).forEach((child) => (child.parent = undefined));
+    children.forEach((child) => this.appendChild(child));
+  }
 
-  it('支持注册模块菜单权限守卫', () => {
-    const menu = makeContextMenu();
-    const before = () => false;
-    expect(menu.addModuleMenu('vehicle', vehicleMenus, undefined, before)).toBe(true);
-  });
+  addEventListener(type: string, listener: FakeMenuListener): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
 
-  it('在触发模块回调前由内部切换互斥菜单状态', () => {
-    const callback = vi.fn();
-    const menu = makeContextMenu();
-    expect(menu.addModuleMenu('vehicle', vehicleMenus, callback)).toBe(true);
-    const contextMenu = setModuleContext(menu);
-    const item = vehicleMenus[0];
-    contextMenu.currentItems.set(item.key, item);
-    const button = {
-      disabled: false,
-      dataset: { menuKey: item.key },
-      closest: () => button
-    };
+  removeEventListener(type: string, listener: FakeMenuListener): void {
+    this.listeners.set(
+      type,
+      (this.listeners.get(type) ?? []).filter((current) => current !== listener)
+    );
+  }
 
-    contextMenu.handleMenuClick({ target: button });
+  dispatchEvent(event: FakeMenuEvent): boolean {
+    for (const listener of [...(this.listeners.get(event.type) ?? [])]) listener(event);
+    if (!event.cancelBubble) this.parent?.dispatchEvent(event);
+    return true;
+  }
 
-    expect(menu.getModuleMenuState('vehicle', 'car-01', 'openTrack')).toBe(false);
-    expect(menu.getModuleMenuState('vehicle', 'car-01', 'closeTrack')).toBe(true);
-    expect(callback).toHaveBeenCalledTimes(1);
-  });
+  contains(target: unknown): boolean {
+    return target === this || this.children.some((child) => child.contains(target));
+  }
 
-  it('菜单展示前置灰无权限叶子项，子菜单父项不注册为动作', () => {
-    const before = vi.fn((param) => param.menu.key !== 'openData');
-    const menu = makeContextMenu();
-    expect(menu.addModuleMenu('vehicle', vehicleMenus, undefined, before)).toBe(true);
-    const contextMenu = setModuleContext(menu);
+  closest(selector: string): FakeDomElement | null {
+    if (selector === 'button[data-menu-key]' && this.dataset.menuKey !== undefined) return this;
+    return this.parent?.closest(selector) ?? null;
+  }
 
-    const list = withFakeDocument(() => contextMenu.renderMenuList(vehicleMenus, 'module')) as any;
-    const infoItem = list.children[1];
-    const infoButton = infoItem.children[0];
-    const dataButton = infoItem.children[1].children[0].children[0];
+  remove(): void {
+    if (this.parent === undefined) return;
+    const index = this.parent.children.indexOf(this);
+    if (index >= 0) this.parent.children.splice(index, 1);
+    this.parent = undefined;
+  }
+}
 
-    expect(infoButton.dataset.menuKey).toBeUndefined();
-    expect(contextMenu.currentItems.has('openInfo')).toBe(false);
-    expect(dataButton.disabled).toBe(true);
-    expect(before).toHaveBeenCalledWith(expect.objectContaining({ featureId: 'car-01', menu: vehicleMenus[2].child![0] }));
-  });
+class FakeDocument extends FakeDomElement {
+  constructor() {
+    super('document');
+  }
 
-  it('菜单浮层应阻断 pointerdown 冒泡到地图视口', () => {
-    withFakeDom((viewport) => {
-      const earth = {
-        map: {
-          getViewport: () => viewport,
-          on: () => undefined
-        }
-      } as any;
-      const menu = new ContextMenu(earth);
-      const contextMenu = menu as any;
-      const viewportPointerDown = vi.fn();
-      viewport.addEventListener('pointerdown', viewportPointerDown);
+  createElement(tagName: string): FakeDomElement {
+    return new FakeDomElement(tagName);
+  }
+}
 
-      contextMenu.ensureRoot();
-      const event = {
-        type: 'pointerdown',
-        bubbles: true,
-        cancelBubble: false,
-        preventDefault: vi.fn(),
-        stopPropagation() {
-          this.cancelBubble = true;
-        }
-      };
+class MenuMapHarness {
+  readonly viewport = new FakeDomElement('viewport');
+  readonly listeners = new Map<string, Set<() => void>>();
 
-      contextMenu.root.dispatchEvent(event);
+  getViewport(): FakeDomElement {
+    return this.viewport;
+  }
 
-      expect(event.preventDefault).toHaveBeenCalledTimes(1);
-      expect(viewportPointerDown).not.toHaveBeenCalled();
-    });
-  });
-});
+  getPixelFromCoordinate(): readonly [number, number] {
+    return [20, 40];
+  }
+
+  on(type: string, listener: () => void): void {
+    let listeners = this.listeners.get(type);
+    if (listeners === undefined) {
+      listeners = new Set();
+      this.listeners.set(type, listeners);
+    }
+    listeners.add(listener);
+  }
+
+  un(type: string, listener: () => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+}

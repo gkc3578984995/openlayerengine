@@ -1,26 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import Feature from 'ol/Feature';
-import Point from 'ol/geom/Point';
-import { TransformHistory } from '../src/components/transform/history';
+import { addElement, createTransformHarness } from './helpers/transformHarness.js';
 
-const snapshot = (id: string, x: number) => ({ id, feature: new Feature(new Point([x, 0])) });
+describe('Transform 历史记录', () => {
+  it('在历史上限内移动撤销与重做游标', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'point-a', 'point', [[0, 0]]);
+    const session = harness.service.select('point-a', { historyLimit: 2 });
 
-describe('TransformHistory', () => {
-  it('moves snapshots between undo and redo stacks', () => {
-    const history = new TransformHistory(() => 10);
-    history.record(snapshot('a', 0));
-    history.record(snapshot('a', 1));
-    expect(history.undo()?.feature.getGeometry()?.getCoordinates()).toEqual([0, 0]);
-    expect(history.canRedo).toBe(true);
-    expect(history.takeRedo()?.feature.getGeometry()?.getCoordinates()).toEqual([1, 0]);
-  });
+    translate(harness, 1, 0);
+    translate(harness, 2, 0);
 
-  it('enforces the configured history limit', () => {
-    const history = new TransformHistory(() => 2);
-    history.record(snapshot('a', 0));
-    history.record(snapshot('a', 1));
-    history.record(snapshot('a', 2));
-    expect(history.undoCount).toBe(1);
-    expect(history.undo()?.feature.getGeometry()?.getCoordinates()).toEqual([1, 0]);
+    expect(session.undo()).toBe(true);
+    expect(harness.interaction.handle?.target?.geometry).toEqual({ type: 'point', coordinates: [1, 0] });
+    expect(session.undo()).toBe(false);
+    expect(session.redo()).toBe(true);
+    expect(harness.interaction.handle?.target?.geometry).toEqual({ type: 'point', coordinates: [3, 0] });
   });
 });
+
+function translate(harness: ReturnType<typeof createTransformHarness>, x: number, y: number): void {
+  harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+  harness.interaction.emit({ type: 'operation-end', operation: 'translate', delta: { type: 'translate', x, y } });
+}

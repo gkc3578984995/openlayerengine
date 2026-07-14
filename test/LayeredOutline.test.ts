@@ -1,85 +1,45 @@
-import { describe, expect, it, vi } from 'vitest';
-import { Style } from 'ol/style';
-import PolygonLayer from '../src/base/PolygonLayer';
-import PolylineLayer from '../src/base/PolylineLayer';
+import LineString from 'ol/geom/LineString.js';
+import Polygon from 'ol/geom/Polygon.js';
+import { describe, expect, it } from 'vitest';
+import { compileStyles } from './helpers/styleCompilerHarness.js';
 
-const earth = () => ({ map: { addLayer: vi.fn() }, _autoRegisterLayer: vi.fn(), removeLayer: vi.fn(), removeRegisteredLayer: vi.fn() }) as any;
-const polygon = [
-  [
-    [0, 0],
-    [10, 0],
-    [10, 10],
-    [0, 0]
-  ]
-];
+describe('多层描边 v2 回归', () => {
+  it('按数组顺序渲染背景描边和前景描边，并只在前景保留填充与文本', () => {
+    const styles = compileStyles(
+      {
+        strokes: [
+          { color: '#fff', width: 6 },
+          { color: '#1677ff', width: 2 }
+        ],
+        fill: { type: 'solid', color: '#0003' },
+        text: { text: '区域', fill: { type: 'solid', color: '#fff' } }
+      },
+      new Polygon([
+        [
+          [0, 0],
+          [10, 0],
+          [0, 10],
+          [0, 0]
+        ]
+      ])
+    );
 
-const asStyles = (style: Style | Style[] | undefined) => (Array.isArray(style) ? style : [style!]);
-
-describe('layered outlines', () => {
-  it('keeps a legacy polygon stroke as one style', () => {
-    const feature = new PolygonLayer(earth()).add({ positions: polygon, stroke: { color: '#111', width: 3 } });
-    expect(feature.getStyle()).toBeInstanceOf(Style);
+    expect(styles.map((style) => style.getStroke()?.getWidth())).toEqual([6, 2]);
+    expect(styles[0]?.getFill()).toBeNull();
+    expect(styles[0]?.getText()).toBeNull();
+    expect(styles[1]?.getFill()).not.toBeNull();
+    expect(styles[1]?.getText()?.getText()).toBe('区域');
   });
 
-  it('renders backgroundStroke before stroke and preserves polygon fill', () => {
-    const feature = new PolygonLayer(earth()).add({
-      positions: polygon,
-      fill: { color: '#ffffff33' },
-      backgroundStroke: { color: '#00ff36', width: 10, lineDash: [10, 6] },
-      stroke: { color: '#ff0000', width: 4 }
-    });
-    const styles = asStyles(feature.getStyle() as Style[]);
+  it('折线多层描边不会创建填充', () => {
+    const styles = compileStyles(
+      { strokes: [{ width: 5 }, { width: 2 }] },
+      new LineString([
+        [0, 0],
+        [10, 0]
+      ])
+    );
     expect(styles).toHaveLength(2);
-    expect(styles[0].getStroke()?.getColor()).toBe('#00ff36');
-    expect(styles[0].getFill()).toBeNull();
-    expect(styles[1].getStroke()?.getColor()).toBe('#ff0000');
-    expect(styles[1].getFill()?.getColor()).toBe('#ffffff33');
-  });
-
-  it('renders backgroundStroke behind the polyline stroke', () => {
-    const feature = new PolylineLayer(earth()).add({
-      positions: [
-        [0, 0],
-        [10, 0]
-      ],
-      stroke: { color: '#000', width: 5 },
-      backgroundStroke: { color: '#f00', width: 11 }
-    });
-    expect(asStyles(feature.getStyle() as Style[]).map((style) => style.getStroke()?.getColor())).toEqual(['#f00', '#000']);
-  });
-
-  it('reapplies polygon layered styles after set without losing its label or fill', () => {
-    const layer = new PolygonLayer(earth());
-    const feature = layer.add({ id: 'area', positions: polygon, fill: { color: '#abcdef' }, label: { text: 'area' }, stroke: { color: '#000', width: 2 } });
-    layer.set({ id: 'area', backgroundStroke: { color: '#f00', width: 8 }, stroke: { color: '#111', width: 3 } });
-    const styles = asStyles(feature.getStyle() as Style[]);
-    expect(styles).toHaveLength(2);
-    expect(styles[1].getFill()?.getColor()).toBe('#abcdef');
-    expect(styles[1].getText()?.getText()).toBe('area');
-  });
-
-  it('renders a background polyline as one feature and retains no parallel-overlay state', () => {
-    const layer = new PolylineLayer(earth());
-    layer.add({
-      positions: [
-        [0, 0],
-        [10, 0]
-      ],
-      backgroundStroke: { color: '#f00', width: 8 },
-      stroke: { color: '#000', width: 3 }
-    });
-    expect(layer.getLayer().getSource()?.getFeatures()).toHaveLength(1);
-    expect((layer as any)['parallel' + 'OverlayMap']).toBeUndefined();
-  });
-
-  it('does not create a fill style for a polyline', () => {
-    const feature = new PolylineLayer(earth()).add({
-      positions: [
-        [0, 0],
-        [10, 0]
-      ],
-      fill: { color: '#f00' }
-    } as any);
-    expect((feature.getStyle() as Style).getFill()).toBeNull();
+    expect(styles.every((style) => style.getFill() === null)).toBe(true);
   });
 });

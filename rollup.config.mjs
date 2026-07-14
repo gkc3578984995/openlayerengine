@@ -1,4 +1,3 @@
-import * as pkg from './package.json';
 import typescript from '@rollup/plugin-typescript';
 import terser from '@rollup/plugin-terser';
 import { nodeResolve } from '@rollup/plugin-node-resolve';
@@ -29,36 +28,12 @@ function rawPlugin() {
 // eslint-disable-next-line no-undef
 const mode = process.env.MODE;
 const isProd = mode === 'prod';
-const externalDependencies = [...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})])];
-
-const lodashInteropId = '\0lodash-esm-interop';
-
-function lodashEsmInteropPlugin() {
-  return {
-    name: 'lodash-esm-interop',
-    resolveId(id) {
-      if (id === 'lodash') return lodashInteropId;
-      return null;
-    },
-    load(id) {
-      if (id === lodashInteropId) return "export { default as cloneDeep } from 'lodash/cloneDeep.js';";
-      return null;
-    }
-  };
-}
 
 export default defineConfig({
   input: {
-    index: 'src/index.ts',
-    core: 'src/entries/core.ts',
-    layers: 'src/base/index.ts',
-    draw: 'src/entries/draw.ts',
-    measure: 'src/entries/measure.ts',
-    transform: 'src/entries/transform.ts',
-    plot: 'src/entries/plot.ts'
+    index: 'src/index.ts'
   },
-  external: (id) =>
-    id === 'ol' || id.startsWith('ol/') || (id !== 'lodash' && externalDependencies.some((dependency) => id === dependency || id.startsWith(`${dependency}/`))),
+  external: (id) => id === 'ol' || id.startsWith('ol/'),
   output: {
     dir: 'dist/esm',
     entryFileNames: '[name].mjs',
@@ -67,7 +42,6 @@ export default defineConfig({
     sourcemap: !isProd
   },
   plugins: [
-    lodashEsmInteropPlugin(),
     // 放在最前，优先截获 *?raw 资源
     rawPlugin(),
     // 小图片自动转 base64，大于 limit 的复制到 dist/assets

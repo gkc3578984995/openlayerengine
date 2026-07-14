@@ -1,30 +1,31 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { bezierPoints, cubicValue, isClockWise, quadraticBSplinePoints } from '../src/builtins/shapes/plot/math.js';
 import type { Coordinate } from '../src/core/common/types.js';
 import { InvalidArgumentError } from '../src/core/errors.js';
 import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
-import AssaultDirectionArrow from '../src/extends/plot/geom/AssaultDirectionArrow.js';
-import AttackArrow from '../src/extends/plot/geom/AttackArrow.js';
-import DoubleArrow from '../src/extends/plot/geom/DoubleArrow.js';
-import FineArrow from '../src/extends/plot/geom/FineArrow.js';
-import TailedAttackArrow from '../src/extends/plot/geom/TailedAttackArrow.js';
-import TailedSquadCombatArrow from '../src/extends/plot/geom/TailedSquadCombatArrow.js';
-import AssemblePolygon from '../src/extends/plot/polygon/AssemblePolygon.js';
-import ClosedCurvePolygon from '../src/extends/plot/polygon/ClosedCurvePolygon.js';
-import EquilateralTrianglePolygon from '../src/extends/plot/polygon/EquilateralTrianglePolygon.js';
-import LunePolygon from '../src/extends/plot/polygon/LunePolygon.js';
-import RectAnglePolygon from '../src/extends/plot/polygon/RectAnglePolygon.js';
-import SectorPolygon from '../src/extends/plot/polygon/SectorPolygon.js';
-import TrianglePolygon from '../src/extends/plot/polygon/TrianglePolygon.js';
-import CurvePolyline from '../src/extends/plot/polyline/CurvePolyline.js';
-import LunePolyline from '../src/extends/plot/polyline/LunePolyline.js';
 
 type PlotShapeType = Exclude<ShapeType, 'point' | 'polyline' | 'polygon' | 'circle' | 'ellipse'>;
-type LegacyGeometry = { getCoordinates(): unknown };
-type LegacyConstructor = new (coordinates: unknown, points: Coordinate[], params: Record<string, never>) => LegacyGeometry;
+type GoldenDigest = string;
 
-const representativeCases: readonly [type: PlotShapeType, legacy: LegacyConstructor, points: Coordinate[]][] = [
+const AttackArrow = '6e5b05bb5f90cbb95737ac883cfdf130af8cb397032c679f4c0a4f8af6a2fa27';
+const TailedAttackArrow = '29a36c147642e393a5b134721984406c3d1d7fbd7afcc7e4c112bfda421a8eaf';
+const FineArrow = '061e0177f2255be187ee00f4e811191b2ca818fe403ccc8537350a88768efb46';
+const TailedSquadCombatArrow = '1a762d7ac22d4d34047e1e6dca096d430a4949bb026fc8428ea27a23f9a33faf';
+const AssaultDirectionArrow = 'a7863a0ccbaca57b30cc77b0004e0ea9d677646bf796ea62e82b70478fbcf756';
+const DoubleArrow = 'b0909cb5181d7403b0b2c8b47d7dae8bfc9728710b6646ab5695beabb7053eab';
+const RectAnglePolygon = '291abc7852dbdedf453ce62047fc064bb2e8acf7129c784ef86da811e05a92a1';
+const TrianglePolygon = 'e3850150b01a23d5ed37b0456922b7a985bb9e58e9e1b7185cb822d60e605156';
+const EquilateralTrianglePolygon = '1c57fa7ee83c71c093552778ac4ee531fd251968c3036e5efc59188ba25370a9';
+const AssemblePolygon = 'eb762a2d8f76b751b7bf93bada5b7151b3480fd7980ae2be29094ad7da5b8f8d';
+const ClosedCurvePolygon = 'b7654e41811017598d27523b53233c410fdf80c4bc38e026f1a9de130dfa2d7e';
+const SectorPolygon = '490fbf1bc800f1ef785942f8b595a4a7ef107a30a9f4c5cec5ac649beca694b4';
+const LunePolygon = '96ad086d2a565001d67bad37eea04c766350b3e57a12a3fc82870f0815734c85';
+const LunePolyline = '9aa379617c76dbab7d91b507a4d6d5c9f60d5a4a4347c811b6b0da7154c31261';
+const CurvePolyline = 'a692a710eb644003da3ef3bde25c3e629ad8d122ba940b9bf5ebc4307cde13e4';
+
+const representativeCases: readonly [type: PlotShapeType, goldenDigest: GoldenDigest, points: Coordinate[]][] = [
   [
     'attack-arrow',
     AttackArrow,
@@ -166,14 +167,6 @@ function definition<T extends PlotShapeType>(type: T): ShapeDefinition<ShapeStat
   const found = plotShapeDefinitions.find((candidate) => candidate.type === type);
   if (found === undefined) throw new Error(`Missing plot shape definition: ${type}`);
   return found as ShapeDefinition<ShapeState<T>>;
-}
-
-function closeLegacyPolygon(coordinates: unknown): unknown {
-  if (!Array.isArray(coordinates) || !Array.isArray(coordinates[0])) return coordinates;
-  const rings = structuredClone(coordinates) as Coordinate[][];
-  const ring = rings[0];
-  if (ring.length > 0 && (ring[0][0] !== ring.at(-1)?.[0] || ring[0][1] !== ring.at(-1)?.[1])) ring.push([...ring[0]] as Coordinate);
-  return rings;
 }
 
 describe('plot shape parity', () => {
@@ -377,15 +370,12 @@ describe('plot shape parity', () => {
     }
   );
 
-  it.each(representativeCases)('%s matches the existing representative geometry algorithm', (type, Legacy, points) => {
-    const legacyCoordinates = new Legacy([], structuredClone(points), {}).getCoordinates();
+  it.each(representativeCases)('%s matches the frozen representative v2 geometry', (type, goldenDigest, points) => {
     const shape = definition(type);
     const state = shape.normalize({ type, controlPoints: points });
     const geometry = shape.toRenderGeometry(state);
 
-    expect(geometry.type === 'polygon' ? geometry.coordinates : geometry.type === 'polyline' ? geometry.coordinates : undefined).toEqual(
-      geometry.type === 'polygon' ? closeLegacyPolygon(legacyCoordinates) : legacyCoordinates
-    );
+    expect(createHash('sha256').update(JSON.stringify(geometry)).digest('hex')).toBe(goldenDigest);
   });
 
   it('uses complete minimum control points without mutating them and always closes polygon rings', () => {

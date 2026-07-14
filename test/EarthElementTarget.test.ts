@@ -1,179 +1,110 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FakeHtmlElement, FakeMap } from './helpers/EarthMapHarness.js';
 
-vi.mock('ol/control/defaults.js', () => ({
-  defaults: () => []
-}));
-
-vi.mock('ol/Map.js', () => {
-  class TestMap {
-    private target?: string | HTMLElement;
-    private readonly view: unknown;
-    private readonly interactions = { getArray: () => [], forEach: () => undefined, clear: () => undefined };
-    private readonly viewport = new EventTarget();
-
-    constructor(options: { target?: string | HTMLElement; view: unknown }) {
-      this.target = options.target;
-      this.view = options.view;
-    }
-
-    getView(): unknown {
-      return this.view;
-    }
-
-    getTargetElement(): HTMLElement | null {
-      return typeof this.target === 'string' ? null : (this.target ?? null);
-    }
-
-    getViewport(): HTMLElement {
-      return this.viewport as unknown as HTMLElement;
-    }
-
-    getInteractions() {
-      return this.interactions;
-    }
-
-    getOverlays() {
-      return { clear: () => undefined };
-    }
-
-    getLayers() {
-      return { clear: () => undefined };
-    }
-
-    getControls() {
-      return { clear: () => undefined };
-    }
-
-    removeInteraction(): void {}
-
-    addInteraction(): void {}
-
-    addOverlay(): void {}
-
-    setTarget(target?: string | HTMLElement): void {
-      this.target = target;
-    }
-
-    dispose(): void {}
-  }
-
-  return { default: TestMap };
+vi.mock('ol/interaction/defaults.js', async () => {
+  const { default: DragPan } = await import('ol/interaction/DragPan.js');
+  const { FakeCollection } = await import('./helpers/EarthMapHarness.js');
+  return { defaults: () => new FakeCollection([new DragPan()]) };
 });
 
-vi.mock('ol/View.js', () => ({
-  default: class TestView {
-    constructor(_options?: unknown) {}
-  }
-}));
+vi.mock('ol/control/defaults.js', async () => {
+  const { FakeCollection } = await import('./helpers/EarthMapHarness.js');
+  return { defaults: () => new FakeCollection() };
+});
 
-import Descriptor from '../src/components/Descriptor';
-import { destroyEarth, useEarth } from '../src/useEarth';
+vi.mock('ol/Map.js', async () => {
+  const { FakeMap: BaseMap } = await import('./helpers/EarthMapHarness.js');
+  return {
+    default: class TargetAwareMap extends BaseMap {
+      getTargetElement(): HTMLElement {
+        return this.target as HTMLElement;
+      }
+    }
+  };
+});
 
-const originalDocument = globalThis.document;
+import Earth from '../src/facade/Earth.js';
+import { resetEarthRegistryForTests } from '../src/facade/earthRegistry.js';
+import { useEarth, type UseEarthOptions } from '../src/facade/useEarth.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+
+const earths: Earth[] = [];
+
+beforeEach(() => {
+  earths.length = 0;
+  vi.stubGlobal('HTMLElement', FakeHtmlElement);
+  vi.stubGlobal('document', {
+    createElement: () => new FakeHtmlElement(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn()
+  });
+});
 
 afterEach(() => {
-  destroyEarth('element-target');
-  destroyEarth('context-first');
-  destroyEarth('context-second');
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
+  for (const earth of [...earths].reverse()) earth.destroy();
+  resetEarthRegistryForTests();
+  vi.unstubAllGlobals();
 });
 
 describe('HTMLElement Earth target', () => {
-  it('preserves the element through Earth and uses the map target for Descriptor DOM attachment', () => {
-    const append = vi.fn();
-    const target = { id: 'earth-target', append } as unknown as HTMLElement;
-    const descriptorElement = { style: {}, innerHTML: '', appendChild: vi.fn() } as unknown as HTMLDivElement;
-    const getElementById = vi.fn(() => null);
-    Object.defineProperty(globalThis, 'document', {
-      configurable: true,
-      value: {
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        createElement: () => descriptorElement,
-        getElementById
-      }
-    });
+  coversCapabilities('earth-target-string-or-element', 'earth-browser-contextmenu-suppression', 'overlay-add-config', 'overlay-position-hide');
 
-    const earth = useEarth({ id: 'element-target', target });
+  it('从 useEarth 到 Earth 与 OpenLayers Map 始终保留同一 HTMLElement', () => {
+    const target = new FakeHtmlElement() as unknown as HTMLElement;
+    const earth = createEarth({ id: 'element-target', target });
+    const map = earth.map as unknown as FakeMap;
+
     expect(earth.target).toBe(target);
-    expect(earth.containerId).toBe('earth-target');
+    expect(map.target).toBe(target);
     expect(earth.map.getTargetElement()).toBe(target);
-    earth.useDefaultLayer = () => ({ polyline: { get: () => [] } }) as unknown as ReturnType<typeof earth.useDefaultLayer>;
-
-    const descriptor = new Descriptor(earth, {
-      type: 'custom',
-      drag: false,
-      isShowFixedline: false,
-      isShowClose: false
-    });
-    descriptor.set({ position: [0, 0] });
-
-    expect(append).toHaveBeenCalledWith(descriptorElement);
-    expect(getElementById).not.toHaveBeenCalled();
+    expect(useEarth('element-target')).toBe(earth);
   });
 
-  it('allows Descriptor.set when the map target is detached', () => {
-    const target = { id: 'earth-target', append: vi.fn() } as unknown as HTMLElement;
-    const descriptorElement = { style: {}, innerHTML: '', appendChild: vi.fn() } as unknown as HTMLDivElement;
-    Object.defineProperty(globalThis, 'document', {
-      configurable: true,
-      value: {
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        createElement: () => descriptorElement
-      }
-    });
-    const earth = useEarth({ id: 'element-target', target });
-    earth.useDefaultLayer = () => ({ polyline: { get: () => [] } }) as unknown as ReturnType<typeof earth.useDefaultLayer>;
-    earth.map.setTarget(undefined);
-    const descriptor = new Descriptor(earth, {
-      type: 'custom',
-      drag: false,
-      isShowFixedline: false,
-      isShowClose: false
-    });
+  it('在 HTMLElement target 上通过 v2 OverlayService 管理元素', () => {
+    const target = new FakeHtmlElement() as unknown as HTMLElement;
+    const earth = createEarth({ id: 'element-target', target });
+    const map = earth.map as unknown as FakeMap;
+    const element = new FakeHtmlElement() as unknown as HTMLElement;
 
-    expect(() => descriptor.set({ position: [0, 0] })).not.toThrow();
+    const overlay = earth.overlays.add({ id: 'target-overlay', element, position: [1, 2] });
+
+    expect(map.getOverlays().getArray()).toHaveLength(1);
+    expect(overlay.position).toEqual([1, 2]);
+    expect(overlay.visible).toBe(true);
+
+    map.setTarget(undefined);
+    expect(() => overlay.setPosition([3, 4])).not.toThrow();
+    expect(overlay.position).toEqual([3, 4]);
+    overlay.destroy();
+    expect(map.getOverlays().getArray()).toEqual([]);
   });
 
-  it('isolates browser context-menu suppression to each Earth viewport', () => {
-    const addEventListener = vi.fn();
-    const removeEventListener = vi.fn();
-    Object.defineProperty(globalThis, 'document', {
-      configurable: true,
-      value: { addEventListener, removeEventListener }
-    });
-    const first = useEarth({ id: 'context-first', target: { id: 'context-first' } as HTMLElement });
-    const second = useEarth({ id: 'context-second', target: { id: 'context-second' } as HTMLElement });
-    const firstViewport = first.map.getViewport();
-    const secondViewport = second.map.getViewport();
-    const packagedListener = vi.fn();
-    secondViewport.addEventListener('contextmenu', packagedListener);
-
+  it('把浏览器右键抑制隔离到各自 Earth viewport，并在销毁后解除', () => {
+    const first = createEarth({ id: 'context-first', target: new FakeHtmlElement() as unknown as HTMLElement });
+    const second = createEarth({ id: 'context-second', target: new FakeHtmlElement() as unknown as HTMLElement });
+    const firstViewport = (first.map as unknown as FakeMap).viewport;
+    const secondViewport = (second.map as unknown as FakeMap).viewport;
     const firstEvent = new Event('contextmenu', { cancelable: true });
     const secondEvent = new Event('contextmenu', { cancelable: true });
-    const stopPropagation = vi.spyOn(secondEvent, 'stopPropagation');
-    const stopImmediatePropagation = vi.spyOn(secondEvent, 'stopImmediatePropagation');
+
     firstViewport.dispatchEvent(firstEvent);
     secondViewport.dispatchEvent(secondEvent);
-
     expect(firstEvent.defaultPrevented).toBe(true);
     expect(secondEvent.defaultPrevented).toBe(true);
-    expect(packagedListener).toHaveBeenCalledOnce();
-    expect(stopPropagation).not.toHaveBeenCalled();
-    expect(stopImmediatePropagation).not.toHaveBeenCalled();
-    expect(addEventListener).not.toHaveBeenCalled();
-    expect(removeEventListener).not.toHaveBeenCalled();
 
-    destroyEarth('context-first');
-    const destroyedViewportEvent = new Event('contextmenu', { cancelable: true });
-    const activeViewportEvent = new Event('contextmenu', { cancelable: true });
-    firstViewport.dispatchEvent(destroyedViewportEvent);
-    secondViewport.dispatchEvent(activeViewportEvent);
+    first.destroy();
+    const destroyedEvent = new Event('contextmenu', { cancelable: true });
+    const activeEvent = new Event('contextmenu', { cancelable: true });
+    firstViewport.dispatchEvent(destroyedEvent);
+    secondViewport.dispatchEvent(activeEvent);
 
-    expect(destroyedViewportEvent.defaultPrevented).toBe(false);
-    expect(activeViewportEvent.defaultPrevented).toBe(true);
-    expect(addEventListener).not.toHaveBeenCalled();
-    expect(removeEventListener).not.toHaveBeenCalled();
+    expect(destroyedEvent.defaultPrevented).toBe(false);
+    expect(activeEvent.defaultPrevented).toBe(true);
   });
 });
+
+function createEarth(options: UseEarthOptions): Earth {
+  const earth = useEarth(options);
+  if (!earths.includes(earth)) earths.push(earth);
+  return earth;
+}

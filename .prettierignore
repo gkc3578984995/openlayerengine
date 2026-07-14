@@ -1,7 +1,4 @@
 scripts/docs/api-docs.mjs
 test/ApiDocGenerator.test.ts
-test/Base.test.ts
 test/LayerCommonDemoCoverage.test.ts
-test/PatternFill.test.ts
-test/Utils.test.ts
 typedoc.json

@@ -1,19 +1,19 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
 import { describe, expect, it, vi } from 'vitest';
-import PointLayer from '../src/base/PointLayer';
+import { createFacadeHarness } from './helpers/facadeHarness.js';
 
-describe('Base 图层注册', () => {
-  it('临时图层可保持在地图上但不登记到 Earth', () => {
-    const addLayer = vi.fn();
-    const autoRegisterLayer = vi.fn();
-    const earth = {
-      map: { addLayer },
-      _autoRegisterLayer: autoRegisterLayer
-    } as any;
+describe('原生图层注册 v2 回归', () => {
+  it('external ownership 移除图层但不销毁调用方对象', () => {
+    const harness = createFacadeHarness();
+    const native = new VectorLayer({ source: new VectorSource() });
+    const dispose = vi.spyOn(native, 'dispose');
+    const layer = harness.layers.add({ kind: 'native', id: 'external', layer: native, ownership: 'external' });
 
-    new PointLayer(earth, { register: false });
+    layer.remove();
 
-    expect(addLayer).toHaveBeenCalledTimes(1);
-    expect(autoRegisterLayer).not.toHaveBeenCalled();
+    expect(harness.map.getAllLayers()).not.toContain(native);
+    expect(dispose).not.toHaveBeenCalled();
+    harness.destroy();
   });
 });

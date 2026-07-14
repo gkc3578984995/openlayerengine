@@ -33,11 +33,11 @@ describe('Wind capability removal', () => {
     expect(findReferences(files, ['IWindOptions', 'ISetWindParam', 'ISetWindOptions', 'IWindParam'])).toEqual([]);
   });
 
-  it('does not export Wind from the root or layers entries', () => {
+  it('does not export Wind from the root or package entry map', () => {
     const rootEntry = readFileSync(resolve(sourceRoot, 'index.ts'), 'utf8');
-    const layersEntry = readFileSync(resolve(sourceRoot, 'base/index.ts'), 'utf8');
+    const packageManifest = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as { exports?: Record<string, unknown> };
 
     expect(rootEntry).not.toMatch(/export[^;]*\bWind(?:Layer)?\b/);
-    expect(layersEntry).not.toMatch(/export[^;]*\bWind(?:Layer)?\b/);
+    expect(Object.keys(packageManifest.exports ?? {}).some((entry) => /wind/i.test(entry))).toBe(false);
   });
 });

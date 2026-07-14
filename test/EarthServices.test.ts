@@ -255,8 +255,17 @@ vi.mock('ol/Map.js', () => {
 
 import { ObjectDisposedError } from '../src/core/errors.js';
 import { createEngineContext } from '../src/internal/createEngineContext.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
 describe('Earth v2 服务装配', () => {
+  coversCapabilities(
+    'earth-owned-service-reuse',
+    'earth-default-layer-bundle',
+    'earth-default-interaction-policy',
+    'earth-browser-contextmenu-suppression',
+    'earth-destroy-lifecycle'
+  );
+
   it('提供稳定服务引用和唯一默认 vector layer', () => {
     const context = createEngineContext({ target: 'map-a' });
     const references = [
@@ -274,7 +283,20 @@ describe('Earth v2 服务装配', () => {
       context.controls
     ];
 
-    expect(references.every((reference, index) => reference === references[index])).toBe(true);
+    expect([
+      context.elements,
+      context.layers,
+      context.styles,
+      context.animations,
+      context.draw,
+      context.transform,
+      context.measure,
+      context.events,
+      context.contextMenu,
+      context.overlays,
+      context.view,
+      context.controls
+    ]).toEqual(references);
     expect(context.layers.query().map(({ state }) => state)).toEqual([
       { kind: 'vector', id: 'default', visible: true, opacity: 1, wrapX: true, declutter: false }
     ]);

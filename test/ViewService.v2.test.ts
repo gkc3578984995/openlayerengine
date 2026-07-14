@@ -7,6 +7,7 @@ import ScaleLine from 'ol/control/ScaleLine.js';
 import { ObjectDisposedError } from '../src/core/errors.js';
 import { ControlServiceImpl } from '../src/facade/ControlService.js';
 import { ViewServiceImpl } from '../src/facade/ViewService.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
 const extent = [-20_037_508.342789244, -20_037_508.342789244, 20_037_508.342789244, 20_037_508.342789244] as const;
 const worldWidth = extent[2] - extent[0];
@@ -47,6 +48,18 @@ function createViewHarness(options: { center?: number[]; zoom?: number; coordina
 }
 
 describe('ViewServiceImpl', () => {
+  coversCapabilities(
+    'earth-map-view-public-access',
+    'earth-cursor-control',
+    'earth-drag-pan-toggle',
+    'camera-fly-home',
+    'camera-animate-fly-to',
+    'camera-fly-to',
+    'utils-world-width-index',
+    'utils-feature-translate-to-pixel',
+    'utils-world-normalize-restore'
+  );
+
   it('exposes center and zoom snapshots and supports immediate positioning including zoom zero', () => {
     const { service, olView } = createViewHarness({ center: [12, 34], zoom: 5 });
 
@@ -171,6 +184,8 @@ describe('ViewServiceImpl', () => {
 });
 
 describe('ControlServiceImpl', () => {
+  coversCapabilities('control-graticule-lifecycle', 'control-scale-line-lifecycle');
+
   beforeEach(() => {
     vi.stubGlobal('document', {
       createElement: () => ({ appendChild: vi.fn(), className: '', style: {}, setAttribute: vi.fn() })

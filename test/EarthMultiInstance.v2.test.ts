@@ -17,6 +17,7 @@ vi.mock('ol/Map.js', async () => ({ default: (await import('./helpers/EarthMapHa
 import { ObjectDisposedError } from '../src/core/errors.js';
 import { resetEarthRegistryForTests } from '../src/facade/earthRegistry.js';
 import { useEarth } from '../src/facade/useEarth.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
 const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
 
@@ -34,6 +35,8 @@ afterEach(() => {
 });
 
 describe('Earth v2 多实例真实装配隔离', () => {
+  coversCapabilities('earth-named-instance-get-or-create', 'earth-owned-service-reuse', 'earth-destroy-lifecycle', 'control-earth-delegation');
+
   it('为每个命名实例创建独立服务树并允许相同业务 ID', () => {
     const first = useEarth('map-a');
     const second = useEarth('map-b');
@@ -76,6 +79,13 @@ describe('Earth v2 多实例真实装配隔离', () => {
     first.layers.remove('custom');
     expect(secondElement.state.data).toBeUndefined();
     expect(second.layers.get('custom')).toBe(secondLayer);
+    expect(first.elements).toBe(first.elements);
+    expect(second.layers).toBe(second.layers);
+
+    const graticule = first.controls.enableGraticule();
+    expect(firstMap.getLayers().getArray()).toContain(graticule);
+    expect(secondMap.getLayers().getArray()).not.toContain(graticule);
+    first.controls.disableGraticule();
   });
 
   it('隔离 NativeRef、事件、菜单、Overlay、交互和动画状态', () => {

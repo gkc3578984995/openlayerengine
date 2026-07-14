@@ -1,46 +1,84 @@
 import { describe, expect, it } from 'vitest';
-import Feature from 'ol/Feature';
-import Polygon from 'ol/geom/Polygon';
-import DynamicDraw from '../src/components/DynamicDraw';
+import type { ElementState } from '../src/core/element/types.js';
+import { InvalidArgumentError } from '../src/core/errors.js';
+import type { StyleSpec } from '../src/core/style/types.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { createDrawLifecycleHarness, finishActiveSession } from './helpers/drawMeasureLifecycleHarness.js';
 
-const positions = [
-  [
-    [0, 0],
-    [10, 0],
-    [10, 10],
-    [0, 0]
-  ]
-];
+function createPolygonStyle(): StyleSpec {
+  return {
+    strokes: [
+      { color: '#00ff36', width: 8, lineDash: [10, 6] },
+      { color: '#ff3300', width: 2 }
+    ],
+    fill: { type: 'pattern', pattern: 'diagonal', color: '#1677ff', backgroundColor: '#ffffff' }
+  };
+}
 
-describe('DynamicDraw Polygon style selection', () => {
-  it('prefers the new fill option over legacy fillColor', () => {
-    const draw = Object.create(DynamicDraw.prototype) as any;
+function polygonElement(id: string, style: StyleSpec): ElementState {
+  return {
+    id,
+    type: 'polygon',
+    geometry: {
+      type: 'polygon',
+      controlPoints: [
+        [0, 0],
+        [10, 0],
+        [10, 10]
+      ]
+    },
+    style,
+    layerId: 'draw-layer',
+    visible: true
+  };
+}
 
-    expect(draw.buildDrawPolygonStyle({ fillColor: '#fff', fill: { type: 'cross' } })).toEqual({
-      stroke: { width: 2 },
-      fill: { type: 'cross' }
-    });
+describe('v2 多边形绘制与编辑样式', () => {
+  it('同一结构化样式快照贯穿预览与最终结果', async () => {
+    coversCapabilities('draw-style-preview-result-parity');
+    const harness = createDrawLifecycleHarness();
+    const style = createPolygonStyle();
+    const expected = createPolygonStyle();
+    const session = harness.draw.start({ type: 'polygon', layerId: 'draw-layer', style, limit: 1 });
+    style.strokes?.splice(0, 1, { color: '#000000', width: 1 });
+    harness.drawPort.emit({ type: 'click', coordinate: [0, 0] });
+    harness.drawPort.emit({ type: 'click', coordinate: [10, 0] });
+    harness.drawPort.emit({ type: 'click', coordinate: [10, 10] });
+    const preview = harness.drawPort.active?.renders.filter((state) => state !== undefined).at(-1);
+    if (preview === undefined) throw new Error('缺少多边形预览');
+
+    expect(finishActiveSession(harness.coordinator, [10, 10])).toBe('consume');
+    const [result] = await session.finished;
+    expect(preview.style).toEqual(expected);
+    expect(result.style).toEqual(preview.style);
+    expect(harness.store.get(result.id)?.style).toEqual(preview.style);
+    harness.destroy();
   });
 
-  it('keeps legacy fillColor behavior and does not make a default stroke color explicit', () => {
-    const draw = Object.create(DynamicDraw.prototype) as any;
+  it('编辑 underlay 只影响端口投影并完整保留元素图案样式', () => {
+    coversCapabilities('edit-session-underlay');
+    const harness = createDrawLifecycleHarness();
+    const style = createPolygonStyle();
+    harness.store.add(polygonElement('pattern-polygon', style));
+    const session = harness.draw.edit('pattern-polygon', { underlay: true });
+    const record = harness.editPort.active;
 
-    expect(draw.buildDrawPolygonStyle({ fillColor: '#fff' })).toEqual({
-      stroke: { width: 2 },
-      fill: { color: '#fff' }
-    });
-    expect(draw.buildDrawPolygonStyle({ fill: { type: 'dot' } }).stroke.color).toBeUndefined();
+    expect(record?.spec.underlay).toBe(true);
+    expect(record?.renders[0].style).toEqual(style);
+    expect(harness.store.get('pattern-polygon')?.style).toEqual(style);
+    session.cancel();
+    harness.destroy();
   });
 
-  it('uses a transparent edit preview only for a visible pattern underlay', () => {
-    const draw = Object.create(DynamicDraw.prototype) as any;
-    const patternFeature = new Feature({ geometry: new Polygon(positions) });
-    patternFeature.set('param', { fill: { type: 'diagonal' } });
-    const solidFeature = new Feature({ geometry: new Polygon(positions) });
-    solidFeature.set('param', { fill: { color: '#fff' } });
-
-    expect(draw.getPolygonEditPreviewFill(patternFeature, true)).toEqual({ color: 'rgba(0,0,0,0)' });
-    expect(draw.getPolygonEditPreviewFill(patternFeature, false)).toEqual({ color: '#ffffff61' });
-    expect(draw.getPolygonEditPreviewFill(solidFeature, true)).toEqual({ color: '#ffffff61' });
+  it('拒绝旧 fillColor 歧义字段并要求显式 StyleSpec', () => {
+    const harness = createDrawLifecycleHarness();
+    expect(() =>
+      harness.draw.start({
+        type: 'polygon',
+        layerId: 'draw-layer',
+        style: { strokes: [{ width: 2 }], fillColor: '#ffffff' } as never
+      })
+    ).toThrow(InvalidArgumentError);
+    harness.destroy();
   });
 });

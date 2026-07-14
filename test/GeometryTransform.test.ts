@@ -1,18 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import Point from 'ol/geom/Point';
-import { applyWrapOffset, movePoint, projectVector, vectorBetween } from '../src/extends/transform-interaction/geometryTransform';
+import { lerp2, quadraticBezier2 } from '../src/utils/math.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
-describe('transform interaction geometry helpers', () => {
-  it('handles vector operations', () => {
-    expect(vectorBetween([1, 2], [4, 6])).toEqual([3, 4]);
-    expect(movePoint([1, 2], [3, 4])).toEqual([4, 6]);
-    expect(projectVector([2, 2], [1, 0])).toEqual([2, 0]);
-    expect(projectVector([2, 2], [0, 0])).toEqual([0, 0]);
+describe('v2 二维插值工具（utils-linear-interpolation）', () => {
+  it('计算线段端点、中点与外插点', () => {
+    coversCapabilities('utils-linear-interpolation');
+    expect(lerp2([2, 3], [8, 9], 0)).toEqual([2, 3]);
+    expect(lerp2([2, 3], [8, 9], 1)).toEqual([8, 9]);
+    expect(lerp2([0, 0], [10, 20], 0.5)).toEqual([5, 10]);
+    expect(lerp2([0, 0], [10, 20], 1.5)).toEqual([15, 30]);
+  });
+});
+
+describe('v2 二次贝塞尔工具（utils-quadratic-bezier）', () => {
+  it('保持曲线端点并计算中间控制结果', () => {
+    coversCapabilities('utils-quadratic-bezier');
+    const start = [0, 0] as const;
+    const control = [5, 10] as const;
+    const end = [10, 0] as const;
+    expect(quadraticBezier2(start, control, end, 0)).toEqual(start);
+    expect(quadraticBezier2(start, control, end, 1)).toEqual(end);
+    expect(quadraticBezier2(start, control, end, 0.5)).toEqual([5, 5]);
   });
 
-  it('wraps point coordinates into the target world', () => {
-    const point = new Point([190, 5]);
-    applyWrapOffset(point, 0, 360);
-    expect(point.getCoordinates()).toEqual([-170, 5]);
+  it('计算时不修改任何输入坐标', () => {
+    const start = [1, 2] as const;
+    const control = [3, 8] as const;
+    const end = [9, 4] as const;
+    quadraticBezier2(start, control, end, 0.25);
+    expect(start).toEqual([1, 2]);
+    expect(control).toEqual([3, 8]);
+    expect(end).toEqual([9, 4]);
   });
 });

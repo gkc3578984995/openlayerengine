@@ -1,38 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { Circle, LineString, Point } from 'ol/geom';
-import { coordinatesEqual, extractGeometryInfo, geometriesEqual } from '../src/components/transform/geometry';
+import { addElement, createTransformHarness } from './helpers/transformHarness.js';
 
-describe('transform geometry helpers', () => {
-  it('compares nested coordinates with floating point tolerance', () => {
-    expect(coordinatesEqual([[1, 2]], [[1 + 1e-10, 2]])).toBe(true);
-    expect(coordinatesEqual([[1, 2]], [[1, 3]])).toBe(false);
-  });
+describe('Transform 几何变换', () => {
+  it('按图形定义变换点与圆，并保持各自的几何语义', () => {
+    const pointHarness = createTransformHarness();
+    addElement(pointHarness, 'point-a', 'point', [[1, 2]]);
+    const pointSession = pointHarness.service.select('point-a');
+    translate(pointHarness, 2, -1);
+    pointSession.finish();
 
-  it('compares geometry type and coordinates', () => {
-    expect(
-      geometriesEqual(
-        new LineString([
-          [0, 0],
-          [1, 1]
-        ]),
-        new LineString([
-          [0, 0],
-          [1, 1]
-        ])
-      )
-    ).toBe(true);
-    expect(
-      geometriesEqual(
-        new Point([0, 0]),
-        new LineString([
-          [0, 0],
-          [1, 1]
-        ])
-      )
-    ).toBe(false);
-  });
+    const circleHarness = createTransformHarness();
+    addElement(circleHarness, 'circle-a', 'circle', [
+      [3, 4],
+      [8, 4]
+    ]);
+    const circleSession = circleHarness.service.select('circle-a');
+    translate(circleHarness, 2, -1);
+    circleSession.finish();
 
-  it('extracts circle center and radius', () => {
-    expect(extractGeometryInfo(new Circle([3, 4], 5))).toEqual({ type: 'Circle', coords: { center: [3, 4], radius: 5 } });
+    expect(pointHarness.store.get('point-a')?.geometry).toEqual({ type: 'point', controlPoints: [[3, 1]] });
+    expect(circleHarness.store.get('circle-a')?.geometry).toEqual({ type: 'circle', center: [5, 3], radius: 5 });
   });
 });
+
+function translate(harness: ReturnType<typeof createTransformHarness>, x: number, y: number): void {
+  harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+  harness.interaction.emit({ type: 'operation-end', operation: 'translate', delta: { type: 'translate', x, y } });
+}

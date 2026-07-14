@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Earth, { setEarthContextFactoryForTests, type EarthOptions } from '../src/facade/Earth.js';
 import { lookupRegisteredEarth, resetEarthRegistryForTests, setEarthWarningReporterForTests } from '../src/facade/earthRegistry.js';
 import { useEarth, type UseEarthOptions } from '../src/facade/useEarth.js';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
 interface FakeContextRecord {
   readonly options: EarthOptions;
@@ -28,6 +29,15 @@ afterEach(() => {
 });
 
 describe('useEarth v2 registry', () => {
+  coversCapabilities(
+    'earth-default-instance-get-or-create',
+    'earth-named-instance-get-or-create',
+    'earth-instance-options-routing',
+    'earth-instance-destroy-recreate',
+    'earth-explicit-unregistered-instance',
+    'earth-target-string-or-element'
+  );
+
   it('提供三个固定重载', () => {
     const overloads: {
       (): Earth;
@@ -65,6 +75,20 @@ describe('useEarth v2 registry', () => {
 
     expect(useEarth('planning')).toBe(earth);
     expect(contexts[0]?.options).toEqual({ target: 'planning-map', view, controls });
+  });
+
+  it('接受 HTMLElement target 并保持元素引用', () => {
+    class TargetElement {}
+    vi.stubGlobal('HTMLElement', TargetElement);
+    try {
+      const target = new TargetElement() as HTMLElement;
+      const earth = useEarth({ id: 'element-target', target });
+
+      expect(earth.target).toBe(target);
+      expect(contexts[0]?.options.target).toBe(target);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('销毁后立即按同一 key 创建新实例', () => {

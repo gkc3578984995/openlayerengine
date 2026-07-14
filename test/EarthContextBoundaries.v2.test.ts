@@ -1,11 +1,14 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
 const root = resolve(process.cwd(), 'src');
 const boundaryRoots = ['core', 'services', 'adapters'];
 
 describe('Earth v2 上下文边界', () => {
+  coversCapabilities('earth-default-context-resolution');
+
   it('core、services 和 adapters 不读取默认 Earth 或实例注册表', () => {
     const violations: string[] = [];
     for (const directory of boundaryRoots) {
