@@ -1,7 +1,9 @@
 import { InvalidArgumentError } from '../errors.js';
 
+/** 不可变集合与原始集合的对应关系。 */
 const immutableSetSources = new WeakMap<object, ReadonlySet<unknown>>();
 
+/** 创建一个不能被外部修改的只读集合。 */
 export function createImmutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
   const source = new Set(values);
   const result: ReadonlySet<T> = Object.freeze({
@@ -22,6 +24,7 @@ export function createImmutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
   return result;
 }
 
+/** 校验并复制一个集合，返回不可变视图。 */
 export function snapshotImmutableSet<T>(input: unknown, parseValue: (value: unknown) => T, label: string): ReadonlySet<T> {
   if (input === null || typeof input !== 'object') throw new InvalidArgumentError(`${label} must be a Set`);
   const trustedSource = immutableSetSources.get(input);

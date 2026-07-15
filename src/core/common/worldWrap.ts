@@ -61,6 +61,7 @@ export interface ViewWorldContext {
   readonly viewCenterX: number;
 }
 
+/** 默认交接信息，表示坐标不需要切换世界副本。 */
 const identityHandoff: WorldEditHandoff = Object.freeze({ kind: 'identity' });
 
 /**
@@ -204,6 +205,7 @@ export function shiftCoordinatesToCanonicalWorld(coordinates: readonly Coordinat
   return canonicalizeWorldEdit(coordinates, world === undefined ? identityHandoff : { kind: 'wrapped', world });
 }
 
+/** 计算坐标移到参考位置附近所需的水平偏移量。 */
 function nearestWorldOffset(x: number, referenceX: number, world: HorizontalWorld): number {
   assertWorld(world);
   if (!Number.isFinite(x)) throw new InvalidArgumentError('World coordinate X must be finite');
@@ -214,12 +216,14 @@ function nearestWorldOffset(x: number, referenceX: number, world: HorizontalWorl
   return offset;
 }
 
+/** 使用同一个水平偏移量移动一组坐标。 */
 function shiftCoordinates(coordinates: readonly Coordinate[], offset: number): Coordinate[] {
   const shifted = new Array<Coordinate>(coordinates.length);
   for (let index = 0; index < coordinates.length; index += 1) shifted[index] = shiftCoordinate(coordinates[index], offset);
   return shifted;
 }
 
+/** 移动单个坐标的水平位置。 */
 function shiftCoordinate(coordinate: Coordinate, offset: number): Coordinate {
   assertCoordinate(coordinate);
   const x = coordinate[0] + offset;
@@ -227,28 +231,33 @@ function shiftCoordinate(coordinate: Coordinate, offset: number): Coordinate {
   return coordinate.length === 3 ? [x, coordinate[1], coordinate[2]] : [x, coordinate[1]];
 }
 
+/** 检查水平世界配置是否有效。 */
 function assertWorld(world: HorizontalWorld): void {
   if (!Number.isFinite(world.minX) || !Number.isFinite(world.width) || world.width <= 0) {
     throw new InvalidArgumentError('Horizontal world requires a finite origin and positive width');
   }
 }
 
+/** 检查坐标是否包含有效数字。 */
 function assertCoordinate(coordinate: Coordinate): void {
   if ((coordinate.length !== 2 && coordinate.length !== 3) || !coordinate.every(Number.isFinite)) {
     throw new InvalidArgumentError('World coordinate must contain two or three finite numbers');
   }
 }
 
+/** 创建不可变的水平世界快照。 */
 function snapshotWorld(world: HorizontalWorld): HorizontalWorld {
   const snapshot = { minX: world.minX, width: world.width };
   assertWorld(snapshot);
   return Object.freeze(snapshot);
 }
 
+/** 复制一组坐标，避免后续修改原数据。 */
 function cloneCoordinates(coordinates: readonly Coordinate[]): Coordinate[] {
   return coordinates.map(cloneCoordinate);
 }
 
+/** 复制一个二维或三维坐标。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   assertCoordinate(coordinate);
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];

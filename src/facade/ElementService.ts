@@ -14,26 +14,42 @@ import type { LayerServiceImpl } from './LayerService.js';
 import { inspectStyleInput } from './StyleFacade.js';
 import type { ElementCreateInput, ElementHit, ElementService, ScreenExtent } from './types.js';
 
+/** 元素门面实现使用的可选配置。 */
 export interface ElementServiceOptions {
+  /** 自定义元素 ID 的生成方式。 */
   readonly createId?: () => string;
 }
 
+/** 缓存同一代原生要素和对应的公开句柄。 */
 interface CachedElement {
+  /** 当前绑定的 OpenLayers 要素。 */
   readonly feature: ReturnType<FeatureBinding['requireFeature']>;
+  /** 返回给调用方的元素句柄。 */
   readonly handle: Element;
 }
 
+/** 连接元素状态、图层和 OpenLayers 要素的门面实现。 */
 export class ElementServiceImpl implements ElementService {
+  /** 保存元素的核心状态。 */
   readonly #store: ElementStore;
+  /** 查询元素所属图层。 */
   readonly #manager: LayerManager;
+  /** 同步元素状态与 OpenLayers 要素。 */
   readonly #binding: FeatureBinding;
+  /** 提供公开图层句柄。 */
   readonly #layers: LayerServiceImpl;
+  /** 管理原生样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
+  /** 处理像素命中和屏幕范围计算。 */
   readonly #hitTest: HitTestPort;
+  /** 可选的元素 ID 生成器。 */
   readonly #createId: (() => string) | undefined;
+  /** 按元素 ID 缓存当前句柄。 */
   readonly #handles = new Map<string, CachedElement>();
+  /** 默认 ID 的递增序号。 */
   #nextId = 0;
 
+  /** 保存元素服务所需的状态、适配器和依赖服务。 */
   constructor(
     store: ElementStore,
     manager: LayerManager,
@@ -52,6 +68,7 @@ export class ElementServiceImpl implements ElementService {
     this.#createId = options.createId;
   }
 
+  /** 校验并新增元素，随后返回当前句柄。 */
   add<T>(input: ElementCreateInput<T>): Element<T> {
     let provisional: NativeStyleRef | undefined;
     try {
@@ -83,6 +100,7 @@ export class ElementServiceImpl implements ElementService {
     }
   }
 
+  /** 按 ID 获取元素；不存在时清理旧句柄缓存。 */
   get<T>(id: string): Element<T> | undefined {
     const state = this.#store.get<T>(id);
     if (state === undefined) {
@@ -92,10 +110,12 @@ export class ElementServiceImpl implements ElementService {
     return this.#currentHandle<T>(id);
   }
 
+  /** 按条件查询元素，并转换为稳定的公开句柄。 */
   query<T>(selector?: ElementSelector<T>): readonly Element<T>[] {
     return Object.freeze(this.#store.query(selector).map(({ id }) => this.#currentHandle<T>(id)));
   }
 
+  /** 批量更新元素，并在提交前检查原生渲染是否可用。 */
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Element<T>[] {
     const result = this.#store.transaction((transaction) => {
       const states = transaction.update(selector, patch);
@@ -105,22 +125,26 @@ export class ElementServiceImpl implements ElementService {
     return Object.freeze(result.value.map(({ id }) => this.#currentHandle<T>(id)));
   }
 
+  /** 删除匹配的元素并清理对应句柄。 */
   remove(selector: ElementSelector): number {
     const changes = this.#store.remove(selector);
     for (const change of changes.changes) this.#handles.delete(change.id);
     return changes.changes.length;
   }
 
+  /** 隐藏匹配的元素并返回当前句柄。 */
   hide(selector: ElementSelector): readonly Element[] {
     const changes = this.#store.hide(selector);
     return Object.freeze(changes.changes.map(({ id }) => this.#currentHandle(id)));
   }
 
+  /** 显示匹配的元素并返回当前句柄。 */
   show(selector: ElementSelector): readonly Element[] {
     const changes = this.#store.show(selector);
     return Object.freeze(changes.changes.map(({ id }) => this.#currentHandle(id)));
   }
 
+  /** 复制指定元素并返回副本句柄。 */
   copy<T>(id: string, overrides?: ElementCopyOptions<T>): Element<T> {
     const result = this.#store.transaction((transaction) => {
       const state = transaction.copy(id, overrides);
@@ -130,11 +154,13 @@ export class ElementServiceImpl implements ElementService {
     return this.#currentHandle<T>(result.value.id);
   }
 
+  /** 清空所有元素和句柄缓存。 */
   clear(): void {
     this.#store.clear();
     this.#handles.clear();
   }
 
+  /** 查询指定屏幕像素命中的元素和图层。 */
   atPixel<T = unknown>(pixel: Pixel): ElementHit<T> | undefined {
     const hit = this.#hitTest.atPixel(pixel);
     if (hit === undefined) return undefined;
@@ -146,6 +172,7 @@ export class ElementServiceImpl implements ElementService {
     return element === undefined || layer === undefined ? undefined : Object.freeze({ element, layer });
   }
 
+  /** 获取元素在当前视口中的像素范围。 */
   getScreenExtent(target: string | Element): ScreenExtent | undefined {
     let id: string;
     let feature: ReturnType<FeatureBinding['requireFeature']>;
@@ -171,6 +198,7 @@ export class ElementServiceImpl implements ElementService {
     return this.#hitTest.getScreenExtent(id);
   }
 
+  /** 获取当前一代要素对应的句柄，必要时重新创建。 */
   #currentHandle<T>(id: string): Element<T> {
     const feature = this.#binding.requireFeature(id);
     const cached = this.#handles.get(id);
@@ -192,6 +220,7 @@ export class ElementServiceImpl implements ElementService {
     return handle;
   }
 
+  /** 生成一个尚未占用的元素 ID。 */
   #generateId(): string {
     if (this.#createId !== undefined) return requireString(this.#createId(), 'Generated element id');
     let id: string;
@@ -200,15 +229,17 @@ export class ElementServiceImpl implements ElementService {
     return id;
   }
 
+  /** 尽力释放尚未提交的原生样式引用。 */
   #discardStyle(reference: NativeStyleRef): void {
     try {
       this.#nativeRefs.discardProvisionalStyle(reference);
     } catch {
-      // The reference was committed or the registry was destroyed.
+      // 引用已经提交或注册表已经销毁，无需再次处理。
     }
   }
 }
 
+/** 安全读取并校验元素创建参数。 */
 function inspectCreateInput(value: unknown): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError('Element input must be a plain object');
   try {
@@ -230,6 +261,7 @@ function inspectCreateInput(value: unknown): Record<PropertyKey, unknown> {
   }
 }
 
+/** 克隆并确认输入是有效的图形状态。 */
 function requireGeometry(value: unknown): ElementState['geometry'] {
   const geometry = cloneCoreState(value);
   if (geometry === null || typeof geometry !== 'object' || typeof (geometry as { type?: unknown }).type !== 'string') {
@@ -238,26 +270,31 @@ function requireGeometry(value: unknown): ElementState['geometry'] {
   return geometry as ElementState['geometry'];
 }
 
+/** 按渲染类型选择默认样式。 */
 function defaultStyle(kind: ReturnType<FeatureBinding['renderKind']>): StyleSpec {
   if (kind === 'point') return stylePresets['point-default'];
   if (kind === 'polyline') return stylePresets['line-default'];
   return stylePresets['polygon-default'];
 }
 
+/** 判断对象是否直接拥有指定字段。 */
 function hasOwn(value: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+/** 读取不能为空的字符串。 */
 function requireString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 读取布尔值。 */
 function requireBoolean(value: unknown, label: string): boolean {
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
   return value;
 }
 
+/** 为已不存在的元素生成统一错误。 */
 function missingElement(id: string): never {
   throw new InvalidArgumentError(`Element does not exist: ${id}`);
 }

@@ -17,23 +17,39 @@ import {
   type NormalizedMeasureOptions
 } from './types.js';
 
+/** 测量服务支持的测量类型集合。 */
 const types = new Set<InternalMeasureType>(['distance-segments', 'distance-total', 'distance-radial', 'area']);
 
+/** 负责创建测量会话并管理测量结果的内部服务。 */
 export class MeasureService implements InternalMeasureService {
+  /** 内部绘制服务。 */
   readonly #draw: InternalDrawService;
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 内部样式服务。 */
   readonly #styles: StyleService;
+  /** 测量标签使用的 Overlay 服务。 */
   readonly #overlays: MeasureServiceDependencies['overlays'];
+  /** 测量计算端口。 */
   readonly #measurement: MeasureServiceDependencies['measurement'];
+  /** 测量提示元素端口。 */
   readonly #tooltips: MeasureServiceDependencies['tooltips'];
+  /** 默认测量图层 ID。 */
   readonly #defaultLayerId: string;
+  /** 可选的测量元素 ID 生成器。 */
   readonly #providedCreateId: (() => string) | undefined;
+  /** 测量错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 当前活动的测量会话。 */
   readonly #sessions = new Set<MeasureSession>();
+  /** 下一个自动生成的元素 ID。 */
   #nextId = 0;
+  /** 是否已经请求销毁。 */
   #destroyRequested = false;
+  /** 服务是否已销毁。 */
   #disposed = false;
 
+  /** 创建测量服务。 */
   constructor(dependencies: MeasureServiceDependencies) {
     this.#draw = dependencies.draw;
     this.#store = dependencies.store;
@@ -52,6 +68,7 @@ export class MeasureService implements InternalMeasureService {
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
   }
 
+  /** 启动一个测量会话。 */
   start(input: InternalMeasureOptions): MeasureSession {
     this.#assertActive();
     const options = this.#normalize(input);
@@ -86,11 +103,13 @@ export class MeasureService implements InternalMeasureService {
     }
   }
 
+  /** 清除全部测量会话、元素和标签。 */
   clear(): void {
     this.#assertActive();
     this.#clearOwned();
   }
 
+  /** 销毁测量服务及其全部结果。 */
   destroy(): void {
     if (this.#disposed || this.#destroyRequested) return;
     this.#destroyRequested = true;
@@ -110,6 +129,7 @@ export class MeasureService implements InternalMeasureService {
     if (failure !== undefined) throw failure;
   }
 
+  /** 取消活动会话并移除服务拥有的结果。 */
   #clearOwned(): void {
     const sessions = [...this.#sessions];
     runFinalizers([
@@ -119,6 +139,7 @@ export class MeasureService implements InternalMeasureService {
     ]);
   }
 
+  /** 校验并补齐测量配置默认值。 */
   #normalize(input: InternalMeasureOptions): NormalizedMeasureOptions {
     const record = inspectRecord(input, 'Measure options');
     assertFields(record, new Set(['type', 'layerId', 'unit', 'precision', 'formatter', 'line', 'point', 'text', 'showTotal', 'policy']), 'Measure options');
@@ -138,22 +159,26 @@ export class MeasureService implements InternalMeasureService {
     return freezeDeep({ type, layerId, unit, precision, formatter, line, point, text, showTotal, policy });
   }
 
+  /** 生成测量结果元素 ID。 */
   #createId(): string {
     const value = this.#providedCreateId?.() ?? `measure-${++this.#nextId}`;
     return nonEmptyString(value, 'Generated measure element id');
   }
 
+  /** 确保测量服务仍可使用。 */
   #assertActive(): void {
     if (this.#disposed || this.#destroyRequested) throw new ObjectDisposedError('MeasureService has been destroyed');
   }
 }
 
+/** 校验并规范化测量线样式。 */
 function normalizeLine(styles: StyleService, input: unknown): NormalizedMeasureOptions['line'] {
   const line = input === undefined ? { color: '#ffcc33', width: 2 } : inspectRecord(input, 'Measure line style');
   const style = styles.clone({ strokes: [cloneCoreState(line)] } as ElementStyleState) as StyleSpec;
   return freezeDeep(style.strokes?.[0] ?? { color: '#ffcc33', width: 2 });
 }
 
+/** 校验并规范化测量控制点样式。 */
 function normalizePoint(styles: StyleService, input: unknown): NormalizedMeasureOptions['point'] {
   if (input === false) return false;
   const point = input === undefined ? { type: 'circle', radius: 3, fill: { type: 'solid', color: '#ffffff' }, stroke: { color: '#ffcc33', width: 1 } } : input;
@@ -162,6 +187,7 @@ function normalizePoint(styles: StyleService, input: unknown): NormalizedMeasure
   return freezeDeep(style.symbol);
 }
 
+/** 校验并规范化测量文字样式。 */
 function normalizeText(styles: StyleService, input: unknown): NormalizedMeasureOptions['text'] {
   const text =
     input === undefined
@@ -184,6 +210,7 @@ function normalizeText(styles: StyleService, input: unknown): NormalizedMeasureO
   return freezeDeep(withoutText);
 }
 
+/** 创建不参与显示的绘制占位样式。 */
 function transparentStyle(area: boolean): ElementStyleState {
   return freezeDeep({
     strokes: [{ color: 'rgba(0, 0, 0, 0)', width: 1 }],
@@ -191,6 +218,7 @@ function transparentStyle(area: boolean): ElementStyleState {
   });
 }
 
+/** 按测量类型校验并选择结果单位。 */
 function normalizeUnit(type: InternalMeasureType, value: unknown): InternalMeasureUnit {
   const unit = value === undefined ? (type === 'area' ? 'km²' : 'km') : value;
   if (type === 'area') {
@@ -201,25 +229,30 @@ function normalizeUnit(type: InternalMeasureType, value: unknown): InternalMeasu
   return unit;
 }
 
+/** 校验测量类型。 */
 function measureType(value: unknown): InternalMeasureType {
   if (typeof value !== 'string' || !types.has(value as InternalMeasureType)) throw new InvalidArgumentError('Unknown measure type');
   return value as InternalMeasureType;
 }
 
+/** 校验交互冲突策略。 */
 function interactionPolicy(value: unknown): 'replace' | 'reject' {
   if (value !== 'replace' && value !== 'reject') throw new InvalidArgumentError('Measure policy must be replace or reject');
   return value;
 }
 
+/** 读取测量格式化回调。 */
 function callback(value: unknown, label: string): NormalizedMeasureOptions['formatter'] {
   if (typeof value !== 'function') throw new InvalidArgumentError(`${label} must be a function`);
   return value as NormalizedMeasureOptions['formatter'];
 }
 
+/** 使用数值和单位生成默认结果文本。 */
 function defaultFormatter(value: number, unit: InternalMeasureUnit): string {
   return `${value} ${unit}`;
 }
 
+/** 校验指定范围内的整数。 */
 function boundedInteger(value: unknown, label: string, minimum: number, maximum: number): number {
   if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
     throw new InvalidArgumentError(`${label} must be an integer from ${minimum} to ${maximum}`);
@@ -227,16 +260,19 @@ function boundedInteger(value: unknown, label: string, minimum: number, maximum:
   return value as number;
 }
 
+/** 读取布尔值。 */
 function booleanValue(value: unknown, label: string): boolean {
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
   return value;
 }
 
+/** 校验非空字符串。 */
 function nonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 安全读取普通配置对象的数据属性。 */
 function inspectRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {
@@ -255,21 +291,25 @@ function inspectRecord(value: unknown, label: string): Record<PropertyKey, unkno
   }
 }
 
+/** 断言配置只包含允许字段。 */
 function assertFields(record: Record<PropertyKey, unknown>, allowed: ReadonlySet<string>, label: string): void {
   for (const key of Reflect.ownKeys(record)) {
     if (typeof key !== 'string' || !allowed.has(key)) throw new InvalidArgumentError(`Unknown ${label} field: ${String(key)}`);
   }
 }
 
+/** 读取配置中的必填字段。 */
 function required(record: Record<PropertyKey, unknown>, key: string, label: string): unknown {
   if (!hasOwn(record, key)) throw new InvalidArgumentError(`${label} requires ${key}`);
   return record[key];
 }
 
+/** 判断对象是否拥有指定自有属性。 */
 function hasOwn(record: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
+/** 递归冻结测量配置数据。 */
 function freezeDeep<T>(value: T, seen = new WeakSet<object>()): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value) || seen.has(value)) return value;
   seen.add(value);

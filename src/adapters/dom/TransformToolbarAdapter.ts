@@ -14,36 +14,54 @@ import type {
 } from '../../core/ports/TransformToolbarPort.js';
 import { transformToolbarIcons } from './transformToolbarIcons.js';
 
+/** Transform 工具栏 DOM 适配器的可选配置。 */
 export interface TransformToolbarAdapterOptions {
+  /** 自定义工具栏根元素的创建方式。 */
   readonly createElement?: () => HTMLDivElement;
 }
 
+/** 使用 DOM 和 Overlay 展示 Transform 工具栏。 */
 export class TransformToolbarAdapter implements TransformToolbarPort {
+  /** 工具栏所属的 OpenLayers 地图。 */
   readonly #map: OlMap;
+  /** 工具栏根元素的创建函数。 */
   readonly #createElement: (() => HTMLDivElement) | undefined;
 
+  /** 保存地图和元素创建配置。 */
   constructor(map: OlMap, options: TransformToolbarAdapterOptions = {}) {
     this.#map = map;
     this.#createElement = options.createElement ?? defaultElementFactory();
   }
 
+  /** 打开一套工具栏视图并绑定事件监听器。 */
   open(spec: TransformToolbarViewSpec, listener: (event: TransformToolbarViewEvent) => void): TransformToolbarViewHandle {
     if (typeof listener !== 'function') throw new InvalidArgumentError('Transform toolbar listener must be a function');
     return new ToolbarView(this.#map, this.#createElement, spec, listener);
   }
 }
 
+/** 管理单个 Transform 工具栏的 DOM、Overlay 和事件。 */
 class ToolbarView implements TransformToolbarViewHandle {
+  /** 工具栏所属的地图。 */
   readonly #map: OlMap;
+  /** 接收工具栏命令和悬停事件。 */
   readonly #listener: (event: TransformToolbarViewEvent) => void;
+  /** 按 key 保存当前工具栏项目。 */
   readonly #items = new Map<string, TransformToolbarItemState>();
+  /** 工具栏根元素。 */
   readonly #root: HTMLDivElement | undefined;
+  /** 用于地图定位的 OpenLayers Overlay。 */
   readonly #overlay: Overlay | undefined;
+  /** 地图和视图事件的取消键。 */
   readonly #keys: EventsKey[] = [];
+  /** 当前工具栏视图配置。 */
   #options: TransformToolbarViewOptions;
+  /** 工具栏是否已经销毁。 */
   #destroyed = false;
+  /** 工具栏是否正在销毁。 */
   #destroying = false;
 
+  /** 校验初始数据并创建工具栏 DOM 和 Overlay。 */
   constructor(
     map: OlMap,
     createElement: (() => HTMLDivElement) | undefined,
@@ -75,12 +93,14 @@ class ToolbarView implements TransformToolbarViewHandle {
     this.#applyVisibility();
   }
 
+  /** 设置当前激活的工具栏项目。 */
   setActive(key: string): void {
     if (this.#destroyed) return;
     for (const [itemKey, item] of this.#items) this.#items.set(itemKey, Object.freeze({ ...item, active: itemKey === key }));
     this.#render();
   }
 
+  /** 更新指定工具栏项目并重新渲染。 */
   updateItem(key: string, patch: Partial<Omit<TransformToolbarItemState, 'key'>>): void {
     if (this.#destroyed) return;
     const item = this.#items.get(key);
@@ -89,6 +109,7 @@ class ToolbarView implements TransformToolbarViewHandle {
     this.#render();
   }
 
+  /** 更新工具栏位置、样式和可见性。 */
   updateOptions(patch: Partial<TransformToolbarViewOptions>): void {
     if (this.#destroyed) return;
     this.#options = copyOptions({ ...this.#options, ...patch });
@@ -98,14 +119,17 @@ class ToolbarView implements TransformToolbarViewHandle {
     this.#applyVisibility();
   }
 
+  /** 显示工具栏。 */
   show(): void {
     this.updateOptions({ visible: true });
   }
 
+  /** 隐藏工具栏。 */
   hide(): void {
     this.updateOptions({ visible: false });
   }
 
+  /** 销毁工具栏 DOM、Overlay 和事件监听。 */
   destroy(): void {
     if (this.#destroyed || this.#destroying) return;
     this.#destroying = true;
@@ -133,6 +157,7 @@ class ToolbarView implements TransformToolbarViewHandle {
     }
   }
 
+  /** 处理工具栏按钮点击。 */
   readonly #onClick = (event: MouseEvent): void => {
     if (this.#destroyed || this.#destroying || !(event.target instanceof Element)) return;
     const target = event.target.closest<HTMLElement>('[data-transform-command]');
@@ -142,6 +167,7 @@ class ToolbarView implements TransformToolbarViewHandle {
     this.#listener(Object.freeze({ type: 'command', key }));
   };
 
+  /** 鼠标进入工具栏项目时上报事件。 */
   readonly #onMouseOver = (event: MouseEvent): void => {
     const target = this.#itemFromEvent(event);
     if (target === undefined) return;
@@ -150,6 +176,7 @@ class ToolbarView implements TransformToolbarViewHandle {
     this.#listener(Object.freeze({ type: 'enter', key: target.key }));
   };
 
+  /** 鼠标离开工具栏项目时上报事件。 */
   readonly #onMouseOut = (event: MouseEvent): void => {
     const target = this.#itemFromEvent(event);
     if (target === undefined) return;
@@ -158,10 +185,12 @@ class ToolbarView implements TransformToolbarViewHandle {
     this.#listener(Object.freeze({ type: 'leave', key: target.key }));
   };
 
+  /** 地图状态变化后重新同步 Overlay 位置。 */
   readonly #sync = (): void => {
     if (!this.#destroyed) this.#overlay?.setPosition([...this.#options.position]);
   };
 
+  /** 按当前项目状态重建工具栏按钮。 */
   #render(): void {
     const root = this.#root;
     if (root === undefined) return;
@@ -180,14 +209,17 @@ class ToolbarView implements TransformToolbarViewHandle {
     }
   }
 
+  /** 组合工具栏根元素的类名。 */
   #className(): string {
     return ['ol-toolbar', this.#options.className].filter(Boolean).join(' ');
   }
 
+  /** 应用工具栏可见状态。 */
   #applyVisibility(): void {
     if (this.#root !== undefined) this.#root.hidden = !this.#options.visible;
   }
 
+  /** 从鼠标事件中查找对应的工具栏项目。 */
   #itemFromEvent(event: MouseEvent): { readonly key: string; readonly element: HTMLElement } | undefined {
     if (this.#destroyed || this.#destroying || !(event.target instanceof Element)) return undefined;
     const element = event.target.closest<HTMLElement>('[data-transform-command]');
@@ -196,12 +228,14 @@ class ToolbarView implements TransformToolbarViewHandle {
   }
 }
 
+/** 校验并冻结工具栏项目。 */
 function copyItem(item: TransformToolbarItemState): TransformToolbarItemState {
   if (typeof item.key !== 'string' || item.key.trim().length === 0) throw new InvalidArgumentError('Transform toolbar item key must be a non-empty string');
   if (typeof item.title !== 'string') throw new InvalidArgumentError('Transform toolbar item title must be a string');
   return Object.freeze({ ...item });
 }
 
+/** 校验并复制工具栏视图配置。 */
 function copyOptions(options: TransformToolbarViewOptions): TransformToolbarViewOptions {
   if (
     !Array.isArray(options.position) ||
@@ -220,6 +254,7 @@ function copyOptions(options: TransformToolbarViewOptions): TransformToolbarView
   });
 }
 
+/** 在浏览器环境中提供默认元素创建函数。 */
 function defaultElementFactory(): (() => HTMLDivElement) | undefined {
   const document = globalThis.document;
   return document === undefined ? undefined : () => document.createElement('div');

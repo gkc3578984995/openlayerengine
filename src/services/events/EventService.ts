@@ -8,38 +8,64 @@ import type { InputEventMap, InputType } from '../../core/ports/InputPort.js';
 import type { InputRouter } from './InputRouter.js';
 import type { RoutedEventMap, RoutedPointerEvent } from './types.js';
 
+/** 内部事件订阅使用的选择范围与生命周期配置。 */
 export interface InternalEventSubscriptionOptions {
+  /** 元素选择范围。 */
   readonly selector?: ElementSelector;
+  /** 用于生成元素选择范围的业务模块。 */
   readonly module?: string;
+  /** 用于管理订阅的模块键。 */
   readonly moduleKey?: string;
+  /** 是否只触发一次。 */
   readonly once?: boolean;
 }
 
+/** 订阅监听的范围类型。 */
 type SubscriptionScope = 'global' | 'selector' | 'module';
 
+/** 输入路由可分发的事件联合类型。 */
 type RoutedEvent = RoutedEventMap[InputType];
 
+/** 保存一个事件订阅及其悬停状态。 */
 interface SubscriptionRecord {
+  /** 订阅 ID。 */
   readonly id: number;
+  /** 订阅的输入事件类型。 */
   readonly type: InputType;
+  /** 用户监听函数。 */
   readonly listener: (event: RoutedEvent) => unknown;
+  /** 订阅作用范围。 */
   readonly scope: SubscriptionScope;
+  /** 编译后的元素匹配函数。 */
   readonly matches?: (state: Readonly<ElementState>) => boolean;
+  /** 用于批量清理的模块键。 */
   readonly moduleKey?: string;
+  /** 是否在首次触发后移除。 */
   readonly once: boolean;
+  /** 当前悬停的元素状态。 */
   hover: Readonly<ElementState> | undefined;
+  /** 用于识别悬停分发重入的修订号。 */
   hoverRevision: number;
 }
 
+/** 将底层输入事件转换为按元素和模块过滤的业务事件。 */
 export class EventService {
+  /** 统一输入路由器。 */
   readonly #router: InputRouter;
+  /** 用于读取命中元素状态的仓库。 */
   readonly #store: ElementStore;
+  /** 事件回调错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 按事件类型保存的订阅。 */
   readonly #records = new Map<InputType, Map<number, SubscriptionRecord>>();
+  /** 已安装的路由订阅释放函数。 */
   readonly #routerDisposers = new Map<InputType, () => void>();
+  /** 下一个订阅 ID。 */
   #nextId = 0;
+  /** 服务是否已销毁。 */
   #disposed = false;
 
+  /** 创建事件服务。 */
   constructor(router: InputRouter, store: ElementStore, errorReporter: ErrorReporter = defaultErrorReporter) {
     if (typeof errorReporter !== 'function') throw new InvalidArgumentError('Error reporter must be a function');
     this.#router = router;
@@ -47,6 +73,7 @@ export class EventService {
     this.#errorReporter = errorReporter;
   }
 
+  /** 注册一个按范围过滤的事件订阅。 */
   on<T extends InputType>(type: T, listener: (event: RoutedEventMap[T]) => void, options: InternalEventSubscriptionOptions = {}): () => void {
     this.#assertActive();
     if (typeof listener !== 'function') throw new InvalidArgumentError('Event listener must be a function');
@@ -90,10 +117,12 @@ export class EventService {
     return this.#recordDisposer(type, id);
   }
 
+  /** 注册只触发一次的事件订阅。 */
   once<T extends InputType>(type: T, listener: (event: RoutedEventMap[T]) => void, options: Omit<InternalEventSubscriptionOptions, 'once'> = {}): () => void {
     return this.on(type, listener, { ...options, once: true });
   }
 
+  /** 判断全局或指定模块是否存在订阅。 */
   has(type: InputType, module?: string): boolean {
     this.#assertActive();
     const records = this.#records.get(type);
@@ -104,6 +133,7 @@ export class EventService {
     return false;
   }
 
+  /** 清除指定模块的事件订阅。 */
   clearModule(module: string, type?: InputType): void {
     this.#assertActive();
     if (typeof module !== 'string' || module.trim().length === 0) throw new InvalidArgumentError('Event module must be a non-empty string');
@@ -119,6 +149,7 @@ export class EventService {
     runFinalizers(removals);
   }
 
+  /** 销毁服务并释放全部路由订阅。 */
   destroy(): void {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -128,6 +159,7 @@ export class EventService {
     runFinalizers(disposers);
   }
 
+  /** 确保指定事件已连接到输入路由器。 */
   #installRouter<T extends InputType>(type: T): void {
     if (this.#routerDisposers.has(type)) return;
     this.#routerDisposers.set(
@@ -136,6 +168,7 @@ export class EventService {
     );
   }
 
+  /** 按事件类型选择键盘或指针分发流程。 */
   #dispatch<T extends InputType>(type: T, event: InputEventMap[T]): void {
     const records = this.#records.get(type);
     if (records === undefined) return;
@@ -158,6 +191,7 @@ export class EventService {
     }
   }
 
+  /** 向匹配普通指针条件的订阅分发事件。 */
   #dispatchPointer(record: SubscriptionRecord, event: InputEventMap[Exclude<InputType, 'keydown'>], state?: Readonly<ElementState>): void {
     if (record.scope !== 'global') {
       if (state === undefined) return;
@@ -167,6 +201,7 @@ export class EventService {
     this.#invoke(record, routedPointer(event, state));
   }
 
+  /** 计算并分发指针进入、移动和离开事件。 */
   #dispatchMove(record: SubscriptionRecord, event: InputEventMap['pointermove'], state?: Readonly<ElementState>): void {
     const revision = ++record.hoverRevision;
     if (record.scope === 'global') {
@@ -206,6 +241,7 @@ export class EventService {
     this.#invoke(record, routedPointer(event, state, 'enter'));
   }
 
+  /** 安全执行订阅的元素匹配函数。 */
   #tryMatches(record: SubscriptionRecord, state: Readonly<ElementState>): boolean | undefined {
     try {
       return record.matches?.(state) ?? true;
@@ -215,6 +251,7 @@ export class EventService {
     }
   }
 
+  /** 调用监听器并隔离同步或异步错误。 */
   #invoke(record: SubscriptionRecord, event: RoutedEvent): void {
     if (!this.#records.get(record.type)?.has(record.id)) return;
     if (record.once) this.#remove(record.type, record.id);
@@ -226,6 +263,7 @@ export class EventService {
     }
   }
 
+  /** 创建只能执行一次的订阅释放函数。 */
   #recordDisposer(type: InputType, id: number): () => void {
     let active = true;
     return () => {
@@ -235,6 +273,7 @@ export class EventService {
     };
   }
 
+  /** 移除订阅，并在无监听器时释放底层路由。 */
   #remove(type: InputType, id: number): void {
     const records = this.#records.get(type);
     if (records === undefined || !records.delete(id)) return;
@@ -245,20 +284,23 @@ export class EventService {
     dispose?.();
   }
 
+  /** 隔离并上报事件回调错误。 */
   #report(error: unknown, operation: string): void {
     try {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, { source: 'EventService', operation });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // Reporting failures must not interrupt later listeners.
+      // 错误上报失败不能中断后续监听器。
     }
   }
 
+  /** 确保事件服务仍可使用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('EventService has been destroyed');
   }
 }
 
+/** 将底层指针事件转换为冻结的内部事件。 */
 function routedPointer(
   event: InputEventMap[Exclude<InputType, 'keydown'>],
   element?: Readonly<ElementState>,

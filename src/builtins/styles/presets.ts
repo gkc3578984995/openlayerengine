@@ -1,9 +1,12 @@
 import type { StyleSpec } from '../../core/style/types.js';
 
+/** 内置图标。作为默认图片符号使用。 */
 const builtInIcon =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"%3E%3Ccircle cx="12" cy="12" r="8" fill="%231677ff" stroke="white" stroke-width="2"/%3E%3C/svg%3E';
 
+/** 预设工厂。每次读取时创建一份独立样式。 */
 const presetFactories = {
+  /** 默认点样式。显示蓝色圆点和白色边框。 */
   'point-default': (): StyleSpec => ({
     symbol: {
       type: 'circle',
@@ -12,6 +15,7 @@ const presetFactories = {
       stroke: { color: '#ffffff', width: 2 }
     }
   }),
+  /** 默认图标样式。显示内置蓝色定位图标。 */
   'icon-default': (): StyleSpec => ({
     symbol: {
       type: 'icon',
@@ -22,17 +26,21 @@ const presetFactories = {
       anchorYUnits: 'fraction'
     }
   }),
+  /** 默认线样式。显示蓝色圆角实线。 */
   'line-default': (): StyleSpec => ({
     strokes: [{ color: '#1677ff', width: 3, lineCap: 'round', lineJoin: 'round' }]
   }),
+  /** 默认箭头样式。在线条末端显示箭头。 */
   'arrow-default': (): StyleSpec => ({
     strokes: [{ color: '#1677ff', width: 3, lineCap: 'round', lineJoin: 'round' }],
     decorations: [{ type: 'arrow', placement: 'end' }]
   }),
+  /** 默认面样式。显示蓝色边框和半透明填充。 */
   'polygon-default': (): StyleSpec => ({
     strokes: [{ color: '#1677ff', width: 2 }],
     fill: { type: 'solid', color: [22, 119, 255, 0.2] }
   }),
+  /** 默认测量样式。显示虚线、控制点和测量文字。 */
   'measure-default': (): StyleSpec => ({
     strokes: [
       { color: '#ffffff', width: 5 },
@@ -54,6 +62,7 @@ const presetFactories = {
       offsetY: 12
     }
   }),
+  /** 默认绘制预览样式。突出显示正在绘制的图形。 */
   'draw-preview': (): StyleSpec => ({
     strokes: [
       { color: [255, 255, 255, 0.7], width: 6 },
@@ -67,6 +76,7 @@ const presetFactories = {
       stroke: { color: '#ffffff', width: 2 }
     }
   }),
+  /** 默认变换手柄样式。显示橙色边框的白色圆点。 */
   'transform-handle': (): StyleSpec => ({
     symbol: {
       type: 'circle',
@@ -78,6 +88,7 @@ const presetFactories = {
   })
 } satisfies Record<string, () => StyleSpec>;
 
+/** 样式预设。提供点、图标、线、箭头、面、测量、绘制和变换的常用样式。 */
 export const stylePresets = Object.freeze(
   Object.defineProperties(
     {} as { readonly [K in keyof typeof presetFactories]: StyleSpec },
@@ -94,4 +105,5 @@ export const stylePresets = Object.freeze(
   )
 );
 
+/** 样式预设名称。取值来自内置样式预设。 */
 export type StylePresetName = keyof typeof stylePresets;

@@ -1,6 +1,7 @@
 import type { Color } from '../../core/common/types.js';
 import { InvalidArgumentError } from '../../core/errors.js';
 
+/** 内部方法。处理 animationRecord 相关数据。 */
 export function animationRecord(input: unknown, type: string, fields: readonly string[]): Record<string, unknown> {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError(`${type} animation must be a plain object`);
   const prototype = Object.getPrototypeOf(input);
@@ -17,30 +18,35 @@ export function animationRecord(input: unknown, type: string, fields: readonly s
   return result;
 }
 
+/** 内部方法。处理 positive 相关数据。 */
 export function positive(value: unknown, fallback: number, label: string): number {
   if (value === undefined) return fallback;
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw new InvalidArgumentError(`${label} must be a finite positive number`);
   return value;
 }
 
+/** 内部方法。处理 finite 相关数据。 */
 export function finite(value: unknown, fallback: number, label: string): number {
   if (value === undefined) return fallback;
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new InvalidArgumentError(`${label} must be finite`);
   return value;
 }
 
+/** 内部方法。处理 boolean 相关数据。 */
 export function boolean(value: unknown, fallback: boolean, label: string): boolean {
   if (value === undefined) return fallback;
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
   return value;
 }
 
+/** 内部方法。处理 channel 相关数据。 */
 export function channel(value: unknown, fallback: string, label: string): string {
   if (value === undefined) return fallback;
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 内部方法。处理 color 相关数据。 */
 export function color(value: unknown, fallback: Color, label: string): Color {
   if (value === undefined) return copyColor(fallback);
   if (typeof value === 'string' && value.trim().length > 0) return value;
@@ -53,14 +59,17 @@ export function color(value: unknown, fallback: Color, label: string): Color {
   throw new InvalidArgumentError(`${label} must be a non-empty color string or numeric color tuple`);
 }
 
+/** 内部方法。处理 optionalColor 相关数据。 */
 export function optionalColor(value: unknown, label: string): Color | undefined {
   return value === undefined ? undefined : color(value, '#000000', label);
 }
 
+/** 内部方法。处理 copyColor 相关数据。 */
 export function copyColor(value: Color): Color {
   return typeof value === 'string' ? value : ([...arrayValues(value, 'Color')] as Color);
 }
 
+/** 内部方法。处理 arrayValues 相关数据。 */
 export function arrayValues(value: unknown, label: string): readonly unknown[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be an array`);
   const result: unknown[] = [];
@@ -76,12 +85,14 @@ export function arrayValues(value: unknown, label: string): readonly unknown[] {
   return Object.freeze(result);
 }
 
+/** 内部方法。处理 colorWithOpacity 相关数据。 */
 export function colorWithOpacity(value: Color, opacity: number): Color {
   const components = colorComponents(value);
   if (components === undefined) return copyColor(value);
   return [components[0], components[1], components[2], components[3] * clamp(opacity, 0, 1)];
 }
 
+/** 内部方法。处理 interpolateColor 相关数据。 */
 export function interpolateColor(left: Color, right: Color, ratio: number): Color {
   const start = colorComponents(left);
   const end = colorComponents(right);
@@ -95,6 +106,7 @@ export function interpolateColor(left: Color, right: Color, ratio: number): Colo
   ];
 }
 
+/** 内部方法。处理 colorComponents 相关数据。 */
 function colorComponents(value: Color): readonly [number, number, number, number] | undefined {
   if (Array.isArray(value)) {
     const parts = arrayValues(value, 'Color');
@@ -113,6 +125,7 @@ function colorComponents(value: Color): readonly [number, number, number, number
   return [red, green, blue, alpha];
 }
 
+/** 内部方法。处理 hexComponents 相关数据。 */
 function hexComponents(value: string): readonly [number, number, number, number] | undefined {
   const hex = value.slice(1);
   if (!/^[0-9a-f]+$/.test(hex) || (hex.length !== 3 && hex.length !== 4 && hex.length !== 6 && hex.length !== 8)) return undefined;
@@ -125,11 +138,13 @@ function hexComponents(value: string): readonly [number, number, number, number]
   ];
 }
 
+/** 内部方法。处理 colorPart 相关数据。 */
 function colorPart(value: string): number {
   const part = value.trim();
   return part.endsWith('%') ? (Number(part.slice(0, -1)) / 100) * 255 : Number(part);
 }
 
+/** 内部方法。处理 clamp 相关数据。 */
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }

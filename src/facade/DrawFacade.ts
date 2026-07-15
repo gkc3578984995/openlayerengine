@@ -17,8 +17,11 @@ import type { ElementService } from './types.js';
  * @internal
  */
 export class DrawFacade implements DrawService {
+  /** 执行实际绘制和编辑工作的内部服务。 */
   readonly #service: InternalDrawService;
+  /** 将内部元素状态转换为公开元素句柄。 */
   readonly #elements: ElementService;
+  /** 管理原生样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
 
   /**
@@ -32,6 +35,7 @@ export class DrawFacade implements DrawService {
     this.#nativeRefs = nativeRefs;
   }
 
+  /** 校验绘制参数并启动绘制会话。 */
   start<T>(input: DrawOptions<T>): DrawSession<T> {
     const options = inspectDrawOptions(input);
     let provisional: NativeStyleRef | undefined;
@@ -52,11 +56,13 @@ export class DrawFacade implements DrawService {
     }
   }
 
+  /** 校验元素归属并启动编辑会话。 */
   edit<T>(element: Element<T>, options?: EditOptions): EditSession<T> {
     const id = currentElementId(element, this.#elements);
     return new EditSessionFacade(this.#service.edit<T>(id, options), element, this.#elements);
   }
 
+  /** 查询绘制模块管理的元素，并返回公开句柄。 */
   query<T>(selector?: ElementSelector<T>): readonly Element<T>[] {
     return Object.freeze(
       this.#service.query<T>(selector).flatMap(({ id }) => {
@@ -66,6 +72,7 @@ export class DrawFacade implements DrawService {
     );
   }
 
+  /** 清理绘制模块中匹配的元素。 */
   clear(selector?: ElementSelector): number {
     return this.#service.clear(selector);
   }
@@ -79,6 +86,7 @@ export class DrawFacade implements DrawService {
     this.#service.destroy();
   }
 
+  /** 尽力释放尚未提交的原生样式引用。 */
   #discardStyle(reference: NativeStyleRef): void {
     try {
       this.#nativeRefs.discardProvisionalStyle(reference);
@@ -88,6 +96,7 @@ export class DrawFacade implements DrawService {
   }
 }
 
+/** 确认编辑目标属于当前 Earth，并返回元素 ID。 */
 function currentElementId<T>(element: Element<T>, elements: ElementService): string {
   const feature = elementHandleFeature(element);
   if (feature === undefined) throw new InvalidArgumentError('Draw edit target must be an Element');
@@ -100,6 +109,7 @@ function currentElementId<T>(element: Element<T>, elements: ElementService): str
   return id;
 }
 
+/** 安全复制并校验绘制参数对象。 */
 function inspectDrawOptions(input: unknown): Record<string, unknown> {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Draw options must be a plain object');
   try {

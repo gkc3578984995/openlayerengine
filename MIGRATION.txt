@@ -1,286 +1,1428 @@
 # @vrsim/earth-engine-ol 1.x 升级到 2.0.0
 
-2.0.0 调整了包导出、样式入口和 Earth 实例管理。升级现有外部项目时，请完成以下迁移；后文保留 0.x 升级到 1.0.0 的历史指南。
+2.0.0 是一次完整的主版本重构，不提供 1.x API 兼容层。1.x 的地图、图层、图形、绘制、编辑、测量、Transform、事件、右键菜单、Overlay、Descriptor 和动画能力大多已迁移到新的统一服务中；Wind 已明确删除，普通 Polygon 的多环和洞结构目前也没有 V2 对应能力，具体差异见后文。
 
-## 1. JavaScript 入口改为仅 ESM
+建议先在独立分支完成迁移，再升级业务项目中的依赖。
 
-2.0.0 不再提供 CommonJS/CJS 或 `require` 入口。请使用支持 ESM 的运行时或构建工具，并将调用改为标准 ESM import：
+## 1. 安装、ESM 和样式
 
-```ts
-import { PointLayer, useEarth } from '@vrsim/earth-engine-ol';
-```
+### 1.1 只提供 ESM
 
-不要再通过 `require('@vrsim/earth-engine-ol')` 加载本包。公开 JavaScript 入口均映射到 `.mjs` 文件。
-
-## 2. 使用公开样式入口
-
-1.x 的 `dist/index*.css` 深路径不再属于公共接口。统一改为：
-
-```ts
-import '@vrsim/earth-engine-ol/style.css';
-```
-
-包不再开放 `./dist/*` 深路径。除包根外，可按需从 `/core`、`/layers`、`/draw`、`/measure`、`/transform` 和 `/plot` 导入。
-
-## 3. useEarth 获取或创建实例
-
-1.x 的入口签名是 `useEarth(viewOptions?, options?)`；2.0 必须改为单个 UseEarthOptions 对象：`useEarth({ view, target, controls })`。2.0 运行时只读取第一个参数，因此旧两参调用的第二个参数会被忽略，原来直接放在第一参的 center、zoom 等视图字段也不会生效。
+2.0.0 不再提供 CommonJS 入口，不能继续使用 `require()`：
 
 ```ts
 // 1.x
-useEarth({ center, zoom }, { target: 'map', zoom: true });
+const { Earth, PointLayer } = require('@vrsim/earth-engine-ol');
 
-// 2.0
-useEarth({
-  view: { center, zoom },
+// 2.0.0
+import { Earth } from '@vrsim/earth-engine-ol';
+```
+
+ESM 不需要额外安装插件。Node 直接运行时，请使用 `.mjs` 文件，或在业务项目的 `package.json` 中设置：
+
+```json
+{
+  "type": "module"
+}
+```
+
+通过 Vite、Rollup、Webpack 等工具构建的浏览器项目，按构建工具的 ESM 配置使用即可。
+
+### 1.2 只从包根入口导入
+
+2.0.0 只开放包根入口和样式入口：
+
+```ts
+import { Earth, useEarth } from '@vrsim/earth-engine-ol';
+import '@vrsim/earth-engine-ol/style.css';
+```
+
+1.x 正式开放的 `dist/*` 深路径已经删除：
+
+- `@vrsim/earth-engine-ol/dist/*`
+
+以下路径并不是 1.x `package.json` 正式声明的子路径；如果旧项目曾通过打包器或文件路径绕过 exports 深导入，2.0.0 同样不能继续使用：
+
+- `@vrsim/earth-engine-ol/core`
+- `@vrsim/earth-engine-ol/layers`
+- `@vrsim/earth-engine-ol/draw`
+- `@vrsim/earth-engine-ol/measure`
+- `@vrsim/earth-engine-ol/transform`
+- `@vrsim/earth-engine-ol/plot`
+
+旧样式导入也必须替换：
+
+```ts
+// 1.x
+import '@vrsim/earth-engine-ol/dist/index.es.css';
+
+// 2.0.0
+import '@vrsim/earth-engine-ol/style.css';
+```
+
+公开的 `style.css` 已包含 OpenLayers 基础样式和本库组件样式，不需要再导入本包的其他 CSS 文件。
+
+## 2. OpenLayers 10、依赖和离线安装
+
+### 2.1 OpenLayers 由业务项目安装
+
+1.x 使用 `ol@^7.5.2`。2.0.0 的公开基线为 `ol@^10.9.0`，并将 OL 声明为可选 peer dependency。
+
+```bash
+npm install ol@10.9.0
+```
+
+引擎包不会自动下载 OL。安装引擎 tgz 后，如果业务项目没有安装 OL，包可以完成安装，但地图功能无法正常构建或运行。
+
+2.0.0 已按 OL 10 调整为显式公开 ESM 模块，不再依赖 OL barrel、私有字段或 renderer 内部类型。业务代码如果直接使用 OL，也应优先从带 `.js` 后缀的公开模块导入：
+
+```ts
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+```
+
+### 2.2 删除普通运行依赖
+
+2.0.0 没有普通、可选或打包运行依赖，并删除了：
+
+- `heatmap.js`
+- `lodash`
+- `mitt`
+- `ol-wind`
+- `wind-core`
+- `@types/heatmap.js`
+- `@types/lodash`
+
+如果业务代码自己使用这些包，应由业务项目显式安装，不要依赖本库的传递安装。
+
+### 2.3 Wind 已删除
+
+`WindLayer`、`WindLayerInstance`、`ol-wind` 和 `wind-core` 已全部删除，没有 V2 替代 API。使用风场的业务必须先移除相关调用，或在业务层自行接入其他风场实现。
+
+### 2.4 离线安装
+
+引擎 tgz 支持在全新空缓存中强制离线安装，安装结果只包含 `@vrsim/earth-engine-ol`。完整业务环境仍需提前准备 OL 10.9.0 及其依赖闭包。
+
+推荐流程：
+
+1. 在有网络的环境准备 `ol@10.9.0` 的 npm 缓存或离线包。
+2. 执行 `npm pack` 生成引擎 tgz。
+3. 将引擎 tgz 和 OL 离线材料一起带入离线环境。
+4. 离线安装 OL，再安装引擎 tgz。
+5. 在真实业务项目中执行类型检查和构建。
+
+引擎包本身可以这样验证：
+
+```bash
+npm install --offline --ignore-scripts ./vrsim-earth-engine-ol-2.0.0.tgz
+```
+
+### 2.5 Node 运行环境
+
+2.0.0 是纯 ESM 包，发布代码目标为 ES2022。当前包没有声明 `engines`，因此不能据此认定 Node 16 已受支持。
+
+- 当前自动化消费者验证运行在 Node 18.17，现阶段建议使用 Node 18.17 或更高版本。
+- Node 直接运行时，运行环境必须支持原生 ESM 和本包使用的 ES2022 语法。
+- Node 16 不在当前消费者验证契约内，不建议直接承诺兼容。
+- 仍使用 Node 16 的浏览器项目，应由业务构建工具转译依赖，并完成真实构建和运行验证。
+- 只在浏览器运行并不代表项目的 Node 构建阶段一定兼容，仍要检查构建工具版本。
+
+## 3. Earth 和 useEarth
+
+### 3.1 构造参数改为单个对象
+
+1.x 的公开签名是 `new Earth(viewOptions?, options?)` 和 `useEarth(viewOptions?, options?)`。2.0.0 必须改为单个 `EarthOptions` 或 `UseEarthOptions` 配置对象：
+
+```ts
+// 1.x
+const earth = new Earth(
+  { center, zoom: 6 },
+  { target: 'map', zoom: true, rotate: false }
+);
+
+const defaultEarth = useEarth(
+  { center, zoom: 6 },
+  { target: 'map', zoom: true }
+);
+
+// 2.0.0
+const earth = new Earth({
   target: 'map',
+  view: { center, zoom: 6 },
+  controls: { zoom: true, rotate: false }
+});
+
+const defaultEarth = useEarth({
+  target: 'map',
+  view: { center, zoom: 6 },
   controls: { zoom: true }
 });
 ```
 
-- `useEarth()` 获取或创建默认实例，默认挂载目标为 `olContainer`。
-- `useEarth(id)` 获取或创建对应命名实例；首次创建时，非空 id 同时作为默认挂载目标。
-- `useEarth(options)` 通过可选 id 选择默认或命名注册键，并配置挂载目标、视图与控件。
+`target` 支持非空字符串或 `HTMLElement`。未知字段、访问器属性和非法值会直接报错。
 
-同一注册键已有活动实例时，上述调用都会返回原对象；target、view 和 controls 仅在首次创建时生效。多地图场景下，图层和工具内部会显式使用其所属 Earth，外部仍可通过 id 便捷取回实例。
+### 3.2 useEarth 没有就创建，有就返回
+
+2.0.0 固定提供三个重载：
 
 ```ts
-const defaultEarth = useEarth({ target: 'map' });
-console.assert(useEarth() === defaultEarth);
-
-const overview = useEarth({ id: 'overview', target: 'overview' });
-console.assert(useEarth('overview') === overview);
+useEarth(): Earth;
+useEarth(id: string): Earth;
+useEarth(options: UseEarthOptions): Earth;
 ```
 
-## 4. 销毁、注销与重建
+默认实例：
 
-可以直接调用 `earth.destroy()`，也可以使用公开辅助函数：
+```ts
+const earth = useEarth();
+console.assert(useEarth() === earth);
+```
+
+命名实例：
+
+```ts
+const planning = useEarth('planning');
+const overview = useEarth('overview');
+
+console.assert(useEarth('planning') === planning);
+console.assert(useEarth('overview') === overview);
+console.assert(planning !== overview);
+```
+
+带配置的命名实例：
+
+```ts
+const planning = useEarth({
+  id: 'planning',
+  target: 'planning-map',
+  view: { center, zoom: 7 },
+  controls: { attribution: false }
+});
+```
+
+规则如下：
+
+- `useEarth()` 使用默认注册键，首次默认挂载到 `olContainer`。
+- `useEarth(id)` 使用命名注册键，首次省略 target 时用 id 作为 target。
+- `useEarth(options)` 通过可选 id 选择默认或命名注册键。
+- 同一注册键的 `target`、`view` 和 `controls` 仅在首次创建时生效。
+- 实例仍活动时，后续调用始终返回原对象，不会用新配置隐式重建。
+- 开发环境遇到明显的冲突配置时会给出 warning。
+- `new Earth(options)` 创建调用方自管实例，不会进入 `useEarth` 注册表。
+
+### 3.3 destroyEarth 已删除
+
+1.x：
 
 ```ts
 import { destroyEarth } from '@vrsim/earth-engine-ol';
 
-destroyEarth(); // 销毁默认实例
-destroyEarth('overview'); // 销毁命名实例
+destroyEarth();
 ```
 
-`destroyEarth()` 和 `destroyEarth(id)` 在不存在对应实例时不会抛错。销毁会同时注销注册键；之后以相同 key 调用 `useEarth()`、`useEarth(id)` 或 `useEarth(options)` 会创建新实例。
+2.0.0 必须保留实例引用并直接销毁：
 
-## 5. 依赖清理
+```ts
+const earth = useEarth();
+earth.destroy();
 
-2.0 移除了本库未使用的直接依赖 `heatmap.js`、`mitt` 和 `@types/heatmap.js`。业务直接使用这些包时需自行显式安装，不要依赖传递安装；其中 `@types/heatmap.js` 应按业务 TypeScript 配置作为开发依赖安装。
+const planning = useEarth('planning');
+planning.destroy();
+```
 
-`WindLayer.add()`、`set()` 和 `get()` 的运行时对象与调用方式不变，但公开返回声明改为本包导出的 `WindLayerInstance`，以隔离旧版 `ol-wind` 与 OpenLayers 7 的类型冲突。如果业务显式标注了第三方 `ol-wind.WindLayer` 返回类型，请改用 `WindLayerInstance`。
+`destroyEarth()`、`destroyEarth(id)`、`createEarth()` 和 `getEarth()` 都不存在。
 
-## 6. 2.0 升级 Checklist
+`earth.destroy()` 是幂等操作。注册实例销毁后会自动注销；之后使用同一注册键调用 `useEarth` 会创建新实例：
 
-- [ ] 将 CommonJS `require` 改为 ESM import，并确认运行时或构建工具支持 ESM。
-- [ ] 将 `dist/index*.css` 替换为 `@vrsim/earth-engine-ol/style.css`。
-- [ ] 移除所有 `./dist/*` 深路径导入，改用包根或公开功能子路径。
-- [ ] 确认同一 id 的配置仅用于首次创建；需要应用新配置时先销毁原实例。
-- [ ] 在组件卸载时调用 `earth.destroy()`、`destroyEarth()` 或 `destroyEarth(id)`。
-- [ ] 如果业务直接导入 `heatmap.js`、`mitt` 或 `@types/heatmap.js`，在业务项目中显式声明对应依赖。
-- [ ] 执行 `npm run verify` 与业务项目构建。
+```ts
+const previous = useEarth('planning');
+previous.destroy();
 
----
+const current = useEarth('planning');
+console.assert(current !== previous);
+```
 
-# @vrsim/earth-engine-ol v1.0.0 迁移指南
+生命周期可以通过以下属性读取：
 
-本库由 0.x 升级到 1.0.0，包含破坏性变更。外部消费端升级时请逐条核对。
+```ts
+earth.lifecycle;  // 'ready' | 'destroying' | 'destroyed'
+earth.isDestroyed;
+```
 
-## 1. 导入路径与符号重命名
+### 3.4 Earth 改为服务入口
 
-旧名称已移除，不保留 deprecated 别名。
+2.0.0 的 Earth 统一提供：
 
-| 旧写法             | 新写法             |
-| ------------------ | ------------------ |
-| `commponents`      | `components`       |
-| `Transfrom`        | `Transform`        |
-| `ETransfrom`       | `ETransform`       |
-| `ITransfromParams` | `ITransformParams` |
+```ts
+earth.elements;
+earth.layers;
+earth.styles;
+earth.animations;
+earth.draw;
+earth.transform;
+earth.measure;
+earth.events;
+earth.contextMenu;
+earth.overlays;
+earth.view;
+earth.controls;
+```
+
+常用迁移映射：
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| `earth.view`，原生 OL View | `earth.view.olView` |
+| `earth.camera`、根导出的 `Camera` | `earth.view` |
+| 根导出的 `Controls` | `earth.controls` |
+| `earth.center` | 创建时传入 `view.center`；`flyHome()` 使用创建时保存的中心点 |
+| `earth.containerId` | `earth.target`，返回值可能是字符串或 `HTMLElement` |
+| `earth.flyHome()` | `earth.view.flyHome()` |
+| `earth.animateFlyTo(center, zoom, duration)` | `earth.view.animateFlyTo(center, { zoom, duration })` |
+| `earth.flyTo(center, zoom)` | `earth.view.flyTo(center, zoom)` |
+| `earth.setMouseStyle(cursor)` | `earth.view.setCursor(cursor)` |
+| `earth.setMouseStyleToDefault()` | `earth.view.useDefaultCursor()` |
+| `earth.setMouseStyleToCrosshair()` | `earth.view.useCrosshairCursor()` |
+| `earth.disabledMapDrag()` | `earth.view.setDragEnabled(false)` |
+| `earth.enableMapDrag()` | `earth.view.setDragEnabled(true)` |
+| `earth.graticule` | `earth.controls.graticule` |
+| `earth.scaleLine` | `earth.controls.scaleLine` |
+| `earth.enableGraticule()` | `earth.controls.enableGraticule()` |
+| `earth.disableGraticule()` | `earth.controls.disableGraticule()` |
+| `earth.enableScaleLine()` | `earth.controls.enableScaleLine()` |
+| `earth.disableScaleLine()` | `earth.controls.disableScaleLine()` |
+| `earth.getFeatureAtPixel(pixel)` | `earth.elements.atPixel(pixel)` |
+| `earth.createOsmLayer()` + `earth.addLayer(layer)` | `earth.layers.add({ kind: 'tile', preset: 'osm' })` |
+| `earth.createXyzLayer(urlOrFunction)` | `earth.layers.add()` 的 `xyz`、`compact-xyz` 或 `tileUrlFunction` 配置 |
+| `earth.addLayer(olLayer)` | `earth.layers.add({ kind: 'native', layer: olLayer, ownership })` |
+| `earth.removeLayer(layerOrId)` | 保存 V2 Layer 句柄或 ID，再调用 `layer.remove()` 或 `earth.layers.remove(id)` |
+| `earth.registerLayer/getLayer/removeRegisteredLayer/listRegisteredLayers` | 直接使用 `earth.layers` 的 Layer ID、句柄和查询方法 |
+| `earth.useDefaultLayer()`、`DefaultEntities.reset()` | 使用默认 vector 图层或自建图层，并通过 `layerId`、`module` Selector 管理元素 |
+
+`earth.map` 仍然公开，类型仍是 OL `Map`。
+
+`earth.center` 不再是可随时修改的 home 状态。V2 会在创建 `ViewService` 时保存 home 中心点；需要自定义 home 时，应在首次创建 Earth 时传入 `view.center`。
+
+V1 的 `addLayer()` 返回字符串句柄；V2 的 `earth.layers.add()` 返回公开 `Layer` 句柄。V1 的 `removeLayer()` 无参只删除带底图标记的图层，V2 没有这个快捷语义；不要用 `earth.layers.clear()` 直接替代，因为它会清除当前 Earth 管理的全部图层。
+
+V1 `useDefaultLayer()` 中的 point、billboard、polyline、polygon 和 circle 统一迁到 `earth.elements`，overlay 迁到 `earth.overlays`，Wind 没有替代。V2 没有一个会同时清除这些能力的 `reset()`；应按业务保存 Layer/Element/Overlay 句柄，或使用明确的 `layerId`、`module` Selector 分别清理。
+
+命中返回值也发生了变化：
+
+```ts
+// 1.x：始终返回对象，通过 isExists 判断
+const legacyHit = earth.getFeatureAtPixel(pixel);
+legacyHit.isExists;
+legacyHit.id;
+legacyHit.module;
+legacyHit.feature;
+legacyHit.layer;
+
+// 2.0.0：未命中时返回 undefined
+const hit = earth.elements.atPixel(pixel);
+if (hit) {
+  hit.element.state.id;
+  hit.element.state.module;
+  hit.element.olFeature;
+  hit.layer;
+}
+```
+
+`earth.elements.atPixel()` 只命中当前 Earth 管理的 `Element`。`kind: 'native'` 图层中的原生 Feature，以及业务直接通过 `earth.map` 加入的 Feature，不会出现在这个结果里；这类场景应继续使用 `earth.map.forEachFeatureAtPixel()` 等 OL 原生命中 API。
+
+V1 的 `getLayerAtFeature(feature)` 没有按原生 Feature 反查公开 Layer 的直接替代。使用 V2 `Element` 时，可以通过 `element.state.layerId` 再调用 `earth.layers.get(layerId)`；使用原生图层时，应在业务侧保留 OL 图层引用。
+
+## 4. 图层和 Element
+
+### 4.1 删除按几何类型划分的图层类
+
+以下 1.x 类已删除：
+
+- `Base`
+- `PointLayer`
+- `BillboardLayer`
+- `PolylineLayer`
+- `PolygonLayer`
+- `CircleLayer`
+- `OverlayLayer`
+- `WindLayer`
+
+2.0.0 使用 `earth.layers` 管理渲染图层，使用 `earth.elements` 管理业务元素。一个 vector 图层可以同时承载点、图标点、线、面、圆和 Plot 图形。
+
+普通 Polygon 有一个需要单独处理的不兼容点：1.x 的 `positions: Coordinate[][]` 可以直接表达外环、内环和洞；2.0.0 的内置 `polygon` 只接受一维 `controlPoints`，当前只生成单环。把外环和内环拆成多个单环元素会填满原来的洞，不能保持原语义；只有确认各环本来就是互不相干的独立面时才能拆分。需要保留洞时，应接入原生 OL 图层，或暂缓迁移这部分业务。
+
+1.x：
+
+```ts
+const layer = new PointLayer(earth, { wrapX: false, register: false });
+const feature = layer.add({
+  id: 'vehicle-1',
+  module: 'vehicles',
+  center: [0, 0],
+  size: 10,
+  fill: { color: '#1677ff' }
+});
+
+layer.set({ id: 'vehicle-1', center: [100, 100] });
+layer.hide('vehicle-1');
+layer.remove('vehicle-1');
+```
+
+2.0.0：
+
+```ts
+const layer = earth.layers.add({
+  kind: 'vector',
+  id: 'business',
+  wrapX: false,
+  declutter: true,
+  opacity: 1,
+  zIndex: 10
+});
+
+const element = earth.elements.add({
+  id: 'vehicle-1',
+  module: 'vehicles',
+  layerId: layer.id,
+  geometry: { type: 'point', controlPoints: [[0, 0]] },
+  style: {
+    symbol: {
+      type: 'circle',
+      radius: 10,
+      fill: { type: 'solid', color: '#1677ff' }
+    }
+  }
+});
+
+element.update({ geometry: { type: 'point', controlPoints: [[100, 100]] } });
+earth.elements.hide({ id: element.id });
+element.remove();
+```
+
+### 4.2 LayerService
+
+创建矢量图层：
+
+```ts
+const vector = earth.layers.add({
+  kind: 'vector',
+  id: 'planning',
+  visible: true,
+  opacity: 0.9,
+  zIndex: 20,
+  wrapX: false,
+  declutter: true
+});
+```
+
+创建瓦片图层：
+
+```ts
+const osm = earth.layers.add({ kind: 'tile', preset: 'osm' });
+
+const xyz = earth.layers.add({
+  kind: 'tile',
+  preset: 'xyz',
+  url: 'https://example.com/{z}/{x}/{y}.png'
+});
+
+const callbackXyz = earth.layers.add({
+  kind: 'tile',
+  preset: 'xyz',
+  tileUrlFunction: ([z, x, y]) => `/tiles/${z}/${x}/${y}.png`
+});
+
+const compact = earth.layers.add({
+  kind: 'tile',
+  preset: 'compact-xyz',
+  baseUrl: '/compact-tiles'
+});
+```
+
+`compact-xyz` 对应 1.x `createXyzLayer(baseUrl)` 的 `L{z}/R{y}/C{x}.jpg` 紧凑目录格式。
+
+接入原生 OL 图层：
+
+```ts
+const native = earth.layers.add({
+  kind: 'native',
+  id: 'custom-native',
+  layer: olLayer,
+  ownership: 'external'
+});
+```
+
+`ownership` 的含义：
+
+- `'external'`：原生对象由业务管理，移除 Layer 时不销毁它。
+- `'earth'`：原生对象交给当前 Earth 管理，移除或销毁时一并清理。
+
+图层操作：
+
+```ts
+vector.update({ opacity: 0.6, zIndex: 30 });
+vector.hide();
+vector.show();
+
+earth.layers.get(vector.id);
+earth.layers.query('vector');
+earth.layers.remove(vector.id);
+earth.layers.clear();
+```
+
+常用旧图层封装方法迁移：
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| `base.setLayerOpacity(50)` | `layer.update({ opacity: 0.5 })` |
+| `base.setLayerIndex(20)` | `layer.update({ zIndex: 20 })` |
+| `base.getLayer()` | `layer.olLayer` |
+| 几何图层的 `setPosition(id, coordinates)` | `element.update({ geometry: nextGeometry })` |
+| `OverlayLayer.setPosition(id, position)` | `overlay.setPosition(position)` |
+| `base.hide(id)` / `base.show(id)` | `earth.elements.hide({ id })` / `earth.elements.show({ id })` |
+| `base.remove(id)` | `earth.elements.remove({ id })` 或 `element.remove()` |
+
+注意透明度单位：V1 `setLayerOpacity()` 使用 `0` 到 `100` 的百分比；V2 `LayerPatch.opacity` 使用 `0` 到 `1`。直接把 `50` 传给 V2 不会得到半透明效果。
+
+原生逃生口：
+
+```ts
+vector.olLayer;
+```
+
+### 4.3 ElementService 和 Selector
+
+`Element` 是 2.0.0 的统一业务对象。`Element.state` 是业务状态真源：
+
+```ts
+const element = earth.elements.add({
+  id: 'area-1',
+  module: 'planning',
+  layerId: 'planning-layer',
+  geometry: {
+    type: 'polygon',
+    controlPoints: [
+      [0, 0],
+      [100, 0],
+      [100, 100]
+    ]
+  },
+  style,
+  data: { name: '区域一' },
+  visible: true
+});
+```
+
+圆使用明确的圆心和半径：
+
+```ts
+earth.elements.add({
+  geometry: {
+    type: 'circle',
+    center: [0, 0],
+    radius: 1000
+  }
+});
+```
+
+查询和批量操作统一使用 `ElementSelector`：
+
+```ts
+earth.elements.get('area-1');
+earth.elements.query({ module: 'planning' });
+earth.elements.query({ ids: ['a', 'b'], visible: true });
+earth.elements.query({ layerId: 'planning-layer', type: 'polygon' });
+earth.elements.query({ predicate: state => state.data !== undefined });
+
+earth.elements.update({ module: 'planning' }, { visible: false });
+earth.elements.show({ module: 'planning' });
+earth.elements.remove({ module: 'planning' });
+```
+
+Selector 支持 `id`、`ids`、`module`、`layerId`、`type`、`visible` 和 `predicate`。
+
+复制元素：
+
+```ts
+const copy = earth.elements.copy(element.id, {
+  module: 'planning-copies',
+  geometry: nextGeometry
+});
+```
+
+1.x 的 `feature.get('param')`、`FEATURE_KEYS`、`LAYER_TYPE` 和从 OL Feature、Geometry、Style 反向恢复业务参数的行为已删除。持久修改必须更新 `Element.state`：
+
+```ts
+element.state;
+element.update({ data: nextData });
+```
+
+`element.olFeature` 是高级 OL 逃生口。直接修改返回的 Feature 不会反向写回 `Element.state`，并可能在下一次状态投影时被覆盖。
+
+### 4.4 Billboard 合并为图标点
+
+1.x 的 `BillboardLayer` 已合并到 point Element：
+
+```ts
+const marker = earth.elements.add({
+  geometry: { type: 'point', controlPoints: [[0, 0]] },
+  style: {
+    symbol: {
+      type: 'icon',
+      src: '/marker.png',
+      size: [48, 48],
+      anchor: [24, 48],
+      anchorXUnits: 'pixels',
+      anchorYUnits: 'pixels'
+    }
+  }
+});
+```
+
+## 5. 样式
+
+2.0.0 将样式从各类 Layer 参数中抽出，统一保存到 Element，并通过 `earth.styles` 更新。
+
+### 5.1 参数映射
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| Point 的 `size`、`fill`、`stroke` | `symbol: { type: 'circle', radius, fill, stroke }` |
+| Billboard 参数 | `symbol: { type: 'icon', ... }` |
+| `label` | `text` |
+| `stroke` + `backgroundStroke` | `strokes: [backgroundStroke, stroke]` |
+| 纯色 `fill` | `{ type: 'solid', color }` |
+| 纹理填充 | `{ type: 'pattern', pattern, ... }` |
+| `isArrow` | `decorations: [{ type: 'arrow', placement: ... }]` |
+| `isFlowingDash` | `earth.animations.play(..., { type: 'dash-flow' })` |
+
+结构化样式示例：
+
+```ts
+const style = {
+  symbol: {
+    type: 'icon' as const,
+    src: '/marker.png',
+    size: [48, 48] as [number, number],
+    anchor: [0.5, 1] as [number, number],
+    anchorXUnits: 'fraction' as const,
+    anchorYUnits: 'fraction' as const,
+    displacement: [8, 12] as [number, number],
+    rotation: 30
+  },
+  strokes: [
+    { color: '#ffffff', width: 7 },
+    { color: '#1677ff', width: 4, lineDash: [12, 8] }
+  ],
+  fill: {
+    type: 'pattern' as const,
+    pattern: 'diagonal' as const,
+    color: '#1677ff',
+    backgroundColor: 'rgba(22,119,255,0.12)'
+  },
+  text: {
+    text: '规划区域',
+    fontFamily: 'Microsoft YaHei',
+    fontSize: 16,
+    fontWeight: 'bold' as const,
+    fill: { type: 'solid' as const, color: '#16324f' },
+    backgroundFill: { type: 'solid' as const, color: '#ffffff' },
+    padding: [4, 8, 4, 8],
+    offsetX: 0,
+    offsetY: 20
+  },
+  decorations: [{ type: 'arrow' as const, placement: 'end' as const }]
+};
+```
+
+图标锚点、偏移、缩放、旋转、透明度，文本字体、字号、颜色、背景、描边、padding、偏移和旋转，多层描边、纹理和箭头等能力均保留。旋转继续使用角度；文本 `offsetY` 正值继续表示向上偏移。
+
+### 5.2 设置和局部更新
+
+```ts
+earth.styles.set({ id: element.id }, stylePresets['point-default']);
+
+earth.styles.patch({ id: element.id }, {
+  symbol: { radius: 12 },
+  text: {
+    fontSize: 18,
+    backgroundFill: { type: 'solid', color: '#ffffff' }
+  }
+});
+```
+
+数组字段在 patch 中按整体替换处理；对象字段递归合并；显式 `undefined` 用于删除字段。
+
+内置样式包括：
+
+- `point-default`
+- `icon-default`
+- `line-default`
+- `arrow-default`
+- `polygon-default`
+- `measure-default`
+- `draw-preview`
+- `transform-handle`
+
+### 5.3 原生 OL 样式
+
+需要直接使用 OL `StyleLike` 时：
+
+```ts
+earth.styles.set(
+  { id: element.id },
+  { nativeStyle: olStyle }
+);
+```
+
+`nativeStyle` 支持 OL `Style`、`Style[]` 和 `StyleFunction`，但有明确限制：
+
+- 不反向解析为 `StyleSpec`。
+- 不能使用结构化 `StylePatch` 修改。
+- 不参与属性动画。
+- 不承诺跨 OpenLayers 主版本兼容。
+
+V1 根导出的 `createPatternFill()`、`drawPatternFill()`、`isPatternFill()` 和 `normalizePatternFill()` 已删除。业务侧不再直接创建 CanvasPattern；改为把 `PatternFillSpec` 交给 `StyleSpec.fill`、`symbol.fill` 或文字填充，由样式编译器统一处理。
+
+## 6. Draw、Edit 和 Plot
+
+### 6.1 统一为 DrawService
+
+1.x：
+
+```ts
+const draw = earth.useDrawTool();
+
+draw.drawPoint({ callback });
+draw.drawAttackArrow({ callback });
+draw.modifyPolygon({ feature, callback });
+```
+
+2.0.0：
+
+```ts
+const session = earth.draw.start({
+  type: 'attack-arrow',
+  layerId: 'planning-layer',
+  module: 'planning',
+  style,
+  limit: 1,
+  keepGraphics: true,
+  policy: 'replace'
+});
+
+session.on('complete', ({ element }) => {
+  console.log(element.state);
+});
+```
+
+不再为每一种图形提供独立方法。`type` 统一支持 20 种图形：
+
+```text
+point
+polyline
+polygon
+circle
+ellipse
+attack-arrow
+tailed-attack-arrow
+fine-arrow
+tailed-squad-combat-arrow
+assault-direction-arrow
+double-arrow
+rectangle
+triangle
+equilateral-triangle
+assemble-polygon
+closed-curve-polygon
+sector
+lune-polygon
+lune-polyline
+curve-polyline
+```
+
+### 6.2 Plot 不再是独立入口
+
+1.x 根入口实际只暴露过 `PlotDrawEventName`、`PlotDrawListener` 等类型；`PlotDraw`、`PlotEdit` 和 `TransformInteraction` 默认类通常来自 `dist/*` 或历史深导入，并不是稳定的根运行时导出。2.0.0 删除了这些低层入口。Plot 图形已经是普通 `ShapeType`，与点、线、面使用同一套绘制、编辑、Transform、样式和 Element 生命周期。
+
+当前版本不开放自定义 `ShapeDefinition` 注册接口。
+
+### 6.3 绘制会话
+
+```ts
+session.status;
+session.results;
+await session.finished;
+
+session.undo();
+session.redo();
+session.finish();
+session.cancel();
+session.destroy();
+```
+
+可订阅 `start`、`change`、`click`、`complete` 和 `cancel`。旧事件名不能直接沿用：
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| `drawstart` | `start` |
+| `drawing` | `change` |
+| `drawingClick` | `click` |
+| `drawend` | `complete` |
+| `drawexit` | `cancel` |
+| `modifying` | 编辑会话的 `modifying` |
+| `modifyexit` | 根据结果改用编辑会话的 `complete` 或 `cancel` |
+
+V1 回调主要返回 OL Feature 和坐标字段；V2 的 `change` 返回 `ShapeState`，`complete` 返回公开 `Element`，编辑事件也通过 `Element` 和工作几何传递结果。右键会退出当前绘制草图。
+
+V1 Draw 的坐标单位并不统一：`drawstart`、`drawend` 以及点、线、面结果中的 `featurePosition` 通常是 View 投影坐标；`drawing`、`drawingClick`、退出事件和 Circle 的 `featurePosition` 则经过经纬度转换。V2 的事件坐标和 `ShapeState` 全部使用当前 View 投影坐标，不再自动混用经纬度。迁移旧回调时，应逐个确认原字段语义；需要经纬度时显式调用 `toLonLat()`。
+
+`keepGraphics: false` 时，完成元素只在同步 `complete` 回调期间有效，监听器执行完后会被移除，也不会进入 `results`。
+
+`earth.draw.query()` 和 `earth.draw.clear()` 只处理 DrawService 自己创建且仍存在的元素，不会误删其他来源的元素。
+
+### 6.4 编辑会话
+
+```ts
+const edit = earth.draw.edit(element, {
+  underlay: true,
+  policy: 'replace'
+});
+
+edit.on('modifying', event => {
+  console.log(event.geometry, event.operation);
+});
+
+edit.undo();
+edit.redo();
+edit.finish();
+```
+
+编辑会话提供 `modifying`、`complete` 和 `cancel` 事件。右键提交当前编辑。目标在编辑期间被外部更新或删除时，会话会取消，不会覆盖外部结果。
+
+## 7. Measure
+
+方法映射：
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| `earth.useMeasure().lineSegmentation()` | `earth.measure.start({ type: 'distance-segments' })` |
+| `lineFirst()` | `earth.measure.start({ type: 'distance-total' })` |
+| `lineCenter()` | `earth.measure.start({ type: 'distance-radial' })` |
+| `polygonMeasure()` | `earth.measure.start({ type: 'area' })` |
+| 配置中的 `callback` | `session.on('change' | 'complete', callback)` |
+| `measure.clear()` | `earth.measure.clear()` |
 
 示例：
 
 ```ts
-import { Transform, ETransform, ITransformParams } from '@vrsim/earth-engine-ol';
-```
-
-## 2. Utils 方法显式接收 map
-
-以下方法不再依赖全局 `useEarth()` 单例：
-
-| 旧方法                                     | 新方法                                          |
-| ------------------------------------------ | ----------------------------------------------- |
-| `Utils.getWorldWidth()`                    | `Utils.getWorldWidth(map)`                      |
-| `Utils.getWorldIndex(x)`                   | `Utils.getWorldIndex(map, x)`                   |
-| `Utils.getFeatureToPixel(pixel, position)` | `Utils.getFeatureToPixel(map, pixel, position)` |
-| `Utils.normalizeToViewWorld(coords)`       | `Utils.normalizeToViewWorld(map, coords)`       |
-| `Utils.restoreToWorldIndex(coords, idx)`   | `Utils.restoreToWorldIndex(map, coords, idx)`   |
-
-```ts
-const map = earth.map;
-const next = Utils.getFeatureToPixel(map, pixel, baseCoords);
-```
-
-## 3. Utils.flash 静态化
-
-```ts
-// 旧
-new Utils().flash(feature, param, layer);
-
-// 新
-Utils.flash(map, feature, param, layer);
-```
-
-## 4. Utils.GetGUID format 收窄
-
-`Utils.GetGUID()` 现在只支持：
-
-- `D`：带连字符，默认值。
-- `N`：不带连字符。
-
-`B`、`P`、`X` 原本未完整实现，已移除。
-
-## 5. ol 改为 peerDependency
-
-业务项目必须自行安装 OpenLayers：
-
-```bash
-npm install ol@^7
-```
-
-## 6. Earth 控件模块化
-
-`earth.graticule` 和 `earth.scaleLine` 现在是只读 getter，透传自：
-
-```ts
-earth.controls.graticule;
-earth.controls.scaleLine;
-```
-
-新增公共模块：
-
-```ts
-earth.camera;
-earth.controls;
-```
-
-## 7. getUpdatedParam 返回类型收窄
-
-`Base.getUpdatedParam(feature)` 从 `any` 收窄为：
-
-```ts
-AnyParam | undefined;
-```
-
-使用时建议按字段做类型收窄：
-
-```ts
-const param = layer.getUpdatedParam(feature);
-if (param && 'positions' in param) {
-  // polyline 或 polygon
-}
-```
-
-## 8. 默认 Earth 实例访问调整
-
-基础图层和标绘模块不再直接反向依赖 `useEarth.ts`，而是通过内部默认实例 provider 获取单例，以减少构建循环依赖。
-
-多地图场景仍建议显式传入实例：
-
-```ts
-const layer = new PointLayer(earth);
-```
-
-## 9. 行为修复与优化
-
-- `Earth.removeLayer()` 无参分支改为反向遍历，避免删除相邻底图时漏删。
-- `Base.hide(id)` / `show(id)` 保留 change 监听，避免重复绑定。
-- `Base.destroy()` 清理 change 监听、闪烁监听和隐藏缓存。
-- feature change 同步默认使用约 33ms 节流，降低拖拽过程中的同步开销。
-- 飞线不再反向创建 `PolylineLayer`，由 `PolylineLayer` 注入锚点线管理能力，避免循环依赖。
-
-## 10. 验证 Checklist
-
-- [ ] 全局替换 `commponents` 为 `components`。
-- [ ] 全局替换 `Transfrom` 为 `Transform`。
-- [ ] 为 Utils 的 map 相关方法补充首参 `map`。
-- [ ] 替换 `new Utils().flash(...)` 为 `Utils.flash(map, ...)`。
-- [ ] 检查 `Utils.GetGUID('B' | 'P' | 'X')` 调用。
-- [ ] 安装 `ol@^7`。
-- [ ] 检查 `earth.graticule` / `earth.scaleLine` 赋值代码。
-- [ ] 检查 `getUpdatedParam` 返回值访问是否需要类型收窄。
-- [ ] 执行 `npm run verify`。
-
-## 11. 生命周期与临时图层调整
-
-本次调整以多 Earth 实例并存时的隔离性为目标，现有业务调用无需修改；如果项目自行管理全局事件或创建临时图层，请关注以下行为。
-
-### 11.1 全局事件按实例释放
-
-`DynamicDraw`、`Transform` 与 `Measure` 不再调用 `disableGlobal*` 关闭整类全局事件，而是仅释放自身注册的回调。
-
-- 一个工具退出、销毁或重新开始时，不会影响同一 Earth 上其他工具的鼠标和键盘监听。
-- `DynamicDraw` 连续启动绘制或编辑时，会主动关闭上一绘制/编辑会话的临时监听与资源。
-- `Measure.lineCenter()` 的延迟左键抬起监听会在测量退出时取消，不会在退出后重新注册。
-
-若业务代码仍直接调用 `enableGlobal*` / `disableGlobal*`，这些 API 仍保持兼容；多个功能并存时，推荐保留 `addMouse*EventByGlobal`、`addKeyDownEventByGlobal` 返回的释放函数，并在功能结束时调用。
-
-### 11.2 可取消的一次性全局事件
-
-新增以下方法，用于在一次性事件触发前主动取消监听：
-
-```ts
-const cancelClick = earth.useGlobalEvent().addCancelableMouseOnceClickEventByGlobal((event) => {
-  // 左键确认
+const session = earth.measure.start({
+  type: 'distance-total',
+  layerId: 'measure-layer',
+  unit: 'km',
+  precision: 2,
+  formatter: (value, unit) => `${value.toFixed(2)} ${unit}`,
+  showTotal: true,
+  policy: 'replace'
 });
 
-const cancelRightClick = earth.useGlobalEvent().addCancelableMouseOnceRightClickEventByGlobal((event) => {
-  // 右键取消
+session.on('change', ({ result }) => {
+  console.log(result.formatted);
 });
 
-// 会话提前结束时调用
-cancelClick();
-cancelRightClick();
-```
-
-原有的 `addMouseOnceClickEventByGlobal` 与 `addMouseOnceRightClickEventByGlobal` 仍可继续使用；它们保持原来的 `void` 返回类型。
-
-### 11.3 临时图层不登记到 Earth
-
-`PointLayer`、`PolylineLayer`、`PolygonLayer` 的构造参数新增可选 `register`：
-
-```ts
-const temporaryLayer = new PointLayer(earth, {
-  wrapX: false,
-  register: false
+session.on('complete', ({ result }) => {
+  console.log(result.coordinates);
+  console.log(result.geographicCoordinates);
+  console.log(result.segments);
 });
 ```
 
-`register: false` 会将图层添加到 OpenLayers 地图，但不会登记到 `earth.getLayer()` 使用的图层注册表。该选项适用于编辑控制点、预览和其他生命周期短的内部图层；默认值仍为 `true`，普通业务图层不受影响。
+可通过 `line`、`point` 和 `text` 配置测量样式。V2 已修复 1.x 中 `textSize` 和总距离显隐不生效的问题。
 
-### 11.4 Transform 多 Earth 与稳定控制框 API
+右键完成当前测量。`session.cancel()` 取消当前测量，`earth.measure.clear()` 清除已经保留的测量结果。
 
-Transform 交互现在使用创建它的 Earth 实例检查动态绘制和网格图层，不再依赖默认 Earth。多地图场景请继续显式传入 Earth：
+## 8. Transform
 
-```ts
-const transform = new Transform({ earth });
-```
+### 8.1 创建方式
 
-对于需要访问自定义 TransformInteraction 控制框的扩展代码，请使用以下稳定方法，不再读取 `bbox_` 或调用 `drawSketch_`：
+1.x：
 
 ```ts
-const bbox = interaction.getBoundingBoxFeature();
-interaction.refreshSketch();
+const transform = new Transform({
+  earth,
+  translateType: ETranslateType.Feature,
+  scale: true,
+  stretch: true,
+  rotate: true,
+  transformLayers: [layer.getLayer()],
+  beforeTransform: feature => true,
+  historyLimit: 10
+});
+
+transform.on(ETransform.TranslateEnd, callback);
 ```
 
-### 11.5 依赖清理
+2.0.0 可以先创建等待选择的会话：
 
-项目移除了未使用的直接依赖：`lodash.clonedeep`、`vue-tsc` 与 `@types/minimatch`。业务项目不需要额外操作；锁文件中如果仍存在 `@types/minimatch`，它可能来自其他包的传递依赖。
+```ts
+const session = earth.transform.start({
+  selector: { module: 'planning' },
+  layerIds: ['planning-layer'],
+  translate: 'feature',
+  scale: true,
+  stretch: true,
+  rotate: true,
+  historyLimit: 10,
+  toolbar: true,
+  policy: 'replace'
+});
 
-## 12. 本次验证 Checklist
+session.select(element);
+```
 
-- [ ] 多个地图实例同时启用 Transform 时，确认各自只响应本地图的动态绘制和网格要素。
-- [ ] 连续启动、退出 DynamicDraw 编辑或 Measure 测量时，确认不会留下额外的右键、移动或左键抬起回调。
-- [ ] 自定义临时图层如不需要通过 `earth.getLayer()` 查询，使用 `register: false`。
-- [ ] 自定义 TransformInteraction 扩展改用 `getBoundingBoxFeature()` 与 `refreshSketch()`。
-- [ ] 执行 `npm run verify`。
+也可以直接选择元素：
+
+```ts
+const session = earth.transform.select(element, options);
+```
+
+过滤方式改为：
+
+- `selector`：按 id、module、layerId、type 等业务状态筛选。
+- `predicate`：接收公开 `Element`，不再接收 OL Feature。
+- `layerIds`：按 V2 Layer ID 限制图层。
+
+`translateType` 枚举改为 `translate: 'none' | 'center' | 'feature'`。
+
+### 8.2 会话操作和事件
+
+```ts
+session.selected;
+session.status;
+session.mode;
+session.toolbar;
+
+session.setMode('transform');
+session.setMode('edit');
+session.undo();
+session.redo();
+session.copy();
+session.replaceSelected(nextElement, { retainHistory: true });
+session.remove();
+session.finish();
+session.cancel();
+```
+
+1.x 的 `replaceEditingFeature()` 改为 `replaceSelected()`。旧 `destroy()` 改为按业务意图调用 `finish()` 或 `cancel()`；Earth 销毁时会统一清理仍活动的 Transform 会话。
+
+事件枚举改为字符串事件名：
+
+```ts
+session.on('select', event => console.log(event.element));
+session.on('translateEnd', event => console.log(event.element));
+session.on('rotateEnd', event => console.log(event.element));
+session.on('scaleEnd', event => console.log(event.element));
+session.on('remove', event => console.log(event.element));
+```
+
+完整事件名迁移：
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| `select` | `select` |
+| `selectend` | `selectEnd` |
+| `enterHandle` / `leaveHandle` | `enterHandle` / `leaveHandle` |
+| `translatestart` / `translating` / `translateend` | `translateStart` / `translating` / `translateEnd` |
+| `rotatestart` / `rotating` / `rotateend` | `rotateStart` / `rotating` / `rotateEnd` |
+| `scalestart` / `scaling` / `scaleend` | `scaleStart` / `scaling` / `scaleEnd` |
+| `modifystart` | 无一一对应事件；由业务在 `setMode('edit')` 时记录进入编辑 |
+| `modifying` | 顶点变化时触发 `edit` |
+| `modifyend` | 无一一对应事件；根据会话的 `finish()` 或 `cancel()` 处理 |
+| `copy` | `copyPreviewConfirm`；直接复制和预览确认成功都会触发，`copyPreviewCancel` 只用于新增的预览取消场景 |
+| `remove` | `remove` |
+| `undo` / `redo` 事件 | 无对应事件；根据 `undo()` / `redo()` 返回值处理 |
+
+V1 `on()` 可以一次传入事件数组，并通过 `off()` 移除；V2 每次订阅一个事件，必须保存 `session.on()` 返回的幂等注销函数：
+
+```ts
+const off = session.on('translateEnd', callback);
+off();
+```
+
+V2 Transform 事件载荷以公开 `Element` 为主，不再把 OL Feature 作为主要业务对象，并新增 `error` 事件用于接收会话捕获的失败。
+
+V2 将普通变换和顶点编辑明确分成两种模式。只有进入 `edit` 模式后才显示编辑控制点。
+
+### 8.3 行为变化
+
+- 删除公开的低层 `TransformInteraction` 类。
+- Transform 只操作当前 Earth 的元素，多实例之间互不影响。
+- 右键优先由活动 Transform 会话处理，不会误打开业务菜单。
+- 变换预览会与统一动画管理器同步。
+- 缩放几何时，文本、描边、图标参数、纹理和装饰等屏幕样式不会被错误放大。
+- 点元素的 circle 半径和 icon scale 可按目标能力变换。
+- NativeStyle 点元素的视觉缩放或旋转无法安全同步时会拒绝操作。
+- 当前实现限制：`StyleSpec` 的 icon `rotation` 单位是度，但 Transform 点图标旋转手势仍把弧度增量直接写入该字段。修复单位换算和方向校准前，不要依赖 Transform 对点图标的旋转结果；普通几何旋转不受这个限制。
+
+## 9. 事件和右键菜单
+
+### 9.1 EventService
+
+1.x：
+
+```ts
+const events = earth.useGlobalEvent();
+const dispose = events.addMouseClickEventByGlobal(callback);
+events.addMouseClickEventByModule('vehicle', callback);
+events.disableGlobalMouseClickEvent();
+```
+
+2.0.0：
+
+```ts
+const dispose = earth.events.on('click', event => {
+  console.log(event.coordinate, event.pixel, event.element);
+});
+
+const disposeVehicle = earth.events.on(
+  'click',
+  event => console.log(event.element),
+  { module: 'vehicle' }
+);
+
+const cancelOnce = earth.events.once('rightclick', callback);
+```
+
+不再需要手动 enable/disable。`on()` 和 `once()` 注册时自动启用，并返回幂等注销函数。也可以通过 `AbortSignal` 清理：
+
+```ts
+const controller = new AbortController();
+earth.events.on('pointermove', callback, { signal: controller.signal });
+controller.abort();
+```
+
+事件坐标的语义发生了变化。V1 `GlobalEvent` 回调中的 `position` 已经经过 `toLonLat()`，通常是经纬度；V2 的 `coordinate` 是当前 View 投影下的地图坐标。若业务仍需要经纬度，必须显式转换：
+
+```ts
+import { toLonLat } from 'ol/proj.js';
+
+earth.events.on('click', event => {
+  const lonLat = toLonLat(event.coordinate, earth.view.olView.getProjection());
+  console.log(lonLat);
+});
+```
+
+V1 的 keydown 回调直接收到 `KeyboardEvent`；V2 收到 `EarthKeyboardEvent` 包装对象，常用字段已提升为 `key`、`code` 和修饰键状态，原生事件位于 `originalEvent`，且只保证在同步回调期间有效。
+
+指针事件支持 `selector` 或 `module`，两者不能同时传。`keydown` 只能注册为 Earth 全局事件。
+
+其他管理方法：
+
+```ts
+earth.events.has('click');
+earth.events.has('click', 'vehicle');
+earth.events.clearModule('vehicle');
+earth.events.clearModule('vehicle', 'click');
+```
+
+### 9.2 ContextMenuService
+
+1.x：
+
+```ts
+earth.useContextMenu().addDefaultMenu(items, callback);
+earth.useContextMenu().addModuleMenu('vehicle', items, callback);
+```
+
+2.0.0：
+
+```ts
+const mapMenu = earth.contextMenu.register('map', {
+  items: [{ key: 'inspect', label: '查看位置' }],
+  before: context => true,
+  onSelect: context => console.log(context.coordinate)
+});
+
+const moduleMenu = earth.contextMenu.register(
+  { module: 'vehicle' },
+  {
+    items: [{ key: 'locate', label: '定位车辆' }],
+    onSelect: context => console.log(context.element)
+  }
+);
+
+const elementMenu = earth.contextMenu.register(element, spec);
+```
+
+右键菜单回调的坐标与事件服务相同：V1 `position` 是经纬度，V2 `coordinate` 是当前 View 投影坐标，需要经纬度时请使用 `toLonLat()` 显式转换。
+
+常用字段迁移：
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| 菜单项 `child` | `children` |
+| 回调 `scope: 'default'` | `scope: 'map'` |
+| 回调 `menu` | `item` |
+| 回调 `featureId` | `element?.state.id` |
+| 回调 `feature` | `element?.olFeature` |
+| 回调 `param` | 按新结构从 `element?.state` 的 id、module、geometry、style、data 等字段读取 |
+| 回调 `param.data` | `element?.state.data` |
+| `earth.clearContextMenuState(module, featureId)` | `earth.contextMenu.clearElementState(featureId)` |
+
+每次注册返回独立句柄：
+
+```ts
+mapMenu.destroy();
+moduleMenu.destroy();
+elementMenu.destroy();
+```
+
+菜单项支持嵌套、显隐、禁用和互斥状态：
+
+```ts
+earth.contextMenu.getItemState(element, 'locate');
+earth.contextMenu.setItemState(element, 'locate', { disabled: true });
+earth.contextMenu.toggleItem(element, 'locate');
+earth.contextMenu.setTheme('dark');
+earth.contextMenu.close();
+```
+
+浏览器原生右键菜单仍会被屏蔽。屏蔽与右键交互仲裁归当前 Earth 的输入路由管理，默认实例和多个命名实例之间不会互相释放或覆盖监听。
+
+## 10. Overlay 和 Descriptor
+
+### 10.1 Overlay
+
+1.x：
+
+```ts
+const overlays = new OverlayLayer(earth);
+overlays.add({ id, element, position });
+overlays.setPosition(id, nextPosition);
+overlays.remove(id);
+```
+
+2.0.0：
+
+```ts
+const overlay = earth.overlays.add({
+  id: 'marker',
+  element,
+  position: [0, 0],
+  positioning: 'bottom-center',
+  offset: [0, -12],
+  module: 'markers',
+  ownership: 'external'
+});
+
+overlay.update({ offset: [0, -20] });
+overlay.setPosition([100, 100]);
+overlay.hide();
+overlay.show();
+overlay.panIntoView({ margin: 20, duration: 300 });
+overlay.destroy();
+```
+
+服务查询和批量清理：
+
+```ts
+earth.overlays.get('marker');
+earth.overlays.query({ module: 'markers' });
+earth.overlays.remove({ module: 'markers' });
+earth.overlays.clear();
+```
+
+V1 `OverlayLayer.add()`、`get()` 返回原生 OL `Overlay`；V2 返回 `OverlayHandle`，不再公开底层 OL Overlay。需要原生 Overlay 的特殊业务应改为自行创建并通过 `earth.map` 管理，不能从 V2 Handle 反向取得。
+
+V1 `autoPan` 使用 `{ animation: { duration, easing }, margin }`；V2 改为扁平配置：
+
+```ts
+const overlay = earth.overlays.add({
+  element,
+  autoPan: { duration: 300, easing: progress => progress, margin: 20 }
+});
+```
+
+### 10.2 Descriptor
+
+1.x：
+
+```ts
+const descriptor = new Descriptor(earth, options);
+descriptor.set({ position, element: properties });
+```
+
+2.0.0：
+
+```ts
+const descriptor = earth.overlays.createDescriptor({
+  type: 'list',
+  content: [
+    { label: '名称', value: '北京观测站' },
+    { label: '状态', value: '运行中', color: '#52c41a' }
+  ],
+  position,
+  header: '站点信息',
+  close: true,
+  closeAction: 'hide',
+  draggable: true,
+  fixedLine: true
+});
+
+descriptor.on('close', event => console.log(event.data));
+descriptor.update({ footer: '已更新' });
+descriptor.hide();
+descriptor.show();
+descriptor.close();
+descriptor.destroy();
+```
+
+Descriptor 常用字段迁移：
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| `element` | `content` |
+| `isShowFixedline` | `fixedLine` |
+| `fixedModel` | `fixedMode` |
+| `drag` | `draggable` |
+| `isShowClose` | `close` |
+| `close` 回调 | `onClose` 或 `descriptor.on('close', listener)` |
+
+Descriptor 支持 list、string 和 `HTMLElement` 自定义内容。V2 已修复自定义内容挂载和关闭回调问题。
+
+## 11. 动画
+
+1.x 的点闪烁、流水线和飞行线分别由不同 Layer 管理：
+
+```ts
+pointLayer.set({ id, isFlash: true, duration: 900 });
+pointLayer.stopFlash(id);
+
+polylineLayer.add({ id, isFlowingDash: true });
+polylineLayer.addFlightLine(options);
+```
+
+2.0.0 统一使用 `earth.animations`。
+
+点脉冲：
+
+```ts
+const pulse = earth.animations.play(
+  { id: pointId },
+  {
+    type: 'pulse',
+    periodMs: 900,
+    color: '#ff6347',
+    radius: 8,
+    repeat: true
+  }
+);
+```
+
+虚线流动：
+
+```ts
+const flow = earth.animations.play(
+  { id: lineId },
+  {
+    type: 'dash-flow',
+    speed: 24,
+    lineDash: [10, 18],
+    color: '#ffffff'
+  }
+);
+```
+
+V1 流水线的 `fullLineColor` 是静态底线颜色，`dottedLineColor` 是流动虚线颜色。V2 应按背景在前、流动前景在后的顺序写入两层 `strokes`：第一层使用 `fullLineColor`，最后一层使用 `dottedLineColor`。`dash-flow` 只给最后一层描边设置流动偏移，前面的描边继续作为静态轮廓。
+
+路径飞行：
+
+```ts
+const travel = earth.animations.play(
+  { id: lineId },
+  {
+    type: 'path-travel',
+    durationMs: 2500,
+    repeat: false,
+    trailLength: 0.35,
+    gradient: [
+      [0, '#38bdf8'],
+      [1, '#f97316']
+    ],
+    width: 5,
+    curvature: 0.45,
+    arrow: true,
+    showStart: true,
+    showEnd: true,
+    finishBehavior: 'retain'
+  }
+);
+```
+
+常用旧参数迁移：
+
+- Point 的 `duration` 改为 `pulse.periodMs`。
+- Point 的 `flashColor: { R, G, B }` 改为 CSS 颜色字符串、RGB 数组或 RGBA 数组，例如 `color: [255, 99, 71]`。
+- Polyline 的 `arrowIsRepeat: true` 对应 `decorations: [{ type: 'arrow', placement: 'each-segment' }]`；V2 的 `placement: 'repeat'` 是按像素间距重复，不是旧语义。
+- FlightLine 的 `splitLength`、`oneFrameLimitTime`、`controlRatio` 和径向颜色配置，需要重新映射到 `smoothness`、`durationMs` 或 `speed`、`curvature`、`gradient`。这些字段的单位和计算方式不同，不能直接复制数值。
+- `addFlightLine()` 改为创建线 Element 后调用 `earth.animations.play(..., { type: 'path-travel' })`；`setFlightPosition()` 改为更新 Element geometry。V1 `removeFlightLine()` 会移除飞行线及其辅助内容；V2 停止 `AnimationHandle` 只清理动画渲染，不会删除作为目标的线 Element。需要同样的删除结果时，应先 `handle.stop()`，再 `element.remove()`。
+
+单动画控制：
+
+```ts
+pulse.pause();
+pulse.resume();
+pulse.stop();
+await pulse.finished;
+```
+
+按 Selector 和 channel 批量控制：
+
+```ts
+earth.animations.pause({ module: 'vehicles' });
+earth.animations.resume({ module: 'vehicles' }, ['status']);
+earth.animations.stop({ layerId: 'routes' });
+earth.animations.stopAll();
+```
+
+同一元素、同一 channel 的新动画会替换旧动画；不同 channel 可以组合。动画运行状态不会写入 Element 快照，也不会随元素复制。
+
+V2 已修复 1.x 单条 dash-flow 移除和 FlightLine postrender 监听无法完整清理的问题。
+
+## 12. Utils 和旧枚举
+
+### 12.1 Utils 拆分
+
+| 1.x | 2.0.0 |
+| --- | --- |
+| `Utils.GetGUID()` | `createId()` |
+| `Utils.linearInterpolation(start, end, t)` | `lerp2(start, end, t)` |
+| `Utils.constantMultiVector2(factor, vector)` | `scale2(vector, factor)`，参数顺序反转 |
+| `Utils.vector2Add(a, b)` | `add2(a, b)` |
+| `Utils.bezierSquareCalc(start, control, end, t)` | `quadraticBezier2(start, control, end, t)` |
+| `Utils.ensureClosedRing(ring)` | `closeRing(ring)` |
+| `Utils.trimClosedRing(ring)` | `trimClosingCoordinate(ring)` |
+| `Utils.deg2rad(value)` | `degToRad(value)` |
+| `Utils.rad2deg(value)` | `radToDeg(value)` |
+| `Utils.getWorldWidth(map)` | `earth.view.worldWidth()` |
+| `Utils.getWorldIndex(map, x)` | `earth.view.worldIndex(x)` |
+| `Utils.normalizeToViewWorld(map, coordinates)` | `earth.view.normalizeToViewWorld(coordinates)` |
+| `Utils.restoreToWorldIndex(map, coordinates, index)` | `earth.view.restoreToWorld(coordinates, index)` |
+| `Utils.getFeatureToPixel(map, pixel, coordinates)` | `earth.view.translateCoordinatesToPixel(pixel, coordinates)` |
+| `Utils.flash(...)` | `earth.animations.play(selector, { type: 'pulse' })` |
+| `Utils.createStyle(...)` | `StyleSpec` 或 `stylePresets['arrow-default']` |
+| `Utils.throttle(...)` | 根导出的 `throttle(...)` |
+
+V1 `Utils.getFeatureToPixel()` 对空值或无效输入会宽松地返回 `null`。V2 `earth.view.translateCoordinatesToPixel()` 在像素位置没有对应坐标或坐标数组为空时返回 `undefined`；像素或坐标结构不合法时会抛出 `InvalidArgumentError`，迁移时需要先校验输入，或在调用处捕获错误。
+
+V1 `Utils.throttle()` 的默认等待时间是 `100ms`，V2 根导出的 `throttle()` 默认是 `0ms`。要保持旧节流频率，必须显式传入 `100`：
+
+```ts
+const onMove = throttle(callback, 100);
+```
+
+`createId()` 固定返回带连字符的 UUID。1.x 如果使用 `Utils.GetGUID('N')` 获取无连字符结果，需要在业务层明确转换：
+
+```ts
+const compactId = createId().replaceAll('-', '');
+```
+
+数学工具改为根导出的纯函数：
+
+```ts
+import {
+  add2,
+  closeRing,
+  degToRad,
+  lerp2,
+  quadraticBezier2,
+  radToDeg,
+  scale2,
+  trimClosingCoordinate
+} from '@vrsim/earth-engine-ol';
+```
+
+### 12.2 枚举改为字符串联合
+
+旧 `DrawType`、`ModifyType`、`ETransform`、`ETranslateType`、`EPlotType`、`ECursor` 和 `EntityType` 等枚举不再公开。
+
+`ECursor` 的值本来就是 CSS cursor 字符串，改为直接传给 `earth.view.setCursor('pointer')`。`EntityType` 中的 Point、Polyline、Polygon、Circle 分别改为小写 `ShapeType`，Rect 可在确认原有语义后改为 `rectangle`，Billboard 改为 point + icon 样式；Label、Heatmap、Model、MilStd 和 Custom 没有可以直接照搬的独立 `ShapeType`。
+
+`EPlotType` 多数值从 camelCase 改为 kebab-case，部分名称也变了：
+
+| 1.x `EPlotType` 值 | 2.0.0 `ShapeType` |
+| --- | --- |
+| `point` | `point` |
+| `polyline` | `polyline` |
+| `polygon` | `polygon` |
+| `attackArrow` | `attack-arrow` |
+| `tailedAttackArrow` | `tailed-attack-arrow` |
+| `fineArrow` | `fine-arrow` |
+| `tailedSquadCombatArrow` | `tailed-squad-combat-arrow` |
+| `assaultDirectionArrow` | `assault-direction-arrow` |
+| `doubleArrow` | `double-arrow` |
+| `rectAnglePolygon` | `rectangle` |
+| `assemblePolygon` | `assemble-polygon` |
+| `closedCurvePolygon` | `closed-curve-polygon` |
+| `sectorPolygon` | `sector` |
+| `circle` | `circle` |
+| `ellipse` | `ellipse` |
+| `lunePolygon` | `lune-polygon` |
+| `luneLine` | `lune-polyline` |
+| `curvePolyline` | `curve-polyline` |
+| `trianglePolygon` | `triangle` |
+| `equilateralTrianglePolygon` | `equilateral-triangle` |
+
+V1 `ast.ts` 中的 `MaterialType`、`Origin`、`IEntityId`、`ICircle`、`IHpr` 等旧类型也已从根入口删除；它们不是 V2 Element 模型的一部分，业务若仍使用应迁回业务自己的类型定义。
+
+使用新服务定义的字符串：
+
+```ts
+earth.draw.start({ type: 'polygon', layerId: 'draw-layer' });
+earth.measure.start({ type: 'distance-total' });
+earth.transform.start({ translate: 'feature' });
+
+session.on('complete', callback);
+transformSession.on('translateEnd', callback);
+```
+
+公开能力列表可以直接读取：
+
+```ts
+import {
+  animationTypes,
+  measureTypes,
+  shapeTypes,
+  stylePresets
+} from '@vrsim/earth-engine-ol';
+```
+
+## 13. 最终迁移检查清单
+
+- [ ] 将全部 CommonJS `require()` 改为 ESM `import`。
+- [ ] 将旧 CSS 深路径替换为 `@vrsim/earth-engine-ol/style.css`。
+- [ ] 删除所有 `dist/*` 和功能子路径导入。
+- [ ] 在业务项目中显式安装并离线准备 `ol@10.9.0`。
+- [ ] 删除 `WindLayer`、`WindLayerInstance`、`ol-wind` 和 `wind-core` 调用。
+- [ ] 将 Earth 和 `useEarth` 的两个参数合并为 `{ target, view, controls }`。
+- [ ] 保存每个 Earth 引用，并使用 `earth.destroy()` 清理。
+- [ ] 删除 `destroyEarth()`、`createEarth()` 和 `getEarth()` 调用。
+- [ ] 将 Earth 顶层视图和控件方法迁移到 `earth.view`、`earth.controls`。
+- [ ] 将 Base 和各类专用 Layer 迁移为 `earth.layers + earth.elements`。
+- [ ] 将 `setLayerOpacity(0..100)` 转成 V2 的 `opacity: 0..1`。
+- [ ] 单独处理带内环或洞的 Polygon；V2 内置 polygon 当前只支持单环。
+- [ ] 将 Billboard 迁移为带 icon symbol 的 point Element。
+- [ ] 将 `feature.get('param')` 和 metadata key 访问迁移到 `Element.state`。
+- [ ] 将旧图层样式参数迁移为 `StyleSpec` 和 `earth.styles`。
+- [ ] 将 DynamicDraw、PlotDraw、PlotEdit 迁移到 `earth.draw` 会话。
+- [ ] 将 Measure 迁移到 `earth.measure` 会话。
+- [ ] 将 Transform 类迁移到 `earth.transform` 会话。
+- [ ] 将 GlobalEvent 迁移到 `earth.events.on()`、`once()` 和注销函数。
+- [ ] 检查事件和右键菜单坐标；需要经纬度时对 V2 投影坐标显式调用 `toLonLat()`。
+- [ ] 将 ContextMenu 迁移到 `earth.contextMenu.register()` 和注册句柄。
+- [ ] 将 OverlayLayer、Descriptor 迁移到 `earth.overlays`。
+- [ ] 将点闪烁、流水线和飞行线迁移到 `earth.animations`。
+- [ ] 将 Utils 和旧枚举迁移到新服务、根导出函数和字符串联合。
+- [ ] 检查 `EPlotType` 字符串、Utils 参数顺序和 `throttle(..., 100)` 默认节流差异。
+- [ ] Node 16 项目完成实际转译、构建和运行验证，不直接假定兼容。
+- [ ] 执行 `npm run typecheck`、`npm run test:code`、`npm run build` 和 `npm run test:package`。

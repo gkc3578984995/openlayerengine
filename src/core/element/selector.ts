@@ -1,12 +1,14 @@
 import { InvalidArgumentError, InvalidSelectorError } from '../errors.js';
 import type { ElementSelector, ElementState } from './types.js';
 
+/** 检查选择器是否只使用一种 ID 选择方式。 */
 function assertUnambiguousSelector<T>(selector: ElementSelector<T>): void {
   if (selector.id !== undefined && selector.ids !== undefined) {
     throw new InvalidArgumentError('Element selector cannot contain both id and ids');
   }
 }
 
+/** 把元素选择器编译成状态判断函数。 */
 export function compileSelector<T>(selector?: ElementSelector<T>): (state: Readonly<ElementState<T>>) => boolean {
   if (selector === undefined) return () => true;
   assertUnambiguousSelector(selector);
@@ -25,6 +27,7 @@ export function compileSelector<T>(selector?: ElementSelector<T>): (state: Reado
   };
 }
 
+/** 确保删除类操作带有明确的选择条件。 */
 export function assertDestructiveSelector(selector: ElementSelector): void {
   if (selector === null || typeof selector !== 'object' || Array.isArray(selector)) throw new InvalidSelectorError();
   assertUnambiguousSelector(selector);

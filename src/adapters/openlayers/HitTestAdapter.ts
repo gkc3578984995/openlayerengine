@@ -16,18 +16,28 @@ import { isNativeStyleRef } from '../../core/style/types.js';
 import type { FeatureBinding } from './FeatureBinding.js';
 import type { LayerAdapter } from './LayerAdapter.js';
 
+/** 像素命中适配器的可选配置。 */
 export interface HitTestAdapterOptions {
+  /** 命中检测允许的屏幕像素误差。 */
   readonly hitTolerance?: number;
 }
 
+/** 使用 OpenLayers 完成元素命中和屏幕范围计算。 */
 export class HitTestAdapter implements HitTestPort {
+  /** 用于查询像素和坐标的地图。 */
   readonly #map: Map;
+  /** 提供元素状态。 */
   readonly #store: ElementStore;
+  /** 提供图层状态。 */
   readonly #manager: LayerManager;
+  /** 识别受管理的 OpenLayers 图层。 */
   readonly #layers: LayerAdapter;
+  /** 识别要素对应的元素。 */
   readonly #binding: FeatureBinding;
+  /** 命中检测的像素容差。 */
   readonly #hitTolerance: number;
 
+  /** 保存依赖并校验命中容差。 */
   constructor(map: Map, store: ElementStore, manager: LayerManager, layers: LayerAdapter, binding: FeatureBinding, options: HitTestAdapterOptions = {}) {
     this.#map = map;
     this.#store = store;
@@ -39,6 +49,7 @@ export class HitTestAdapter implements HitTestPort {
     this.#hitTolerance = hitTolerance;
   }
 
+  /** 返回指定像素最先命中的可见元素。 */
   atPixel(pixel: Pixel): { readonly elementId: string; readonly layerId: string } | undefined {
     assertPixel(pixel);
     return this.#map.forEachFeatureAtPixel(
@@ -61,6 +72,7 @@ export class HitTestAdapter implements HitTestPort {
     );
   }
 
+  /** 估算元素在当前视图中的屏幕像素范围。 */
   getScreenExtent(elementId: string): readonly [number, number, number, number] | undefined {
     const state = this.#store.get(elementId);
     if (state === undefined || !state.visible || isNativeStyleRef(state.style)) return undefined;
@@ -115,6 +127,7 @@ export class HitTestAdapter implements HitTestPort {
     ]);
   }
 
+  /** 判断 OpenLayers 图层是否可参与命中检测。 */
   #isHittableVectorLayer(layer: Layer<Source>): boolean {
     if (!this.#layers.isRegisteredVectorLayer(layer)) return false;
     const id = this.#layers.vectorLayerIdFor(layer);
@@ -123,6 +136,7 @@ export class HitTestAdapter implements HitTestPort {
   }
 }
 
+/** 安全计算要素当前实际使用的样式。 */
 function evaluatedStyles(feature: Feature, resolution: number): Style[] {
   const styleFunction = feature.getStyleFunction();
   if (styleFunction === undefined) return [];
@@ -136,6 +150,7 @@ function evaluatedStyles(feature: Feature, resolution: number): Style[] {
   }
 }
 
+/** 计算图片样式围绕指定像素的旋转后范围。 */
 function imageExtent(pixel: Pixel, image: ImageStyle, viewRotation: number): readonly [number, number, number, number] | undefined {
   const size = image.getSize();
   const anchor = image.getAnchor();
@@ -158,6 +173,7 @@ function imageExtent(pixel: Pixel, image: ImageStyle, viewRotation: number): rea
   ]);
 }
 
+/** 计算一组样式在横纵方向上的最大外扩距离。 */
 function maxStyleFootprint(styles: readonly Style[], viewRotation: number): readonly [number, number] {
   let x = 0;
   let y = 0;
@@ -181,6 +197,7 @@ function maxStyleFootprint(styles: readonly Style[], viewRotation: number): read
   return [x, y];
 }
 
+/** 粗略估算文本样式占用的屏幕范围。 */
 function textFootprint(style: Style): readonly [number, number] {
   const text = style.getText();
   if (text === null || text.getText() === undefined || String(text.getText()).length === 0) return [0, 0];
@@ -200,6 +217,7 @@ function textFootprint(style: Style): readonly [number, number] {
   return [Math.abs(text.getOffsetX()) + radius, Math.abs(text.getOffsetY()) + radius];
 }
 
+/** 计算线条宽度和连接方式带来的外扩距离。 */
 function strokeFootprint(stroke: Stroke): number {
   const width = stroke.getWidth() ?? 1;
   if (!Number.isFinite(width)) return 0;
@@ -211,15 +229,18 @@ function strokeFootprint(stroke: Stroke): number {
   return (Math.abs(width) / 2) * multiplier;
 }
 
+/** 判断样式是否包含实际可见内容。 */
 function isRenderableStyle(style: Style): boolean {
   return style.getStroke() !== null || style.getFill() !== null || style.getImage() !== null || (style.getText()?.getText() ?? '') !== '';
 }
 
+/** 从 CSS 字体字符串中读取像素字号。 */
 function parseFontSize(font: string | undefined): number {
   const match = font?.match(/(?:^|\s)(\d+(?:\.\d+)?)px\b/u);
   return match === undefined || match === null ? 10 : Number(match[1]);
 }
 
+/** 合并多个屏幕范围。 */
 function unionExtents(extents: readonly (readonly [number, number, number, number])[]): readonly [number, number, number, number] {
   return Object.freeze([
     Math.min(...extents.map(([minX]) => minX)),
@@ -229,6 +250,7 @@ function unionExtents(extents: readonly (readonly [number, number, number, numbe
   ]);
 }
 
+/** 安全获取地图坐标对应的屏幕像素。 */
 function pixelFor(map: Map, coordinate: readonly number[]): Pixel | undefined {
   let pixel: unknown;
   try {
@@ -240,6 +262,7 @@ function pixelFor(map: Map, coordinate: readonly number[]): Pixel | undefined {
   return [pixel[0], pixel[1]];
 }
 
+/** 安全读取当前视图旋转角度。 */
 function rotationOf(map: Map): number {
   try {
     const rotation = map.getView().getRotation();
@@ -249,6 +272,7 @@ function rotationOf(map: Map): number {
   }
 }
 
+/** 安全读取当前视图分辨率。 */
 function resolutionOf(map: Map): number {
   try {
     const resolution = map.getView().getResolution();
@@ -258,6 +282,7 @@ function resolutionOf(map: Map): number {
   }
 }
 
+/** 确认输入是有效的屏幕像素。 */
 function assertPixel(pixel: Pixel): void {
   if (!Array.isArray(pixel) || pixel.length !== 2 || pixel.some((value) => !Number.isFinite(value))) {
     throw new InvalidArgumentError('Pixel must contain two finite CSS-pixel numbers');

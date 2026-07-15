@@ -11,6 +11,7 @@ import type { InteractionCancelReason, InteractionPolicy, InteractionStatus } fr
  * @internal
  */
 export interface SessionKeyboardInput {
+  /** 订阅键盘按下事件。 */
   on(type: 'keydown', listener: (event: InputEventMap['keydown']) => void): () => void;
 }
 
@@ -21,13 +22,21 @@ export interface SessionKeyboardInput {
  * @internal
  */
 export interface InternalDrawOptions<T = unknown> {
+  /** 要绘制的图形类型。 */
   readonly type: ShapeType;
+  /** 绘制结果所属图层。 */
   readonly layerId: string;
+  /** 绘制结果所属业务模块。 */
   readonly module?: string;
+  /** 绘制结果使用的样式。 */
   readonly style?: ElementStyleState;
+  /** 写入元素的业务数据。 */
   readonly data?: T;
+  /** 本次会话允许保留的结果数量。 */
   readonly limit?: number;
+  /** 会话结束时是否保留图形。 */
   readonly keepGraphics?: boolean;
+  /** 与其他交互冲突时采用的策略。 */
   readonly policy?: InteractionPolicy;
 }
 
@@ -37,7 +46,9 @@ export interface InternalDrawOptions<T = unknown> {
  * @internal
  */
 export interface InternalEditOptions {
+  /** 编辑时是否显示原图作为底图。 */
   readonly underlay?: boolean;
+  /** 与其他交互冲突时采用的策略。 */
   readonly policy?: InteractionPolicy;
 }
 
@@ -61,10 +72,15 @@ export type EditCancelReason = InteractionCancelReason | 'external-change' | 'ex
  * @internal
  */
 export interface InternalDrawSessionEventMap<T = unknown> {
+  /** 绘制会话启动事件。 */
   readonly start: Readonly<{ type: 'start'; coordinate: Coordinate }>;
+  /** 预览几何变化事件。 */
   readonly change: Readonly<{ type: 'change'; geometry: ShapeState; coordinate?: Coordinate }>;
+  /** 控制点点击事件。 */
   readonly click: Readonly<{ type: 'click'; coordinate: Coordinate; controlPointCount: number }>;
+  /** 单个绘制结果完成事件。 */
   readonly complete: Readonly<{ type: 'complete'; state: Readonly<ElementState<T>> }>;
+  /** 绘制会话取消事件。 */
   readonly cancel: Readonly<{ type: 'cancel'; reason: DrawCancelReason }>;
 }
 
@@ -75,13 +91,16 @@ export interface InternalDrawSessionEventMap<T = unknown> {
  * @internal
  */
 export interface InternalEditSessionEventMap<T = unknown> {
+  /** 编辑过程中的几何变化事件。 */
   readonly modifying: Readonly<{
     type: 'modifying';
     state: ShapeState;
     operation: 'move' | 'insert' | 'remove' | 'undo' | 'redo';
     coordinate?: Coordinate;
   }>;
+  /** 编辑提交完成事件。 */
   readonly complete: Readonly<{ type: 'complete'; state: Readonly<ElementState<T>> }>;
+  /** 编辑会话取消事件。 */
   readonly cancel: Readonly<{ type: 'cancel'; reason: EditCancelReason }>;
 }
 
@@ -92,14 +111,23 @@ export interface InternalEditSessionEventMap<T = unknown> {
  * @internal
  */
 export interface InternalDrawSession<T = unknown> {
+  /** 会话当前状态。 */
   readonly status: InteractionStatus;
+  /** 已完成的绘制结果。 */
   readonly results: readonly Readonly<ElementState<T>>[];
+  /** 会话结束后解析全部绘制结果。 */
   readonly finished: Promise<readonly Readonly<ElementState<T>>[]>;
+  /** 主动完成当前会话。 */
   finish(): void;
+  /** 取消当前会话。 */
   cancel(): void;
+  /** 销毁当前会话。 */
   destroy(): void;
+  /** 撤销最近一次绘制操作。 */
   undo(): boolean;
+  /** 重做最近一次撤销操作。 */
   redo(): boolean;
+  /** 订阅绘制会话事件。 */
   on<K extends keyof InternalDrawSessionEventMap<T>>(type: K, listener: (event: InternalDrawSessionEventMap<T>[K]) => void): () => void;
 }
 
@@ -110,14 +138,23 @@ export interface InternalDrawSession<T = unknown> {
  * @internal
  */
 export interface InternalEditSession<T = unknown> {
+  /** 正在编辑的元素 ID。 */
   readonly elementId: string;
+  /** 会话当前状态。 */
   readonly status: InteractionStatus;
+  /** 会话结束后解析最终元素状态。 */
   readonly finished: Promise<Readonly<ElementState<T>> | undefined>;
+  /** 提交当前编辑结果。 */
   finish(): void;
+  /** 取消当前编辑。 */
   cancel(): void;
+  /** 销毁当前会话。 */
   destroy(): void;
+  /** 撤销最近一次编辑操作。 */
   undo(): boolean;
+  /** 重做最近一次撤销操作。 */
   redo(): boolean;
+  /** 订阅编辑会话事件。 */
   on<K extends keyof InternalEditSessionEventMap<T>>(type: K, listener: (event: InternalEditSessionEventMap<T>[K]) => void): () => void;
 }
 
@@ -127,8 +164,12 @@ export interface InternalEditSession<T = unknown> {
  * @internal
  */
 export interface InternalDrawService {
+  /** 启动绘制会话。 */
   start<T>(options: InternalDrawOptions<T>): InternalDrawSession<T>;
+  /** 启动指定元素的编辑会话。 */
   edit<T>(elementId: string, options?: InternalEditOptions): InternalEditSession<T>;
+  /** 查询绘制服务拥有的元素。 */
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[];
+  /** 清除匹配的绘制元素。 */
   clear(selector?: ElementSelector): number;
 }

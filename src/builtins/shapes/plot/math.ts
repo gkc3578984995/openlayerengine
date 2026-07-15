@@ -1,12 +1,18 @@
 import { InvalidArgumentError } from '../../../core/errors.js';
 import type { Coordinate } from '../../../core/common/types.js';
 
+/** 内部类型。描述 Point 使用的数据。 */
 export type Point = Coordinate;
+/** 内部常量。保存 FITTING_COUNT 使用的数据。 */
 export const FITTING_COUNT = 100;
+/** 内部常量。保存 HALF_PI 使用的数据。 */
 export const HALF_PI = Math.PI / 2;
+/** 内部常量。保存 ZERO_TOLERANCE 使用的数据。 */
 export const ZERO_TOLERANCE = 0.0001;
+/** 内部常量。保存 MIN_NORMAL 使用的数据。 */
 const MIN_NORMAL = 2 ** -1022;
 
+/** 内部方法。处理 vectorLength 相关数据。 */
 function vectorLength(deltaX: number, deltaY: number): number {
   const squaredDistance = deltaX ** 2 + deltaY ** 2;
   const legacyDistance = Math.sqrt(squaredDistance);
@@ -15,23 +21,29 @@ function vectorLength(deltaX: number, deltaY: number): number {
   return Math.hypot(deltaX, deltaY);
 }
 
+/** 内部方法。处理 distance 相关数据。 */
 export function distance(left: Point, right: Point): number {
   const deltaX = left[0] - right[0];
   const deltaY = left[1] - right[1];
   return vectorLength(deltaX, deltaY);
 }
 
+/** 内部常量。保存 wholeDistance 使用的数据。 */
 export const wholeDistance = (points: readonly Point[]): number => points.slice(1).reduce((total, point, index) => total + distance(points[index], point), 0);
 
+/** 内部常量。保存 baseLength 使用的数据。 */
 export const baseLength = (points: readonly Point[]): number => wholeDistance(points) ** 0.99;
 
+/** 内部方法。处理 midpointComponent 相关数据。 */
 function midpointComponent(left: number, right: number): number {
   const legacyMidpoint = (left + right) / 2;
   return Number.isFinite(legacyMidpoint) ? legacyMidpoint : left / 2 + right / 2;
 }
 
+/** 内部常量。保存 midpoint 使用的数据。 */
 export const midpoint = (left: Point, right: Point): Point => [midpointComponent(left[0], right[0]), midpointComponent(left[1], right[1])];
 
+/** 内部方法。处理 intersectPoint 相关数据。 */
 export function intersectPoint(pointA: Point, pointB: Point, pointC: Point, pointD: Point): Point {
   if (pointA[1] === pointB[1]) {
     const factor = (pointD[0] - pointC[0]) / (pointD[1] - pointC[1]);
@@ -47,6 +59,7 @@ export function intersectPoint(pointA: Point, pointB: Point, pointC: Point, poin
   return [leftFactor * y - leftFactor * pointA[1] + pointA[0], y];
 }
 
+/** 内部方法。处理 circleCenter 相关数据。 */
 export function circleCenter(point1: Point, point2: Point, point3: Point): Point {
   const pointA: Point = [(point1[0] + point2[0]) / 2, (point1[1] + point2[1]) / 2];
   const pointB: Point = [pointA[0] - point1[1] + point2[1], pointA[1] + point1[0] - point2[0]];
@@ -73,6 +86,7 @@ export function circleCenter(point1: Point, point2: Point, point3: Point): Point
   return [point1[0] + offsetX, point1[1] + offsetY];
 }
 
+/** 内部方法。处理 azimuth 相关数据。 */
 export function azimuth(start: Point, end: Point): number {
   let result = 0;
   const deltaX = end[0] - start[0];
@@ -90,11 +104,13 @@ export function azimuth(start: Point, end: Point): number {
   return result;
 }
 
+/** 内部方法。处理 angleOfThreePoints 相关数据。 */
 export function angleOfThreePoints(pointA: Point, pointB: Point, pointC: Point): number {
   const angle = azimuth(pointB, pointA) - azimuth(pointB, pointC);
   return angle < 0 ? angle + Math.PI * 2 : angle;
 }
 
+/** 内部方法。处理 isClockWise 相关数据。 */
 export function isClockWise(point1: Point, point2: Point, point3: Point): boolean {
   const deltaY31 = point3[1] - point1[1];
   const deltaX21 = point2[0] - point1[0];
@@ -127,6 +143,7 @@ export function isClockWise(point1: Point, point2: Point, point3: Point): boolea
   return normalizedY31 * normalizedX21 > normalizedY21 * normalizedX31;
 }
 
+/** 内部方法。处理 stableConvexComponent 相关数据。 */
 function stableConvexComponent(points: readonly Point[], weights: readonly number[], component: 0 | 1, legacyValue: number): number {
   let lower = Number.POSITIVE_INFINITY;
   let upper = Number.NEGATIVE_INFINITY;
@@ -153,6 +170,7 @@ function stableConvexComponent(points: readonly Point[], weights: readonly numbe
   return boundedValue * scale;
 }
 
+/** 内部方法。处理 cubicValue 相关数据。 */
 export function cubicValue(t: number, start: Point, control1: Point, control2: Point, end: Point): Point {
   const boundedT = Math.max(Math.min(t, 1), 0);
   const inverse = 1 - boundedT;
@@ -167,11 +185,13 @@ export function cubicValue(t: number, start: Point, control1: Point, control2: P
   return [stableConvexComponent(points, weights, 0, legacyX), stableConvexComponent(points, weights, 1, legacyY)];
 }
 
+/** 内部方法。处理 thirdPoint 相关数据。 */
 export function thirdPoint(start: Point, end: Point, angle: number, targetDistance: number, clockWise?: boolean): Point {
   const alpha = azimuth(start, end) + (clockWise ? angle : -angle);
   return [end[0] + targetDistance * Math.cos(alpha), end[1] + targetDistance * Math.sin(alpha)];
 }
 
+/** 内部方法。处理 arcPoints 相关数据。 */
 export function arcPoints(center: Point, radius: number, startAngle: number, endAngle: number): Point[] {
   let difference = endAngle - startAngle;
   if (difference < 0) difference += Math.PI * 2;
@@ -183,6 +203,7 @@ export function arcPoints(center: Point, radius: number, startAngle: number, end
   return points;
 }
 
+/** 内部方法。处理 normal 相关数据。 */
 export function normal(point1: Point, point2: Point, point3: Point): Point {
   let dx1 = point1[0] - point2[0];
   let dy1 = point1[1] - point2[1];
@@ -197,6 +218,7 @@ export function normal(point1: Point, point2: Point, point3: Point): Point {
   return [dx1 + dx2, dy1 + dy2];
 }
 
+/** 内部方法。处理 bisectorNormals 相关数据。 */
 export function bisectorNormals(t: number, point1: Point, point2: Point, point3: Point): Point[] {
   const vector = normal(point1, point2, point3);
   const vectorDistance = vectorLength(vector[0], vector[1]);
@@ -222,6 +244,7 @@ export function bisectorNormals(t: number, point1: Point, point2: Point, point3:
   ];
 }
 
+/** 内部方法。处理 leftMostControlPoint 相关数据。 */
 function leftMostControlPoint(controlPoints: readonly Point[], t: number): Point {
   const [point1, point2, point3] = controlPoints;
   const normalRight = bisectorNormals(0, point1, point2, point3)[0];
@@ -243,6 +266,7 @@ function leftMostControlPoint(controlPoints: readonly Point[], t: number): Point
   return [mid[0] + a11 * dx + a12 * dy, mid[1] + a12 * dx + a22 * dy];
 }
 
+/** 内部方法。处理 rightMostControlPoint 相关数据。 */
 function rightMostControlPoint(controlPoints: readonly Point[], t: number): Point {
   const count = controlPoints.length;
   const [point1, point2, point3] = controlPoints.slice(count - 3);
@@ -265,6 +289,7 @@ function rightMostControlPoint(controlPoints: readonly Point[], t: number): Poin
   return [mid[0] + a11 * dx + a12 * dy, mid[1] + a12 * dx + a22 * dy];
 }
 
+/** 内部方法。处理 curvePoints 相关数据。 */
 export function curvePoints(t: number, controlPoints: readonly Point[]): Point[] {
   let normals: Point[] = [leftMostControlPoint(controlPoints, t)];
   for (let index = 0; index < controlPoints.length - 2; index += 1) {
@@ -284,12 +309,14 @@ export function curvePoints(t: number, controlPoints: readonly Point[]): Point[]
   return points;
 }
 
+/** 内部方法。处理 factorial 相关数据。 */
 function factorial(value: number): number {
   let result = 1;
   for (let index = 2; index <= value; index += 1) result *= index;
   return result;
 }
 
+/** 内部方法。处理 bezierPoints 相关数据。 */
 export function bezierPoints(points: readonly Point[]): Point[] {
   if (points.length <= 2) return [...points];
   const result: Point[] = [];
@@ -311,12 +338,14 @@ export function bezierPoints(points: readonly Point[]): Point[] {
   return result;
 }
 
+/** 内部方法。处理 quadraticBSplineFactor 相关数据。 */
 function quadraticBSplineFactor(index: number, t: number): number {
   if (index === 0) return (t - 1) ** 2 / 2;
   if (index === 1) return (-2 * t ** 2 + 2 * t + 1) / 2;
   return index === 2 ? t ** 2 / 2 : 0;
 }
 
+/** 内部方法。处理 quadraticBSplinePoints 相关数据。 */
 export function quadraticBSplinePoints(points: readonly Point[]): Point[] {
   if (points.length <= 2) return [...points];
   const result: Point[] = [points[0]];
@@ -340,6 +369,7 @@ export function quadraticBSplinePoints(points: readonly Point[]): Point[] {
   return result;
 }
 
+/** 内部方法。处理 assertFinitePoints 相关数据。 */
 export function assertFinitePoints(points: readonly Point[]): void {
   if (points.length === 0 || points.some((point) => !Number.isFinite(point[0]) || !Number.isFinite(point[1]))) {
     throw new InvalidArgumentError('Shape algorithm produced invalid coordinates');

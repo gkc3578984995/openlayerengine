@@ -12,11 +12,13 @@ import {
 } from '../definition.js';
 import { arcPoints, assertFinitePoints, azimuth, circleCenter, curvePoints, distance, isClockWise } from './math.js';
 
+/** 内部方法。处理 validatePlotPoints 相关数据。 */
 function validatePlotPoints(points: readonly Coordinate[]): void {
   if (points.some((point) => point.length !== 2)) throw new InvalidArgumentError('Plot shapes require two-dimensional control points');
   for (let index = 1; index < points.length; index += 1) requireSeparated(points, [index - 1, index]);
 }
 
+/** 内部方法。处理 lunePolyline 相关数据。 */
 function lunePolyline(points: readonly Coordinate[]): Coordinate[] {
   if (points.length === 2) return points.map(cloneCoordinate);
   const [point1, point2, point3] = points;
@@ -27,10 +29,12 @@ function lunePolyline(points: readonly Coordinate[]): Coordinate[] {
   return isClockWise(point1, point2, point3) ? arcPoints(center, radius, angle2, angle1) : arcPoints(center, radius, angle1, angle2);
 }
 
+/** 内部方法。处理 curvePolyline 相关数据。 */
 function curvePolyline(points: readonly Coordinate[]): Coordinate[] {
   return points.length === 2 ? points.map(cloneCoordinate) : curvePoints(0.3, points);
 }
 
+/** 内部方法。处理 validateGeneratedPath 相关数据。 */
 function validateGeneratedPath(points: readonly Coordinate[], generator: (points: readonly Coordinate[]) => Coordinate[]): void {
   const coordinates = generator(points);
   assertFinitePoints(coordinates);
@@ -39,6 +43,7 @@ function validateGeneratedPath(points: readonly Coordinate[], generator: (points
   }
 }
 
+/** 内部方法。处理 polylineRender 相关数据。 */
 function polylineRender(generator: (points: readonly Coordinate[]) => Coordinate[]) {
   return (points: readonly Coordinate[]) => {
     const coordinates = generator(points);
@@ -47,6 +52,7 @@ function polylineRender(generator: (points: readonly Coordinate[]) => Coordinate
   };
 }
 
+/** 内部常量。保存 lunePolylineDefinition 使用的数据。 */
 const lunePolylineDefinition = createControlPointDefinition({
   type: 'lune-polyline',
   previewMin: 2,
@@ -65,6 +71,7 @@ const lunePolylineDefinition = createControlPointDefinition({
   render: polylineRender(lunePolyline)
 });
 
+/** 内部常量。保存 curvePolylineDefinition 使用的数据。 */
 const curvePolylineDefinition = createControlPointDefinition({
   type: 'curve-polyline',
   previewMin: 2,
@@ -78,4 +85,5 @@ const curvePolylineDefinition = createControlPointDefinition({
   render: polylineRender(curvePolyline)
 });
 
+/** 内部常量。保存 polylineShapeDefinitions 使用的数据。 */
 export const polylineShapeDefinitions = Object.freeze([lunePolylineDefinition, curvePolylineDefinition] as const satisfies readonly ShapeDefinition[]);

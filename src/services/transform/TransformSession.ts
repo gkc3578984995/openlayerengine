@@ -43,76 +43,143 @@ import type {
   NormalizedTransformOptions
 } from './types.js';
 
+/** 构造 Transform 会话所需的依赖。 */
 export interface TransformSessionDependencies {
+  /** 会话 ID。 */
   readonly id: string;
+  /** 元素状态仓库。 */
   readonly store: ElementStore;
+  /** 图形定义注册表。 */
   readonly shapes: ShapeRegistry;
+  /** 内部样式服务。 */
   readonly styles: StyleService;
+  /** 互斥交互协调器。 */
   readonly coordinator: InteractionCoordinator;
+  /** 底层变换交互端口。 */
   readonly interaction: TransformInteractionPort;
+  /** 元素动画控制端口。 */
   readonly animations: TransformAnimationPort;
+  /** 临时动画端口。 */
   readonly transients: TransientAnimationPort;
+  /** 可选的工具栏端口。 */
   readonly toolbarPort?: TransformToolbarPort;
+  /** 可选的鼠标提示端口。 */
   readonly tooltipPort?: TransformTooltipPort;
+  /** 可选的键盘输入。 */
   readonly input?: TransformKeyboardInput;
+  /** 规范化后的 Transform 配置。 */
   readonly options: NormalizedTransformOptions;
+  /** 复制元素 ID 生成器。 */
   readonly createId: () => string;
+  /** 读取共享剪贴板的函数。 */
   readonly readClipboard: () => Readonly<ElementState> | undefined;
+  /** 更新共享剪贴板的函数。 */
   readonly writeClipboard: (snapshot: Readonly<ElementState> | undefined) => void;
+  /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
+  /** 会话进入终态后的回调。 */
   readonly onTerminal: () => void;
 }
 
+/** Transform 内部事件监听函数。 */
 type Listener = (event: never) => void;
 
+/** 管理元素选择、变换、历史、复制和交互视图的状态机。 */
 export class TransformSession<T = unknown> implements InternalTransformSession<T> {
+  /** 会话 ID。 */
   readonly id: string;
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 图形定义注册表。 */
   readonly #shapes: ShapeRegistry;
+  /** 内部样式服务。 */
   readonly #styles: StyleService;
+  /** 互斥交互协调器。 */
   readonly #coordinator: InteractionCoordinator;
+  /** 底层变换交互端口。 */
   readonly #interaction: TransformInteractionPort;
+  /** 元素动画控制端口。 */
   readonly #animations: TransformAnimationPort;
+  /** 临时动画端口。 */
   readonly #transients: TransientAnimationPort;
+  /** 可选的工具栏端口。 */
   readonly #toolbarPort: TransformToolbarPort | undefined;
+  /** 可选的鼠标提示端口。 */
   readonly #tooltipPort: TransformTooltipPort | undefined;
+  /** 可选的键盘输入。 */
   readonly #input: TransformKeyboardInput | undefined;
+  /** 规范化后的 Transform 配置。 */
   readonly #options: NormalizedTransformOptions;
+  /** 复制元素 ID 生成器。 */
   readonly #createId: () => string;
+  /** 共享剪贴板读取函数。 */
   readonly #readClipboard: () => Readonly<ElementState> | undefined;
+  /** 共享剪贴板写入函数。 */
   readonly #writeClipboard: (snapshot: Readonly<ElementState> | undefined) => void;
+  /** Transform 错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 会话终止回调。 */
   readonly #onTerminal: () => void;
+  /** 当前元素的撤销重做历史。 */
   readonly #history: TransformHistory<T>;
+  /** 判断元素是否处于会话选择范围的函数。 */
   readonly #matches: (state: Readonly<ElementState>) => boolean;
+  /** 按事件类型保存的监听器。 */
   readonly #listeners = new Map<keyof InternalTransformEventMap<T>, Map<number, Listener>>();
+  /** 等待重试销毁的工具栏句柄。 */
   readonly #toolbarCleanup = new Set<TransformToolbarViewHandle>();
+  /** 会话当前状态。 */
   #status: InteractionStatus = 'active';
+  /** 底层变换交互句柄。 */
   #handle: TransformInteractionHandle | undefined;
+  /** 当前工具栏句柄。 */
   #toolbar: TransformToolbarViewHandle | undefined;
+  /** 当前鼠标提示句柄。 */
   #tooltip: TransformTooltipViewHandle | undefined;
+  /** 已确认选中的元素快照。 */
   #selected: ElementSnapshot<T> | undefined;
+  /** 当前预览中的工作快照。 */
   #working: ElementSnapshot<T> | undefined;
+  /** 当前变换开始时的快照。 */
   #operationOrigin: ElementSnapshot<T> | undefined;
+  /** 目标元素预期代次。 */
   #expectedGeneration: ElementGeneration | undefined;
+  /** 目标元素预期修订号。 */
   #expectedRevision: ElementRevision | undefined;
+  /** 当前操作的临时动画句柄。 */
   #transient: TransientAnimationHandle | undefined;
+  /** 会话当前操作模式。 */
   #mode: TransformMode = 'transform';
+  /** 最近一次指针地图坐标。 */
   #lastPointerCoordinate: Coordinate | undefined;
+  /** 当前元素动画是否已暂停。 */
   #animationsPaused = false;
+  /** 是否正在显示复制预览。 */
   #copyPreview = false;
+  /** 元素仓库订阅释放函数。 */
   #unsubscribeStore: (() => void) | undefined;
+  /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
+  /** 下一个监听器 ID。 */
   #nextListenerId = 0;
+  /** 是否正在打开底层交互。 */
   #opening = false;
+  /** 是否正在提交自身变换。 */
   #ownCommit = false;
+  /** 是否正在删除自身目标。 */
   #ownRemove = false;
+  /** 是否正在清理会话资源。 */
   #cleanupRunning = false;
+  /** 是否正在清理工具栏资源。 */
   #toolbarCleanupRunning = false;
+  /** 是否已释放交互协调器。 */
   #coordinatorReleased = false;
+  /** 是否已通知会话终止。 */
   #terminalNotified = false;
+  /** 是否正在执行完成流程。 */
   #finishing = false;
 
+  /** 创建 Transform 会话并初始化选择条件与历史。 */
   constructor(dependencies: TransformSessionDependencies) {
     this.id = dependencies.id;
     this.#store = dependencies.store;
@@ -137,22 +204,27 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#matches = (state) => selectorMatch(state) && (layers === undefined || layers.has(state.layerId));
   }
 
+  /** 返回当前选中元素 ID。 */
   get selectedId(): string | undefined {
     return this.#selected?.id;
   }
 
+  /** 返回会话当前状态。 */
   get status(): InteractionStatus {
     return this.#status;
   }
 
+  /** 返回会话当前操作模式。 */
   get mode(): TransformMode {
     return this.#mode;
   }
 
+  /** 返回当前工具栏句柄。 */
   get toolbar(): TransformToolbarViewHandle | undefined {
     return this.#toolbar;
   }
 
+  /** 打开底层变换交互并订阅仓库和键盘事件。 */
   open(): void {
     this.#assertActive();
     if (this.#handle !== undefined || this.#opening) throw new InvalidArgumentError('Transform session is already open');
@@ -170,18 +242,21 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 在打开失败后取消并清理会话。 */
   abortOpen(): void {
     if (this.#status === 'active') this.#status = 'cancelled';
     this.#cleanupSession();
     this.#listeners.clear();
   }
 
+  /** 选择指定元素并建立变换快照。 */
   select(elementId: string): void {
     this.#assertMutable();
     const state = this.#requireSelectable(elementId);
     this.#activateSnapshot(state, true, true);
   }
 
+  /** 切换 Transform 操作模式。 */
   setMode(mode: TransformMode): void {
     this.#assertMutable();
     if (mode !== 'transform' && mode !== 'edit') throw new InvalidArgumentError('Transform mode must be transform or edit');
@@ -201,6 +276,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#setTooltipLines(this.#baseTooltipLines());
   }
 
+  /** 提交当前工作状态并结束会话。 */
   finish(): void {
     if (this.#status !== 'active' || this.#finishing) return;
     this.#finishing = true;
@@ -230,6 +306,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#listeners.clear();
   }
 
+  /** 按指定原因取消会话。 */
   cancel(reason: InteractionCancelReason = 'cancelled'): void {
     if (this.#status !== 'active' || this.#finishing) return;
     void reason;
@@ -238,11 +315,13 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#listeners.clear();
   }
 
+  /** 销毁当前 Transform 会话。 */
   destroy(): void {
     if (this.#status === 'active') this.cancel('destroyed');
     else this.#cleanupSession();
   }
 
+  /** 撤销最近一次变换。 */
   undo(): boolean {
     this.#assertMutable();
     const snapshot = this.#history.undo();
@@ -252,6 +331,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return true;
   }
 
+  /** 重做最近一次撤销操作。 */
   redo(): boolean {
     this.#assertMutable();
     const snapshot = this.#history.redo();
@@ -261,6 +341,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return true;
   }
 
+  /** 复制当前选中元素。 */
   copy(options?: ElementCopyOptions<T>): Readonly<ElementState<T>> {
     this.#assertMutable();
     const state = this.#requireWorking();
@@ -270,6 +351,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return copied;
   }
 
+  /** 用指定元素替换当前选择。 */
   replaceSelected(elementId: string, options: InternalTransformReplaceOptions = {}): void {
     this.#assertMutable();
     const retainHistory = options.retainHistory ?? false;
@@ -280,6 +362,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#syncToolbarState();
   }
 
+  /** 删除当前选中元素。 */
   remove(): void {
     this.#assertMutable();
     const state = this.#requireWorking();
@@ -298,6 +381,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 订阅 Transform 会话事件。 */
   on<K extends keyof InternalTransformEventMap<T>>(type: K, listener: (event: InternalTransformEventMap<T>[K]) => void): () => void {
     this.#assertActive();
     if (!eventTypes.has(type)) throw new InvalidArgumentError(`Unknown Transform event: ${String(type)}`);
@@ -319,6 +403,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     };
   }
 
+  /** 消费右键事件；有复制预览时取消预览，否则结束会话。 */
   handleContextMenu(event?: RoutedPointerEvent<'rightclick'>): ContextMenuDecision {
     void event;
     if (this.#copyPreview) {
@@ -332,6 +417,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return 'consume';
   }
 
+  /** 将会话配置转换为底层交互配置。 */
   #interactionOptions(): TransformInteractionOptions {
     return Object.freeze({
       hitTolerance: this.#options.hitTolerance,
@@ -349,6 +435,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     });
   }
 
+  /** 读取并校验可选择的元素快照。 */
   #requireSelectable(elementId: string): ElementSnapshot<T> {
     if (typeof elementId !== 'string' || elementId.trim().length === 0) throw new InvalidArgumentError('Transform element id must be a non-empty string');
     const state = this.#store.get<T>(elementId);
@@ -365,6 +452,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return cloneElementSnapshot(this.#shapes, state);
   }
 
+  /** 激活元素快照并同步交互视图。 */
   #activateSnapshot(snapshot: ElementSnapshot<T>, resetHistory: boolean, emitSelect: boolean): void {
     const generation = this.#store.generationOf(snapshot.id);
     const revision = this.#store.revisionOf(snapshot.id);
@@ -412,6 +500,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 将元素快照转换为底层交互目标。 */
   #presentation(state: ElementSnapshot<T>): TransformInteractionTarget {
     const definition = this.#shapes.get(state.type);
     const topology = definition.editTopology;
@@ -434,6 +523,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     });
   }
 
+  /** 将底层变换事件分派到会话操作。 */
   #handleInteractionEvent(event: TransformInteractionEvent): void {
     if (this.#status !== 'active' || this.#finishing) return;
     try {
@@ -492,6 +582,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 将变换增量应用到工作快照。 */
   #applyOperation(operation: TransformOperation, delta: TransformDelta, end: boolean): void {
     const origin = this.#operationOrigin;
     if (origin === undefined) throw new InvalidArgumentError('Transform operation did not start');
@@ -512,6 +603,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 按变换阶段发出对应会话事件。 */
   #emitOperation(phase: 'start' | 'change' | 'end', operation: TransformOperation, delta: TransformDelta): void {
     const state = this.#requireWorking();
     if (operation === 'translate') {
@@ -526,6 +618,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 应用撤销或重做得到的历史快照。 */
   #applyHistory(snapshot: ElementSnapshot<T>): void {
     if (snapshot.id !== this.#selected?.id) {
       const current = this.#requireSelectable(snapshot.id);
@@ -539,6 +632,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#emit('edit', freeze({ type: 'edit', state: this.#requireWorking(), operation: 'vertex' }));
   }
 
+  /** 将源快照复制为新的元素快照。 */
   #commitCopy(source: ElementSnapshot<T>, options?: ElementCopyOptions<T>): ElementSnapshot<T> {
     const overrides = options === undefined ? {} : (cloneCoreState(options) as ElementCopyOptions<T>);
     const id = this.#createId();
@@ -552,6 +646,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     ).value;
   }
 
+  /** 开始可由指针确认的复制预览。 */
   #beginCopyPreview(): void {
     const clipboard = this.#readClipboard();
     if (clipboard === undefined) return;
@@ -564,6 +659,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#setTooltipLines(['点击地图完成复制，右键地图退出复制']);
   }
 
+  /** 按位移确认并提交复制预览。 */
   #confirmCopyPreview(delta: Readonly<{ x: number; y: number }>): void {
     const clipboard = this.#readClipboard();
     if (!this.#copyPreview || clipboard === undefined) return;
@@ -574,6 +670,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#activateSnapshot(copied, true, true);
   }
 
+  /** 处理会话快捷键。 */
   #handleKeydown(event: Readonly<{ key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; preventDefault(): void }>): void {
     if (this.#status !== 'active' || event.altKey) return;
     const key = event.key.toLowerCase();
@@ -609,6 +706,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 监测目标元素的外部修改或删除。 */
   #handleStoreChanges(changes: ElementChangeSet): void {
     if (this.#status !== 'active' || this.#selected === undefined) return;
     const change = changes.changes.find(({ id }) => id === this.#selected?.id);
@@ -617,6 +715,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.cancel('cancelled');
   }
 
+  /** 断言目标元素代次和修订号仍然有效。 */
   #assertTargetCurrent(): void {
     const selected = this.#selected;
     if (selected === undefined || this.#expectedGeneration === undefined || this.#expectedRevision === undefined) {
@@ -627,6 +726,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 为当前选择创建工具栏。 */
   #createToolbar(): void {
     this.#destroyToolbar();
     if (this.#options.toolbar === false || this.#toolbarPort === undefined || this.#working === undefined) return;
@@ -659,6 +759,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#syncToolbarState();
   }
 
+  /** 处理工具栏发出的命令或状态事件。 */
   #handleToolbarEvent(event: TransformToolbarViewEvent): void {
     if (event.type === 'command') {
       this.#toolbarCommand(event.key);
@@ -674,6 +775,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (item !== undefined) this.#setTooltipLines([item.title]);
   }
 
+  /** 执行指定工具栏命令。 */
   #toolbarCommand(key: string): void {
     if (key === 'exit' || key === 'save') this.finish();
     else if (key === 'undo') this.undo();
@@ -686,18 +788,21 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     else if (key === 'edit') this.setMode(this.#mode === 'edit' ? 'transform' : 'edit');
   }
 
+  /** 同步工具栏撤销、重做和模式状态。 */
   #syncToolbarState(): void {
     this.#toolbar?.updateItem('undo', { disabled: !this.#history.canUndo });
     this.#toolbar?.updateItem('redo', { disabled: !this.#history.canRedo });
     this.#setTooltipLines(this.#baseTooltipLines());
   }
 
+  /** 将工具栏移动到当前图形锚点。 */
   #updateToolbarPosition(): void {
     const working = this.#working;
     if (working === undefined) return;
     this.#toolbar?.updateOptions({ position: toolbarPosition(this.#shapes.get(working.type), working.geometry, this.#options.handleCenter) });
   }
 
+  /** 为当前会话创建鼠标提示。 */
   #createTooltip(): void {
     this.#destroyTooltip();
     if (this.#tooltipPort === undefined || this.#working === undefined) return;
@@ -711,6 +816,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     });
   }
 
+  /** 销毁当前鼠标提示。 */
   #destroyTooltip(): void {
     const tooltip = this.#tooltip;
     this.#tooltip = undefined;
@@ -722,10 +828,12 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 更新鼠标提示的文本行。 */
   #setTooltipLines(lines: readonly string[]): void {
     this.#tooltip?.update({ lines });
   }
 
+  /** 生成当前模式的基础提示行。 */
   #baseTooltipLines(): readonly string[] {
     if (this.#mode === 'edit') return Object.freeze(['拖拽控制点编辑图形', '右键完成 | Esc 退出']);
     const history: string[] = [];
@@ -734,6 +842,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return Object.freeze(['选择控制点进行变换操作', 'Ctrl+C 复制 | Ctrl+V 粘贴 | Ctrl+X 剪切 | Delete 删除 | Esc 退出', ...history]);
   }
 
+  /** 生成控制手柄悬停提示行。 */
   #handleTooltipLines(operation: TransformOperation | undefined, axis: 'x' | 'y' | 'xy' | undefined): readonly string[] {
     if (operation === 'translate') return Object.freeze(['鼠标左键按下平移']);
     if (operation === 'rotate') return Object.freeze(['鼠标左键按下旋转']);
@@ -743,6 +852,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return this.#baseTooltipLines();
   }
 
+  /** 生成变换过程中的数值提示行。 */
   #operationTooltipLines(operation: TransformOperation, delta: TransformDelta): readonly string[] {
     if (operation === 'translate') return Object.freeze(['平移中…']);
     if (operation === 'rotate' && delta.type === 'rotate') return Object.freeze([`旋转中…当前：${Math.round((-delta.angle * 180) / Math.PI)}°`]);
@@ -750,12 +860,14 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return Object.freeze(['编辑中…']);
   }
 
+  /** 从交互事件更新最近指针坐标和提示位置。 */
   #updatePointerFromEvent(event: { readonly coordinate?: Coordinate }): void {
     if (event.coordinate === undefined) return;
     this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
     this.#tooltip?.update({ position: this.#lastPointerCoordinate });
   }
 
+  /** 清除当前元素选择及关联视图。 */
   #clearSelection(resumeAnimations: boolean, emitSelectEnd: boolean): void {
     const state = this.#working;
     const id = this.#selected?.id;
@@ -793,6 +905,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (emitSelectEnd && state !== undefined) this.#emit('selectEnd', freeze({ type: 'selectEnd', state }));
   }
 
+  /** 在会改变几何的操作期间暂停元素动画。 */
   #pauseAnimationsFor(operation: TransformOperation): void {
     if (this.#animationsPaused || (operation !== 'translate' && operation !== 'scale' && operation !== 'stretch')) return;
     const working = this.#requireWorking();
@@ -800,6 +913,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#animationsPaused = this.#animations.pause({ id: working.id }) > 0;
   }
 
+  /** 断言当前图形支持指定变换操作。 */
   #assertOperationAllowed(operation: TransformOperation): void {
     const working = this.#requireWorking();
     const definition = this.#shapes.get(working.type);
@@ -824,6 +938,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 启动变换操作的临时视觉动画。 */
   #startOperationVisual(operation: TransformOperation): void {
     if (operation === 'vertex') return;
     const handle = this.#requireHandle();
@@ -842,10 +957,12 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 停止当前变换操作的临时视觉效果。 */
   #stopOperationVisual(): void {
     this.#stopTransient();
   }
 
+  /** 恢复此前暂停的元素动画。 */
   #resumePausedAnimations(): void {
     if (!this.#animationsPaused) return;
     const id = this.#selected?.id;
@@ -853,6 +970,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#animationsPaused = false;
   }
 
+  /** 停止当前临时动画。 */
   #stopTransient(): void {
     const transient = this.#transient;
     this.#transient = undefined;
@@ -875,6 +993,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 销毁当前及待清理的工具栏句柄。 */
   #destroyToolbar(): void {
     const toolbar = this.#toolbar;
     if (toolbar !== undefined) {
@@ -897,6 +1016,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 释放会话交互、订阅、视图和动画资源。 */
   #cleanupSession(): void {
     if (this.#cleanupRunning) return;
     this.#cleanupRunning = true;
@@ -964,16 +1084,19 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 获取当前底层变换交互句柄。 */
   #requireHandle(): TransformInteractionHandle {
     if (this.#handle === undefined) throw new ObjectDisposedError('Transform interaction is not open');
     return this.#handle;
   }
 
+  /** 获取当前工作快照。 */
   #requireWorking(): ElementSnapshot<T> {
     if (this.#working === undefined) throw new ObjectDisposedError('Transform has no selected Element');
     return this.#working;
   }
 
+  /** 向当前监听器分发 Transform 事件。 */
   #emit<K extends keyof InternalTransformEventMap<T>>(type: K, event: InternalTransformEventMap<T>[K]): void {
     for (const listener of [...(this.#listeners.get(type)?.values() ?? [])]) {
       try {
@@ -985,11 +1108,13 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 发出错误事件并上报错误。 */
   #emitError(error: unknown): void {
     this.#report(error, 'session');
     this.#emit('error', Object.freeze({ type: 'error', error }));
   }
 
+  /** 隔离并上报 Transform 错误。 */
   #report(error: unknown, operation: string): void {
     try {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
@@ -1003,16 +1128,19 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 确保 Transform 会话仍处于活动状态。 */
   #assertActive(): void {
     if (this.#status !== 'active') throw new ObjectDisposedError('Transform session has finished');
   }
 
+  /** 确保会话当前允许修改元素。 */
   #assertMutable(): void {
     this.#assertActive();
     if (this.#finishing) throw new InvalidArgumentError('Transform session is finishing');
   }
 }
 
+/** Transform 会话允许订阅的事件类型。 */
 const eventTypes = new Set<keyof InternalTransformEventMap>([
   'select',
   'selectEnd',
@@ -1034,6 +1162,7 @@ const eventTypes = new Set<keyof InternalTransformEventMap>([
   'error'
 ]);
 
+/** 未自定义时使用的中文工具栏项目。 */
 const defaultToolbarItems: readonly InternalTransformToolbarItemSpec[] = Object.freeze([
   Object.freeze({ key: 'exit', title: '确认', iconClass: 'ol-toolbar-exit' }),
   Object.freeze({ key: 'undo', title: '撤销 Ctrl+Z', iconClass: 'ol-toolbar-undo', disabled: true }),
@@ -1043,6 +1172,7 @@ const defaultToolbarItems: readonly InternalTransformToolbarItemSpec[] = Object.
   Object.freeze({ key: 'remove', title: '删除', iconClass: 'ol-toolbar-remove' })
 ]);
 
+/** 将变换增量应用到完整元素快照。 */
 function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snapshot: Readonly<ElementState<T>>, delta: TransformDelta): ElementSnapshot<T> {
   const definition = shapes.get(snapshot.type);
   const pointVisualTransform = snapshot.geometry.type === 'point' && delta.type !== 'translate' && delta.type !== 'vertex';
@@ -1051,6 +1181,7 @@ function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snaps
   return createElementSnapshot(shapes, { ...snapshot, geometry, style });
 }
 
+/** 将变换增量应用到图形状态。 */
 function transformShape(definition: ShapeDefinition, state: ShapeState, delta: TransformDelta): ShapeState {
   if (delta.type === 'vertex') {
     const topology = definition.editTopology;
@@ -1082,6 +1213,7 @@ function transformShape(definition: ShapeDefinition, state: ShapeState, delta: T
   } as ShapeState;
 }
 
+/** 对点元素的符号样式应用旋转或缩放。 */
 function transformPointStyle(
   styles: StyleService,
   input: Readonly<ElementState>['style'],
@@ -1099,12 +1231,14 @@ function transformPointStyle(
   return result;
 }
 
+/** 将现有缩放值与二维缩放系数相乘。 */
 function multiplyScale(value: IconSymbolSpec['scale'] | TextSpec['scale'] | undefined, x: number, y: number): number | [number, number] {
   if (Array.isArray(value)) return [value[0] * x, value[1] * y];
   const scalar = value ?? 1;
   return x === y ? scalar * x : [scalar * x, scalar * y];
 }
 
+/** 计算工具栏默认锚点位置。 */
 function toolbarPosition(definition: ShapeDefinition, state: ShapeState, override: Coordinate | undefined): Coordinate {
   if (override !== undefined) return cloneCoordinate(override);
   const geometry = definition.toRenderGeometry(state as never);
@@ -1114,14 +1248,17 @@ function toolbarPosition(definition: ShapeDefinition, state: ShapeState, overrid
   return [Math.max(...coordinates.map((coordinate) => coordinate[0])), Math.max(...coordinates.map((coordinate) => coordinate[1]))];
 }
 
+/** 复制地图坐标。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
 }
 
+/** 平移地图坐标。 */
 function translateCoordinate(coordinate: Coordinate, x: number, y: number): Coordinate {
   return coordinate.length === 3 ? [coordinate[0] + x, coordinate[1] + y, coordinate[2]] : [coordinate[0] + x, coordinate[1] + y];
 }
 
+/** 围绕中心旋转地图坐标。 */
 function rotateCoordinate(coordinate: Coordinate, center: Coordinate, angle: number): Coordinate {
   const x = coordinate[0] - center[0];
   const y = coordinate[1] - center[1];
@@ -1131,15 +1268,18 @@ function rotateCoordinate(coordinate: Coordinate, center: Coordinate, angle: num
   return coordinate.length === 3 ? [rotated[0], rotated[1], coordinate[2]] : rotated;
 }
 
+/** 围绕中心缩放地图坐标。 */
 function scaleCoordinate(coordinate: Coordinate, center: Coordinate, x: number, y: number): Coordinate {
   const scaled: Coordinate = [center[0] + (coordinate[0] - center[0]) * x, center[1] + (coordinate[1] - center[1]) * y];
   return coordinate.length === 3 ? [scaled[0], scaled[1], coordinate[2]] : scaled;
 }
 
+/** 克隆并递归冻结状态值。 */
 function freeze<T>(value: T): T {
   return deepFreeze(cloneCoreState(value));
 }
 
+/** 递归冻结普通数据对象。 */
 function deepFreeze<T>(value: T, visited = new WeakSet<object>()): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value) || visited.has(value)) return value;
   visited.add(value);

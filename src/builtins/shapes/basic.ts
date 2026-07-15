@@ -18,6 +18,7 @@ import {
   requireSeparated
 } from './definition.js';
 
+/** 内部常量。保存 pointDefinition 使用的数据。 */
 const pointDefinition = createControlPointDefinition({
   type: 'point',
   previewMin: 1,
@@ -28,6 +29,7 @@ const pointDefinition = createControlPointDefinition({
   render: (points) => ({ type: 'point', coordinates: cloneCoordinate(points[0]) })
 });
 
+/** 内部常量。保存 polylineDefinition 使用的数据。 */
 const polylineDefinition = createControlPointDefinition({
   type: 'polyline',
   previewMin: 2,
@@ -38,6 +40,7 @@ const polylineDefinition = createControlPointDefinition({
   render: (points) => ({ type: 'polyline', coordinates: points.map(cloneCoordinate) })
 });
 
+/** 内部常量。保存 polygonDefinition 使用的数据。 */
 const polygonDefinition = createControlPointDefinition({
   type: 'polygon',
   previewMin: 2,
@@ -51,6 +54,7 @@ const polygonDefinition = createControlPointDefinition({
   render: (points) => ({ type: 'polygon', coordinates: [closeRing(points)] })
 });
 
+/** 内部方法。处理 normalizeCircle 相关数据。 */
 function normalizeCircle(input: unknown): ShapeState<'circle'> {
   const record = getPlainDataRecord(input, 'Circle state');
   if (getOwnDataValue(record, 'type', 'type') !== 'circle') throw new InvalidArgumentError('Expected shape type circle');
@@ -62,10 +66,14 @@ function normalizeCircle(input: unknown): ShapeState<'circle'> {
   return { type: 'circle', center, radius };
 }
 
+/** 内部常量。保存 circleHandleFloatBuffer 使用的数据。 */
 const circleHandleFloatBuffer = new ArrayBuffer(8);
+/** 内部常量。保存 circleHandleFloatView 使用的数据。 */
 const circleHandleFloatView = new DataView(circleHandleFloatBuffer);
+/** 内部常量。保存 CIRCLE_HANDLE_GRID_STEPS 使用的数据。 */
 const CIRCLE_HANDLE_GRID_STEPS = 64;
 
+/** 内部方法。处理 nextRepresentable 相关数据。 */
 function nextRepresentable(value: number, direction: -1 | 1): number {
   if (value === 0) return direction > 0 ? Number.MIN_VALUE : -Number.MIN_VALUE;
   circleHandleFloatView.setFloat64(0, value);
@@ -76,6 +84,7 @@ function nextRepresentable(value: number, direction: -1 | 1): number {
   return circleHandleFloatView.getFloat64(0);
 }
 
+/** 内部方法。处理 createCircleRadiusHandle 相关数据。 */
 function createCircleRadiusHandle(center: Coordinate, radius: number): Coordinate {
   if (radius === 0) return cloneCoordinate(center);
 
@@ -135,6 +144,7 @@ function createCircleRadiusHandle(center: Coordinate, radius: number): Coordinat
   throw new InvalidArgumentError('Circle has no stable canonical radius handle at this center');
 }
 
+/** 内部方法。处理 createCircleDraft 相关数据。 */
 function createCircleDraft(controlPoints: readonly Coordinate[]): ShapeState<'circle'> | undefined {
   const points = normalizeCoordinateArray(controlPoints, 'circle control points');
   if (points.length < 2) return undefined;
@@ -153,6 +163,7 @@ function createCircleDraft(controlPoints: readonly Coordinate[]): ShapeState<'ci
   return normalizeCircle({ type: 'circle', center, radius });
 }
 
+/** 内部方法。处理 moveCircleControlPoint 相关数据。 */
 function moveCircleControlPoint(state: ShapeState<'circle'>, index: number, coordinate: Coordinate): ShapeState<'circle'> {
   const normalized = normalizeCircle(state);
   const replacement = normalizeCoordinate(coordinate);
@@ -187,6 +198,7 @@ function moveCircleControlPoint(state: ShapeState<'circle'>, index: number, coor
   throw new InvalidArgumentError(`Control-point index is out of range: ${index}`);
 }
 
+/** 内部常量。保存 circleDefinition 使用的数据。 */
 const circleDefinition = Object.freeze<ShapeDefinition<ShapeState<'circle'>>>({
   type: 'circle',
   capabilities: nonRotatingEditableCapabilities,
@@ -220,6 +232,7 @@ const circleDefinition = Object.freeze<ShapeDefinition<ShapeState<'circle'>>>({
   }
 });
 
+/** 内部方法。处理 getEllipseAxisBounds 相关数据。 */
 function getEllipseAxisBounds(first: number, second: number, label: string): readonly [lower: number, upper: number] {
   const lower = Math.min(first, second);
   const upper = Math.max(first, second);
@@ -227,6 +240,7 @@ function getEllipseAxisBounds(first: number, second: number, label: string): rea
   return [lower, upper];
 }
 
+/** 内部方法。处理 interpolateEllipseAxis 相关数据。 */
 function interpolateEllipseAxis(lower: number, upper: number, weight: number): number {
   if (weight <= 0) return lower;
   if (weight >= 1) return upper;
@@ -235,6 +249,7 @@ function interpolateEllipseAxis(lower: number, upper: number, weight: number): n
   return Number.isFinite(interpolated) ? interpolated : lower * (1 - weight) + upper * weight;
 }
 
+/** 内部常量。保存 ellipseDefinition 使用的数据。 */
 const ellipseDefinition = createControlPointDefinition({
   type: 'ellipse',
   previewMin: 2,
@@ -266,6 +281,7 @@ const ellipseDefinition = createControlPointDefinition({
   }
 });
 
+/** 内部常量。保存 basicShapeDefinitions 使用的数据。 */
 export const basicShapeDefinitions = Object.freeze([
   pointDefinition,
   polylineDefinition,

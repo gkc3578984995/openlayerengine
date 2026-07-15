@@ -11,9 +11,13 @@ import type { ElementService } from './types.js';
  * @internal
  */
 export class EditSessionFacade<T = unknown> implements EditSession<T> {
+  /** 执行实际编辑工作的内部会话。 */
   readonly #session: InternalEditSession<T>;
+  /** 用于确认元素仍属于当前 Earth。 */
   readonly #elements: ElementService;
+  /** 启动编辑时使用的公开元素句柄。 */
   readonly element: Element<T>;
+  /** 会话结束后仍有效的元素，取消时为空。 */
   readonly finished: Promise<Element<T> | undefined>;
 
   /**
@@ -35,30 +39,37 @@ export class EditSessionFacade<T = unknown> implements EditSession<T> {
     });
   }
 
+  /** 返回当前编辑会话状态。 */
   get status(): EditSession<T>['status'] {
     return this.#session.status;
   }
 
+  /** 提交本次编辑。 */
   finish(): void {
     this.#session.finish();
   }
 
+  /** 取消本次编辑。 */
   cancel(): void {
     this.#session.cancel();
   }
 
+  /** 销毁会话并释放交互资源。 */
   destroy(): void {
     this.#session.destroy();
   }
 
+  /** 撤销上一步编辑操作。 */
   undo(): boolean {
     return this.#session.undo();
   }
 
+  /** 恢复上一步被撤销的编辑操作。 */
   redo(): boolean {
     return this.#session.redo();
   }
 
+  /** 监听编辑事件，并把内部状态转换为公开元素事件。 */
   on<K extends keyof EditSessionEventMap<T>>(type: K, listener: (event: EditSessionEventMap<T>[K]) => void): () => void {
     if (typeof listener !== 'function') throw new InvalidArgumentError('Edit session listener must be a function');
     if (type === 'modifying') {

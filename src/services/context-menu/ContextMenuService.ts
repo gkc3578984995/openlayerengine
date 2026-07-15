@@ -18,51 +18,89 @@ import type {
   InternalContextMenuTarget
 } from './types.js';
 
+/** 保存一次右键菜单注册及其规范化项目。 */
 interface RegistrationRecord {
+  /** 注册目标的唯一键。 */
   readonly key: string;
+  /** 用于区分重复注册的代次。 */
   readonly generation: number;
+  /** 菜单注册目标。 */
   readonly target: InternalContextMenuTarget;
+  /** 规范化后的菜单项目。 */
   readonly items: readonly InternalContextMenuItemSpec[];
+  /** 菜单项目索引。 */
   readonly itemByKey: ReadonlyMap<string, InternalContextMenuItemSpec>;
+  /** 菜单显示前的判定回调。 */
   readonly before?: (context: InternalContextMenuItemContext) => boolean;
+  /** 菜单项目选择回调。 */
   readonly onSelect?: (context: InternalContextMenuItemContext) => void;
 }
 
+/** 保存当前正在显示的菜单上下文。 */
 interface CurrentMenu {
+  /** 命中的菜单注册。 */
   readonly registration: RegistrationRecord;
+  /** 不含具体项目的菜单上下文。 */
   readonly context: Omit<InternalContextMenuItemContext, 'item'>;
+  /** 当前可选择的菜单项目。 */
   readonly selectable: ReadonlyMap<string, { readonly item: InternalContextMenuItemSpec; readonly disabled: boolean }>;
 }
 
+/** 在路由回调期间检测目标元素失效。 */
 interface RouteTargetGuard {
+  /** 路由开始时命中的元素 ID。 */
   readonly elementId: string;
+  /** 元素是否在回调期间发生变化。 */
   invalidated: boolean;
 }
 
+/** 菜单项目状态的局部更新。 */
 type ItemStatePatch = Partial<InternalContextMenuItemState>;
 
+/** 管理右键菜单注册、状态、路由与视图生命周期。 */
 export class ContextMenuService {
+  /** 内部事件服务。 */
   readonly #events: EventService;
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 右键菜单视图端口。 */
   readonly #view: ContextMenuViewPort;
+  /** 菜单错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 按目标键保存的菜单注册。 */
   readonly #registrations = new Map<string, RegistrationRecord>();
+  /** 按注册和元素保存的项目状态。 */
   readonly #states = new Map<string, Map<string, Map<string, InternalContextMenuItemState>>>();
+  /** 当前嵌套的路由目标守卫。 */
   readonly #routeTargetGuards: RouteTargetGuard[] = [];
+  /** 右键事件订阅释放函数。 */
   readonly #eventDispose: () => void;
+  /** 元素仓库订阅释放函数。 */
   readonly #storeDispose: () => void;
+  /** 视图事件订阅释放函数。 */
   readonly #viewDispose: () => void;
+  /** 下一个注册代次。 */
   #nextGeneration = 0;
+  /** 当前显示中的菜单。 */
   #current: CurrentMenu | undefined;
+  /** 当前菜单主题。 */
   #theme: 'light' | 'dark' = 'light';
+  /** 服务是否已进入销毁状态。 */
   #disposed = false;
+  /** 是否正在执行销毁流程。 */
   #destroying = false;
+  /** 右键事件订阅是否已释放。 */
   #eventDisposed = false;
+  /** 元素仓库订阅是否已释放。 */
   #storeDisposed = false;
+  /** 视图监听器是否已释放。 */
   #viewListenerDisposed = false;
+  /** 菜单视图是否已关闭。 */
   #viewClosed = false;
+  /** 菜单视图是否已销毁。 */
   #viewDestroyed = false;
 
+  /** 创建右键菜单服务并连接事件、仓库和视图。 */
   constructor(events: EventService, store: ElementStore, view: ContextMenuViewPort, errorReporter: ErrorReporter = defaultErrorReporter) {
     if (typeof errorReporter !== 'function') throw new InvalidArgumentError('Error reporter must be a function');
     this.#events = events;
@@ -76,7 +114,7 @@ export class ContextMenuService {
       try {
         this.#eventDispose();
       } catch {
-        // Preserve the subscription failure after attempting rollback.
+        // 尝试回滚后继续保留仓库订阅的原始异常。
       }
       throw error;
     }
@@ -90,12 +128,13 @@ export class ContextMenuService {
       try {
         runFinalizers([...(viewDispose === undefined ? [] : [viewDispose]), this.#eventDispose, this.#storeDispose]);
       } catch {
-        // Preserve the constructor failure after attempting every rollback.
+        // 尝试全部回滚后继续保留构造阶段的原始异常。
       }
       throw error;
     }
   }
 
+  /** 为地图、模块或元素注册右键菜单。 */
   register(target: InternalContextMenuTarget, spec: InternalContextMenuSpec): ContextMenuRegistrationHandle {
     this.#assertActive();
     const safeTarget = normalizeTarget(target);
@@ -135,6 +174,7 @@ export class ContextMenuService {
     });
   }
 
+  /** 读取指定菜单项目的当前状态。 */
   getItemState(target: InternalContextMenuStateTarget, key: string): InternalContextMenuItemState | undefined {
     this.#assertActive();
     const resolved = this.#resolveStateTarget(target);
@@ -143,6 +183,7 @@ export class ContextMenuService {
     return Object.freeze({ ...this.#stateFor(resolved.registration, resolved.stateKey, item) });
   }
 
+  /** 更新指定菜单项目的可见或禁用状态。 */
   setItemState(target: InternalContextMenuStateTarget, key: string, patch: ItemStatePatch): void {
     this.#assertActive();
     const resolved = this.#resolveStateTarget(target);
@@ -167,6 +208,7 @@ export class ContextMenuService {
     }
   }
 
+  /** 切换指定菜单项目的可见状态。 */
   toggleItem(target: InternalContextMenuStateTarget, key: string): InternalContextMenuItemState {
     const current = this.getItemState(target, key);
     if (current === undefined) throw new InvalidArgumentError(`Context-menu item does not exist: ${key}`);
@@ -176,6 +218,7 @@ export class ContextMenuService {
     return next;
   }
 
+  /** 设置菜单视图主题。 */
   setTheme(theme: 'light' | 'dark'): void {
     this.#assertActive();
     if (theme !== 'light' && theme !== 'dark') throw new InvalidArgumentError('Context-menu theme must be light or dark');
@@ -183,12 +226,14 @@ export class ContextMenuService {
     this.#theme = theme;
   }
 
+  /** 在明亮和暗色主题之间切换。 */
   toggleTheme(): 'light' | 'dark' {
     const next = this.#theme === 'light' ? 'dark' : 'light';
     this.setTheme(next);
     return next;
   }
 
+  /** 清除指定元素保存的菜单状态。 */
   clearElementState(elementId: string): void {
     this.#assertActive();
     const id = requireNonEmptyString(elementId, 'Element id');
@@ -197,12 +242,14 @@ export class ContextMenuService {
     if (this.#current?.context.element?.id === id) this.close();
   }
 
+  /** 关闭当前显示的菜单。 */
   close(): void {
     this.#assertActive();
     this.#current = undefined;
     this.#view.close();
   }
 
+  /** 销毁菜单服务及其全部订阅和视图。 */
   destroy(): void {
     if (this.#destroyComplete() || this.#destroying) return;
     this.#disposed = true;
@@ -259,10 +306,12 @@ export class ContextMenuService {
     }
   }
 
+  /** 判断全部销毁步骤是否已经完成。 */
   #destroyComplete(): boolean {
     return this.#eventDisposed && this.#storeDisposed && this.#viewListenerDisposed && this.#viewClosed && this.#viewDestroyed;
   }
 
+  /** 根据右键事件选择注册并打开菜单。 */
   #route(event: RoutedEventMap['rightclick']): void {
     if (this.#disposed) return;
     const registration = this.#resolveRegistration(event.element);
@@ -308,6 +357,7 @@ export class ContextMenuService {
     }
   }
 
+  /** 将内部菜单项目转换为当前视图项目。 */
   #renderItems(
     registration: RegistrationRecord,
     context: Omit<InternalContextMenuItemContext, 'item'>,
@@ -341,6 +391,7 @@ export class ContextMenuService {
     return result;
   }
 
+  /** 处理菜单视图产生的选择或关闭事件。 */
   #handleViewEvent(event: ContextMenuViewEvent): void {
     if (this.#disposed) return;
     if (event.type === 'close') {
@@ -370,6 +421,7 @@ export class ContextMenuService {
     }
   }
 
+  /** 按元素、模块和地图优先级解析菜单注册。 */
   #resolveRegistration(elementState?: Readonly<ElementState>): RegistrationRecord | undefined {
     if (elementState !== undefined) {
       const exact = this.#registrations.get(targetKey({ kind: 'element', elementId: elementState.id }));
@@ -382,6 +434,7 @@ export class ContextMenuService {
     return this.#registrations.get(targetKey({ kind: 'map' }));
   }
 
+  /** 解析状态目标对应的注册与状态键。 */
   #resolveStateTarget(target: InternalContextMenuStateTarget): { readonly registration: RegistrationRecord; readonly stateKey: string } {
     const safeTarget = normalizeStateTarget(target);
     if (safeTarget.kind === 'map') {
@@ -396,6 +449,7 @@ export class ContextMenuService {
     return { registration, stateKey: stateKeyFor(registration, safeTarget.elementId) };
   }
 
+  /** 读取项目的当前状态或初始状态。 */
   #stateFor(registration: RegistrationRecord, stateKey: string, item: InternalContextMenuItemSpec): InternalContextMenuItemState {
     return (
       this.#states.get(registration.key)?.get(stateKey)?.get(item.key) ?? {
@@ -405,6 +459,7 @@ export class ContextMenuService {
     );
   }
 
+  /** 保存菜单项目状态。 */
   #setState(registration: RegistrationRecord, stateKey: string, itemKey: string, state: InternalContextMenuItemState): void {
     let registrationStates = this.#states.get(registration.key);
     if (registrationStates === undefined) {
@@ -419,6 +474,7 @@ export class ContextMenuService {
     targetStates.set(itemKey, Object.freeze({ ...state }));
   }
 
+  /** 根据元素变更清理状态并使路由目标失效。 */
   #handleElementChanges(
     changes: readonly { readonly kind: string; readonly id: string; readonly before?: ElementState; readonly after?: ElementState }[]
   ): void {
@@ -432,6 +488,7 @@ export class ContextMenuService {
     }
   }
 
+  /** 隔离并上报菜单回调错误。 */
   #report(error: unknown, operation: string): void {
     try {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
@@ -440,15 +497,17 @@ export class ContextMenuService {
       });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // Reporting failures never interrupt menu routing or cleanup.
+      // 错误上报失败不能中断菜单路由或清理流程。
     }
   }
 
+  /** 确保右键菜单服务仍可使用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('ContextMenuService has been destroyed');
   }
 }
 
+/** 校验并冻结菜单注册目标。 */
 function normalizeTarget(target: InternalContextMenuTarget): InternalContextMenuTarget {
   const record = inspectRecord(target, 'Context-menu target');
   const kind = ownValue(record, 'kind');
@@ -467,12 +526,14 @@ function normalizeTarget(target: InternalContextMenuTarget): InternalContextMenu
   throw new InvalidArgumentError('Unknown context-menu target');
 }
 
+/** 校验并冻结菜单状态目标。 */
 function normalizeStateTarget(target: InternalContextMenuStateTarget): InternalContextMenuStateTarget {
   const normalized = normalizeTarget(target as InternalContextMenuTarget);
   if (normalized.kind === 'module') throw new InvalidArgumentError('Context-menu item state requires map or Element target');
   return normalized;
 }
 
+/** 校验菜单配置并建立项目索引。 */
 function normalizeSpec(spec: InternalContextMenuSpec): {
   readonly items: readonly InternalContextMenuItemSpec[];
   readonly itemByKey: ReadonlyMap<string, InternalContextMenuItemSpec>;
@@ -500,6 +561,7 @@ function normalizeSpec(spec: InternalContextMenuSpec): {
   });
 }
 
+/** 递归校验菜单项目及其唯一键。 */
 function normalizeItems(
   source: readonly unknown[],
   itemByKey: Map<string, InternalContextMenuItemSpec>,
@@ -547,6 +609,7 @@ function normalizeItems(
   return result;
 }
 
+/** 校验并冻结菜单项目状态补丁。 */
 function normalizeStatePatch(patch: ItemStatePatch): ItemStatePatch {
   const record = inspectRecord(patch, 'Context-menu item state patch');
   assertKeys(record, new Set(['visible', 'disabled']), 'context-menu item state patch');
@@ -556,6 +619,7 @@ function normalizeStatePatch(patch: ItemStatePatch): ItemStatePatch {
   return Object.freeze({ ...(visible === undefined ? {} : { visible }), ...(disabled === undefined ? {} : { disabled }) });
 }
 
+/** 根据注册与右键事件创建菜单上下文。 */
 function contextFor(registration: RegistrationRecord, event: RoutedEventMap['rightclick']): Omit<InternalContextMenuItemContext, 'item'> {
   return Object.freeze({
     scope: registration.target.kind,
@@ -567,19 +631,23 @@ function contextFor(registration: RegistrationRecord, event: RoutedEventMap['rig
   });
 }
 
+/** 生成菜单注册目标的唯一键。 */
 function targetKey(target: InternalContextMenuTarget): string {
   if (target.kind === 'map') return 'map';
   return `${target.kind}:${target.kind === 'module' ? target.module : target.elementId}`;
 }
 
+/** 生成当前菜单状态使用的范围键。 */
 function stateKeyFor(registration: RegistrationRecord, elementId?: string): string {
   return registration.target.kind === 'map' ? 'map' : elementStateKey(requireNonEmptyString(elementId, 'Element id'));
 }
 
+/** 生成元素菜单状态键。 */
 function elementStateKey(elementId: string): string {
   return `element:${elementId}`;
 }
 
+/** 安全读取普通对象的数据属性。 */
 function inspectRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {
@@ -599,6 +667,7 @@ function inspectRecord(value: unknown, label: string): Record<PropertyKey, unkno
   }
 }
 
+/** 安全读取数组的数据项。 */
 function inspectArray(value: unknown, label: string): readonly unknown[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be an array`);
   try {
@@ -629,17 +698,20 @@ function inspectArray(value: unknown, label: string): readonly unknown[] {
   }
 }
 
+/** 断言记录只包含允许字段。 */
 function assertKeys(record: Record<PropertyKey, unknown>, allowed: ReadonlySet<string>, label: string): void {
   for (const key of Reflect.ownKeys(record)) {
     if (typeof key !== 'string' || !allowed.has(key)) throw new InvalidArgumentError(`Unknown ${label} field: ${String(key)}`);
   }
 }
 
+/** 读取记录中的必填自有字段。 */
 function ownValue(record: Record<PropertyKey, unknown>, key: string): unknown {
   if (!hasOwn(record, key)) throw new InvalidArgumentError(`Context-menu record requires ${key}`);
   return record[key];
 }
 
+/** 读取可选函数字段。 */
 function optionalFunction(record: Record<PropertyKey, unknown>, key: string): Function | undefined {
   if (!hasOwn(record, key)) return undefined;
   const value = record[key];
@@ -647,6 +719,7 @@ function optionalFunction(record: Record<PropertyKey, unknown>, key: string): Fu
   return value;
 }
 
+/** 读取可选布尔字段。 */
 function optionalBoolean(record: Record<PropertyKey, unknown>, key: string): boolean | undefined {
   if (!hasOwn(record, key)) return undefined;
   const value = record[key];
@@ -654,24 +727,29 @@ function optionalBoolean(record: Record<PropertyKey, unknown>, key: string): boo
   return value;
 }
 
+/** 读取可选非空字符串字段。 */
 function optionalString(record: Record<PropertyKey, unknown>, key: string): string | undefined {
   if (!hasOwn(record, key)) return undefined;
   return requireNonEmptyString(record[key], `Context-menu ${key}`);
 }
 
+/** 校验非空字符串。 */
 function requireNonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 判断对象是否拥有指定自有属性。 */
 function hasOwn(value: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+/** 冻结地图坐标副本。 */
 function freezeCoordinate(value: Coordinate): Coordinate {
   return Object.freeze([...value]) as Coordinate;
 }
 
+/** 冻结像素坐标副本。 */
 function freezePixel(value: Pixel): Pixel {
   return Object.freeze([...value]) as Pixel;
 }

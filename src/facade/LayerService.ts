@@ -10,31 +10,50 @@ import type { NativeRef } from '../core/native/types.js';
 import { constructLayerHandle, Layer } from './Layer.js';
 import type { LayerService, LayerState, PublicLayerSpec, TileUrlFunction } from './types.js';
 
+/** 图层门面实现使用的可选配置。 */
 export interface LayerServiceOptions {
+  /** 自定义图层 ID 的生成方式。 */
   readonly createId?: () => string;
 }
 
+/** 已解析的内部图层配置和临时原生资源。 */
 interface ParsedLayer {
+  /** 可交给核心图层管理器的配置。 */
   readonly spec: CoreLayerSpec;
+  /** 等待提交的原生图层或数据源引用。 */
   readonly provisional?: { readonly kind: 'layer' | 'source'; readonly ref: NativeRef<'layer'> | NativeRef<'source'> };
+  /** 门面为回调瓦片地址创建的数据源。 */
   readonly internallyCreatedSource?: ImageTileSource;
 }
 
+/** 缓存同一代原生图层和对应的公开句柄。 */
 interface CachedLayer {
+  /** 当前绑定的 OpenLayers 图层。 */
   readonly layer: BaseLayer;
+  /** 返回给调用方的图层句柄。 */
   readonly handle: Layer;
+  /** 用于识别句柄代次的标记。 */
   readonly generation: object;
 }
 
+/** 连接公开图层 API、核心状态和 OpenLayers 图层的门面实现。 */
 export class LayerServiceImpl implements LayerService {
+  /** 保存和修改图层状态。 */
   readonly #manager: LayerManager;
+  /** 同步核心图层与 OpenLayers。 */
   readonly #adapter: LayerAdapter;
+  /** 管理外部传入的图层和数据源引用。 */
   readonly #nativeRefs: NativeRefRegistry;
+  /** 可选的图层 ID 生成器。 */
   readonly #createId: (() => string) | undefined;
+  /** 按图层 ID 缓存当前句柄。 */
   readonly #handles = new Map<string, CachedLayer>();
+  /** 默认 ID 的递增序号。 */
   #nextId = 0;
+  /** 标记当前是否正在执行图层修改。 */
   #mutating = false;
 
+  /** 保存依赖并确保默认矢量图层存在。 */
   constructor(manager: LayerManager, adapter: LayerAdapter, nativeRefs: NativeRefRegistry, options: LayerServiceOptions = {}) {
     this.#manager = manager;
     this.#adapter = adapter;
@@ -43,6 +62,7 @@ export class LayerServiceImpl implements LayerService {
     this.ensureDefault();
   }
 
+  /** 校验并新增图层，完成原生资源的所有权交接。 */
   add(spec: PublicLayerSpec): Layer {
     return this.#mutation(() => {
       const parsed = this.#parse(spec);
@@ -60,7 +80,7 @@ export class LayerServiceImpl implements LayerService {
           try {
             rolledBack = this.#manager.remove(parsed.spec.id);
           } catch {
-            // LayerAdapter owns cleanup reporting; preserve the initiating error.
+            // 清理错误由适配器记录，这里保留最初的新增错误。
           }
         } else {
           rolledBack = true;
@@ -69,7 +89,7 @@ export class LayerServiceImpl implements LayerService {
           try {
             parsed.internallyCreatedSource.dispose();
           } catch {
-            // Preserve the attach error; the source is already no longer transferable.
+            // 数据源已不能继续交接，这里保留最初的挂载错误。
           }
         }
         if (parsed.provisional !== undefined) this.#discard(parsed.provisional);
@@ -79,6 +99,7 @@ export class LayerServiceImpl implements LayerService {
     });
   }
 
+  /** 按 ID 获取图层；不存在时清理旧句柄缓存。 */
   get(id: string): Layer | undefined {
     const state = this.#manager.get(id);
     if (state === undefined) {
@@ -88,6 +109,7 @@ export class LayerServiceImpl implements LayerService {
     return this.#currentHandle(id);
   }
 
+  /** 查询全部图层或指定类型的图层。 */
   query(kind?: LayerKind): readonly Layer[] {
     if (kind !== undefined && kind !== 'vector' && kind !== 'tile' && kind !== 'native') throw new InvalidArgumentError('Unknown layer kind');
     return Object.freeze(
@@ -98,6 +120,7 @@ export class LayerServiceImpl implements LayerService {
     );
   }
 
+  /** 删除指定图层并清理对应句柄。 */
   remove(id: string): boolean {
     return this.#mutation(() => {
       const removed = this.#manager.remove(id);
@@ -106,6 +129,7 @@ export class LayerServiceImpl implements LayerService {
     });
   }
 
+  /** 清空可删除的图层和句柄缓存。 */
   clear(): void {
     this.#mutation(() => {
       this.#manager.clear();
@@ -113,11 +137,13 @@ export class LayerServiceImpl implements LayerService {
     });
   }
 
+  /** 获取默认矢量图层，不存在时自动创建。 */
   ensureDefault(): Layer {
     const state = this.#manager.ensureDefaultVector();
     return this.#currentHandle(state.id);
   }
 
+  /** 获取当前一代原生图层对应的句柄。 */
   #currentHandle(id: string): Layer {
     const nativeLayer = this.#adapter.requireLayer(id);
     const cached = this.#handles.get(id);
@@ -141,6 +167,7 @@ export class LayerServiceImpl implements LayerService {
     return handle;
   }
 
+  /** 校验公开配置，并转换为核心图层配置。 */
   #parse(input: PublicLayerSpec): ParsedLayer {
     const record = inspectRecord(input, 'Layer spec');
     const kind = requireOwn(record, 'kind');
@@ -217,7 +244,7 @@ export class LayerServiceImpl implements LayerService {
         try {
           source.dispose();
         } catch {
-          // Preserve the registration failure.
+          // 保留最初的注册错误。
         }
         throw error;
       }
@@ -237,20 +264,23 @@ export class LayerServiceImpl implements LayerService {
     return { spec: { kind, id, ...presentation, source: ref, sourceOwnership: ownership }, provisional: { kind: 'source', ref } };
   }
 
+  /** 提交临时原生资源引用。 */
   #commit(provisional: NonNullable<ParsedLayer['provisional']>): void {
     if (provisional.kind === 'layer') this.#nativeRefs.commitProvisional('layer', provisional.ref as NativeRef<'layer'>);
     else this.#nativeRefs.commitProvisional('source', provisional.ref as NativeRef<'source'>);
   }
 
+  /** 尽力释放尚未提交的原生资源引用。 */
   #discard(provisional: NonNullable<ParsedLayer['provisional']>): void {
     try {
       if (provisional.kind === 'layer') this.#nativeRefs.discardProvisional('layer', provisional.ref as NativeRef<'layer'>);
       else this.#nativeRefs.discardProvisional('source', provisional.ref as NativeRef<'source'>);
     } catch {
-      // A destroyed registry already invalidated the provisional reference.
+      // 注册表销毁后，临时引用已经失效。
     }
   }
 
+  /** 生成一个尚未占用的图层 ID。 */
   #generateId(): string {
     if (this.#createId !== undefined) return requireString(this.#createId(), 'Generated layer id');
     let id: string;
@@ -259,6 +289,7 @@ export class LayerServiceImpl implements LayerService {
     return id;
   }
 
+  /** 串行执行图层修改，避免重入造成状态错乱。 */
   #mutation<T>(work: () => T): T {
     if (this.#mutating) throw new InvalidArgumentError('Reentrant LayerService mutations are not supported');
     this.#mutating = true;
@@ -270,6 +301,7 @@ export class LayerServiceImpl implements LayerService {
   }
 }
 
+/** 将核心图层状态转换为只读的公开状态。 */
 function toPublicState(state: Readonly<CoreLayerState>): Readonly<LayerState> {
   const presentation = {
     kind: state.kind,
@@ -281,10 +313,12 @@ function toPublicState(state: Readonly<CoreLayerState>): Readonly<LayerState> {
   return Object.freeze(state.kind === 'vector' ? { ...presentation, wrapX: state.wrapX, declutter: state.declutter } : presentation) as Readonly<LayerState>;
 }
 
+/** 为已不存在的图层生成统一错误。 */
 function missingLayer(id: string): never {
   throw new InvalidArgumentError(`Layer does not exist: ${id}`);
 }
 
+/** 安全读取一个普通对象，并保留其数据字段。 */
 function inspectRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {
@@ -308,47 +342,56 @@ function inspectRecord(value: unknown, label: string): Record<PropertyKey, unkno
   }
 }
 
+/** 确认对象只包含允许的字段。 */
 function assertKeys(record: Record<PropertyKey, unknown>, allowed: ReadonlySet<string>, label: string): void {
   for (const key of Reflect.ownKeys(record)) {
     if (typeof key !== 'string' || !allowed.has(key)) throw new InvalidArgumentError(`Unknown ${label} field: ${String(key)}`);
   }
 }
 
+/** 读取必须存在的自有字段。 */
 function requireOwn(record: Record<PropertyKey, unknown>, key: string): unknown {
   if (!hasOwn(record, key)) throw new InvalidArgumentError(`Layer spec requires ${key}`);
   return record[key];
 }
 
+/** 判断对象是否直接拥有指定字段。 */
 function hasOwn(value: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+/** 读取不能为空的字符串。 */
 function requireString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 读取布尔值。 */
 function requireBoolean(value: unknown, label: string): boolean {
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`Layer ${label} must be a boolean`);
   return value;
 }
 
+/** 读取 0 到 1 之间的不透明度。 */
 function requireOpacity(value: unknown): number {
   const opacity = requireFinite(value, 'opacity');
   if (opacity < 0 || opacity > 1) throw new InvalidArgumentError('Layer opacity must be between 0 and 1');
   return opacity;
 }
 
+/** 读取有限数值。 */
 function requireFinite(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new InvalidArgumentError(`Layer ${label} must be finite`);
   return value;
 }
 
+/** 读取原生资源的所有权设置。 */
 function requireOwnership(value: unknown): 'external' | 'earth' {
   if (value !== 'external' && value !== 'earth') throw new InvalidArgumentError('Layer ownership must be external or earth');
   return value;
 }
 
+/** 读取单条或多条版权说明。 */
 function requireAttributions(value: unknown): string | readonly string[] {
   if (typeof value === 'string') return requireString(value, 'Attribution');
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {

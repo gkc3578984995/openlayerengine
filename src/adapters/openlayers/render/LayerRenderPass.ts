@@ -29,36 +29,60 @@ import type { FeatureBinding } from '../FeatureBinding.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 
+/** 图层渲染通道的可选配置。 */
 export interface LayerRenderPassOptions {
+  /** 接收单帧渲染中的非致命错误。 */
   readonly errorReporter?: ErrorReporter;
 }
 
+/** 已应用到渲染目标的一条通道记录。 */
 interface AppliedTarget {
+  /** 目标注册配置。 */
   readonly spec: LayerRenderTargetSpec;
+  /** 已应用的通道名。 */
   readonly channel: string;
 }
 
+/** 单个图层渲染循环的运行状态。 */
 interface LoopRecord {
+  /** 业务图层 ID。 */
   readonly layerId: string;
+  /** 实际 OpenLayers 矢量图层。 */
   readonly layer: VectorLayer;
+  /** 每帧生成渲染批次的回调。 */
   readonly render: (frame: LayerRenderFrame) => LayerRenderBatch;
+  /** 图层 postrender 事件键。 */
   key: EventsKey | undefined;
+  /** 当前已经应用的目标通道。 */
   readonly applied: Map<string, AppliedTarget>;
+  /** 循环是否已经销毁。 */
   destroyed: boolean;
+  /** 循环是否正在销毁。 */
   destroying: boolean;
+  /** 是否仍订阅图层渲染事件。 */
   subscribed: boolean;
 }
 
+/** 在 OpenLayers 图层 postrender 阶段执行统一渲染批次。 */
 export class LayerRenderPass implements LayerRenderPort {
+  /** 提供受管理的 OpenLayers 图层。 */
   readonly #layers: LayerAdapter;
+  /** 识别默认元素渲染目标。 */
   readonly #binding: FeatureBinding;
+  /** 编译渲染图元样式。 */
   readonly #styles: StyleCompiler;
+  /** 接收单帧渲染错误。 */
   readonly #errorReporter: ErrorReporter;
+  /** 按图层 ID 保存活动渲染循环。 */
   readonly #loops = new Map<string, LoopRecord>();
+  /** 保存显式注册的渲染目标。 */
   readonly #targets = new Map<string, LayerRenderTargetSpec>();
+  /** 渲染通道是否已经销毁。 */
   #disposed = false;
+  /** 渲染通道是否正在销毁。 */
   #destroying = false;
 
+  /** 保存图层、要素绑定、样式和错误上报依赖。 */
   constructor(layers: LayerAdapter, binding: FeatureBinding, styles: StyleCompiler, options: LayerRenderPassOptions = {}) {
     if (options.errorReporter !== undefined && typeof options.errorReporter !== 'function') {
       throw new InvalidArgumentError('LayerRenderPass errorReporter must be a function');
@@ -69,14 +93,17 @@ export class LayerRenderPass implements LayerRenderPort {
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
   }
 
+  /** 返回当前活动渲染循环数量。 */
   get activeLoopCount(): number {
     return this.#loops.size;
   }
 
+  /** 返回当前显式渲染目标数量。 */
   get registeredTargetCount(): number {
     return this.#targets.size;
   }
 
+  /** 为矢量图层打开一个 postrender 渲染循环。 */
   open(layerId: string, render: (frame: LayerRenderFrame) => LayerRenderBatch): LayerRenderLoopHandle {
     this.#assertActive();
     const safeLayerId = nonEmptyString(layerId, 'Render layer id');
@@ -109,6 +136,7 @@ export class LayerRenderPass implements LayerRenderPort {
     };
   }
 
+  /** 注册一个可接收渲染通道值的目标。 */
   registerTarget(spec: LayerRenderTargetSpec): LayerRenderTargetHandle {
     this.#assertActive();
     const safe = normalizeTarget(spec);
@@ -148,6 +176,7 @@ export class LayerRenderPass implements LayerRenderPort {
     };
   }
 
+  /** 判断图层上是否存在显式或元素渲染目标。 */
   hasTarget(layerId: string, targetId: string): boolean {
     if (this.#disposed) return false;
     const safeLayerId = nonEmptyString(layerId, 'Render layer id');
@@ -161,6 +190,7 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
+  /** 销毁全部渲染循环和目标注册。 */
   destroy(): void {
     if (this.#disposed || this.#destroying) return;
     this.#destroying = true;
@@ -174,6 +204,7 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
+  /** 处理单帧批次、目标通道和直接绘制图元。 */
   #renderFrame(record: LoopRecord, event: RenderEvent): void {
     if (this.#disposed || this.#destroying || record.destroyed || this.#loops.get(record.layerId) !== record) return;
     const frameState = event.frameState;
@@ -225,6 +256,7 @@ export class LayerRenderPass implements LayerRenderPort {
     if (batch.requestNextFrame && !record.destroyed && this.#loops.get(record.layerId) === record) record.layer.changed();
   }
 
+  /** 在当前帧的矢量上下文中绘制一个图元。 */
   #drawPrimitive(vectorContext: ReturnType<typeof getVectorContext>, offsets: readonly number[], primitive: LayerRenderPrimitive, resolution: number): void {
     for (const offset of offsets) {
       const geometry = createGeometry(primitive.geometry);
@@ -240,6 +272,7 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
+  /** 清除目标通道并关闭指定图层循环。 */
   #destroyLoop(record: LoopRecord): void {
     if (record.destroyed || record.destroying) return;
     record.destroying = true;
@@ -270,6 +303,7 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
+  /** 执行单帧操作，并把失败交给错误上报器。 */
   #attempt(work: () => void, operation: string, ownerId?: string): void {
     try {
       work();
@@ -278,6 +312,7 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
+  /** 安全上报渲染过程中的错误。 */
   #report(error: unknown, operation: string, ownerId?: string): void {
     try {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
@@ -291,11 +326,13 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
+  /** 确认渲染通道仍可使用。 */
   #assertActive(): void {
     if (this.#disposed || this.#destroying) throw new ObjectDisposedError('LayerRenderPass has been destroyed');
   }
 }
 
+/** 校验并冻结渲染目标配置。 */
 function normalizeTarget(spec: LayerRenderTargetSpec): LayerRenderTargetSpec {
   if (spec === null || typeof spec !== 'object') throw new InvalidArgumentError('Layer render target must be an object');
   const prototype = Object.getPrototypeOf(spec);
@@ -318,6 +355,7 @@ function normalizeTarget(spec: LayerRenderTargetSpec): LayerRenderTargetSpec {
   });
 }
 
+/** 确认渲染回调返回有效批次。 */
 function normalizeBatch(batch: LayerRenderBatch): LayerRenderBatch {
   if (batch === null || typeof batch !== 'object' || !Array.isArray(batch.contributions) || typeof batch.requestNextFrame !== 'boolean') {
     throw new InvalidArgumentError('Layer render callback returned an invalid batch');
@@ -325,6 +363,7 @@ function normalizeBatch(batch: LayerRenderBatch): LayerRenderBatch {
   return batch;
 }
 
+/** 将渲染几何状态转换为 OpenLayers Geometry。 */
 function createGeometry(state: RenderGeometryState): Geometry {
   if (state.type === 'point') return new Point([...state.coordinates]);
   if (state.type === 'polyline') return new LineString(state.coordinates.map((coordinate) => [...coordinate]));
@@ -332,12 +371,14 @@ function createGeometry(state: RenderGeometryState): Geometry {
   return new CircleGeometry([...state.center], state.radius);
 }
 
+/** 将静态或函数样式统一解析为样式数组。 */
 function resolveStyles(style: StyleLike, feature: Feature<Geometry>, resolution: number): readonly Style[] {
   const resolved = typeof style === 'function' ? style(feature, resolution) : style;
   if (resolved === undefined) return [];
   return Array.isArray(resolved) ? resolved : [resolved];
 }
 
+/** 计算循环世界中本帧需要重复绘制的水平偏移。 */
 function worldOffsets(event: RenderEvent, layer: VectorLayer): readonly number[] {
   const frameState = event.frameState;
   if (frameState === undefined || frameState === null) return [0];
@@ -350,14 +391,17 @@ function worldOffsets(event: RenderEvent, layer: VectorLayer): readonly number[]
   return Object.freeze([(world - 1) * width, world * width, (world + 1) * width]);
 }
 
+/** 生成图层和目标组合键。 */
 function targetKey(layerId: string, targetId: string): string {
   return JSON.stringify([layerId, targetId]);
 }
 
+/** 生成目标和通道组合键。 */
 function appliedKey(targetId: string, channel: string): string {
   return JSON.stringify([targetId, channel]);
 }
 
+/** 读取不能为空的字符串。 */
 function nonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;

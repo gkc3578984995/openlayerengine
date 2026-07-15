@@ -1,3 +1,4 @@
+/** 生成 16 个随机字节，缺少 Web Crypto 时使用普通随机数兜底。 */
 function randomBytes(): Uint8Array {
   const bytes = new Uint8Array(16);
   const crypto = globalThis.crypto;
@@ -9,6 +10,18 @@ function randomBytes(): Uint8Array {
   return bytes;
 }
 
+/**
+ * 创建一个 UUID 格式的随机 ID。
+ *
+ * @returns 新生成的随机 ID。
+ *
+ * @example
+ * ```ts
+ * import { createId } from '@vrsim/earth-engine-ol';
+ *
+ * const id = createId();
+ * ```
+ */
 export function createId(): string {
   const crypto = globalThis.crypto;
   if (crypto !== undefined && typeof crypto.randomUUID === 'function') return crypto.randomUUID();

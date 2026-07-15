@@ -25,14 +25,22 @@ import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 
+/** 绘制预览使用的 OpenLayers 要素。 */
 type PreviewFeature = Feature<Geometry>;
+/** 存放绘制预览要素的矢量数据源。 */
 type PreviewSource = VectorSource<PreviewFeature>;
 
+/** 单个预览要素分步清理的进度。 */
 interface FeatureCleanupProgress {
+  /** 待清理的预览要素。 */
   readonly feature: PreviewFeature;
+  /** 是否已经从数据源移除。 */
   sourceDetached: boolean;
+  /** 是否已经清除几何。 */
   geometryCleared: boolean;
+  /** 是否已经清除样式。 */
   styleCleared: boolean;
+  /** 是否已经销毁要素。 */
   disposed: boolean;
 }
 
@@ -57,9 +65,13 @@ export interface DrawInteractionAdapterOptions {
  * @internal
  */
 export class DrawInteractionAdapter implements DrawInteractionPort {
+  /** 交互所属的地图。 */
   readonly #map: OlMap;
+  /** 提供目标矢量图层和数据源。 */
   readonly #layers: LayerAdapter;
+  /** 编译绘制预览样式。 */
   readonly #styles: StyleCompiler;
+  /** 接收监听器和清理过程中的错误。 */
   readonly #errorReporter: ErrorReporter;
 
   /**
@@ -134,28 +146,47 @@ export class DrawInteractionAdapter implements DrawInteractionPort {
  * @internal
  */
 class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
+  /** 交互所属的地图。 */
   readonly #map: OlMap;
+  /** 存放绘制预览的目标数据源。 */
   readonly #source: PreviewSource;
+  /** 编译绘制预览样式。 */
   readonly #styles: StyleCompiler;
+  /** 接收地图浏览器事件的 OpenLayers 交互。 */
   readonly #interaction: Interaction;
+  /** 已校验的绘制交互配置。 */
   readonly #spec: Readonly<DrawInteractionSpec>;
+  /** 接收语义绘制事件。 */
   readonly #listener: (event: DrawInteractionEvent) => void;
+  /** 接收监听器和清理错误。 */
   readonly #errorReporter: ErrorReporter;
   /**
    * 当前交互使用的水平世界范围快照；目标投影不支持水平环绕时为 `undefined`。
    */
   readonly world: HorizontalWorld | undefined;
+  /** 当前显示的预览要素。 */
   #preview: PreviewFeature | undefined;
+  /** 句柄是否已经允许派发事件。 */
   #published = false;
+  /** 句柄是否正在关闭。 */
   #closing = false;
+  /** 原生交互是否已经停用。 */
   #deactivated = false;
+  /** 原生交互是否已经从地图移除。 */
   #interactionRemoved = false;
+  /** 是否正在执行销毁。 */
   #destroyRunning = false;
+  /** 是否正在自由绘制。 */
   #freehandActive = false;
+  /** 是否需要忽略自由绘制后的下一次点击。 */
   #suppressNextClick = false;
+  /** 是否正在处理预览渲染队列。 */
   #rendering = false;
+  /** 等待按顺序提交的预览快照。 */
   readonly #renderQueue: Array<PreviewFeature | undefined> = [];
+  /** 等待继续清理的旧预览要素。 */
   readonly #retired = new Map<PreviewFeature, FeatureCleanupProgress>();
+  /** 已经完成清理的预览要素。 */
   readonly #released = new WeakSet<PreviewFeature>();
 
   /**
@@ -709,6 +740,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   }
 }
 
+/** 校验并冻结绘制交互配置。 */
 function validateSpec(spec: Readonly<DrawInteractionSpec>): Readonly<DrawInteractionSpec> {
   if (spec === null || typeof spec !== 'object') throw new InvalidArgumentError('Draw interaction spec must be an object');
   if (typeof spec.layerId !== 'string' || spec.layerId.trim().length === 0) {
@@ -719,15 +751,18 @@ function validateSpec(spec: Readonly<DrawInteractionSpec>): Readonly<DrawInterac
   return Object.freeze({ layerId: spec.layerId, mode: spec.mode, freehand: spec.freehand });
 }
 
+/** 从目标投影获取水平循环世界范围。 */
 function worldFor(map: OlMap, source: VectorSource): HorizontalWorld | undefined {
   const projection = getUserProjection() ?? source.getProjection() ?? map.getView().getProjection();
   return horizontalWorldFromExtent(projection.getExtent(), source.getWrapX() === true && projection.canWrapX());
 }
 
+/** 判断地图是否仍包含指定交互。 */
 function containsInteraction(map: OlMap, interaction: Interaction): boolean {
   return map.getInteractions().getArray().includes(interaction);
 }
 
+/** 根据渲染状态创建完整的预览要素快照。 */
 function createPreviewFeature(state: Readonly<DrawInteractionRenderState>, styles: StyleCompiler): PreviewFeature {
   const geometry = createGeometry(state.geometry);
   const compiled = styles.compile(state.style);
@@ -736,6 +771,7 @@ function createPreviewFeature(state: Readonly<DrawInteractionRenderState>, style
   return feature;
 }
 
+/** 将渲染几何状态转换为 OpenLayers Geometry。 */
 function createGeometry(state: RenderGeometryState): Geometry {
   if (state.type === 'point') return new Point(copyCoordinate(state.coordinates));
   if (state.type === 'polyline') return new LineString(state.coordinates.map(copyCoordinate));
@@ -744,12 +780,14 @@ function createGeometry(state: RenderGeometryState): Geometry {
   return new Circle(copyCoordinate(state.center), state.radius);
 }
 
+/** 复制坐标供 OpenLayers 使用。 */
 function copyCoordinate(value: Coordinate): number[] {
   const coordinate = safeCoordinate(value);
   if (coordinate === undefined) throw new InvalidArgumentError('Draw preview coordinate must contain two or three finite numbers');
   return [...coordinate];
 }
 
+/** 安全读取二维或三维地图坐标。 */
 function safeCoordinate(value: unknown): Coordinate | undefined {
   if (!Array.isArray(value) || (value.length !== 2 && value.length !== 3) || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
     return undefined;
@@ -757,29 +795,35 @@ function safeCoordinate(value: unknown): Coordinate | undefined {
   return Object.freeze([...value]) as Coordinate;
 }
 
+/** 判断原始事件是否按下 Shift。 */
 function isShift(event: MapBrowserEvent): boolean {
   return field(event.originalEvent, 'shiftKey') === true;
 }
 
+/** 判断事件是否是指针取消。 */
 function isPointerCancel(event: MapBrowserEvent): boolean {
   return event.type === 'pointercancel' || field(event.originalEvent, 'type') === 'pointercancel';
 }
 
+/** 判断事件是否来自主指针和允许的鼠标按键。 */
 function isPrimary(event: MapBrowserEvent, requireLeftButton: boolean): boolean {
   if (field(event.originalEvent, 'isPrimary') === false) return false;
   const button = field(event.originalEvent, 'button');
   return !requireLeftButton || typeof button !== 'number' || button === 0;
 }
 
+/** 安全读取未知对象的字段。 */
 function field(value: unknown, key: string): unknown {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
 }
 
+/** 复制并冻结语义绘制事件。 */
 function freezeEvent(event: DrawInteractionEvent): DrawInteractionEvent {
   if (event.type === 'freehand-cancel') return Object.freeze({ type: event.type });
   return Object.freeze({ type: event.type, coordinate: safeCoordinate(event.coordinate) as Coordinate });
 }
 
+/** 安全上报绘制交互内部错误。 */
 function report(errorReporter: ErrorReporter, error: unknown, operation: string): void {
   try {
     const result = (errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
@@ -792,6 +836,7 @@ function report(errorReporter: ErrorReporter, error: unknown, operation: string)
   }
 }
 
+/** 执行清理步骤并收集失败。 */
 function capture(failures: unknown[], work: () => void): void {
   try {
     work();
@@ -800,6 +845,7 @@ function capture(failures: unknown[], work: () => void): void {
   }
 }
 
+/** 安全读取状态，并把成功结果交给回调。 */
 function inspect<T>(failures: unknown[], read: () => T, accept: (value: T) => void): void {
   try {
     accept(read());

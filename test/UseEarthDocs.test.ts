@@ -105,28 +105,51 @@ describe('useEarth documentation', () => {
   it('keeps a complete root migration contract for version 2', async () => {
     const migration = await readFile('MIGRATION.txt', 'utf8');
     const version2 = migration.indexOf('1.x 升级到 2.0.0');
-    const version1 = migration.indexOf('v1.0.0 迁移指南');
 
     expect(version2).toBeGreaterThanOrEqual(0);
-    expect(version1).toBeGreaterThan(version2);
+    expect(migration).not.toContain('0.x 升级到 1.0.0');
+    expect(migration).not.toContain('v1.0.0 迁移指南');
     for (const topic of [
-      '仅 ESM',
+      '只提供 ESM',
       'require',
       '@vrsim/earth-engine-ol/style.css',
-      './dist/*',
+      'dist/*',
+      'ol@10.9.0',
+      'Node 16',
       'useEarth()',
       'useEarth(id)',
       'useEarth(options)',
-      'destroyEarth()',
-      'destroyEarth(id)'
+      'destroyEarth 已删除',
+      'earth.layers',
+      'earth.elements',
+      'earth.styles',
+      'earth.draw',
+      'earth.measure',
+      'earth.transform',
+      'earth.events',
+      'earth.contextMenu',
+      'earth.overlays',
+      'earth.animations',
+      'Utils 和旧枚举',
+      '多环和洞',
+      'toLonLat',
+      'setLayerOpacity',
+      'throttle()'
     ]) {
       expect(migration).toContain(topic);
     }
-    expect(migration).toContain('target、view 和 controls 仅在首次创建时生效');
-    expect(migration).toContain('不存在对应实例时不会抛错');
+    expect(migration).toContain('同一注册键的 `target`、`view` 和 `controls` 仅在首次创建时生效');
+    expect(migration).toContain('没有就创建，有就返回');
+    expect(migration).toContain('`destroyEarth()`、`destroyEarth(id)`、`createEarth()` 和 `getEarth()` 都不存在');
+    expect(migration).toContain('Wind 已删除');
+    expect(migration).toContain('2.0.0 的内置 `polygon` 只接受一维 `controlPoints`，当前只生成单环');
+    expect(migration).toContain('V1 `setLayerOpacity()` 使用 `0` 到 `100` 的百分比');
+    expect(migration).toContain('V2 的 `coordinate` 是当前 View 投影下的地图坐标');
+    expect(migration).toContain('V2 根导出的 `throttle()` 默认是 `0ms`');
   });
 
-  it('documents the public destroyEarth helper and first-creation option semantics', async () => {
+  // 文档阶段开始后，应删除这条旧版基线，并把 website/README 同步为 V2 的销毁语义。
+  it('保留本阶段暂不处理的网站旧版 destroyEarth 文档基线', async () => {
     const [readme, earthCreate, migration] = await Promise.all([
       readFile('README.md', 'utf8'),
       readFile('website/src/views/EarthCreateView.vue', 'utf8'),
@@ -158,13 +181,16 @@ describe('useEarth documentation', () => {
       readFile('website/src/views/EarthCreateView.vue', 'utf8')
     ]);
 
-    for (const source of [readme, rootMigration, migration]) {
+    for (const source of [readme, migration]) {
       expect(source).toContain('useEarth(viewOptions?, options?)');
       expect(source).toContain('useEarth({ view, target, controls })');
       expect(source).toContain('第二个参数会被忽略');
     }
     expect(readme).toContain('必须改为单个 UseEarthOptions 对象');
-    expect(rootMigration).toContain('必须改为单个 UseEarthOptions 对象');
+    expect(rootMigration).toContain('useEarth(viewOptions?, options?)');
+    expect(rootMigration).toContain('单个 `EarthOptions` 或 `UseEarthOptions` 配置对象');
+    expect(rootMigration).toContain('view: { center, zoom: 6 }');
+    expect(rootMigration).toContain('controls: { zoom: true }');
     expect(migration).toMatch(/必须改为单个\s*<code><a href="\/guide\/earth-create#api-type-use-earth-options">UseEarthOptions<\/a><\/code> 对象/);
 
     expect(migration).toContain("{ id: 'signature', label: '调用签名' }");
@@ -178,13 +204,15 @@ describe('useEarth documentation', () => {
   it('documents dependencies removed in version 2 without promising transitive installation', async () => {
     const [rootMigration, migration] = await Promise.all([readFile('MIGRATION.txt', 'utf8'), readFile('website/src/views/MigrationV2View.vue', 'utf8')]);
 
-    for (const source of [rootMigration, migration]) {
-      for (const dependency of ['heatmap.js', 'mitt', '@types/heatmap.js']) expect(source).toContain(dependency);
-      expect(source).toContain('业务直接使用这些包时需自行显式安装');
-      expect(source).toContain('不要依赖传递安装');
-      expect(source).toContain('WindLayerInstance');
-      expect(source).toContain('调用方式不变');
+    for (const dependency of ['heatmap.js', 'lodash', 'mitt', 'ol-wind', 'wind-core', '@types/heatmap.js', '@types/lodash']) {
+      expect(rootMigration).toContain(dependency);
     }
+    expect(rootMigration).toContain('应由业务项目显式安装，不要依赖本库的传递安装');
+    expect(rootMigration).toContain('WindLayerInstance`、`ol-wind` 和 `wind-core` 已全部删除，没有 V2 替代 API');
+
+    for (const dependency of ['heatmap.js', 'mitt', '@types/heatmap.js']) expect(migration).toContain(dependency);
+    expect(migration).toContain('业务直接使用这些包时需自行显式安装');
+    expect(migration).toContain('不要依赖传递安装');
   });
 
   it('keeps every runnable basemap behind the deployment map source configuration', async () => {

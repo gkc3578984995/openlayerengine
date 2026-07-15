@@ -25,50 +25,88 @@ import {
   type NormalizedMeasureOptions
 } from './types.js';
 
+/** 构造测量会话所需的依赖。 */
 export interface MeasureSessionDependencies {
+  /** 底层语义绘制会话。 */
   readonly drawSession: InternalDrawSession;
+  /** 元素状态仓库。 */
   readonly store: ElementStore;
+  /** 内部样式服务。 */
   readonly styles: StyleService;
+  /** 测量标签使用的 Overlay 服务。 */
   readonly overlays: MeasurementOverlayService;
+  /** 测量计算端口。 */
   readonly measurement: MeasurementPort;
+  /** 测量提示元素端口。 */
   readonly tooltips: MeasurementTooltipPort;
+  /** 规范化后的测量配置。 */
   readonly options: NormalizedMeasureOptions;
+  /** 测量结果元素 ID 生成器。 */
   readonly createId: () => string;
+  /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
+  /** 会话进入终态后的回调。 */
   readonly onTerminal: () => void;
 }
 
+/** 保存一个测量提示元素及其 Overlay 句柄。 */
 interface TooltipRecord {
+  /** 原生提示元素引用。 */
   readonly reference: NativeRef<'element'>;
+  /** 提示元素的 Overlay 句柄。 */
   readonly handle: OverlayHandle;
 }
 
+/** 测量提示的文本与地图位置。 */
 interface TooltipLabel {
+  /** 提示文本。 */
   readonly text: string;
+  /** 提示显示位置。 */
   readonly position: Coordinate;
 }
 
+/** 将绘制几何转换为测量结果、样式与提示的状态机。 */
 export class MeasureSession implements InternalMeasureSession {
+  /** 底层语义绘制会话。 */
   readonly #drawSession: InternalDrawSession;
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 内部样式服务。 */
   readonly #styles: StyleService;
+  /** 测量标签使用的 Overlay 服务。 */
   readonly #overlays: MeasurementOverlayService;
+  /** 测量计算端口。 */
   readonly #measurement: MeasurementPort;
+  /** 测量提示元素端口。 */
   readonly #tooltips: MeasurementTooltipPort;
+  /** 规范化后的测量配置。 */
   readonly #options: NormalizedMeasureOptions;
+  /** 测量结果元素 ID 生成器。 */
   readonly #createId: () => string;
+  /** 测量错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 会话终止回调。 */
   readonly #onTerminal: () => void;
+  /** 按事件类型保存的监听器。 */
   readonly #listeners = new Map<keyof InternalMeasureSessionEventMap, Map<number, (event: never) => void>>();
+  /** 底层绘制会话订阅释放函数。 */
   readonly #subscriptions: Array<() => void> = [];
+  /** 按标签索引保存的提示记录。 */
   readonly #tooltipsByIndex: TooltipRecord[] = [];
+  /** 当前预览元素 ID。 */
   readonly #previewIds = new Set<string>();
+  /** 下一个监听器 ID。 */
   #nextListenerId = 0;
+  /** 会话当前状态。 */
   #status: InteractionStatus = 'active';
+  /** 是否已通知会话终止。 */
   #terminalNotified = false;
+  /** 用于结束 finished Promise。 */
   #resolveFinished!: (result: InternalMeasureResult | undefined) => void;
+  /** 会话结束后完成的 Promise。 */
   readonly finished: Promise<InternalMeasureResult | undefined>;
 
+  /** 创建测量会话并订阅绘制事件。 */
   constructor(dependencies: MeasureSessionDependencies) {
     this.#drawSession = dependencies.drawSession;
     this.#store = dependencies.store;
@@ -99,22 +137,26 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 返回会话当前状态。 */
   get status(): InteractionStatus {
     return this.#status;
   }
 
+  /** 请求底层绘制完成当前测量。 */
   finish(): void {
     if (this.#status !== 'active') return;
     this.#drawSession.finish();
     if (this.#status === 'active' && this.#drawSession.status !== 'active') this.#handleCancel('incomplete');
   }
 
+  /** 取消当前测量。 */
   cancel(): void {
     if (this.#status !== 'active') return;
     this.#drawSession.cancel();
     if (this.#status === 'active') this.#handleCancel('cancelled');
   }
 
+  /** 销毁当前测量会话。 */
   destroy(): void {
     if (this.#status === 'active') {
       this.#drawSession.destroy();
@@ -124,6 +166,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 订阅测量会话事件。 */
   on<K extends keyof InternalMeasureSessionEventMap>(type: K, listener: (event: InternalMeasureSessionEventMap[K]) => void): () => void {
     if (this.#status !== 'active') throw new ObjectDisposedError('Measure session has finished');
     if (!['change', 'complete', 'cancel'].includes(type)) throw new InvalidArgumentError(`Unknown Measure session event: ${String(type)}`);
@@ -145,6 +188,7 @@ export class MeasureSession implements InternalMeasureSession {
     };
   }
 
+  /** 根据绘制预览变化重新计算测量结果。 */
   #handleChange(event: InternalDrawSessionEventMap['change']): void {
     if (this.#status !== 'active') return;
     try {
@@ -158,6 +202,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 提交绘制完成后的最终测量结果。 */
   #handleComplete(event: InternalDrawSessionEventMap['complete']): void {
     if (this.#status !== 'active') return;
     try {
@@ -179,6 +224,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 结束取消流程并清理预览资源。 */
   #handleCancel(reason: InternalMeasureSessionEventMap['cancel']['reason']): void {
     if (this.#status !== 'active') return;
     this.#status = 'cancelled';
@@ -191,11 +237,13 @@ export class MeasureSession implements InternalMeasureSession {
     this.#notifyTerminal();
   }
 
+  /** 移除当前草稿产生的预览。 */
   #resetDraft(): void {
     this.#removePreview();
     this.#destroyTooltips();
   }
 
+  /** 根据图形状态计算完整测量结果。 */
   #calculate(geometry: ShapeState): InternalMeasureResult | undefined {
     if (this.#options.type === 'area') {
       if (geometry.type !== 'polygon') throw new InvalidArgumentError('Area measurement requires polygon geometry');
@@ -240,6 +288,7 @@ export class MeasureSession implements InternalMeasureSession {
     });
   }
 
+  /** 将底层分段计算转换为公开分段结果。 */
   #segmentResult(segment: MeasurementSegment, unit: 'm' | 'km'): InternalMeasureSegmentResult {
     const value = convertAndRound(segment.meters, unit, this.#options.precision);
     return freezeDeep({
@@ -254,6 +303,7 @@ export class MeasureSession implements InternalMeasureSession {
     });
   }
 
+  /** 用当前测量结果同步图形和提示预览。 */
   #syncPreview(result: InternalMeasureResult): void {
     const states = this.#geometryStates(result, false);
     const previous = [...this.#previewIds];
@@ -265,6 +315,7 @@ export class MeasureSession implements InternalMeasureSession {
     for (const state of states) this.#previewIds.add(state.id);
   }
 
+  /** 将最终测量结果写入元素仓库。 */
   #commitResult(result: InternalMeasureResult): void {
     const states = [...this.#geometryStates(result, true), ...this.#pointStates(result.coordinates)];
     const previous = [...this.#previewIds];
@@ -275,6 +326,7 @@ export class MeasureSession implements InternalMeasureSession {
     this.#previewIds.clear();
   }
 
+  /** 生成测量主图形及辅助图形状态。 */
   #geometryStates(result: InternalMeasureResult, final: boolean): ElementState[] {
     const style = this.#shapeStyle(result.type === 'area');
     if (result.type !== 'distance-radial') {
@@ -285,6 +337,7 @@ export class MeasureSession implements InternalMeasureSession {
     );
   }
 
+  /** 为测量控制点生成元素状态。 */
   #pointStates(coordinates: readonly Coordinate[]): ElementState[] {
     const point = this.#options.point;
     if (point === false) return [];
@@ -293,6 +346,7 @@ export class MeasureSession implements InternalMeasureSession {
     );
   }
 
+  /** 创建一个测量元素状态。 */
   #state(geometry: ShapeState, style: ElementStyleState, suffix: string): ElementState {
     const id = this.#createId();
     if (typeof id !== 'string' || id.trim().length === 0) throw new InvalidArgumentError('Generated measure element id must be a non-empty string');
@@ -308,6 +362,7 @@ export class MeasureSession implements InternalMeasureSession {
     });
   }
 
+  /** 生成距离或面积图形样式。 */
   #shapeStyle(area: boolean): ElementStyleState {
     return this.#styles.clone({
       strokes: [cloneCoreState(this.#options.line)],
@@ -315,6 +370,7 @@ export class MeasureSession implements InternalMeasureSession {
     });
   }
 
+  /** 创建、更新或移除测量提示标签。 */
   #syncTooltips(result: InternalMeasureResult): void {
     const labels = tooltipLabels(result, this.#options.showTotal);
     for (let index = 0; index < labels.length; index += 1) {
@@ -355,6 +411,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 移除全部测量预览元素。 */
   #removePreview(): void {
     const ids = [...this.#previewIds];
     this.#previewIds.clear();
@@ -366,10 +423,12 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 销毁全部测量提示。 */
   #destroyTooltips(): void {
     for (const record of this.#tooltipsByIndex.splice(0)) this.#destroyTooltip(record);
   }
 
+  /** 销毁一个测量提示记录。 */
   #destroyTooltip(record: TooltipRecord): void {
     try {
       record.handle.destroy();
@@ -383,6 +442,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 释放底层绘制事件订阅。 */
   #cleanupSubscriptions(): void {
     const subscriptions = this.#subscriptions.splice(0);
     if (subscriptions.length === 0) return;
@@ -393,6 +453,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 向当前监听器分发测量事件。 */
   #emit<K extends keyof InternalMeasureSessionEventMap>(type: K, event: InternalMeasureSessionEventMap[K]): void {
     const ids = [...(this.#listeners.get(type)?.keys() ?? [])];
     for (const id of ids) {
@@ -407,6 +468,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 只通知一次会话终止。 */
   #notifyTerminal(): void {
     if (this.#terminalNotified) return;
     this.#terminalNotified = true;
@@ -417,6 +479,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
+  /** 隔离并上报测量错误。 */
   #report(error: unknown, operation: string): void {
     try {
       const result = this.#errorReporter(error, { source: 'MeasureSession', operation });
@@ -427,6 +490,7 @@ export class MeasureSession implements InternalMeasureSession {
   }
 }
 
+/** 根据测量类型生成需要显示的标签。 */
 function tooltipLabels(result: InternalMeasureResult, showTotal: boolean): TooltipLabel[] {
   const labels: TooltipLabel[] = [];
   if (result.type === 'distance-segments' || result.type === 'distance-radial' || result.type === 'area') {
@@ -436,6 +500,7 @@ function tooltipLabels(result: InternalMeasureResult, showTotal: boolean): Toolt
   return labels;
 }
 
+/** 从分段结果中恢复有序的地理坐标。 */
 function geographicCoordinates(segments: readonly InternalMeasureSegmentResult[], coordinates: readonly Coordinate[]): readonly Coordinate[] {
   if (segments.length === 0) return Object.freeze([]);
   if (segments[0].start[0] === coordinates[0][0] && segments[0].start[1] === coordinates[0][1]) {
@@ -444,6 +509,7 @@ function geographicCoordinates(segments: readonly InternalMeasureSegmentResult[]
   return Object.freeze(segments.flatMap(({ startGeographic, endGeographic }) => [cloneCoordinate(startGeographic), cloneCoordinate(endGeographic)]));
 }
 
+/** 将米制结果转换到目标单位并按精度取整。 */
 function convertAndRound(value: number, unit: InternalMeasureUnit, precision: number): number {
   const converted = unit === 'km' ? value / 1_000 : unit === 'km²' ? value / 1_000_000 : value;
   const factor = 10 ** precision;
@@ -451,6 +517,7 @@ function convertAndRound(value: number, unit: InternalMeasureUnit, precision: nu
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
+/** 复制坐标并确保首尾闭合。 */
 function closeCoordinates(coordinates: readonly Coordinate[]): Coordinate[] {
   if (coordinates.length === 0) return [];
   const result = cloneCoordinates(coordinates);
@@ -460,6 +527,7 @@ function closeCoordinates(coordinates: readonly Coordinate[]): Coordinate[] {
   return result;
 }
 
+/** 按顺序移除重复坐标。 */
 function uniqueCoordinates(coordinates: readonly Coordinate[]): Coordinate[] {
   const seen = new Set<string>();
   const result: Coordinate[] = [];
@@ -472,18 +540,22 @@ function uniqueCoordinates(coordinates: readonly Coordinate[]): Coordinate[] {
   return result;
 }
 
+/** 深度复制一组地图坐标。 */
 function cloneCoordinates(coordinates: readonly Coordinate[]): Coordinate[] {
   return coordinates.map(cloneCoordinate);
 }
 
+/** 复制单个地图坐标。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return Object.freeze([...coordinate]) as Coordinate;
 }
 
+/** 递归冻结并返回只读值。 */
 function freeze<T>(value: T): Readonly<T> {
   return Object.freeze(value);
 }
 
+/** 递归冻结普通数据对象。 */
 function freezeDeep<T>(value: T, seen = new WeakSet<object>()): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value) || seen.has(value)) return value;
   seen.add(value);

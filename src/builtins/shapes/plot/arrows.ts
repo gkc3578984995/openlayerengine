@@ -29,20 +29,31 @@ import {
   wholeDistance
 } from './math.js';
 
+/** 内部常量。保存 plotAreaCapabilities 使用的数据。 */
 const plotAreaCapabilities: ReadonlySet<ShapeCapability> = editableCapabilities;
+/** 内部常量。保存 plotStructuralAreaCapabilities 使用的数据。 */
 const plotStructuralAreaCapabilities: ReadonlySet<ShapeCapability> = structuralEditableCapabilities;
 
+/** 内部接口。约定 ArrowFactors 的数据结构。 */
 interface ArrowFactors {
+  /** 内部字段。保存 headHeight 相关状态。 */
   readonly headHeight: number;
+  /** 内部字段。保存 headWidth 相关状态。 */
   readonly headWidth: number;
+  /** 内部字段。保存 neckHeight 相关状态。 */
   readonly neckHeight: number;
+  /** 内部字段。保存 neckWidth 相关状态。 */
   readonly neckWidth: number;
+  /** 内部字段。保存 headTail 相关状态。 */
   readonly headTail?: number;
 }
 
+/** 内部常量。保存 attackFactors 使用的数据。 */
 const attackFactors: ArrowFactors = { headHeight: 0.18, headWidth: 0.3, neckHeight: 0.85, neckWidth: 0.15, headTail: 0.8 };
+/** 内部常量。保存 doubleFactors 使用的数据。 */
 const doubleFactors: ArrowFactors = { headHeight: 0.25, headWidth: 0.3, neckHeight: 0.85, neckWidth: 0.15 };
 
+/** 内部方法。处理 arrowHeadPoints 相关数据。 */
 function arrowHeadPoints(points: readonly Coordinate[], factors: ArrowFactors, tailLeft?: Coordinate, tailRight?: Coordinate): Coordinate[] {
   let length = baseLength(points);
   let headHeight = length * factors.headHeight;
@@ -70,6 +81,7 @@ function arrowHeadPoints(points: readonly Coordinate[], factors: ArrowFactors, t
   ];
 }
 
+/** 内部方法。处理 arrowBodyPoints 相关数据。 */
 function arrowBodyPoints(points: readonly Coordinate[], neckLeft: Coordinate, neckRight: Coordinate, tailWidthFactor: number): Coordinate[] {
   const totalLength = wholeDistance(points);
   const length = baseLength(points);
@@ -89,6 +101,7 @@ function arrowBodyPoints(points: readonly Coordinate[], neckLeft: Coordinate, ne
   return left.concat(right);
 }
 
+/** 内部方法。处理 attackArrow 相关数据。 */
 function attackArrow(points: readonly Coordinate[]): Coordinate[] {
   if (points.length === 2) return points.map(cloneCoordinate);
   let tailLeft = points[0];
@@ -105,6 +118,7 @@ function attackArrow(points: readonly Coordinate[]): Coordinate[] {
   return left.concat(headPoints, right.reverse());
 }
 
+/** 内部方法。处理 tailedAttackArrow 相关数据。 */
 function tailedAttackArrow(points: readonly Coordinate[]): Coordinate[] {
   if (points.length === 2) return points.map(cloneCoordinate);
   let tailLeft = points[0];
@@ -122,15 +136,23 @@ function tailedAttackArrow(points: readonly Coordinate[]): Coordinate[] {
   return left.concat(headPoints, right.reverse(), [swallowTail, left[0]]);
 }
 
+/** 内部接口。约定 FineArrowFactors 的数据结构。 */
 interface FineArrowFactors {
+  /** 内部字段。保存 tailWidth 相关状态。 */
   readonly tailWidth: number;
+  /** 内部字段。保存 neckWidth 相关状态。 */
   readonly neckWidth: number;
+  /** 内部字段。保存 headWidth 相关状态。 */
   readonly headWidth: number;
+  /** 内部字段。保存 headAngle 相关状态。 */
   readonly headAngle: number;
+  /** 内部字段。保存 neckAngle 相关状态。 */
   readonly neckAngle: number;
 }
 
+/** 内部常量。保存 fineArrowFactors 使用的数据。 */
 const fineArrowFactors: FineArrowFactors = { tailWidth: 0.1, neckWidth: 0.2, headWidth: 0.25, headAngle: Math.PI / 8.5, neckAngle: Math.PI / 13 };
+/** 内部常量。保存 assaultDirectionArrowFactors 使用的数据。 */
 const assaultDirectionArrowFactors: FineArrowFactors = {
   tailWidth: 0.03,
   neckWidth: 0.1,
@@ -139,6 +161,7 @@ const assaultDirectionArrowFactors: FineArrowFactors = {
   neckAngle: Math.PI / 12
 };
 
+/** 内部方法。处理 fineArrow 相关数据。 */
 function fineArrow(points: readonly Coordinate[], factors: FineArrowFactors): Coordinate[] {
   const [start, end] = points;
   const length = baseLength(points);
@@ -151,13 +174,19 @@ function fineArrow(points: readonly Coordinate[], factors: FineArrowFactors): Co
   return [tailLeft, neckLeft, headLeft, cloneCoordinate(end), headRight, neckRight, tailRight];
 }
 
+/** 内部接口。约定 TailedSquadCombatArrowLayout 的数据结构。 */
 interface TailedSquadCombatArrowLayout {
+  /** 内部字段。保存 tailLeft 相关状态。 */
   readonly tailLeft: Coordinate;
+  /** 内部字段。保存 tailRight 相关状态。 */
   readonly tailRight: Coordinate;
+  /** 内部字段。保存 swallowTail 相关状态。 */
   readonly swallowTail: Coordinate;
+  /** 内部字段。保存 headPoints 相关状态。 */
   readonly headPoints: Coordinate[];
 }
 
+/** 内部方法。处理 tailedSquadCombatArrowLayout 相关数据。 */
 function tailedSquadCombatArrowLayout(points: readonly Coordinate[]): TailedSquadCombatArrowLayout {
   const totalLength = baseLength(points);
   const tailWidth = totalLength * 0.1;
@@ -167,6 +196,7 @@ function tailedSquadCombatArrowLayout(points: readonly Coordinate[]): TailedSqua
   return { tailLeft, tailRight, swallowTail, headPoints: arrowHeadPoints(points, attackFactors, tailLeft, tailRight) };
 }
 
+/** 内部方法。处理 tailedSquadCombatArrow 相关数据。 */
 function tailedSquadCombatArrow(points: readonly Coordinate[]): Coordinate[] {
   const { tailLeft, tailRight, swallowTail, headPoints } = tailedSquadCombatArrowLayout(points);
   const [neckLeft, neckRight] = [headPoints[0], headPoints[4]];
@@ -177,6 +207,7 @@ function tailedSquadCombatArrow(points: readonly Coordinate[]): Coordinate[] {
   return left.concat(headPoints, right.reverse(), [swallowTail, left[0]]);
 }
 
+/** 内部方法。处理 temporaryFourthPoint 相关数据。 */
 function temporaryFourthPoint(linePoint1: Coordinate, linePoint2: Coordinate, point: Coordinate): Coordinate {
   const mid = midpoint(linePoint1, linePoint2);
   const length = distance(mid, point);
@@ -208,6 +239,7 @@ function temporaryFourthPoint(linePoint1: Coordinate, linePoint2: Coordinate, po
   return thirdPoint(mid, intermediate, HALF_PI, distance2, false);
 }
 
+/** 内部方法。处理 doubleArrowPoints 相关数据。 */
 function doubleArrowPoints(point1: Coordinate, point2: Coordinate, point3: Coordinate, clockWise: boolean): Coordinate[] {
   const mid = midpoint(point1, point2);
   const length = distance(mid, point3);
@@ -231,6 +263,7 @@ function doubleArrowPoints(point1: Coordinate, point2: Coordinate, point3: Coord
   return left.reverse().concat(headPoints, right);
 }
 
+/** 内部方法。处理 doubleArrow 相关数据。 */
 function doubleArrow(points: readonly Coordinate[]): Coordinate[] {
   if (points.length === 2) return points.map(cloneCoordinate);
   const [point1, point2, point3] = points;
@@ -257,11 +290,13 @@ function doubleArrow(points: readonly Coordinate[]): Coordinate[] {
   return rightLeftBody.concat(rightHead, body, leftHead, leftRightBody);
 }
 
+/** 内部方法。处理 validateSegments 相关数据。 */
 function validateSegments(points: readonly Coordinate[]): void {
   if (points.some((point) => point.length !== 2)) throw new InvalidArgumentError('Plot shapes require two-dimensional control points');
   for (let index = 1; index < points.length; index += 1) requireSeparated(points, [index - 1, index]);
 }
 
+/** 内部方法。处理 validateFixedAreaArrow 相关数据。 */
 function validateFixedAreaArrow(points: readonly Coordinate[], outline: (points: readonly Coordinate[]) => Coordinate[]): void {
   validateSegments(points);
   const keyPoints = outline(points);
@@ -269,10 +304,12 @@ function validateFixedAreaArrow(points: readonly Coordinate[], outline: (points:
   requireNonZeroPlanarArea(keyPoints, 'Arrow width offsets must remain distinct on the coordinate grid');
 }
 
+/** 内部方法。处理 validateGeneratedArrow 相关数据。 */
 function validateGeneratedArrow(points: readonly Coordinate[], generator: (points: readonly Coordinate[]) => Coordinate[]): void {
   assertFinitePoints(generator(points));
 }
 
+/** 内部方法。处理 validateBonePath 相关数据。 */
 function validateBonePath(points: readonly Coordinate[]): void {
   let totalLength = 0;
   for (let index = 1; index < points.length; index += 1) {
@@ -289,6 +326,7 @@ function validateBonePath(points: readonly Coordinate[]): void {
   }
 }
 
+/** 内部方法。处理 validateArrowPath 相关数据。 */
 function validateArrowPath(points: readonly Coordinate[]): void {
   validateSegments(points);
   if (points.length < 3) return;
@@ -298,6 +336,7 @@ function validateArrowPath(points: readonly Coordinate[]): void {
   validateBonePath([midpoint(points[0], points[1]), ...points.slice(2)]);
 }
 
+/** 内部方法。处理 validateDoubleArrowBones 相关数据。 */
 function validateDoubleArrowBones(points: readonly Coordinate[]): void {
   if (points.length < 3) return;
   const [point1, point2, point3] = points;
@@ -328,6 +367,7 @@ function validateDoubleArrowBones(points: readonly Coordinate[]): void {
   }
 }
 
+/** 内部方法。处理 polygonRender 相关数据。 */
 function polygonRender(generator: (points: readonly Coordinate[]) => Coordinate[]) {
   return (points: readonly Coordinate[]) => {
     const ring = generator(points);
@@ -336,6 +376,7 @@ function polygonRender(generator: (points: readonly Coordinate[]) => Coordinate[
   };
 }
 
+/** 内部常量。保存 attackArrowDefinition 使用的数据。 */
 const attackArrowDefinition = createControlPointDefinition({
   type: 'attack-arrow',
   previewMin: 2,
@@ -349,6 +390,7 @@ const attackArrowDefinition = createControlPointDefinition({
   render: polygonRender(attackArrow)
 });
 
+/** 内部常量。保存 tailedAttackArrowDefinition 使用的数据。 */
 const tailedAttackArrowDefinition = createControlPointDefinition({
   type: 'tailed-attack-arrow',
   previewMin: 2,
@@ -362,6 +404,7 @@ const tailedAttackArrowDefinition = createControlPointDefinition({
   render: polygonRender(tailedAttackArrow)
 });
 
+/** 内部常量。保存 fineArrowDefinition 使用的数据。 */
 const fineArrowDefinition = createControlPointDefinition({
   type: 'fine-arrow',
   previewMin: 2,
@@ -373,6 +416,7 @@ const fineArrowDefinition = createControlPointDefinition({
   render: polygonRender((points) => fineArrow(points, fineArrowFactors))
 });
 
+/** 内部常量。保存 tailedSquadCombatArrowDefinition 使用的数据。 */
 const tailedSquadCombatArrowDefinition = createControlPointDefinition({
   type: 'tailed-squad-combat-arrow',
   previewMin: 2,
@@ -388,6 +432,7 @@ const tailedSquadCombatArrowDefinition = createControlPointDefinition({
   render: polygonRender(tailedSquadCombatArrow)
 });
 
+/** 内部常量。保存 assaultDirectionArrowDefinition 使用的数据。 */
 const assaultDirectionArrowDefinition = createControlPointDefinition({
   type: 'assault-direction-arrow',
   previewMin: 2,
@@ -399,6 +444,7 @@ const assaultDirectionArrowDefinition = createControlPointDefinition({
   render: polygonRender((points) => fineArrow(points, assaultDirectionArrowFactors))
 });
 
+/** 内部常量。保存 doubleArrowDefinition 使用的数据。 */
 const doubleArrowDefinition = createControlPointDefinition({
   type: 'double-arrow',
   previewMin: 2,
@@ -429,6 +475,7 @@ const doubleArrowDefinition = createControlPointDefinition({
   }
 });
 
+/** 内部常量。保存 arrowShapeDefinitions 使用的数据。 */
 export const arrowShapeDefinitions = Object.freeze([
   attackArrowDefinition,
   tailedAttackArrowDefinition,

@@ -26,15 +26,25 @@ import type { EditCancelReason, InternalEditOptions, InternalEditSession, Intern
  * @internal
  */
 export interface EditSessionDependencies {
+  /** 元素状态仓库。 */
   readonly store: ElementStore;
+  /** 当前图形类型定义。 */
   readonly definition: ShapeDefinition;
+  /** 互斥交互协调器。 */
   readonly coordinator: InteractionCoordinator;
+  /** 底层编辑交互端口。 */
   readonly port: EditInteractionPort;
+  /** 目标元素 ID。 */
   readonly elementId: string;
+  /** 目标元素预期代次。 */
   readonly expectedGeneration?: ElementGeneration;
+  /** 编辑会话配置。 */
   readonly options: Readonly<InternalEditOptions>;
+  /** 可选的键盘输入。 */
   readonly input?: SessionKeyboardInput;
+  /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
+  /** 会话进入终态后的回调。 */
   readonly onTerminal: () => void;
 }
 
@@ -45,38 +55,70 @@ export interface EditSessionDependencies {
  * @internal
  */
 export class EditSession<T = unknown> implements InternalEditSession<T>, ExclusiveInteractionSession {
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 当前图形类型定义。 */
   readonly #definition: ShapeDefinition;
+  /** 互斥交互协调器。 */
   readonly #coordinator: InteractionCoordinator;
+  /** 底层编辑交互端口。 */
   readonly #port: EditInteractionPort;
+  /** 目标元素预期代次。 */
   readonly #expectedGeneration: ElementGeneration;
+  /** 编辑会话配置。 */
   readonly #options: Readonly<InternalEditOptions>;
+  /** 可选的键盘输入。 */
   readonly #input: SessionKeyboardInput | undefined;
+  /** 会话错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 会话终止回调。 */
   readonly #onTerminal: () => void;
+  /** 按事件类型保存的监听器。 */
   readonly #listeners = new Map<keyof InternalEditSessionEventMap<T>, Map<number, (event: never) => void>>();
+  /** 用于结束 finished Promise。 */
   #resolveFinished!: (state: Readonly<ElementState<T>> | undefined) => void;
+  /** 会话结束后完成的 Promise。 */
   readonly finished: Promise<Readonly<ElementState<T>> | undefined>;
+  /** 下一个监听器 ID。 */
   #nextListenerId = 0;
+  /** 会话当前状态。 */
   #status: InteractionStatus = 'active';
+  /** 底层编辑交互句柄。 */
   #handle: EditInteractionHandle | undefined;
+  /** 元素仓库订阅释放函数。 */
   #unsubscribeStore: (() => void) | undefined;
+  /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
+  /** 会话开始时的元素状态。 */
   #entryState: Readonly<ElementState<T>> | undefined;
+  /** 会话开始时的元素修订号。 */
   #entryRevision: ElementRevision | undefined;
+  /** 当前编辑中的图形状态。 */
   #workingState: ShapeState | undefined;
+  /** 拖动开始时的图形状态。 */
   #dragOrigin: ShapeState | undefined;
+  /** 当前拖动控制点索引。 */
   #dragIndex: number | undefined;
+  /** 编辑历史快照。 */
   #history: ShapeState[] = [];
+  /** 当前历史索引。 */
   #historyIndex = 0;
+  /** 是否正在提交仓库事务。 */
   #committing = false;
+  /** 是否等待自身提交产生的仓库通知。 */
   #ownCommitNotificationPending = false;
+  /** 是否正在打开底层交互。 */
   #opening = false;
+  /** 是否正在清理资源。 */
   #cleanupRunning = false;
+  /** 是否已释放交互协调器。 */
   #coordinatorReleased = false;
+  /** 是否已通知会话终止。 */
   #terminalNotified = false;
 
   /**
+   * 创建动态编辑会话。
+   *
    * @param dependencies 元素事务、图形定义、原生端口、目标实例身份和生命周期回调。
    * @throws `InvalidArgumentError` 目标元素不存在或实例身份无效时抛出。
    */
@@ -98,12 +140,15 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     });
   }
 
+  /** 正在编辑的元素 ID。 */
   readonly elementId: string;
 
+  /** 返回会话当前状态。 */
   get status(): InteractionStatus {
     return this.#status;
   }
 
+  /** 读取目标并打开底层编辑交互。 */
   open(): void {
     this.#assertActive();
     if (this.#handle !== undefined || this.#opening) throw new InvalidArgumentError('Edit session is already open');
@@ -149,6 +194,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
+  /** 在打开失败后取消并清理会话。 */
   abortOpen(): void {
     const wasActive = this.#status === 'active';
     if (wasActive) this.#status = 'cancelled';
@@ -159,6 +205,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
+  /** 提交当前编辑结果并结束会话。 */
   finish(): void {
     if (this.#status !== 'active' || this.#committing) return;
     let committed: Readonly<ElementState<T>>;
@@ -199,17 +246,20 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#listeners.clear();
   }
 
+  /** 按指定原因取消会话。 */
   cancel(reason: InteractionCancelReason = 'cancelled'): void {
     if (this.#status !== 'active' || this.#committing) return;
     this.#terminate('cancelled', reason);
   }
 
+  /** 销毁当前编辑会话。 */
   destroy(): void {
     if (this.#committing) return;
     if (this.#status === 'active') this.cancel('destroyed');
     else this.#cleanup();
   }
 
+  /** 撤销最近一次编辑操作。 */
   undo(): boolean {
     if (this.#status !== 'active' || this.#historyIndex === 0) return false;
     const nextIndex = this.#historyIndex - 1;
@@ -234,6 +284,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return true;
   }
 
+  /** 重做最近一次撤销操作。 */
   redo(): boolean {
     if (this.#status !== 'active' || this.#historyIndex >= this.#history.length - 1) return false;
     const nextIndex = this.#historyIndex + 1;
@@ -258,6 +309,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return true;
   }
 
+  /** 订阅编辑会话事件。 */
   on<K extends keyof InternalEditSessionEventMap<T>>(type: K, listener: (event: InternalEditSessionEventMap<T>[K]) => void): () => void {
     if (this.#status !== 'active') throw new ObjectDisposedError('Edit session has finished');
     if (!['modifying', 'complete', 'cancel'].includes(type)) throw new InvalidArgumentError(`Unknown Edit session event: ${String(type)}`);
@@ -279,11 +331,13 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     };
   }
 
+  /** 消费右键事件以避免浏览器菜单干扰编辑。 */
   handleContextMenu(): ContextMenuDecision {
     if (this.#status === 'active') this.finish();
     return 'consume';
   }
 
+  /** 将底层编辑事件分派到语义操作。 */
   #handlePortEvent(event: Readonly<EditInteractionEvent>): void {
     if (this.#status !== 'active') return;
     try {
@@ -299,6 +353,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
+  /** 处理撤销、重做、完成和取消快捷键。 */
   #handleKeydown(event: InputEventMap['keydown']): void {
     if (this.#status !== 'active' || event.altKey || (!event.ctrlKey && !event.metaKey)) return;
     const key = event.key.toLowerCase();
@@ -315,6 +370,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
+  /** 监测目标元素的外部修改或删除。 */
   #handleStoreChanges(changes: ElementChangeSet): void {
     if (this.#status !== 'active') return;
     const target = changes.changes.find(({ id }) => id === this.elementId);
@@ -326,12 +382,14 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#terminate('cancelled', target.kind === 'remove' ? 'external-remove' : 'external-change');
   }
 
+  /** 保存控制点拖动的起始状态。 */
   #startMove(anchor: EditControlAnchor): void {
     const working = this.#requireWorkingState();
     this.#dragOrigin = this.#definition.clone(working as never) as ShapeState;
     this.#dragIndex = anchor.index;
   }
 
+  /** 根据拖动坐标更新控制点。 */
   #move(anchor: EditControlAnchor, input: Coordinate, end: boolean): void {
     if (this.#dragOrigin === undefined || this.#dragIndex !== anchor.index) throw new InvalidArgumentError('Edit move sequence is not active');
     const state = this.#requireWorkingState();
@@ -345,6 +403,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'move', coordinate }));
   }
 
+  /** 放弃当前未完成的拖动。 */
   #cancelMove(): void {
     if (this.#dragOrigin === undefined) return;
     this.#workingState = this.#dragOrigin;
@@ -353,6 +412,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#render();
   }
 
+  /** 在指定位置插入控制点。 */
   #insert(index: number, input: Coordinate): void {
     const topology = this.#topology();
     if (topology.insert === undefined) throw new InvalidArgumentError(`Shape does not support control-point insertion: ${this.#definition.type}`);
@@ -363,6 +423,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'insert', coordinate }));
   }
 
+  /** 移除指定控制点。 */
   #remove(anchor: EditControlAnchor): void {
     const topology = this.#topology();
     if (!anchor.removable || topology.remove === undefined) throw new InvalidArgumentError(`Shape does not support removing control point ${anchor.index}`);
@@ -372,6 +433,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'remove', coordinate: cloneCoordinate(anchor.coordinate) }));
   }
 
+  /** 将当前编辑状态发送到底层端口。 */
   #render(): void {
     const handle = this.#handle;
     const state = this.#requireWorkingState();
@@ -389,6 +451,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     handle.render(preview);
   }
 
+  /** 将输入坐标放置到连续的编辑世界。 */
   #placeCoordinate(coordinate: Coordinate, index: number): Coordinate {
     const state = this.#requireWorkingState();
     const reference = this.#topology()
@@ -397,6 +460,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return placeCoordinateInEditWorld(coordinate, reference?.[0] ?? coordinate[0], this.#requireHandle().placement.handoff);
   }
 
+  /** 从控制点构建当前图形状态。 */
   #stateFromControlPoints(controlPoints: readonly Coordinate[]): ShapeState {
     const draft = this.#definition.createDraft(controlPoints);
     if (draft === undefined) throw new InvalidArgumentError(`Edit placement is incomplete for shape: ${this.#definition.type}`);
@@ -405,6 +469,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return this.#definition.clone(completion.state as never) as ShapeState;
   }
 
+  /** 从图形状态提取可编辑控制点。 */
   #controlPoints(state: ShapeState): readonly Coordinate[] {
     const handles = [...this.#topology().describe(state as never).handles].sort((left, right) => left.index - right.index);
     for (let index = 0; index < handles.length; index += 1) {
@@ -413,37 +478,44 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return handles.map(({ coordinate }) => cloneCoordinate(coordinate));
   }
 
+  /** 将当前图形状态写入编辑历史。 */
   #recordHistory(): void {
     this.#history.splice(this.#historyIndex + 1);
     this.#history.push(this.#cloneShape(this.#requireWorkingState()));
     this.#historyIndex = this.#history.length - 1;
   }
 
+  /** 克隆图形状态以隔离历史修改。 */
   #cloneShape(state: ShapeState): ShapeState {
     return this.#definition.clone(state as never) as ShapeState;
   }
 
+  /** 清除当前拖动状态。 */
   #clearDrag(): void {
     this.#dragOrigin = undefined;
     this.#dragIndex = undefined;
   }
 
+  /** 获取并校验当前图形的编辑拓扑。 */
   #topology(): ShapeEditTopology {
     const topology = this.#definition.editTopology;
     if (topology === undefined) throw new InvalidArgumentError(`Shape does not support editing: ${this.#definition.type}`);
     return topology as ShapeEditTopology;
   }
 
+  /** 获取当前编辑状态。 */
   #requireWorkingState(): ShapeState {
     if (this.#workingState === undefined) throw new ObjectDisposedError('Edit interaction is not open');
     return this.#workingState;
   }
 
+  /** 获取当前底层编辑句柄。 */
   #requireHandle(): EditInteractionHandle {
     if (this.#handle === undefined) throw new ObjectDisposedError('Edit interaction is not open');
     return this.#handle;
   }
 
+  /** 将会话置为终态并发出取消事件。 */
   #terminate(status: Extract<InteractionStatus, 'finished' | 'cancelled'>, reason?: EditCancelReason): void {
     if (this.#status !== 'active') return;
     this.#status = status;
@@ -453,6 +525,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#listeners.clear();
   }
 
+  /** 释放底层交互、订阅和协调器。 */
   #cleanup(): void {
     if (this.#cleanupRunning) return;
     this.#cleanupRunning = true;
@@ -518,6 +591,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
+  /** 向当前监听器分发会话事件。 */
   #emit<K extends keyof InternalEditSessionEventMap<T>>(type: K, event: InternalEditSessionEventMap<T>[K]): void {
     const listeners = [...(this.#listeners.get(type)?.values() ?? [])];
     for (const listener of listeners) {
@@ -530,6 +604,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
+  /** 隔离并上报会话错误。 */
   #report(error: unknown, operation: string): void {
     try {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
@@ -542,16 +617,19 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
+  /** 确保编辑会话仍处于活动状态。 */
   #assertActive(): void {
     if (this.#status !== 'active') throw new ObjectDisposedError('Edit session has finished');
   }
 }
 
+/** 校验目标元素 ID。 */
 function requireElementId(value: unknown): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError('Edit element id must be a non-empty string');
   return value;
 }
 
+/** 校验并复制地图坐标。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   if ((coordinate.length !== 2 && coordinate.length !== 3) || !coordinate.every(Number.isFinite)) {
     throw new InvalidArgumentError('Edit coordinates must contain two or three finite numbers');
@@ -559,10 +637,12 @@ function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
 }
 
+/** 冻结事件或状态对象。 */
 function freeze<T>(value: T): T {
   return deepFreeze(cloneCoreState(value));
 }
 
+/** 递归冻结普通数据对象。 */
 function deepFreeze<T>(value: T, visited = new WeakSet<object>()): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value) || visited.has(value)) return value;
   visited.add(value);

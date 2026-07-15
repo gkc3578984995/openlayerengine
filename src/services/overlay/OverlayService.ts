@@ -33,17 +33,25 @@ import type {
   InternalOverlayState
 } from './types.js';
 
+/** 构造 Overlay 服务时使用的可选配置。 */
 export interface OverlayServiceOptions {
+  /** 可选的 Overlay ID 生成器。 */
   readonly createId?: () => string;
+  /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
+  /** Descriptor 固定线所属图层。 */
   readonly descriptorLayerId?: string;
 }
 
+/** 规范化后的 Descriptor 状态与回调。 */
 interface NormalizedDescriptor<T> {
+  /** 冻结后的 Descriptor 状态。 */
   readonly state: Readonly<InternalDescriptorState<T>>;
+  /** 冻结后的 Descriptor 回调。 */
   readonly callbacks: DescriptorCallbacks<T>;
 }
 
+/** 校验并规范化 Descriptor 创建配置。 */
 function normalizeDescriptorSpec<T>(input: InternalDescriptorSpec<T>, createId: () => string): NormalizedDescriptor<T> {
   const spec = inspectRecord(input, 'Descriptor spec');
   assertFields(
@@ -96,6 +104,7 @@ function normalizeDescriptorSpec<T>(input: InternalDescriptorSpec<T>, createId: 
   };
 }
 
+/** 校验 Descriptor 更新并计算下一状态。 */
 function applyDescriptorPatch<T>(
   before: Readonly<InternalDescriptorState<T>>,
   beforeCallbacks: DescriptorCallbacks<T>,
@@ -155,6 +164,7 @@ function applyDescriptorPatch<T>(
   };
 }
 
+/** 将 Descriptor 状态转换为内部 Overlay 状态。 */
 function descriptorOverlayState<T>(state: Readonly<InternalDescriptorState<T>>): Readonly<InternalOverlayState<T>> {
   return freeze({
     id: state.id,
@@ -174,10 +184,12 @@ function descriptorOverlayState<T>(state: Readonly<InternalDescriptorState<T>>):
   });
 }
 
+/** 生成 Descriptor 当前使用的渲染状态。 */
 function descriptorRenderState<T>(record: DescriptorRecord<T>): Readonly<OverlayRenderState> {
   return renderStateAt(record.overlay.state, record.renderPosition);
 }
 
+/** 在指定坐标生成 Overlay 渲染状态。 */
 function renderStateAt(state: Readonly<InternalOverlayState>, position: Coordinate): Readonly<OverlayRenderState> {
   return freeze({
     id: state.id,
@@ -194,14 +206,17 @@ function renderStateAt(state: Readonly<InternalOverlayState>, position: Coordina
   });
 }
 
+/** 生成 Descriptor 固定线元素 ID。 */
 function descriptorLineId(id: string): string {
   return `descriptor:${id}:fixed-line`;
 }
 
+/** 创建 Descriptor 固定线元素状态。 */
 function createDescriptorLine<T>(record: DescriptorRecord<T>, layerId: string): ElementState<{ readonly descriptorId: string }> {
   return createDescriptorLineState(record.lineId, record.state, layerId);
 }
 
+/** 根据 Descriptor 状态创建固定线元素。 */
 function createDescriptorLineState(lineId: string, state: Readonly<InternalDescriptorState>, layerId: string): ElementState<{ readonly descriptorId: string }> {
   return {
     id: lineId,
@@ -215,14 +230,17 @@ function createDescriptorLineState(lineId: string, state: Readonly<InternalDescr
   };
 }
 
+/** 创建 Descriptor 固定线样式。 */
 function descriptorLineStyle(color: string): ElementState['style'] {
   return { strokes: [{ color, width: 2, lineDash: [6, 4] }] };
 }
 
+/** 判断 Descriptor 是否需要布局监听。 */
 function needsLayout(state: Readonly<InternalDescriptorState>): boolean {
   return state.fixedLine || state.fixedMode === 'pixel';
 }
 
+/** 计算像素到元素边界最近的连接点。 */
 function nearestBoundsPoint(pixelValue: Pixel, bounds: PixelBounds): Pixel {
   const x = Math.min(bounds.right, Math.max(bounds.left, pixelValue[0]));
   const y = Math.min(bounds.bottom, Math.max(bounds.top, pixelValue[1]));
@@ -237,6 +255,7 @@ function nearestBoundsPoint(pixelValue: Pixel, bounds: PixelBounds): Pixel {
   return freeze([...candidates[0].point]) as Pixel;
 }
 
+/** 创建冻结的 Descriptor 事件。 */
 function descriptorEvent<T>(record: DescriptorRecord<T>, type: 'click' | 'close', index?: number): InternalDescriptorEvent<T> {
   return freeze({
     type,
@@ -246,21 +265,25 @@ function descriptorEvent<T>(record: DescriptorRecord<T>, type: 'click' | 'close'
   });
 }
 
+/** 校验 Descriptor 内容类型。 */
 function descriptorType(value: unknown): InternalDescriptorState['type'] {
   if (value !== 'list' && value !== 'custom') throw new InvalidArgumentError('Descriptor type must be list or custom');
   return value;
 }
 
+/** 校验 Descriptor 关闭行为。 */
 function descriptorCloseAction(value: unknown): InternalDescriptorState['closeAction'] {
   if (value !== 'hide' && value !== 'destroy') throw new InvalidArgumentError('Descriptor closeAction must be hide or destroy');
   return value;
 }
 
+/** 校验 Descriptor 固定方式。 */
 function descriptorFixedMode(value: unknown): InternalDescriptorState['fixedMode'] {
   if (value !== 'position' && value !== 'pixel') throw new InvalidArgumentError('Descriptor fixedMode must be position or pixel');
   return value;
 }
 
+/** 校验并冻结 Descriptor 内容项目。 */
 function normalizeDescriptorItems(value: unknown, type: InternalDescriptorState['type']): readonly Readonly<InternalDescriptorItem>[] {
   if (type === 'custom') {
     if (value !== undefined && (!Array.isArray(value) || value.length > 0)) throw new InvalidArgumentError('Custom descriptors cannot contain list items');
@@ -286,22 +309,26 @@ function normalizeDescriptorItems(value: unknown, type: InternalDescriptorState[
   );
 }
 
+/** 读取可选的 Descriptor 回调。 */
 function optionalCallback<T>(value: unknown, label: string): ((event: InternalDescriptorEvent<T>) => void) | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'function') throw new InvalidArgumentError(`${label} must be a function`);
   return value as (event: InternalDescriptorEvent<T>) => void;
 }
 
+/** 读取字符串值。 */
 function stringValue(value: unknown, label: string): string {
   if (typeof value !== 'string') throw new InvalidArgumentError(`${label} must be a string`);
   return value;
 }
 
+/** 读取记录中的必填字段。 */
 function requiredFor(value: Record<PropertyKey, unknown>, key: string, label: string): unknown {
   if (!hasOwn(value, key)) throw new InvalidArgumentError(`${label} requires ${key}`);
   return value[key];
 }
 
+/** 校验并包装只能成功释放一次的函数。 */
 function requireDisposer(value: unknown, label: string): () => void {
   if (typeof value !== 'function') throw new InvalidArgumentError(`${label} must return a disposer`);
   let state: 'active' | 'disposing' | 'disposed' = 'active';
@@ -318,6 +345,7 @@ function requireDisposer(value: unknown, label: string): () => void {
   };
 }
 
+/** 比较两个 Descriptor 状态是否一致。 */
 function sameDescriptorState(left: Readonly<InternalDescriptorState>, right: Readonly<InternalDescriptorState>): boolean {
   return (
     left.id === right.id &&
@@ -337,15 +365,18 @@ function sameDescriptorState(left: Readonly<InternalDescriptorState>, right: Rea
   );
 }
 
+/** 比较两组 Descriptor 回调是否一致。 */
 function sameDescriptorCallbacks<T>(left: DescriptorCallbacks<T>, right: DescriptorCallbacks<T>): boolean {
   return left.onClose === right.onClose && left.onItemClick === right.onItemClick;
 }
 
+/** 比较固定线几何是否一致。 */
 function samePolyline(left: ElementState['geometry'], right: { readonly type: 'polyline'; readonly controlPoints: readonly Coordinate[] }): boolean {
   if (!('controlPoints' in left) || left.type !== 'polyline') return false;
   return left.controlPoints.length === right.controlPoints.length && left.controlPoints.every((point, index) => tupleEqual(point, right.controlPoints[index]));
 }
 
+/** 比较固定线样式是否一致。 */
 function sameLineStyle(left: ElementState['style'], right: ElementState['style']): boolean {
   if (isNativeStyleRef(left) || isNativeStyleRef(right)) return left === right;
   const leftStroke = left.strokes?.[0];
@@ -358,47 +389,81 @@ function sameLineStyle(left: ElementState['style'], right: ElementState['style']
   );
 }
 
+/** OverlayService 保存的普通 Overlay 记录。 */
 interface OverlayRecord<T = unknown> {
+  /** 当前 Overlay 状态。 */
   state: Readonly<InternalOverlayState<T>>;
+  /** 用于识别过期句柄的代次标记。 */
   readonly generation: object;
+  /** 对外返回的 Overlay 句柄。 */
   readonly handle: OverlayHandle<T>;
+  /** 当前销毁阶段。 */
   phase: 'active' | 'destroying' | 'destroyed';
+  /** 当前待提交更新的互斥标记。 */
   pendingMutation: object | undefined;
+  /** 关联的 Descriptor 记录。 */
   descriptor: DescriptorRecord<T> | undefined;
 }
 
+/** Descriptor 注册的业务回调。 */
 interface DescriptorCallbacks<T> {
+  /** 关闭回调。 */
   readonly onClose: ((event: InternalDescriptorEvent<T>) => void) | undefined;
+  /** 内容项目点击回调。 */
   readonly onItemClick: ((event: InternalDescriptorEvent<T>) => void) | undefined;
 }
 
+/** Descriptor 拖动开始时保存的指针状态。 */
 interface DescriptorDragState {
+  /** 当前指针 ID。 */
   readonly pointerId: number;
+  /** 拖动起始像素。 */
   readonly startPixel: Pixel;
+  /** 拖动起始偏移。 */
   readonly startOffset: Pixel;
 }
 
+/** OverlayService 保存的 Descriptor 运行记录。 */
 interface DescriptorRecord<T = unknown> {
+  /** 当前 Descriptor 状态。 */
   state: Readonly<InternalDescriptorState<T>>;
+  /** 当前业务回调。 */
   callbacks: DescriptorCallbacks<T>;
+  /** 用于识别过期句柄的代次标记。 */
   readonly generation: object;
+  /** 对外返回的 Descriptor 句柄。 */
   readonly handle: DescriptorHandle<T>;
+  /** Descriptor 使用的底层 Overlay 记录。 */
   readonly overlay: OverlayRecord<T>;
+  /** 固定线元素 ID。 */
   readonly lineId: string;
+  /** 固定线是否已经写入元素仓库。 */
   lineAttached: boolean;
+  /** 当前固定线动画句柄。 */
   animation: AnimationControlHandle | undefined;
+  /** Descriptor 动作订阅释放函数。 */
   actionDisposer: (() => void) | undefined;
+  /** Descriptor 拖动订阅释放函数。 */
   dragDisposer: (() => void) | undefined;
+  /** 当前实际渲染坐标。 */
   renderPosition: Coordinate;
+  /** 固定像素模式下保存的像素位置。 */
   fixedPixel: Pixel | undefined;
+  /** 当前拖动状态。 */
   dragState: DescriptorDragState | undefined;
+  /** 当前销毁阶段。 */
   phase: 'active' | 'destroying' | 'destroyed';
+  /** 当前待提交更新的互斥标记。 */
   pendingMutation: object | undefined;
+  /** 关闭动作是否已进入处理流程。 */
   closeArmed: boolean;
+  /** 是否正在关闭 Descriptor。 */
   closing: boolean;
+  /** Descriptor 事件监听器。 */
   readonly listeners: { readonly click: Set<(event: InternalDescriptorEvent<T>) => void>; readonly close: Set<(event: InternalDescriptorEvent<T>) => void> };
 }
 
+/** Overlay 支持的定位方式。 */
 const positioningValues: ReadonlySet<string> = new Set([
   'bottom-left',
   'bottom-center',
@@ -411,24 +476,42 @@ const positioningValues: ReadonlySet<string> = new Set([
   'top-right'
 ]);
 
+/** 统一管理普通 Overlay 与 Descriptor 的生命周期和渲染同步。 */
 export class OverlayService {
+  /** 底层 Overlay 端口。 */
   readonly #port: OverlayPort;
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 固定线动画控制端口。 */
   readonly #animations: AnimationControlPort;
+  /** 可选的 ID 生成器。 */
   readonly #createId: (() => string) | undefined;
+  /** Overlay 错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** Descriptor 固定线所属图层。 */
   readonly #descriptorLayerId: string;
+  /** 按 ID 保存的全部 Overlay 记录。 */
   readonly #records = new Map<string, OverlayRecord>();
+  /** 按 ID 保存的 Descriptor 记录。 */
   readonly #descriptors = new Map<string, DescriptorRecord>();
+  /** 固定线 ID 到 Descriptor 的索引。 */
   readonly #descriptorByLine = new Map<string, DescriptorRecord>();
+  /** 需要布局同步的 Descriptor ID。 */
   readonly #layoutIds = new Set<string>();
+  /** 元素仓库订阅释放函数。 */
   readonly #storeDisposer: () => void;
+  /** Overlay 布局订阅释放函数。 */
   #layoutDisposer: (() => void) | undefined;
+  /** 下一个自动生成的 ID。 */
   #nextId = 0;
+  /** 服务是否已销毁。 */
   #disposed = false;
+  /** 是否正在执行不可重入的变更。 */
   #mutating = false;
+  /** 自定义选择器断言的调用深度。 */
   #selectorDepth = 0;
 
+  /** 创建 Overlay 服务并订阅元素变化。 */
   constructor(port: OverlayPort, store: ElementStore, animations: AnimationControlPort, options: OverlayServiceOptions = {}) {
     this.#port = port;
     this.#store = store;
@@ -441,6 +524,7 @@ export class OverlayService {
     this.#storeDisposer = this.#store.subscribe((changes) => this.#onElementChanges(changes));
   }
 
+  /** 创建并挂载普通 Overlay。 */
   add<T>(spec: InternalOverlaySpec<T>): OverlayHandle<T> {
     return this.#mutation(() => {
       const state = normalizeSpec(spec, this.#generateId.bind(this));
@@ -452,6 +536,7 @@ export class OverlayService {
     });
   }
 
+  /** 创建并挂载 Descriptor。 */
   createDescriptor<T>(spec: InternalDescriptorSpec<T>): DescriptorHandle<T> {
     return this.#mutation(() => {
       const normalized = normalizeDescriptorSpec(spec, this.#generateId.bind(this));
@@ -552,7 +637,7 @@ export class OverlayService {
         try {
           runFinalizers(finalizers);
         } catch {
-          // Creation always preserves the initiating failure after attempting every rollback.
+          // 尝试全部回滚后仍保留创建阶段的原始异常。
         }
         record.phase = 'destroyed';
         record.lineAttached = false;
@@ -562,12 +647,14 @@ export class OverlayService {
     });
   }
 
+  /** 获取指定 ID 的普通 Overlay 句柄。 */
   get<T>(id: string): OverlayHandle<T> | undefined {
     this.#assertActive();
     assertId(id, 'Overlay id');
     return this.#records.get(id)?.handle as OverlayHandle<T> | undefined;
   }
 
+  /** 查询匹配的普通 Overlay 句柄。 */
   query<T>(selector?: InternalOverlaySelector<T>): readonly OverlayHandle<T>[] {
     this.#assertActive();
     const normalized = normalizeSelector(selector);
@@ -593,6 +680,7 @@ export class OverlayService {
     return Object.freeze(matches);
   }
 
+  /** 移除匹配的普通 Overlay。 */
   remove(selector: InternalOverlaySelector): number {
     assertDestructiveSelector(selector);
     const selected = [...this.query(selector)];
@@ -612,12 +700,14 @@ export class OverlayService {
     return selected.length;
   }
 
+  /** 清除服务管理的全部 Overlay 和 Descriptor。 */
   clear(): void {
     this.#assertActive();
     const handles = [...this.#records.values()].map(({ handle }) => handle);
     runFinalizers(handles.map((handle) => () => handle.destroy()));
   }
 
+  /** 销毁服务并释放全部底层资源。 */
   destroy(): void {
     if (this.#disposed) return;
     this.#assertCanMutate();
@@ -641,10 +731,12 @@ export class OverlayService {
     if (error !== undefined) throw error;
   }
 
+  /** 立即提交普通 Overlay 更新。 */
   #update<T>(id: string, generation: object, patch: InternalOverlayPatch<T>): void {
     this.#prepareUpdate(id, generation, patch).commit();
   }
 
+  /** 准备普通 Overlay 的可提交更新。 */
   #prepareUpdate<T>(id: string, generation: object, patch: InternalOverlayPatch<T>): import('./OverlayHandle.js').OverlayUpdateReceipt {
     return this.#mutation(() => {
       const record = this.#requireRecord<T>(id, generation);
@@ -700,6 +792,7 @@ export class OverlayService {
     });
   }
 
+  /** 更新普通 Overlay 的地图坐标。 */
   #setPosition(id: string, generation: object, position: Coordinate | undefined): void {
     const descriptor = this.#records.get(id)?.descriptor;
     if (descriptor !== undefined && descriptor.generation === generation && descriptor.phase === 'active') {
@@ -710,6 +803,7 @@ export class OverlayService {
     this.#update(id, generation, { position, visible: position !== undefined });
   }
 
+  /** 更新普通 Overlay 的可见状态。 */
   #setVisible(id: string, generation: object, visible: boolean): void {
     const record = this.#requireRecord(id, generation);
     if (record.descriptor !== undefined) {
@@ -720,6 +814,7 @@ export class OverlayService {
     this.#update(id, generation, { visible });
   }
 
+  /** 请求将普通 Overlay 平移到视野内。 */
   #panIntoView(id: string, generation: object, options?: CorePanIntoViewSpec): void {
     this.#assertCanMutate();
     const record = this.#requireRecord(id, generation);
@@ -727,6 +822,7 @@ export class OverlayService {
     this.#port.panIntoView(id, normalizePan(options, 'Pan options'));
   }
 
+  /** 销毁指定代次的普通 Overlay。 */
   #destroyByGeneration(id: string, generation: object): void {
     this.#assertCanMutate();
     const record = this.#records.get(id);
@@ -753,11 +849,13 @@ export class OverlayService {
     if (failed) throw firstError;
   }
 
+  /** 判断普通 Overlay 句柄是否仍指向当前记录。 */
   #isCurrent(id: string, generation: object): boolean {
     const record = this.#records.get(id);
     return !this.#disposed && record?.generation === generation && record.phase === 'active';
   }
 
+  /** 创建普通 Overlay 记录及其句柄控制器。 */
   #createOverlayRecord<T>(state: Readonly<InternalOverlayState<T>>, generation: object = Object.freeze({})): OverlayRecord<T> {
     const handle = new OverlayHandle<T>({
       id: state.id,
@@ -773,6 +871,7 @@ export class OverlayService {
     return { state, generation, handle, phase: 'active', pendingMutation: undefined, descriptor: undefined };
   }
 
+  /** 读取并校验当前普通 Overlay 记录。 */
   #requireRecord<T>(id: string, generation: object): OverlayRecord<T> {
     this.#assertActive();
     const record = this.#records.get(id);
@@ -783,6 +882,7 @@ export class OverlayService {
     return record as OverlayRecord<T>;
   }
 
+  /** 校验普通 Overlay 更新仍处于待提交状态。 */
   #assertPending<T>(record: OverlayRecord<T>, token: object): void {
     this.#assertActive();
     if (record.phase !== 'active' || this.#records.get(record.state.id) !== record || record.pendingMutation !== token) {
@@ -790,10 +890,12 @@ export class OverlayService {
     }
   }
 
+  /** 准备指定 Descriptor 的可提交更新。 */
   #prepareDescriptorUpdate<T>(id: string, generation: object, patch: InternalDescriptorPatch<T>): import('./DescriptorHandle.js').DescriptorUpdateReceipt {
     return this.#mutation(() => this.#prepareDescriptorUpdateCore(this.#requireDescriptor<T>(id, generation), patch));
   }
 
+  /** 计算 Descriptor 更新涉及的底层资源变更。 */
   #prepareDescriptorUpdateCore<T>(record: DescriptorRecord<T>, patch: InternalDescriptorPatch<T>): import('./DescriptorHandle.js').DescriptorUpdateReceipt {
     const normalized = applyDescriptorPatch(record.state, record.callbacks, patch);
     const beforeState = record.state;
@@ -888,7 +990,7 @@ export class OverlayService {
       try {
         runFinalizers(rollback);
       } catch {
-        // Preserve the initiating adapter/store failure.
+        // 保留适配器或元素仓库触发的原始异常。
       }
       throw error;
     }
@@ -963,14 +1065,17 @@ export class OverlayService {
     };
   }
 
+  /** 更新 Descriptor 的地图坐标。 */
   #setDescriptorPosition(id: string, generation: object, position: Coordinate): void {
     this.#prepareDescriptorUpdate(id, generation, { position }).commit();
   }
 
+  /** 更新指定 Descriptor 的可见状态。 */
   #setDescriptorVisible(id: string, generation: object, visible: boolean): void {
     this.#mutation(() => this.#setDescriptorVisibleCore(this.#requireDescriptor(id, generation), visible));
   }
 
+  /** 更新 Descriptor 记录及关联 Overlay 的可见状态。 */
   #setDescriptorVisibleCore<T>(record: DescriptorRecord<T>, visible: boolean): void {
     if (record.state.visible === visible) {
       if (visible) record.closeArmed = true;
@@ -988,7 +1093,7 @@ export class OverlayService {
       try {
         this.#port.update(afterRender, beforeRender);
       } catch {
-        // Preserve the Store failure.
+        // 保留元素仓库触发的原始异常。
       }
       throw error;
     }
@@ -998,10 +1103,12 @@ export class OverlayService {
     else record.dragState = undefined;
   }
 
+  /** 执行指定 Descriptor 的关闭行为。 */
   #closeDescriptor(id: string, generation: object): void {
     this.#mutation(() => this.#closeDescriptorCore(id, generation));
   }
 
+  /** 在变更作用域内执行 Descriptor 关闭。 */
   #closeDescriptorCore(id: string, generation: object): void {
     const record = this.#requireDescriptor(id, generation);
     if (!record.state.visible || !record.closeArmed || record.closing) return;
@@ -1024,6 +1131,7 @@ export class OverlayService {
     }
   }
 
+  /** 订阅指定 Descriptor 的内部事件。 */
   #subscribeDescriptor<T>(id: string, generation: object, type: 'click' | 'close', listener: (event: InternalDescriptorEvent<T>) => void): () => void {
     const record = this.#requireDescriptor<T>(id, generation);
     if (typeof listener !== 'function') throw new InvalidArgumentError('Descriptor listener must be a function');
@@ -1037,6 +1145,7 @@ export class OverlayService {
     };
   }
 
+  /** 处理底层 Descriptor 点击或关闭动作。 */
   #onDescriptorAction(id: string, generation: object, action: DescriptorPortAction): void {
     const record = this.#descriptors.get(id);
     if (record === undefined || record.generation !== generation || record.phase !== 'active') return;
@@ -1064,6 +1173,7 @@ export class OverlayService {
     }
   }
 
+  /** 处理底层 Descriptor 拖动事件。 */
   #onDescriptorDrag(id: string, generation: object, event: OverlayDragEvent): void {
     const record = this.#descriptors.get(id);
     if (record === undefined || record.generation !== generation || record.phase !== 'active' || !record.state.draggable || !record.state.visible) return;
@@ -1085,6 +1195,7 @@ export class OverlayService {
     }
   }
 
+  /** 销毁指定代次的 Descriptor。 */
   #destroyDescriptorByGeneration(id: string, generation: object): void {
     this.#assertCanMutate();
     const record = this.#descriptors.get(id);
@@ -1092,6 +1203,7 @@ export class OverlayService {
     this.#destroyDescriptor(record);
   }
 
+  /** 销毁 Descriptor 记录及关联资源。 */
   #destroyDescriptor<T>(record: DescriptorRecord<T>): void {
     if (record.phase !== 'active') return;
     record.phase = 'destroying';
@@ -1132,11 +1244,13 @@ export class OverlayService {
     if (failure !== undefined) throw failure;
   }
 
+  /** 判断 Descriptor 句柄是否仍指向当前记录。 */
   #isDescriptorCurrent(id: string, generation: object): boolean {
     const record = this.#descriptors.get(id);
     return !this.#disposed && record?.generation === generation && record.phase === 'active';
   }
 
+  /** 读取并校验当前 Descriptor 记录。 */
   #requireDescriptor<T>(id: string, generation: object): DescriptorRecord<T> {
     this.#assertActive();
     const record = this.#descriptors.get(id);
@@ -1147,6 +1261,7 @@ export class OverlayService {
     return record as DescriptorRecord<T>;
   }
 
+  /** 校验 Descriptor 更新仍处于待提交状态。 */
   #assertDescriptorPending<T>(record: DescriptorRecord<T>, token: object): void {
     this.#assertActive();
     if (record.phase !== 'active' || this.#descriptors.get(record.state.id) !== record || record.pendingMutation !== token) {
@@ -1154,6 +1269,7 @@ export class OverlayService {
     }
   }
 
+  /** 将 Descriptor 加入布局同步集合。 */
   #acquireLayout(id: string): void {
     if (this.#layoutIds.has(id)) return;
     if (this.#layoutDisposer === undefined) {
@@ -1166,6 +1282,7 @@ export class OverlayService {
     this.#layoutIds.add(id);
   }
 
+  /** 将 Descriptor 移出布局同步集合。 */
   #leaveLayout(id: string): void {
     if (!this.#layoutIds.delete(id) || this.#layoutIds.size > 0) return;
     const dispose = this.#layoutDisposer;
@@ -1173,6 +1290,7 @@ export class OverlayService {
     this.#layoutDisposer = undefined;
   }
 
+  /** 响应底层布局变化并同步相关 Descriptor。 */
   #onLayout(): void {
     for (const id of [...this.#layoutIds]) {
       const record = this.#descriptors.get(id);
@@ -1185,6 +1303,7 @@ export class OverlayService {
     }
   }
 
+  /** 同步 Descriptor 渲染坐标和固定线。 */
   #syncDescriptor<T>(record: DescriptorRecord<T>): void {
     if (record.phase !== 'active') return;
     if (record.state.fixedMode === 'pixel') {
@@ -1223,6 +1342,7 @@ export class OverlayService {
     }
   }
 
+  /** 根据元素仓库变化维护 Descriptor 固定线。 */
   #onElementChanges(changes: ElementChangeSet): void {
     for (const change of changes.changes) {
       if (change.kind !== 'remove') continue;
@@ -1236,6 +1356,7 @@ export class OverlayService {
     }
   }
 
+  /** 安全调用 Descriptor 业务回调。 */
   #invokeDescriptorCallback<T>(callback: (event: InternalDescriptorEvent<T>) => void, event: InternalDescriptorEvent<T>, operation: string): void {
     try {
       const result = (callback as (value: InternalDescriptorEvent<T>) => unknown)(event);
@@ -1245,6 +1366,7 @@ export class OverlayService {
     }
   }
 
+  /** 生成未被占用的 Overlay ID。 */
   #generateId(): string {
     const provided = this.#createId?.();
     if (provided !== undefined) return assertId(provided, 'Generated overlay id');
@@ -1254,6 +1376,7 @@ export class OverlayService {
     return candidate;
   }
 
+  /** 在不可重入作用域内执行服务变更。 */
   #mutation<T>(work: () => T): T {
     this.#assertCanMutate();
     this.#mutating = true;
@@ -1264,26 +1387,30 @@ export class OverlayService {
     }
   }
 
+  /** 确保当前允许执行变更操作。 */
   #assertCanMutate(): void {
     this.#assertActive();
     if (this.#selectorDepth > 0) throw new InvalidArgumentError('Overlay selector predicates are read-only');
     if (this.#mutating) throw new InvalidArgumentError('Reentrant overlay mutations are not supported');
   }
 
+  /** 确保 Overlay 服务仍可使用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('OverlayService has been destroyed');
   }
 
+  /** 隔离并上报 Overlay 回调错误。 */
   #report(error: unknown, operation: string): void {
     try {
       const result = this.#errorReporter(error, { source: 'OverlayService', operation });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // Error reporters are isolated from service state.
+      // 错误报告器与服务状态相互隔离。
     }
   }
 }
 
+/** 校验并规范化普通 Overlay 创建配置。 */
 function normalizeSpec<T>(input: InternalOverlaySpec<T>, createId: () => string): Readonly<InternalOverlayState<T>> {
   const spec = inspectRecord(input, 'Overlay spec');
   assertFields(
@@ -1313,6 +1440,7 @@ function normalizeSpec<T>(input: InternalOverlaySpec<T>, createId: () => string)
   return freeze(result);
 }
 
+/** 校验普通 Overlay 补丁并计算下一状态。 */
 function applyPatch<T>(before: Readonly<InternalOverlayState<T>>, input: InternalOverlayPatch<T>): Readonly<InternalOverlayState<T>> {
   const patch = inspectRecord(input, 'Overlay patch');
   assertFields(patch, new Set(['elementRef', 'position', 'offset', 'positioning', 'visible', 'data', 'ownership']), 'Overlay patch');
@@ -1334,6 +1462,7 @@ function applyPatch<T>(before: Readonly<InternalOverlayState<T>>, input: Interna
   return freeze(result);
 }
 
+/** 校验并复制普通 Overlay 选择器。 */
 function normalizeSelector<T>(selector?: InternalOverlaySelector<T>): InternalOverlaySelector<T> {
   if (selector === undefined) return {};
   const record = inspectRecord(selector, 'Overlay selector');
@@ -1350,6 +1479,7 @@ function normalizeSelector<T>(selector?: InternalOverlaySelector<T>): InternalOv
   };
 }
 
+/** 断言移除操作使用了明确的选择条件。 */
 function assertDestructiveSelector(selector: InternalOverlaySelector): void {
   if (selector === null || typeof selector !== 'object' || Array.isArray(selector)) throw new InvalidSelectorError();
   const normalized = normalizeSelector(selector);
@@ -1364,14 +1494,17 @@ function assertDestructiveSelector(selector: InternalOverlaySelector): void {
   }
 }
 
+/** 将内部 Overlay 状态转换为底层渲染状态。 */
 function toRenderState(state: Readonly<InternalOverlayState>): Readonly<OverlayRenderState> {
   return state;
 }
 
+/** 比较两个内部 Overlay 状态是否一致。 */
 function sameState(left: Readonly<InternalOverlayState>, right: Readonly<InternalOverlayState>): boolean {
   return sameRenderState(left, right) && left.module === right.module && left.data === right.data && left.kind === right.kind;
 }
 
+/** 比较两个底层 Overlay 渲染状态是否一致。 */
 function sameRenderState(left: Readonly<OverlayRenderState>, right: Readonly<OverlayRenderState>): boolean {
   return (
     left.id === right.id &&
@@ -1388,12 +1521,14 @@ function sameRenderState(left: Readonly<OverlayRenderState>, right: Readonly<Ove
   );
 }
 
+/** 规范化自动平移配置。 */
 function normalizeAutoPan(value: unknown): false | CorePanIntoViewSpec {
   if (value === undefined || value === false) return false;
   if (value === true) return freeze({});
   return normalizePan(value, 'Overlay autoPan') ?? freeze({});
 }
 
+/** 校验并规范化平移到视野内的配置。 */
 function normalizePan(value: unknown, label: string): CorePanIntoViewSpec | undefined {
   if (value === undefined) return undefined;
   const record = inspectRecord(value, label);
@@ -1407,11 +1542,13 @@ function normalizePan(value: unknown, label: string): CorePanIntoViewSpec | unde
   });
 }
 
+/** 克隆并冻结 Overlay 业务数据。 */
 function snapshotData<T>(value: T): Readonly<T> | undefined {
   if (value === undefined) return undefined;
   return freeze(cloneCoreState(value));
 }
 
+/** 校验可选的二维或三维地图坐标。 */
 function coordinate(value: unknown, label: string): Coordinate | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || (value.length !== 2 && value.length !== 3) || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
@@ -1420,48 +1557,57 @@ function coordinate(value: unknown, label: string): Coordinate | undefined {
   return Object.freeze([...value]) as Coordinate;
 }
 
+/** 校验二维像素坐标。 */
 function pixel(value: unknown, label: string): Pixel {
   const result = coordinate(value, label);
   if (result === undefined || result.length !== 2) throw new InvalidArgumentError(`${label} must contain two finite numbers`);
   return result;
 }
 
+/** 校验 Overlay 定位方式。 */
 function positioning(value: unknown): CoreOverlayPositioning {
   if (typeof value !== 'string' || !positioningValues.has(value)) throw new InvalidArgumentError('Overlay positioning is invalid');
   return value as CoreOverlayPositioning;
 }
 
+/** 校验原生元素引用所有权。 */
 function ownership(value: unknown): CoreOverlayOwnership {
   if (value !== 'external' && value !== 'earth') throw new InvalidArgumentError('Overlay ownership must be external or earth');
   return value;
 }
 
+/** 读取布尔值。 */
 function booleanValue(value: unknown, label: string): boolean {
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
   return value;
 }
 
+/** 读取非负有限数字。 */
 function nonNegative(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new InvalidArgumentError(`${label} must be a non-negative finite number`);
   return value;
 }
 
+/** 读取可选字符串。 */
 function optionalString(value: unknown, label: string): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') throw new InvalidArgumentError(`${label} must be a string`);
   return value;
 }
 
+/** 校验非空 ID。 */
 function assertId(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 校验并冻结 ID 数组。 */
 function idArray(value: unknown, label: string): readonly string[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be an array`);
   return Object.freeze(value.map((id) => assertId(id, label)));
 }
 
+/** 安全读取普通对象的数据属性。 */
 function inspectRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {
@@ -1480,26 +1626,31 @@ function inspectRecord(value: unknown, label: string): Record<PropertyKey, unkno
   }
 }
 
+/** 断言记录只包含允许字段。 */
 function assertFields(value: Record<PropertyKey, unknown>, allowed: ReadonlySet<string>, label: string): void {
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string' || !allowed.has(key)) throw new InvalidArgumentError(`Unknown ${label} field: ${String(key)}`);
   }
 }
 
+/** 读取普通 Overlay 创建配置的必填字段。 */
 function required(value: Record<PropertyKey, unknown>, key: string): unknown {
   if (!hasOwn(value, key)) throw new InvalidArgumentError(`Overlay spec requires ${key}`);
   return value[key];
 }
 
+/** 判断对象是否拥有指定自有属性。 */
 function hasOwn(value: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+/** 比较两个数字元组是否一致。 */
 function tupleEqual(left: readonly number[] | undefined, right: readonly number[] | undefined): boolean {
   if (left === right) return true;
   return left !== undefined && right !== undefined && left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+/** 递归冻结可冻结的数据对象。 */
 function freeze<T>(value: T, seen = new WeakSet<object>()): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value) || seen.has(value)) return value;
   seen.add(value);
@@ -1510,6 +1661,7 @@ function freeze<T>(value: T, seen = new WeakSet<object>()): T {
   return Object.freeze(value);
 }
 
+/** 创建无需执行工作的 Overlay 更新回执。 */
 function noOpReceipt(): import('./OverlayHandle.js').OverlayUpdateReceipt {
   return Object.freeze({ commit() {}, rollback() {} });
 }

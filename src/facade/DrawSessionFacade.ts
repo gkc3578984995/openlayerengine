@@ -11,9 +11,13 @@ import type { DrawSession, DrawSessionEventMap } from './drawTypes.js';
  * @internal
  */
 export class DrawSessionFacade<T = unknown> implements DrawSession<T> {
+  /** 执行实际绘制工作的内部会话。 */
   readonly #session: InternalDrawSession<T>;
+  /** 按 ID 获取公开元素句柄。 */
   readonly #elements: ElementService;
+  /** 保存已经完成且仍有效的元素句柄。 */
   readonly #completedElements = new Map<string, Element<T>>();
+  /** 会话结束后得到的有效元素列表。 */
   readonly finished: Promise<readonly Element<T>[]>;
 
   /**
@@ -31,34 +35,42 @@ export class DrawSessionFacade<T = unknown> implements DrawSession<T> {
     this.finished = session.finished.then((states) => this.#elementsFor(states.map(({ id }) => id)));
   }
 
+  /** 返回当前绘制会话状态。 */
   get status(): DrawSession<T>['status'] {
     return this.#session.status;
   }
 
+  /** 返回本次会话已经完成且仍存在的元素。 */
   get results(): DrawSession<T>['results'] {
     return this.#elementsFor(this.#session.results.map(({ id }) => id));
   }
 
+  /** 完成本次绘制会话。 */
   finish(): void {
     this.#session.finish();
   }
 
+  /** 取消本次绘制会话。 */
   cancel(): void {
     this.#session.cancel();
   }
 
+  /** 销毁会话并释放交互资源。 */
   destroy(): void {
     this.#session.destroy();
   }
 
+  /** 撤销上一步绘制操作。 */
   undo(): boolean {
     return this.#session.undo();
   }
 
+  /** 恢复上一步被撤销的绘制操作。 */
   redo(): boolean {
     return this.#session.redo();
   }
 
+  /** 监听绘制事件，并把内部状态转换为公开元素。 */
   on<K extends keyof DrawSessionEventMap<T>>(type: K, listener: (event: DrawSessionEventMap<T>[K]) => void): () => void {
     if (typeof listener !== 'function') throw new InvalidArgumentError('Draw session listener must be a function');
     if (type === 'complete') {
@@ -71,6 +83,7 @@ export class DrawSessionFacade<T = unknown> implements DrawSession<T> {
     return this.#session.on(type, listener as unknown as (event: InternalDrawSessionEventMap<T>[K]) => void);
   }
 
+  /** 按 ID 收集仍属于本次会话的有效元素。 */
   #elementsFor(ids: readonly string[]): DrawSession<T>['results'] {
     return Object.freeze(
       ids.flatMap((id) => {

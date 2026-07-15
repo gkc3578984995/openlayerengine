@@ -15,69 +15,121 @@ import { AnimationHandleImpl } from './AnimationHandle.js';
 import type { AnimationRegistry } from './AnimationRegistry.js';
 import type { AnimationDefinition, AnimationHandle, AnimationManager } from './types.js';
 
+/** 构造动画管理器所需的依赖。 */
 export interface AnimationManagerDependencies {
+  /** 元素状态仓库。 */
   readonly store: ElementStore;
+  /** 图形定义注册表。 */
   readonly shapes: ShapeRegistry;
+  /** 图层渲染端口。 */
   readonly render: LayerRenderPort;
+  /** 可选的动画定义注册表。 */
   readonly registry?: AnimationRegistry;
+  /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
 }
 
+/** 保存一个动画句柄及其管理的记录。 */
 interface HandleRecord {
+  /** 动画句柄实现。 */
   readonly handle: AnimationHandleImpl;
+  /** 归属于该句柄的动画记录 ID。 */
   readonly recordIds: Set<string>;
 }
 
+/** 元素动画与临时动画共享的运行状态。 */
 interface BaseRecord {
+  /** 动画记录 ID。 */
   readonly id: string;
+  /** 用于替换同目标动画的唯一键。 */
   readonly key: string;
+  /** 所属动画句柄 ID。 */
   readonly handleId: string;
+  /** 渲染通道。 */
   readonly channel: string;
+  /** 当前渲染图层 ID。 */
   layerId: string;
+  /** 已累计的动画时间。 */
   elapsedMs: number;
+  /** 上一帧时间。 */
   lastFrameTime: number | undefined;
+  /** 选择器暂停的嵌套层数。 */
   selectorPauseDepth: number;
+  /** 是否被句柄暂停。 */
   handlePaused: boolean;
+  /** 动画目标是否隐藏。 */
   hidden: boolean;
+  /** 动画结束后是否保留最终渲染值。 */
   retained: boolean;
 }
 
+/** 绑定到元素状态的动画记录。 */
 interface ElementRecord extends BaseRecord {
+  /** 元素动画类型标记。 */
   readonly kind: 'element';
+  /** 目标元素 ID。 */
   readonly elementId: string;
+  /** 动画类型定义。 */
   readonly definition: AnimationDefinition;
+  /** 规范化后的动画配置。 */
   readonly spec: AnimationSpec;
 }
 
+/** 绑定到临时渲染目标的动画记录。 */
 interface TransientRecord extends BaseRecord {
+  /** 临时动画类型标记。 */
   readonly kind: 'transient';
+  /** 临时动画所有者 ID。 */
   readonly ownerId: string;
+  /** 临时渲染目标 ID。 */
   readonly targetId: string;
+  /** 闪烁动画配置。 */
   readonly spec: TransientAnimationSpec['animation'];
 }
 
+/** 动画管理器持有的记录联合类型。 */
 type ManagedRecord = ElementRecord | TransientRecord;
+/** 动画记录的终止状态。 */
 type TerminalStatus = Extract<AnimationStatus, 'stopped' | 'finished'>;
 
+/** 统一管理元素动画、临时动画、预览状态和图层渲染循环。 */
 export class AnimationManagerImpl implements AnimationManager, AnimationControlPort, AnimationPreviewPort, TransientAnimationPort {
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 图形定义注册表。 */
   readonly #shapes: ShapeRegistry;
+  /** 图层渲染端口。 */
   readonly #render: LayerRenderPort;
+  /** 动画定义注册表。 */
   readonly #registry: AnimationRegistry;
+  /** 动画错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 当前活动动画句柄。 */
   readonly #handles = new Map<string, HandleRecord>();
+  /** 当前活动动画记录。 */
   readonly #records = new Map<string, ManagedRecord>();
+  /** 唯一记录键到记录 ID 的映射。 */
   readonly #recordKeys = new Map<string, string>();
+  /** 各图层的渲染循环。 */
   readonly #passes = new Map<string, LayerRenderLoopHandle>();
+  /** Transform 等交互提供的元素预览状态。 */
   readonly #previews = new Map<string, Readonly<ElementState>>();
+  /** 元素仓库订阅释放函数。 */
   readonly #unsubscribeStore: () => void;
+  /** 下一个动画句柄 ID。 */
   #nextHandleId = 0;
+  /** 下一个动画记录 ID。 */
   #nextRecordId = 0;
+  /** 管理器是否已销毁。 */
   #disposed = false;
+  /** 是否正在执行销毁流程。 */
   #destroying = false;
+  /** 是否已请求销毁。 */
   #destroyRequested = false;
+  /** 元素仓库订阅是否仍有效。 */
   #storeSubscribed = true;
 
+  /** 创建动画管理器并订阅元素变化。 */
   constructor(dependencies: AnimationManagerDependencies) {
     if (dependencies.errorReporter !== undefined && typeof dependencies.errorReporter !== 'function') {
       throw new InvalidArgumentError('Animation errorReporter must be a function');
@@ -90,14 +142,17 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
   }
 
+  /** 返回当前活动动画记录数量。 */
   get activeCount(): number {
     return this.#records.size;
   }
 
+  /** 返回当前活动渲染图层数量。 */
   get activeLayerCount(): number {
     return this.#passes.size;
   }
 
+  /** 为匹配元素启动结构化动画。 */
   play(selector: ElementSelector, input: AnimationSpec): AnimationHandle {
     this.#assertActive();
     const safeSelector = normalizeElementSelector(selector);
@@ -148,6 +203,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
   }
 
+  /** 为临时渲染目标启动闪烁动画。 */
   playTransient(spec: TransientAnimationSpec): TransientAnimationHandle {
     this.#assertActive();
     const safe = normalizeTransient(spec);
@@ -187,6 +243,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
   }
 
+  /** 暂停匹配元素指定通道的动画。 */
   pause(selector: ElementSelector, channels?: readonly AnimationChannel[]): number {
     this.#assertActive();
     const records = this.#matchingElementRecords(selector, channels);
@@ -200,6 +257,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     return records.length;
   }
 
+  /** 恢复匹配元素指定通道的动画。 */
   resume(selector: ElementSelector, channels?: readonly AnimationChannel[]): number {
     this.#assertActive();
     const records = this.#matchingElementRecords(selector, channels).filter(({ selectorPauseDepth }) => selectorPauseDepth > 0);
@@ -213,6 +271,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     return records.length;
   }
 
+  /** 停止匹配元素指定通道的动画。 */
   stop(selector: ElementSelector, channels?: readonly AnimationChannel[]): number {
     this.#assertActive();
     const records = this.#matchingElementRecords(selector, channels);
@@ -223,6 +282,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     return records.length;
   }
 
+  /** 停止指定所有者的全部临时动画。 */
   stopTransient(ownerId: string): number {
     this.#assertActive();
     const safeOwner = nonEmptyString(ownerId, 'Transient animation ownerId');
@@ -234,12 +294,14 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     return records.length;
   }
 
+  /** 停止管理器中的全部动画。 */
   stopAll(): void {
     if (this.#disposed && !this.#destroying) return;
     for (const record of [...this.#records.values()]) this.#removeRecord(record, 'stopped');
     this.#syncPasses();
   }
 
+  /** 设置交互期间优先使用的元素预览状态。 */
   setPreview(state: Readonly<ElementState>): void {
     this.#assertActive();
     if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Animation preview must be an Element state');
@@ -262,6 +324,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#requestLayers(affectedLayers);
   }
 
+  /** 清除指定元素的预览状态。 */
   clearPreview(elementId: string): void {
     this.#assertActive();
     const safeId = nonEmptyString(elementId, 'Animation preview Element id');
@@ -283,6 +346,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#requestLayers(affectedLayers);
   }
 
+  /** 通过句柄 ID 暂停动画组。 */
   pauseHandle(id: string): void {
     const group = this.#handles.get(id);
     if (group === undefined) return;
@@ -296,6 +360,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#requestLayers(new Set(records.map(({ layerId }) => layerId)));
   }
 
+  /** 通过句柄 ID 恢复动画组。 */
   resumeHandle(id: string): void {
     const group = this.#handles.get(id);
     if (group === undefined) return;
@@ -309,6 +374,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#requestLayers(new Set(records.map(({ layerId }) => layerId)));
   }
 
+  /** 通过句柄 ID 停止动画组。 */
   stopHandle(id: string): void {
     const group = this.#handles.get(id);
     if (group === undefined) return;
@@ -320,6 +386,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#requestLayers(layers);
   }
 
+  /** 销毁动画记录、渲染循环和仓库订阅。 */
   destroy(): void {
     if (this.#disposed || this.#destroying) return;
     this.#destroying = true;
@@ -339,6 +406,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
   }
 
+  /** 创建动画句柄并在需要时登记。 */
   #createHandle(status: AnimationStatus): AnimationHandleImpl {
     const id = `animation-${++this.#nextHandleId}`;
     const handle = new AnimationHandleImpl(
@@ -354,6 +422,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     return handle;
   }
 
+  /** 将动画记录加入句柄和索引。 */
   #addRecord(record: ManagedRecord): void {
     const group = this.#handles.get(record.handleId);
     if (group === undefined) throw new ObjectDisposedError(`Animation handle is unavailable: ${record.handleId}`);
@@ -362,12 +431,14 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     group.recordIds.add(record.id);
   }
 
+  /** 停止并替换使用相同唯一键的动画。 */
   #replaceRecord(key: string): void {
     const id = this.#recordKeys.get(key);
     const record = id === undefined ? undefined : this.#records.get(id);
     if (record !== undefined) this.#removeRecord(record, 'stopped');
   }
 
+  /** 移除动画记录并刷新所属句柄。 */
   #removeRecord(record: ManagedRecord, status: TerminalStatus): void {
     if (!this.#records.delete(record.id)) return;
     if (this.#recordKeys.get(record.key) === record.id) this.#recordKeys.delete(record.key);
@@ -378,6 +449,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     else if (group !== undefined) this.#refreshHandle(record.handleId);
   }
 
+  /** 完成动画记录，并按定义决定是否保留结果。 */
   #finishRecord(record: ManagedRecord, retain: boolean, status: TerminalStatus): void {
     if (retain) {
       record.retained = true;
@@ -388,6 +460,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#removeRecord(record, status);
   }
 
+  /** 将动画句柄置为终态并按需移除。 */
   #terminateHandle(id: string, status: TerminalStatus): void {
     const group = this.#handles.get(id);
     if (group === undefined) return;
@@ -395,10 +468,12 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     if (group.recordIds.size === 0) this.#handles.delete(id);
   }
 
+  /** 刷新一组动画记录所属的句柄状态。 */
   #refreshHandles(records: readonly ManagedRecord[]): void {
     for (const id of new Set(records.map(({ handleId }) => handleId))) this.#refreshHandle(id);
   }
 
+  /** 根据动画记录刷新单个句柄状态。 */
   #refreshHandle(id: string): void {
     const group = this.#handles.get(id);
     if (group === undefined) return;
@@ -411,6 +486,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     group.handle.setStatus(active.some((record) => this.#isRunning(record)) ? 'running' : 'paused');
   }
 
+  /** 返回句柄当前仍管理的动画记录。 */
   #recordsFor(group: HandleRecord): ManagedRecord[] {
     return [...group.recordIds].flatMap((id) => {
       const record = this.#records.get(id);
@@ -418,6 +494,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     });
   }
 
+  /** 查找选择器和通道匹配的元素动画记录。 */
   #matchingElementRecords(selector: ElementSelector, channels: readonly AnimationChannel[] | undefined): ElementRecord[] {
     const safeSelector = normalizeElementSelector(selector);
     const channelSet = normalizeChannels(channels);
@@ -428,10 +505,12 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     );
   }
 
+  /** 查找指定元素的全部动画记录。 */
   #elementRecords(elementId: string): ElementRecord[] {
     return [...this.#records.values()].filter((record): record is ElementRecord => record.kind === 'element' && record.elementId === elementId);
   }
 
+  /** 创建需要的图层渲染循环并清理空闲循环。 */
   #syncPasses(): void {
     const needed = new Set<string>();
     for (const record of this.#records.values()) if (this.#shouldRender(record)) needed.add(record.layerId);
@@ -447,6 +526,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
   }
 
+  /** 计算指定图层当前帧的动画渲染贡献。 */
   #renderLayer(layerId: string, frame: LayerRenderFrame): LayerRenderBatch {
     const contributions: LayerRenderContribution[] = [];
     const finished: Array<{ record: ManagedRecord; retain: boolean; status: TerminalStatus }> = [];
@@ -501,20 +581,24 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     });
   }
 
+  /** 累计动画经过时间。 */
   #advance(record: ManagedRecord, time: number): void {
     if (!Number.isFinite(time)) throw new InvalidArgumentError('Animation frame time must be finite');
     if (record.lastFrameTime !== undefined) record.elapsedMs += Math.max(0, time - record.lastFrameTime);
     record.lastFrameTime = time;
   }
 
+  /** 判断动画记录是否正在推进时间。 */
   #isRunning(record: ManagedRecord): boolean {
     return !record.retained && !record.hidden && !record.handlePaused && record.selectorPauseDepth === 0;
   }
 
+  /** 判断动画记录是否需要参与渲染。 */
   #shouldRender(record: ManagedRecord): boolean {
     return !record.hidden;
   }
 
+  /** 根据元素仓库变化同步动画记录。 */
   #handleStoreChanges(changes: ElementChangeSet): void {
     if (this.#disposed || this.#destroyRequested) return;
     const affectedLayers = new Set<string>();
@@ -540,10 +624,12 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#requestLayers(affectedLayers);
   }
 
+  /** 请求指定图层重新渲染。 */
   #requestLayers(layerIds: ReadonlySet<string>): void {
     for (const layerId of layerIds) this.#passes.get(layerId)?.requestRender();
   }
 
+  /** 安全销毁图层渲染循环。 */
   #destroyPass(pass: LayerRenderLoopHandle): boolean {
     try {
       pass.destroy();
@@ -554,6 +640,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
   }
 
+  /** 隔离并上报动画错误。 */
   #report(error: unknown, operation: string, ownerId?: string): void {
     try {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
@@ -567,11 +654,13 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
   }
 
+  /** 确保动画管理器仍可使用。 */
   #assertActive(): void {
     if (this.#disposed || this.#destroyRequested) throw new ObjectDisposedError('AnimationManager has been destroyed');
   }
 }
 
+/** 从未信任输入中读取动画类型。 */
 function animationType(input: AnimationSpec): AnimationSpec['type'] {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Animation spec must be a plain object');
   const descriptor = Object.getOwnPropertyDescriptor(input, 'type');
@@ -582,6 +671,7 @@ function animationType(input: AnimationSpec): AnimationSpec['type'] {
   return descriptor.value;
 }
 
+/** 校验并冻结元素动画选择器。 */
 function normalizeElementSelector(input: ElementSelector): ElementSelector {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Animation selector must be a plain object');
   const prototype = Object.getPrototypeOf(input);
@@ -614,15 +704,18 @@ function normalizeElementSelector(input: ElementSelector): ElementSelector {
   });
 }
 
+/** 解析动画使用的渲染通道。 */
 function animationChannel(spec: AnimationSpec): string {
   return nonEmptyString(spec.channel ?? spec.type, 'Animation channel');
 }
 
+/** 校验通道数组并转换为集合。 */
 function normalizeChannels(channels: readonly AnimationChannel[] | undefined): ReadonlySet<string> | undefined {
   if (channels === undefined) return undefined;
   return new Set(stringArray(channels, 'Animation channels'));
 }
 
+/** 校验并冻结临时动画配置。 */
 function normalizeTransient(input: TransientAnimationSpec): TransientAnimationSpec {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Transient animation must be a plain object');
   const prototype = Object.getPrototypeOf(input);
@@ -643,6 +736,7 @@ function normalizeTransient(input: TransientAnimationSpec): TransientAnimationSp
   });
 }
 
+/** 严格校验临时闪烁动画配置。 */
 function strictBlinkAnimation(input: TransientAnimationSpec['animation']): TransientAnimationSpec['animation'] {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Transient animation type must be blink');
   const prototype = Object.getPrototypeOf(input);
@@ -661,15 +755,18 @@ function strictBlinkAnimation(input: TransientAnimationSpec['animation']): Trans
   return Object.freeze({ type: 'blink', periodMs: values.periodMs });
 }
 
+/** 读取非空字符串。 */
 function nonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 读取可选的非空字符串。 */
 function optionalNonEmptyString(value: unknown, label: string): string | undefined {
   return value === undefined ? undefined : nonEmptyString(value, label);
 }
 
+/** 校验并冻结非空字符串数组。 */
 function stringArray(value: unknown, label: string): readonly string[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be an array`);
   const result: string[] = [];
@@ -685,10 +782,12 @@ function stringArray(value: unknown, label: string): readonly string[] {
   return Object.freeze(result);
 }
 
+/** 生成元素动画的唯一记录键。 */
 function elementKey(elementId: string, channel: string): string {
   return `element\u0000${elementId}\u0000${channel}`;
 }
 
+/** 生成临时动画的唯一记录键。 */
 function transientKey(layerId: string, targetId: string, channel: string): string {
   return `transient\u0000${layerId}\u0000${targetId}\u0000${channel}`;
 }

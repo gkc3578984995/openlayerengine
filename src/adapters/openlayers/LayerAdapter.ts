@@ -17,44 +17,75 @@ import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/Error
 import type { LayerPort } from '../../core/ports/LayerPort.js';
 import type { NativeRefRegistry } from './NativeRefRegistry.js';
 
+/** 矢量图层使用的要素数据源。 */
 type VectorFeatureSource = VectorSource<Feature<Geometry>>;
+/** 公开瓦片地址回调的签名。 */
 type PublicTileUrlFunction = (coordinate: [z: number, x: number, y: number]) => string;
 
+/** 图层适配器的可选配置。 */
 export interface LayerAdapterOptions {
+  /** 接收适配器内部非致命错误。 */
   readonly errorReporter?: ErrorReporter;
 }
 
+/** 单个已挂载图层及其资源所有权信息。 */
 interface AdapterRecord {
+  /** 核心图层 ID。 */
   readonly id: string;
+  /** 图层类型。 */
   readonly kind: CoreLayerState['kind'];
+  /** 实际 OpenLayers 图层。 */
   readonly layer: BaseLayer;
+  /** 图层是否由 Earth 负责销毁。 */
   readonly layerOwned: boolean;
+  /** 图层是否由适配器创建。 */
   readonly adapterCreatedLayer: boolean;
+  /** 外部资源的所有权是否已经完成交接。 */
   resourceOwnershipActive: boolean;
+  /** 图层使用的数据源。 */
   readonly source?: TileSource | VectorFeatureSource;
+  /** 数据源是独占使用还是可共享。 */
   readonly sourceMode?: 'exclusive' | 'shared';
+  /** 数据源的销毁责任。 */
   readonly sourceOwnership?: LayerOwnership;
+  /** 矢量图层的数据源。 */
   readonly vectorSource?: VectorFeatureSource;
+  /** 图层挂载后的展示状态。 */
   readonly presentation: LayerPresentation;
 }
 
+/** 共享瓦片数据源的引用计数和所有权状态。 */
 interface SharedSourceRecord {
+  /** 数据源的销毁责任。 */
   readonly ownership: LayerOwnership;
+  /** 当前使用该数据源的图层数量。 */
   count: number;
+  /** Earth 是否已经接管数据源所有权。 */
   ownershipTransferred: boolean;
 }
 
+/** 将核心图层配置映射为 OpenLayers 图层和数据源。 */
 export class LayerAdapter implements LayerPort {
+  /** 图层所属的地图。 */
   readonly #map: OlMap;
+  /** 地图根图层集合。 */
   readonly #rootLayers: Collection<BaseLayer>;
+  /** 解析外部传入的原生资源引用。 */
   readonly #nativeRefs: NativeRefRegistry;
+  /** 接收非致命清理和监听器错误。 */
   readonly #errorReporter: ErrorReporter;
+  /** 按 ID 保存已挂载图层。 */
   readonly #records = new Map<string, AdapterRecord>();
+  /** 从任意已注册图层反查图层 ID。 */
   readonly #layerIds = new WeakMap<BaseLayer, string>();
+  /** 从已注册矢量图层反查图层 ID。 */
   readonly #vectorLayerIds = new WeakMap<BaseLayer, string>();
+  /** 跟踪共享瓦片数据源的使用情况。 */
   readonly #sharedSources = new Map<TileSource, SharedSourceRecord>();
+  /** 适配器是否已经销毁。 */
   #disposed = false;
 
+  /** 保存地图、原生引用注册表和错误上报器。 */
   constructor(map: OlMap, nativeRefs: NativeRefRegistry, options: LayerAdapterOptions = {}) {
     this.#map = map;
     this.#rootLayers = map.getLayers();
@@ -62,6 +93,7 @@ export class LayerAdapter implements LayerPort {
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
   }
 
+  /** 创建或解析图层，并将其挂到地图。 */
   attach(spec: Readonly<CoreLayerSpec>): LayerPresentation {
     this.#assertActive();
     if (this.#records.has(spec.id)) throw new InvalidArgumentError(`Layer adapter id already exists: ${spec.id}`);
@@ -103,6 +135,7 @@ export class LayerAdapter implements LayerPort {
     return prepared.presentation;
   }
 
+  /** 标记指定图层的原生资源已经完成所有权交接。 */
   completeResourceHandoff(id: string): void {
     const record = this.#records.get(id);
     if (record === undefined || record.resourceOwnershipActive) return;
@@ -113,6 +146,7 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
+  /** 将核心图层展示状态同步到 OpenLayers 图层。 */
   update(before: Readonly<CoreLayerState>, after: Readonly<CoreLayerState>): void {
     this.#assertActive();
     if (before.id !== after.id || before.kind !== after.kind) throw new InvalidArgumentError('Layer adapter update cannot change id or kind');
@@ -121,6 +155,7 @@ export class LayerAdapter implements LayerPort {
     this.#applyPresentation(record.layer, after);
   }
 
+  /** 从地图移除图层并按所有权清理资源。 */
   detach(id: string): void {
     this.#assertActive();
     const record = this.#records.get(id);
@@ -147,6 +182,7 @@ export class LayerAdapter implements LayerPort {
     this.#releaseSource(record);
   }
 
+  /** 获取指定 ID 对应的 OpenLayers 图层。 */
   requireLayer(id: string): BaseLayer {
     this.#assertActive();
     const layer = this.#records.get(id)?.layer;
@@ -154,6 +190,7 @@ export class LayerAdapter implements LayerPort {
     return layer;
   }
 
+  /** 获取指定矢量图层的数据源。 */
   requireVectorSource(id: string): VectorFeatureSource {
     this.#assertActive();
     const source = this.#records.get(id)?.vectorSource;
@@ -161,32 +198,38 @@ export class LayerAdapter implements LayerPort {
     return source;
   }
 
+  /** 从已注册图层反查核心图层 ID。 */
   layerIdFor(layer: BaseLayer): string | undefined {
     this.#assertActive();
     return this.#layerIds.get(layer);
   }
 
+  /** 从已注册矢量图层反查核心图层 ID。 */
   vectorLayerIdFor(layer: BaseLayer): string | undefined {
     this.#assertActive();
     return this.#vectorLayerIds.get(layer);
   }
 
+  /** 判断图层是否是当前适配器管理的矢量图层。 */
   isRegisteredVectorLayer(layer: BaseLayer): boolean {
     this.#assertActive();
     return this.#vectorLayerIds.has(layer);
   }
 
+  /** 返回当前全部矢量数据源。 */
   vectorSources(): readonly VectorFeatureSource[] {
     this.#assertActive();
     return Object.freeze([...this.#records.values()].flatMap(({ vectorSource }) => (vectorSource === undefined ? [] : [vectorSource])));
   }
 
+  /** 移除全部图层并销毁适配器。 */
   destroy(): void {
     if (this.#disposed) return;
     for (const id of [...this.#records.keys()]) this.detach(id);
     this.#disposed = true;
   }
 
+  /** 根据核心配置准备一个尚未挂载的图层记录。 */
   #prepare(spec: Readonly<CoreLayerSpec>): AdapterRecord {
     if (spec.kind === 'vector') {
       const source = new VectorSource<Feature<Geometry>>({ wrapX: spec.wrapX });
@@ -268,6 +311,7 @@ export class LayerAdapter implements LayerPort {
     };
   }
 
+  /** 确认共享数据源没有混用不同所有权。 */
   #assertSourceOwnership(source: TileSource, ownership: LayerOwnership): void {
     const existing = this.#sharedSources.get(source);
     if (existing !== undefined && existing.ownership !== ownership) {
@@ -275,6 +319,7 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
+  /** 将可见性、不透明度和层级应用到图层。 */
   #applyPresentation(layer: BaseLayer, state: Readonly<CoreLayerState>): void {
     this.#setAndRecover(layer, 'visible', state.visible, () => layer.setVisible(state.visible));
     this.#setAndRecover(layer, 'opacity', state.opacity, () => layer.setOpacity(state.opacity));
@@ -291,6 +336,7 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
+  /** 执行标准 setter，失败时用静默属性写入恢复状态。 */
   #setAndRecover(layer: BaseLayer, key: string, value: unknown, setter: () => void): void {
     try {
       setter();
@@ -300,6 +346,7 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
+  /** 按独占、共享和所有权规则释放数据源。 */
   #releaseSource(record: AdapterRecord): void {
     const source = record.source;
     if (source === undefined) return;
@@ -316,11 +363,13 @@ export class LayerAdapter implements LayerPort {
     if (shared.ownership === 'earth' && shared.ownershipTransferred) this.#attempt(() => source.dispose(), 'dispose-source');
   }
 
+  /** 回滚尚未挂载成功的图层和独占数据源。 */
   #rollbackPrepared(record: AdapterRecord): void {
     if (record.adapterCreatedLayer) this.#disposeRollback(record.layer);
     if (record.sourceMode === 'exclusive' && record.source !== undefined) this.#disposeRollback(record.source);
   }
 
+  /** 尽力销毁回滚过程中的临时资源。 */
   #disposeRollback(value: { dispose(): void }): void {
     try {
       value.dispose();
@@ -329,6 +378,7 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
+  /** 执行清理操作，并把错误交给上报器。 */
   #attempt(work: () => void, operation: string): void {
     try {
       work();
@@ -337,20 +387,23 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
+  /** 安全上报适配器内部错误。 */
   #report(error: unknown, operation: string): void {
     try {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, { source: 'LayerAdapter', operation });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // Reporting cannot compromise the requested adapter state.
+      // 错误上报失败不能破坏已经请求的图层状态。
     }
   }
 
+  /** 确认适配器仍可使用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('LayerAdapter has been destroyed');
   }
 }
 
+/** 生成紧凑目录格式的瓦片地址。 */
 export function compactTileUrl(baseUrl: string, z: number, x: number, y: number): string {
   const base = requireNonEmptyUrl(baseUrl).replace(/\/+$/u, '');
   if (base.length === 0) throw new InvalidArgumentError('Compact tile base URL must not contain only slashes');
@@ -364,6 +417,7 @@ export function compactTileUrl(baseUrl: string, z: number, x: number, y: number)
   return `${base}/L${z.toString(10).padStart(2, '0')}/R${y.toString(16).toUpperCase().padStart(8, '0')}/C${x.toString(16).toUpperCase().padStart(8, '0')}.jpg`;
 }
 
+/** 将公开瓦片回调包装为 OpenLayers URL 获取函数。 */
 export function wrapTileUrlFunction(callback: PublicTileUrlFunction): UrlGetter {
   if (typeof callback !== 'function') throw new InvalidArgumentError('tileUrlFunction must be a function');
   return (z, x, y) => {
@@ -373,6 +427,7 @@ export function wrapTileUrlFunction(callback: PublicTileUrlFunction): UrlGetter 
   };
 }
 
+/** 使用公开瓦片回调创建 ImageTileSource。 */
 export function createCallbackImageTileSource(callback: PublicTileUrlFunction, attributions?: string | readonly string[]): ImageTileSource {
   return new ImageTileSource({
     url: wrapTileUrlFunction(callback),
@@ -380,6 +435,7 @@ export function createCallbackImageTileSource(callback: PublicTileUrlFunction, a
   });
 }
 
+/** 根据内置瓦片配置创建数据源。 */
 function createPresetSource(source: TileSourcePresetState): TileSource {
   if (source.preset === 'osm') return new OSM();
   if (source.preset === 'xyz') {
@@ -391,6 +447,7 @@ function createPresetSource(source: TileSourcePresetState): TileSource {
   return new ImageTileSource({ url: (z, x, y) => compactTileUrl(source.baseUrl, z, x, y) });
 }
 
+/** 读取并校验 OpenLayers 图层的展示状态。 */
 function presentationOf(layer: BaseLayer): LayerPresentation {
   const visible = layer.getVisible();
   const opacity = layer.getOpacity();
@@ -401,12 +458,14 @@ function presentationOf(layer: BaseLayer): LayerPresentation {
   return Object.freeze({ visible, opacity, ...(zIndex === undefined ? {} : { zIndex }) });
 }
 
+/** 递归判断地图中是否已经包含目标图层。 */
 function containsManagedLayer(map: OlMap, target: BaseLayer): boolean {
   const visit = (layers: readonly BaseLayer[]): boolean =>
     layers.some((layer) => layer === target || (layer instanceof LayerGroup && visit(layer.getLayers().getArray())));
   return visit(map.getLayers().getArray()) || map.getAllLayers().some((layer) => layer === target);
 }
 
+/** 读取不能为空的瓦片地址。 */
 function requireNonEmptyUrl(value: unknown): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError('Tile URL must be a non-empty string');
   return value;

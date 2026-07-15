@@ -25,46 +25,81 @@ import type { StyleCompiler } from '../style/StyleCompiler.js';
 import { centerImage, rotateImage, scaleImage, stretchHorizontalImage, stretchVerticalImage, translateImage } from './handleImages.js';
 import { extentCenter, renderExtent, translateRenderGeometry, type TransformExtent } from './PreviewTransform.js';
 
+/** 命中的 Transform 控制手柄信息。 */
 export interface TransformHandleHit {
+  /** 手柄的唯一键。 */
   readonly key: string;
+  /** 手柄触发的操作类型。 */
   readonly operation: 'translate' | 'rotate' | 'scale' | 'stretch' | 'vertex';
+  /** 操作影响的坐标轴。 */
   readonly axis?: 'x' | 'y' | 'xy';
+  /** 顶点手柄对应的控制点索引。 */
   readonly index?: number;
+  /** 手柄所在的地图坐标。 */
   readonly coordinate: Coordinate;
 }
 
+/** 控制手柄图层的内部创建配置。 */
 interface HandleLayerOptions {
+  /** 当前 Transform 会话 ID。 */
   readonly sessionId: string;
+  /** 当前会话使用的交互配置。 */
   readonly interaction: TransformInteractionOptions;
 }
 
+/** 写入手柄要素的元数据字段名。 */
 const handleMetadata = 'ol-engine-transform-handle';
 
+/** 管理 Transform 预览、边框和控制手柄图层。 */
 export class HandleLayer {
+  /** 控制手柄图层的渲染 ID。 */
   readonly renderLayerId: string;
+  /** 选中框在渲染通道中的目标 ID。 */
   readonly renderTargetId: string;
+  /** 手柄图层所属的地图。 */
   readonly #map: Map;
+  /** 控制目标要素的投影抑制。 */
   readonly #binding: FeatureBinding;
+  /** 编译目标和自定义手柄样式。 */
   readonly #styles: StyleCompiler;
+  /** 接收选中框闪烁等渲染状态。 */
   readonly #render: LayerRenderPort;
+  /** 当前 Transform 交互配置。 */
   readonly #options: TransformInteractionOptions;
+  /** 保存预览、边框和手柄要素。 */
   readonly #source: VectorSource<Feature<Geometry>>;
+  /** 显示控制要素的顶层矢量图层。 */
   readonly #layer: VectorLayer<VectorSource<Feature<Geometry>>>;
+  /** 视图分辨率和旋转事件的取消键。 */
   readonly #viewKeys: EventsKey[] = [];
+  /** 当前操作目标。 */
   #target: TransformInteractionTarget | undefined;
+  /** 当前目标的缓冲外接范围。 */
   #extent: TransformExtent | undefined;
+  /** 当前目标的投影抑制租约。 */
   #suppression: ProjectionSuppressionLease | undefined;
+  /** 当前选中框要素。 */
   #bbox: Feature<Geometry> | undefined;
+  /** 当前复制预览要素。 */
   #copy: Feature<Geometry> | undefined;
+  /** 复制预览的原始几何状态。 */
   #copyGeometry: RenderGeometryState | undefined;
+  /** 选中框对应的渲染目标句柄。 */
   #renderTarget: LayerRenderTargetHandle | undefined;
+  /** 渲染目标当前绑定的业务图层 ID。 */
   #renderTargetLayerId: string | undefined;
+  /** 是否正在执行一次变换操作。 */
   #operationActive = false;
+  /** 当前变换操作类型。 */
   #activeOperation: TransformOperation | undefined;
+  /** 闪烁阶段中选中框是否可见。 */
   #blinkVisible = true;
+  /** 手柄图层是否已经销毁。 */
   #destroyed = false;
+  /** 手柄图层是否正在销毁。 */
   #destroying = false;
 
+  /** 创建顶层手柄图层并监听视图变化。 */
   constructor(map: Map, binding: FeatureBinding, styles: StyleCompiler, render: LayerRenderPort, options: HandleLayerOptions) {
     this.#map = map;
     this.#binding = binding;
@@ -80,18 +115,22 @@ export class HandleLayer {
     this.#viewKeys.push(view.on('change:resolution', this.#refreshForView), view.on('change:rotation', this.#refreshForView));
   }
 
+  /** 返回当前操作目标。 */
   get target(): TransformInteractionTarget | undefined {
     return this.#target;
   }
 
+  /** 返回当前接收渲染效果的图层 ID。 */
   get activeRenderLayerId(): string {
     return this.#target?.layerId ?? this.renderLayerId;
   }
 
+  /** 返回当前目标的缓冲外接范围。 */
   get extent(): TransformExtent | undefined {
     return this.#extent;
   }
 
+  /** 切换操作目标并重建预览、边框和手柄。 */
   setTarget(target: TransformInteractionTarget): void {
     this.#assertActive();
     const targetChanged = this.#target?.elementId !== target.elementId;
@@ -131,6 +170,7 @@ export class HandleLayer {
     }
   }
 
+  /** 清除当前目标及其投影抑制和渲染目标。 */
   clearTarget(): void {
     if (this.#destroyed) return;
     this.#releaseRenderTarget();
@@ -148,6 +188,7 @@ export class HandleLayer {
     suppression?.release();
   }
 
+  /** 创建复制操作使用的预览要素。 */
   setCopyPreview(geometry: RenderGeometryState, style: TransformInteractionTarget['style']): void {
     this.#assertActive();
     this.clearCopyPreview();
@@ -159,11 +200,13 @@ export class HandleLayer {
     this.#copyGeometry = geometry;
   }
 
+  /** 按位移更新复制预览。 */
   updateCopyPreview(x: number, y: number): void {
     if (this.#copy === undefined || this.#copyGeometry === undefined) return;
     this.#copy.setGeometry(createGeometry(translateRenderGeometry(this.#copyGeometry, x, y)));
   }
 
+  /** 清除并销毁复制预览要素。 */
   clearCopyPreview(): void {
     const feature = this.#copy;
     this.#copy = undefined;
@@ -175,6 +218,7 @@ export class HandleLayer {
     feature.dispose();
   }
 
+  /** 查询指定像素命中的控制手柄。 */
   hit(pixel: Pixel, hitTolerance: number): TransformHandleHit | undefined {
     this.#assertActive();
     return this.#map.forEachFeatureAtPixel(
@@ -188,6 +232,7 @@ export class HandleLayer {
     );
   }
 
+  /** 设置活动操作下选中框的闪烁可见状态。 */
   setBlink(visible: boolean): void {
     if (!this.#operationActive) return;
     if (this.#blinkVisible === visible) return;
@@ -195,6 +240,7 @@ export class HandleLayer {
     this.#applyBBoxStyle();
   }
 
+  /** 切换操作活动状态并刷新手柄。 */
   setOperationActive(active: boolean, operation?: TransformOperation): void {
     this.#assertActive();
     if (active && operation === undefined) throw new InvalidArgumentError('Transform active operation is required');
@@ -205,6 +251,7 @@ export class HandleLayer {
     this.#refreshForView();
   }
 
+  /** 移除图层并清理全部要素、监听和租约。 */
   destroy(): void {
     if (this.#destroyed || this.#destroying) return;
     this.#destroying = true;
@@ -239,6 +286,7 @@ export class HandleLayer {
     }
   }
 
+  /** 为当前目标创建预览、选中框和控制手柄要素。 */
   #featuresFor(target: TransformInteractionTarget): Feature<Geometry>[] {
     const preview = new Feature<Geometry>(createGeometry(target.geometry));
     preview.setStyle(this.#styles.compile(target.style));
@@ -305,6 +353,7 @@ export class HandleLayer {
     return [preview, bbox, ...handles];
   }
 
+  /** 在目标业务图层上登记选中框渲染通道。 */
   #registerRenderTarget(layerId: string): LayerRenderTargetHandle {
     return this.#render.registerTarget({
       layerId,
@@ -314,6 +363,7 @@ export class HandleLayer {
     });
   }
 
+  /** 释放当前选中框渲染目标。 */
   #releaseRenderTarget(): void {
     const target = this.#renderTarget;
     if (target === undefined) return;
@@ -324,6 +374,7 @@ export class HandleLayer {
     }
   }
 
+  /** 视图缩放或旋转后重建控制要素。 */
   readonly #refreshForView = (): void => {
     if (this.#destroyed || this.#destroying || this.#target === undefined) return;
     const copy = this.#copy;
@@ -334,6 +385,7 @@ export class HandleLayer {
     this.#applyBBoxStyle();
   };
 
+  /** 按活动和闪烁状态应用选中框样式。 */
   #applyBBoxStyle(): void {
     const bbox = this.#bbox;
     if (bbox === undefined) return;
@@ -344,6 +396,7 @@ export class HandleLayer {
     bbox.setStyle(this.#blinkVisible ? bboxActiveStyle : bboxActiveHiddenStyle);
   }
 
+  /** 创建带命中元数据的单个控制手柄。 */
   #handle(
     key: string,
     operation: TransformHandleHit['operation'],
@@ -357,11 +410,13 @@ export class HandleLayer {
     return feature;
   }
 
+  /** 确认手柄图层仍可使用。 */
   #assertActive(): void {
     if (this.#destroyed || this.#destroying) throw new ObjectDisposedError('Transform HandleLayer has been destroyed');
   }
 }
 
+/** Transform 选中框和各类控制手柄的内置样式。 */
 const bboxFill = new Fill({ color: [204, 204, 204, 0.3] });
 const bboxIdleStyle = new Style({ stroke: new Stroke({ color: [80, 80, 80], width: 1 }), fill: bboxFill });
 const bboxActiveStyle = new Style({ stroke: new Stroke({ color: [80, 80, 80], width: 1, lineDash: [6, 4] }), fill: bboxFill });
@@ -376,10 +431,12 @@ const vertexHandleStyle = new Style({
   image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#27ae60', width: 2 }) })
 });
 
+/** 用内置图片创建手柄图标样式。 */
 function iconStyle(src: string, displacement?: readonly [number, number]): Style {
   return new Style({ image: new Icon({ src, color: [80, 80, 80, 1], ...(displacement === undefined ? {} : { displacement: [...displacement] }) }) });
 }
 
+/** 按操作类型和坐标轴选择内置手柄样式。 */
 function styleFor(operation: TransformHandleHit['operation'], axis: TransformHandleHit['axis']): Style {
   if (operation === 'rotate') return rotateHandleStyle;
   if (operation === 'vertex') return vertexHandleStyle;
@@ -388,6 +445,7 @@ function styleFor(operation: TransformHandleHit['operation'], axis: TransformHan
   return scaleHandleStyle;
 }
 
+/** 将渲染几何状态转换为 OpenLayers Geometry。 */
 function createGeometry(state: RenderGeometryState): Geometry {
   if (state.type === 'point') return new Point([...state.coordinates]);
   if (state.type === 'polyline') return new LineString(state.coordinates.map((coordinate) => [...coordinate]));
@@ -395,10 +453,12 @@ function createGeometry(state: RenderGeometryState): Geometry {
   return new CircleGeometry([...state.center], state.radius);
 }
 
+/** 计算渲染几何的中心。 */
 function geometryCenter(geometry: RenderGeometryState): Coordinate {
   return extentCenter(renderExtent(geometry));
 }
 
+/** 按配置和视觉尺寸扩展目标外接范围。 */
 function bufferedExtent(
   map: Map,
   geometry: RenderGeometryState,
@@ -413,6 +473,7 @@ function bufferedExtent(
   return Object.freeze([extent[0] - paddingX, extent[1] - paddingY, extent[2] + paddingX, extent[3] + paddingY]);
 }
 
+/** 估算点图标相对锚点的屏幕外扩距离。 */
 function pointVisualPadding(feature: Feature<Geometry>, map: Map): readonly [number, number] | undefined {
   const styleFunction = feature.getStyleFunction();
   if (styleFunction === undefined) return undefined;
@@ -451,16 +512,19 @@ function pointVisualPadding(feature: Feature<Geometry>, map: Map): readonly [num
   return paddingX > 0 && paddingY > 0 ? Object.freeze([paddingX, paddingY]) : undefined;
 }
 
+/** 读取可用的视图分辨率。 */
 function resolution(map: Map): number {
   const value = map.getView().getResolution();
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : 1;
 }
 
+/** 读取可用的视图旋转角度。 */
 function rotationOf(map: Map): number {
   const value = map.getView().getRotation();
   return Number.isFinite(value) ? value : 0;
 }
 
+/** 校验并冻结手柄命中信息。 */
 function freezeHit(hit: TransformHandleHit): TransformHandleHit {
   if (
     !Array.isArray(hit.coordinate) ||
@@ -472,6 +536,7 @@ function freezeHit(hit: TransformHandleHit): TransformHandleHit {
   return Object.freeze({ ...hit, coordinate: Object.freeze([...hit.coordinate]) as Coordinate });
 }
 
+/** 判断要素元数据是否是有效的手柄命中信息。 */
 function isHandleHit(value: unknown): value is TransformHandleHit {
   if (value === null || typeof value !== 'object') return false;
   const hit = value as Partial<TransformHandleHit>;

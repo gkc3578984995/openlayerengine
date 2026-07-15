@@ -1,3 +1,4 @@
+/** 依次执行全部清理函数，并在最后统一抛出错误。 */
 export function runFinalizers(finalizers: Iterable<() => void>): void {
   let failed = false;
   let firstError: unknown;

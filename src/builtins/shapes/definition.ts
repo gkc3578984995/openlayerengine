@@ -13,23 +13,34 @@ import type {
 } from '../../core/shape/types.js';
 import { createImmutableSet } from '../../core/shape/immutableSet.js';
 
+/** 内部方法。处理 immutableSet 相关数据。 */
 export function immutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
   return createImmutableSet(values);
 }
 
+/** 内部常量。保存 editableCapabilities 使用的数据。 */
 export const editableCapabilities = immutableSet<ShapeCapability>(['draw', 'edit', 'translate', 'rotate', 'scale', 'vertexEdit']);
+/** 内部常量。保存 pathCapabilities 使用的数据。 */
 export const pathCapabilities = immutableSet<ShapeCapability>([...editableCapabilities, 'path']);
+/** 内部常量。保存 structuralEditableCapabilities 使用的数据。 */
 export const structuralEditableCapabilities = immutableSet<ShapeCapability>([...editableCapabilities, 'controlPointInsert', 'controlPointRemove']);
+/** 内部常量。保存 structuralPathCapabilities 使用的数据。 */
 export const structuralPathCapabilities = immutableSet<ShapeCapability>([...structuralEditableCapabilities, 'path']);
+/** 内部常量。保存 freehandPolylineCapabilities 使用的数据。 */
 export const freehandPolylineCapabilities = immutableSet<ShapeCapability>([...structuralPathCapabilities, 'freehand']);
+/** 内部常量。保存 freehandPolygonCapabilities 使用的数据。 */
 export const freehandPolygonCapabilities = immutableSet<ShapeCapability>([...structuralEditableCapabilities, 'freehand']);
+/** 内部常量。保存 pointCapabilities 使用的数据。 */
 export const pointCapabilities = immutableSet<ShapeCapability>([...editableCapabilities, 'anchor']);
+/** 内部常量。保存 nonRotatingEditableCapabilities 使用的数据。 */
 export const nonRotatingEditableCapabilities = immutableSet<ShapeCapability>(['draw', 'edit', 'translate', 'scale', 'vertexEdit']);
 
+/** 内部方法。处理 cloneCoordinate 相关数据。 */
 export function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
 }
 
+/** 内部方法。处理 normalizeCoordinate 相关数据。 */
 export function normalizeCoordinate(input: unknown, label = 'coordinate'): Coordinate {
   const values = readDensePlainArray(input, label);
   if ((values.length !== 2 && values.length !== 3) || values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
@@ -38,15 +49,18 @@ export function normalizeCoordinate(input: unknown, label = 'coordinate'): Coord
   return values.length === 3 ? [values[0] as number, values[1] as number, values[2] as number] : [values[0] as number, values[1] as number];
 }
 
+/** 内部方法。处理 normalizeCoordinateArray 相关数据。 */
 export function normalizeCoordinateArray(input: unknown, label = 'coordinates'): Coordinate[] {
   const values = readDensePlainArray(input, label);
   return values.map((value, index) => normalizeCoordinate(value, `${label}[${index}]`));
 }
 
+/** 内部方法。处理 coordinatesEqual 相关数据。 */
 export function coordinatesEqual(left: Coordinate, right: Coordinate): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+/** 内部方法。处理 closeRing 相关数据。 */
 export function closeRing(coordinates: readonly Coordinate[]): readonly Coordinate[] {
   if (coordinates.length === 0) throw new InvalidArgumentError('A polygon ring cannot be empty');
   const ring = coordinates.map(cloneCoordinate);
@@ -54,17 +68,27 @@ export function closeRing(coordinates: readonly Coordinate[]): readonly Coordina
   return ring;
 }
 
+/** 内部接口。约定 PlanarVectors 的数据结构。 */
 interface PlanarVectors {
+  /** 内部字段。保存 firstX 相关状态。 */
   readonly firstX: number;
+  /** 内部字段。保存 firstY 相关状态。 */
   readonly firstY: number;
+  /** 内部字段。保存 secondX 相关状态。 */
   readonly secondX: number;
+  /** 内部字段。保存 secondY 相关状态。 */
   readonly secondY: number;
+  /** 内部字段。保存 firstXError 相关状态。 */
   readonly firstXError: number;
+  /** 内部字段。保存 firstYError 相关状态。 */
   readonly firstYError: number;
+  /** 内部字段。保存 secondXError 相关状态。 */
   readonly secondXError: number;
+  /** 内部字段。保存 secondYError 相关状态。 */
   readonly secondYError: number;
 }
 
+/** 内部方法。处理 numberRoundingRadius 相关数据。 */
 export function numberRoundingRadius(value: number): number {
   const magnitude = Math.abs(value);
   if (magnitude === 0 || magnitude < 2 ** -1022) return Number.MIN_VALUE;
@@ -72,10 +96,12 @@ export function numberRoundingRadius(value: number): number {
   return Math.max(Number.MIN_VALUE, 2 ** (exponent - 53));
 }
 
+/** 内部方法。处理 differenceRoundingError 相关数据。 */
 function differenceRoundingError(left: number, right: number): number {
   return numberRoundingRadius(left) + numberRoundingRadius(right);
 }
 
+/** 内部方法。处理 arePlanarCoordinatesCoincident 相关数据。 */
 export function arePlanarCoordinatesCoincident(left: Coordinate, right: Coordinate): boolean {
   const propagatedMidpointUlps = 4;
   return (
@@ -84,6 +110,7 @@ export function arePlanarCoordinatesCoincident(left: Coordinate, right: Coordina
   );
 }
 
+/** 内部方法。处理 planarVectors 相关数据。 */
 function planarVectors(origin: Coordinate, first: Coordinate, second: Coordinate): PlanarVectors {
   const firstX = first[0] - origin[0];
   const firstY = first[1] - origin[1];
@@ -108,6 +135,7 @@ function planarVectors(origin: Coordinate, first: Coordinate, second: Coordinate
   };
 }
 
+/** 内部方法。处理 planarCrossTolerance 相关数据。 */
 function planarCrossTolerance(vectors: PlanarVectors): number {
   const { firstX, firstY, secondX, secondY, firstXError, firstYError, secondXError, secondYError } = vectors;
   const firstLength = Math.hypot(firstX, firstY);
@@ -118,6 +146,7 @@ function planarCrossTolerance(vectors: PlanarVectors): number {
   return angularError + firstProductError + secondProductError;
 }
 
+/** 内部方法。处理 arePlanarCollinear 相关数据。 */
 export function arePlanarCollinear(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
   const vectors = planarVectors(origin, first, second);
   const cross = vectors.firstX * vectors.secondY - vectors.firstY * vectors.secondX;
@@ -125,10 +154,12 @@ export function arePlanarCollinear(origin: Coordinate, first: Coordinate, second
   return Math.abs(cross) <= tolerance;
 }
 
+/** 内部方法。处理 requireNonCollinear 相关数据。 */
 export function requireNonCollinear(origin: Coordinate, first: Coordinate, second: Coordinate): void {
   if (arePlanarCollinear(origin, first, second)) throw new InvalidArgumentError('Control points must not be collinear');
 }
 
+/** 内部方法。处理 requireNonZeroPlanarArea 相关数据。 */
 export function requireNonZeroPlanarArea(points: readonly Coordinate[], message = 'Control points must enclose a non-zero area'): void {
   if (points.length < 3) return;
   const origin = points[0];
@@ -155,6 +186,7 @@ export function requireNonZeroPlanarArea(points: readonly Coordinate[], message 
   if (!Number.isFinite(doubledArea) || Math.abs(doubledArea) <= Number.EPSILON * 8 * vectors.length * magnitude) throw new InvalidArgumentError(message);
 }
 
+/** 内部方法。处理 haveSamePlanarDirection 相关数据。 */
 export function haveSamePlanarDirection(origin: Coordinate, first: Coordinate, second: Coordinate): boolean {
   const vectors = planarVectors(origin, first, second);
   const cross = vectors.firstX * vectors.secondY - vectors.firstY * vectors.secondX;
@@ -162,23 +194,38 @@ export function haveSamePlanarDirection(origin: Coordinate, first: Coordinate, s
   return Math.abs(cross) <= tolerance && vectors.firstX * vectors.secondX + vectors.firstY * vectors.secondY > 0;
 }
 
+/** 内部类型。描述 ControlPointTopologyMode 使用的数据。 */
 type ControlPointTopologyMode = 'fixed' | 'open' | 'closed' | 'arrow';
 
+/** 内部接口。约定 ControlPointDefinitionOptions 的数据结构。 */
 interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> {
+  /** 类型。保存当前数据类型。 */
   readonly type: T;
+  /** 内部字段。保存 previewMin 相关状态。 */
   readonly previewMin: number;
+  /** 内部字段。保存 completeMin 相关状态。 */
   readonly completeMin: number;
+  /** 内部字段。保存 completeMax 相关状态。 */
   readonly completeMax?: number;
+  /** 内部字段。保存 autoFinish 相关状态。 */
   readonly autoFinish?: number;
+  /** 内部字段。保存 coordinateDimension 相关状态。 */
   readonly coordinateDimension?: 2 | 3;
+  /** 内部字段。保存 capabilities 相关状态。 */
   readonly capabilities?: ReadonlySet<ShapeCapability>;
+  /** 内部字段。保存 topology 相关状态。 */
   readonly topology?: ControlPointTopologyMode;
+  /** 内部字段。保存 freehand 相关状态。 */
   readonly freehand?: boolean;
+  /** 内部字段。保存 validate 相关状态。 */
   readonly validate?: (points: readonly Coordinate[]) => void;
+  /** 内部字段。保存 render 相关状态。 */
   readonly render: (points: readonly Coordinate[]) => RenderGeometryState;
+  /** 内部字段。保存 complete 相关状态。 */
   readonly complete?: (state: ShapeState<T>) => ShapeCompletion<ShapeState<T>>;
 }
 
+/** 内部方法。处理 getPlainDataRecord 相关数据。 */
 export function getPlainDataRecord(input: unknown, label = 'Shape state'): object {
   if (input === null || typeof input !== 'object') throw new InvalidArgumentError(`${label} must be an object`);
   const prototype = Object.getPrototypeOf(input);
@@ -194,12 +241,14 @@ export function getPlainDataRecord(input: unknown, label = 'Shape state'): objec
   return snapshot;
 }
 
+/** 内部方法。处理 getOwnDataValue 相关数据。 */
 export function getOwnDataValue(record: object, key: PropertyKey, label: string): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(record, key);
   if (descriptor === undefined || !('value' in descriptor)) throw new InvalidArgumentError(`${label} must be an own data property`);
   return descriptor.value;
 }
 
+/** 内部方法。处理 readDensePlainArray 相关数据。 */
 function readDensePlainArray(input: unknown, label: string): unknown[] {
   if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype) throw new InvalidArgumentError(`${label} must be an ordinary array`);
   const descriptors = Object.getOwnPropertyDescriptors(input) as unknown as Record<PropertyKey, PropertyDescriptor>;
@@ -221,6 +270,7 @@ function readDensePlainArray(input: unknown, label: string): unknown[] {
   return values;
 }
 
+/** 内部方法。处理 assertFiniteRenderGeometry 相关数据。 */
 export function assertFiniteRenderGeometry(geometry: RenderGeometryState): void {
   const record = getPlainDataRecord(geometry, 'Render geometry');
   const type = getOwnDataValue(record, 'type', 'Render geometry type');
@@ -253,6 +303,7 @@ export function assertFiniteRenderGeometry(geometry: RenderGeometryState): void 
   throw new InvalidArgumentError('Render geometry has an unsupported type');
 }
 
+/** 内部方法。处理 createControlPointDefinition 相关数据。 */
 export function createControlPointDefinition<T extends Exclude<ShapeType, 'circle'>>(
   options: ControlPointDefinitionOptions<T>
 ): ShapeDefinition<ShapeState<T>> {
@@ -481,6 +532,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
   return Object.freeze(definition);
 }
 
+/** 内部方法。处理 requireSeparated 相关数据。 */
 export function requireSeparated(points: readonly Coordinate[], ...pairs: readonly [number, number][]): void {
   for (const [left, right] of pairs) {
     if (coordinatesEqual(points[left], points[right])) throw new InvalidArgumentError('Control points that define a segment must be distinct');

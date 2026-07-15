@@ -9,32 +9,47 @@ import type {
   TransformTooltipViewState
 } from '../../core/ports/TransformTooltipPort.js';
 
+/** Transform 提示框 DOM 适配器的可选配置。 */
 export interface TransformTooltipAdapterOptions {
+  /** 自定义提示框根元素的创建方式。 */
   readonly createElement?: () => HTMLDivElement;
 }
 
+/** 使用 DOM 和 Overlay 展示 Transform 提示框。 */
 export class TransformTooltipAdapter implements TransformTooltipPort {
+  /** 提示框所属的 OpenLayers 地图。 */
   readonly #map: OlMap;
+  /** 提示框根元素的创建函数。 */
   readonly #createElement: (() => HTMLDivElement) | undefined;
 
+  /** 保存地图和元素创建配置。 */
   constructor(map: OlMap, options: TransformTooltipAdapterOptions = {}) {
     this.#map = map;
     this.#createElement = options.createElement ?? defaultElementFactory();
   }
 
+  /** 打开一个新的提示框视图。 */
   open(spec: TransformTooltipViewSpec): TransformTooltipViewHandle {
     return new TooltipView(this.#map, this.#createElement, spec);
   }
 }
 
+/** 管理单个 Transform 提示框的 DOM 和 Overlay。 */
 class TooltipView implements TransformTooltipViewHandle {
+  /** 提示框所属的地图。 */
   readonly #map: OlMap;
+  /** 提示框根元素。 */
   readonly #root: HTMLDivElement | undefined;
+  /** 用于地图定位的 OpenLayers Overlay。 */
   readonly #overlay: Overlay | undefined;
+  /** 当前提示框视图状态。 */
   #state: TransformTooltipViewState;
+  /** 提示框是否已经销毁。 */
   #destroyed = false;
+  /** 提示框是否正在销毁。 */
   #destroying = false;
 
+  /** 校验初始状态并创建提示框 DOM 和 Overlay。 */
   constructor(map: OlMap, createElement: (() => HTMLDivElement) | undefined, spec: TransformTooltipViewSpec) {
     this.#map = map;
     this.#state = copyState(spec);
@@ -59,6 +74,7 @@ class TooltipView implements TransformTooltipViewHandle {
     this.#applyVisibility();
   }
 
+  /** 更新提示框内容、位置和可见性。 */
   update(patch: Partial<TransformTooltipViewState>): void {
     if (this.#destroyed) return;
     this.#state = copyState({ ...this.#state, ...patch });
@@ -68,14 +84,17 @@ class TooltipView implements TransformTooltipViewHandle {
     this.#applyVisibility();
   }
 
+  /** 显示提示框。 */
   show(): void {
     this.update({ visible: true });
   }
 
+  /** 隐藏提示框。 */
   hide(): void {
     this.update({ visible: false });
   }
 
+  /** 销毁提示框 DOM 和 Overlay。 */
   destroy(): void {
     if (this.#destroyed || this.#destroying) return;
     this.#destroying = true;
@@ -94,6 +113,7 @@ class TooltipView implements TransformTooltipViewHandle {
     }
   }
 
+  /** 按当前状态渲染每一行提示文字。 */
   #render(): void {
     const root = this.#root;
     if (root === undefined) return;
@@ -106,11 +126,13 @@ class TooltipView implements TransformTooltipViewHandle {
     }
   }
 
+  /** 应用提示框可见状态。 */
   #applyVisibility(): void {
     if (this.#root !== undefined) this.#root.hidden = !this.#state.visible;
   }
 }
 
+/** 校验并复制提示框视图状态。 */
 function copyState(state: TransformTooltipViewState): TransformTooltipViewState {
   if (
     !Array.isArray(state.position) ||
@@ -134,11 +156,13 @@ function copyState(state: TransformTooltipViewState): TransformTooltipViewState 
   });
 }
 
+/** 读取不能为空的字符串。 */
 function nonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 在浏览器环境中提供默认元素创建函数。 */
 function defaultElementFactory(): (() => HTMLDivElement) | undefined {
   const document = globalThis.document;
   return document === undefined ? undefined : () => document.createElement('div');

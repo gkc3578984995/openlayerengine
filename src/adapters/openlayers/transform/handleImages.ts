@@ -1,5 +1,7 @@
+/** 将 Base64 图片内容包装为 PNG Data URL。 */
 const png = (value: string): string => `data:image/png;base64,${value}`;
 
+/** Transform 控制手柄使用的内置图片。 */
 export const centerImage = png(
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABFUlEQVR4AZSTjZHCIBCFSSrRTrxKTis5rUSvEtNJ7IT7vh3IBMk4uQwP2J/3WHbImHOec8739M9PDphHeA9wxtgtQu5TDpgU+GVzBbtECvlE/jQMw2VkemHsEoFslZX8BS9ZQXoT0f8JD/KDbFIIuMH5Ajdw0fY0UMeTzcGYMF6xCFSHK8k2ycoG7COYwA/oxqYAWd7zxqpI7ZE+XQ06AU4/lIy6VpHFLvFYOgHu6Im+jW/FCuy+viCtp06gBC1foRm79iOai92MRoDT7mC2CqDIkVUEmZjxppmLAEFPOiNvx1lSvXtafVZ1JdcrhTsEcEi2y/E8I7I9dS/Wv3FNXl7YFp/rWEEjEhWQ7MkfyeTEeBM5/QEAAP//qlKFfwAAAAZJREFUAwDkvJUOyLXpLQAAAABJRU5ErkJggg=='
 );

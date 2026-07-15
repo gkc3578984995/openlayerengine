@@ -14,39 +14,58 @@ import { isNativeStyleRef, type ArrowDecorationSpec, type IconSymbolSpec, type S
 import { assertStructuredStyleSpec } from '../../../services/style/StyleService.js';
 import { createPatternFill, type PatternCanvasFactory } from './pattern.js';
 
+/** 样式编译器的可选配置。 */
 export interface StyleCompilerOptions {
+  /** 返回当前视图旋转角度。 */
   readonly getViewRotation?: () => number;
+  /** 自定义纹理画布上下文工厂。 */
   readonly createCanvasContext?: PatternCanvasFactory;
 }
 
+/** 单个要素最近一次样式编译缓存。 */
 interface CacheEntry {
+  /** 与几何、分辨率和视图旋转有关的签名。 */
   readonly signature: string;
+  /** 已编译的 OpenLayers 样式。 */
   readonly styles: Style[];
 }
 
+/** 本次样式编译使用的缓存上下文。 */
 interface CompilationCacheContext {
+  /** 可安全缓存时使用的签名。 */
   readonly signature: string | undefined;
+  /** 样式装饰可能读取的几何对象。 */
   readonly geometry: object | undefined;
 }
 
+/** 样式计算使用的二维坐标。 */
 type Coordinate2 = readonly [number, number];
 
+/** 线装饰箭头的位置和朝向。 */
 interface ArrowPoint {
+  /** 箭头所在坐标。 */
   readonly coordinate: Coordinate2;
+  /** 箭头沿线方向的弧度角。 */
   readonly angle: number;
 }
 
+/** 将结构化样式或原生样式引用编译为 OpenLayers 样式。 */
 export class StyleCompiler {
+  /** 解析原生 OpenLayers 样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
+  /** 返回当前视图旋转角度。 */
   readonly #getViewRotation: () => number;
+  /** 可选的纹理画布上下文工厂。 */
   readonly #createCanvasContext: PatternCanvasFactory | undefined;
 
+  /** 保存原生引用注册表和编译配置。 */
   constructor(nativeRefs: NativeRefRegistry, options: StyleCompilerOptions = {}) {
     this.#nativeRefs = nativeRefs;
     this.#getViewRotation = options.getViewRotation ?? (() => 0);
     this.#createCanvasContext = options.createCanvasContext;
   }
 
+  /** 编译结构化样式，或直接解析原生样式引用。 */
   compile(style: StyleSpec | Parameters<NativeRefRegistry['requireStyle']>[0]): StyleLike {
     if (isNativeStyleRef(style)) return this.#nativeRefs.requireStyle(style);
 
@@ -71,6 +90,7 @@ export class StyleCompiler {
     return compiled;
   }
 
+  /** 将一份结构化样式编译为一组 OpenLayers Style。 */
   #compileStructured(
     spec: StyleSpec,
     geometry: object | undefined,
@@ -121,6 +141,7 @@ export class StyleCompiler {
   }
 }
 
+/** 编译单层线样式。 */
 function compileStroke(spec: StrokeSpec, paths: readonly Coordinate2[][], resolution: number): Stroke {
   const lineDash = spec.fitPatternOnce ? fitDashPattern(spec.lineDash, paths, resolution) : copyNumbers(spec.lineDash);
   return new Stroke({
@@ -134,6 +155,7 @@ function compileStroke(spec: StrokeSpec, paths: readonly Coordinate2[][], resolu
   });
 }
 
+/** 编译纯色或纹理填充。 */
 function compileFill(spec: NonNullable<StyleSpec['fill']>, inheritedColor: Color | undefined, createCanvasContext: PatternCanvasFactory | undefined): Fill {
   if (spec.type === 'solid') return new Fill({ color: copyColor(spec.color) });
   return new Fill({
@@ -141,6 +163,7 @@ function compileFill(spec: NonNullable<StyleSpec['fill']>, inheritedColor: Color
   });
 }
 
+/** 编译点符号样式。 */
 function compileSymbol(
   spec: NonNullable<StyleSpec['symbol']>,
   inheritedColor: Color | undefined,
@@ -155,6 +178,7 @@ function compileSymbol(
   });
 }
 
+/** 编译图片图标样式。 */
 function compileIcon(spec: IconSymbolSpec, viewRotation: number, additionalRotation = 0): Icon {
   const rotation = degreesToRadians(spec.rotation ?? 0) + additionalRotation;
   const displacement = compensateOffset(spec.displacement, rotation + (spec.rotateWithView ? viewRotation : 0));
@@ -177,6 +201,7 @@ function compileIcon(spec: IconSymbolSpec, viewRotation: number, additionalRotat
   });
 }
 
+/** 编译文本及其前景、背景样式。 */
 function compileText(spec: TextSpec, inheritedColor: Color | undefined, viewRotation: number, createCanvasContext: PatternCanvasFactory | undefined): Text {
   const rotation = degreesToRadians(spec.rotation ?? 0);
   const offset = compensateOffset([spec.offsetX ?? 0, spec.offsetY ?? 0], rotation + (spec.rotateWithView ? viewRotation : 0));
@@ -206,6 +231,7 @@ function compileText(spec: TextSpec, inheritedColor: Color | undefined, viewRota
   });
 }
 
+/** 编译放置在线上的单个箭头装饰。 */
 function compileArrow(decoration: ArrowDecorationSpec, arrow: ArrowPoint, inheritedColor: Color | undefined, viewRotation: number, zIndex?: number): Style {
   const geometry = new Point([...arrow.coordinate]);
   const image =
@@ -229,6 +255,7 @@ function compileArrow(decoration: ArrowDecorationSpec, arrow: ArrowPoint, inheri
   return new Style({ geometry, image, ...(zIndex === undefined ? {} : { zIndex }) });
 }
 
+/** 根据文本分项配置组合 CSS 字体字符串。 */
 function composeFont(spec: TextSpec): string | undefined {
   const split = spec.fontFamily !== undefined || spec.fontSize !== undefined || spec.fontWeight !== undefined || spec.fontStyle !== undefined;
   if (!split) return spec.font;
@@ -239,6 +266,7 @@ function composeFont(spec: TextSpec): string | undefined {
   return `${fontStyle} ${fontWeight} ${fontSize} ${fontFamily}`;
 }
 
+/** 按视图旋转补偿屏幕方向的偏移。 */
 function compensateOffset(offset: readonly [number, number] | undefined, rotation: number): [number, number] {
   const x = offset?.[0] ?? 0;
   const y = offset?.[1] ?? 0;
@@ -247,6 +275,7 @@ function compensateOffset(offset: readonly [number, number] | undefined, rotatio
   return [x * cosine - y * sine, x * sine + y * cosine];
 }
 
+/** 调整虚线间隔，使整套图案只铺满路径一次。 */
 function fitDashPattern(lineDash: readonly number[] | undefined, paths: readonly Coordinate2[][], resolution: number): number[] | undefined {
   if (lineDash === undefined || lineDash.length === 0) return copyNumbers(lineDash);
   const safePattern = lineDash.map((value) => (Number.isFinite(value) && value > 0 ? value : 1));
@@ -259,6 +288,7 @@ function fitDashPattern(lineDash: readonly number[] | undefined, paths: readonly
   return canvasPattern.map((value) => Math.max(Number.EPSILON, value * factor));
 }
 
+/** 按装饰配置计算路径上的箭头位置。 */
 function placeArrows(paths: readonly Coordinate2[][], decoration: ArrowDecorationSpec, resolution: number): ArrowPoint[] {
   const result: ArrowPoint[] = [];
   const safeResolution = Number.isFinite(resolution) && resolution > 0 ? resolution : 1;
@@ -286,13 +316,19 @@ function placeArrows(paths: readonly Coordinate2[][], decoration: ArrowDecoratio
   return result;
 }
 
+/** 路径中一条有效线段的长度和方向。 */
 interface PathSegment {
+  /** 线段起点。 */
   readonly start: Coordinate2;
+  /** 线段终点。 */
   readonly end: Coordinate2;
+  /** 线段长度。 */
   readonly length: number;
+  /** 线段方向角。 */
   readonly angle: number;
 }
 
+/** 将坐标路径拆成有效线段。 */
 function pathSegments(path: readonly Coordinate2[]): PathSegment[] {
   const segments: PathSegment[] = [];
   for (let index = 1; index < path.length; index += 1) {
@@ -307,6 +343,7 @@ function pathSegments(path: readonly Coordinate2[]): PathSegment[] {
   return segments;
 }
 
+/** 在累计路径距离处取样坐标和方向。 */
 function sampleSegments(segments: readonly PathSegment[], distance: number): ArrowPoint | undefined {
   if (!Number.isFinite(distance) || distance < 0) return undefined;
   let remaining = distance;
@@ -323,11 +360,15 @@ function sampleSegments(segments: readonly PathSegment[], distance: number): Arr
   return undefined;
 }
 
+/** 从 OpenLayers Geometry 提取的线性路径。 */
 interface ExtractedGeometryPaths {
+  /** OpenLayers 几何类型。 */
   readonly type: string | undefined;
+  /** 可用于线装饰计算的二维路径。 */
   readonly paths: Coordinate2[][];
 }
 
+/** 从常规或扁平 Geometry 中提取线性路径。 */
 function extractGeometryPaths(geometry: object | undefined): ExtractedGeometryPaths {
   if (geometry === undefined) return { type: undefined, paths: [] };
   const type = callString(geometry, 'getType');
@@ -338,6 +379,7 @@ function extractGeometryPaths(geometry: object | undefined): ExtractedGeometryPa
   };
 }
 
+/** 按几何类型整理嵌套坐标路径。 */
 function coordinatePaths(type: string | undefined, coordinates: unknown): Coordinate2[][] {
   if (type === 'LineString' || type === 'LinearRing') return [coordinateArray(coordinates)];
   if (type === 'MultiLineString' || type === 'Polygon') return nestedCoordinateArrays(coordinates);
@@ -345,6 +387,7 @@ function coordinatePaths(type: string | undefined, coordinates: unknown): Coordi
   return [];
 }
 
+/** 从 OpenLayers 扁平坐标字段中整理路径。 */
 function flatCoordinatePaths(geometry: object, type: string | undefined): Coordinate2[][] {
   const flat = callUnknown(geometry, 'getFlatCoordinates');
   const stride = callUnknown(geometry, 'getStride');
@@ -365,6 +408,7 @@ function flatCoordinatePaths(geometry: object, type: string | undefined): Coordi
   return type === 'MultiLineString' ? [all] : [];
 }
 
+/** 将一段扁平坐标转换为二维坐标列表。 */
 function flatToCoordinates(flat: readonly unknown[], start: number, end: number, stride: number): Coordinate2[] {
   const result: Coordinate2[] = [];
   for (let index = start; index + 1 < end; index += stride) {
@@ -375,6 +419,7 @@ function flatToCoordinates(flat: readonly unknown[], start: number, end: number,
   return result;
 }
 
+/** 校验并读取一维坐标数组。 */
 function coordinateArray(value: unknown): Coordinate2[] {
   if (!Array.isArray(value)) return [];
   const result: Coordinate2[] = [];
@@ -386,16 +431,19 @@ function coordinateArray(value: unknown): Coordinate2[] {
   return result;
 }
 
+/** 校验并读取多条坐标路径。 */
 function nestedCoordinateArrays(value: unknown): Coordinate2[][] {
   if (!Array.isArray(value)) return [];
   return value.map(coordinateArray).filter((path) => path.length > 0);
 }
 
+/** 安全读取要素的几何对象。 */
 function featureGeometry(feature: FeatureLike): object | undefined {
   const geometry = callUnknown(feature, 'getGeometry');
   return geometry !== null && typeof geometry === 'object' ? geometry : undefined;
 }
 
+/** 生成样式函数本次调用的缓存签名和几何上下文。 */
 function compilationCacheContext(feature: FeatureLike, resolution: number, viewRotation: number, needsGeometry: boolean): CompilationCacheContext {
   const featureRevision = callNumber(feature, 'getRevision');
   if (!needsGeometry) {
@@ -409,25 +457,30 @@ function compilationCacheContext(feature: FeatureLike, resolution: number, viewR
   return { signature, geometry };
 }
 
+/** 安全调用对象上的无参方法。 */
 function callUnknown(value: object, name: string): unknown {
   const candidate = (value as Record<string, unknown>)[name];
   return typeof candidate === 'function' ? (candidate as () => unknown).call(value) : undefined;
 }
 
+/** 安全调用并读取数值结果。 */
 function callNumber(value: object, name: string): number | undefined {
   const result = callUnknown(value, name);
   return typeof result === 'number' && Number.isFinite(result) ? result : undefined;
 }
 
+/** 安全调用并读取字符串结果。 */
 function callString(value: object, name: string): string | undefined {
   const result = callUnknown(value, name);
   return typeof result === 'string' ? result : undefined;
 }
 
+/** 计算一条二维路径的总长度。 */
 function pathLength(path: readonly Coordinate2[]): number {
   return pathSegments(path).reduce((sum, segment) => sum + segment.length, 0);
 }
 
+/** 获取最后一层显式线条颜色供其他样式继承。 */
 function lastExplicitStrokeColor(strokes: readonly StrokeSpec[] | undefined): Color | undefined {
   if (strokes === undefined) return undefined;
   for (let index = strokes.length - 1; index >= 0; index -= 1) {
@@ -436,22 +489,27 @@ function lastExplicitStrokeColor(strokes: readonly StrokeSpec[] | undefined): Co
   return undefined;
 }
 
+/** 复制颜色值，避免 OpenLayers 修改外部数组。 */
 function copyColor(color: Color): Color {
   return typeof color === 'string' ? color : ([...color] as Color);
 }
 
+/** 复制可选数值数组。 */
 function copyNumbers(numbers: readonly number[] | undefined): number[] | undefined {
   return numbers === undefined ? undefined : [...numbers];
 }
 
+/** 复制标量或二维缩放值。 */
 function copyScale(scale: number | readonly [number, number]): number | [number, number] {
   return typeof scale === 'number' ? scale : [...scale];
 }
 
+/** 将角度转换为弧度。 */
 function degreesToRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+/** 非有限数值改用指定默认值。 */
 function finiteOr(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }

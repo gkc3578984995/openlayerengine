@@ -18,9 +18,13 @@ import {
 } from '../../core/style/types.js';
 import type { ElementChangeSet } from '../../core/transaction/types.js';
 
+/** 结构化样式允许的顶层字段。 */
 const styleFields = new Set(['symbol', 'strokes', 'fill', 'text', 'decorations', 'zIndex']);
+/** 描边样式允许的字段。 */
 const strokeFields = new Set(['color', 'width', 'lineDash', 'lineDashOffset', 'lineCap', 'lineJoin', 'miterLimit', 'fitPatternOnce']);
+/** 圆形符号允许的字段。 */
 const circleFields = new Set(['type', 'radius', 'fill', 'stroke']);
+/** 图片符号允许的字段。 */
 const iconFields = new Set([
   'type',
   'src',
@@ -39,8 +43,11 @@ const iconFields = new Set([
   'opacity',
   'crossOrigin'
 ]);
+/** 纯色填充允许的字段。 */
 const solidFillFields = new Set(['type', 'color']);
+/** 纹理填充允许的字段。 */
 const patternFillFields = new Set(['type', 'pattern', 'color', 'size', 'lineWidth', 'dotRadius', 'backgroundColor']);
+/** 文本样式允许的字段。 */
 const textFields = new Set([
   'text',
   'font',
@@ -67,21 +74,29 @@ const textFields = new Set([
   'justify',
   'keepUpright'
 ]);
+/** 箭头装饰允许的字段。 */
 const arrowFields = new Set(['type', 'placement', 'symbol', 'offset', 'spacing']);
+/** 仅圆形符号补丁可使用的字段。 */
 const circleOnlyPatchFields = new Set(['radius', 'fill', 'stroke']);
+/** 仅图片符号补丁可使用的字段。 */
 const iconOnlyPatchFields = new Set([...iconFields].filter((field) => field !== 'type'));
 
+/** 负责设置、合并、校验和复制元素样式。 */
 export class StyleService {
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
 
+  /** 创建样式服务。 */
   constructor(store: ElementStore) {
     this.#store = store;
   }
 
+  /** 为匹配元素替换完整样式。 */
   set(selector: ElementSelector, style: ElementStyleState): ElementChangeSet {
     return this.setResolved(selector, () => style);
   }
 
+  /** 延迟解析样式后为匹配元素统一替换。 */
   setResolved(selector: ElementSelector, resolveStyle: () => ElementStyleState): ElementChangeSet {
     return this.#store.transaction((transaction) => {
       const safeStyle = cloneStyleState(resolveStyle());
@@ -89,12 +104,12 @@ export class StyleService {
     }).changes;
   }
 
+  /** 将结构化样式补丁合并到匹配元素。 */
   patch(selector: ElementSelector, patch: StylePatch): ElementChangeSet {
     return this.#store.transaction((transaction) => {
       const safePatch = cloneCoreState(patch);
       assertStylePatch(safePatch);
-      // This no-op keeps Task 6's destructive-selector validation and hostile
-      // getter protection inside the transaction's continuous read-only scope.
+      // 空更新使破坏性选择器校验与恶意 getter 防护保持在同一事务只读阶段内。
       transaction.update(selector, {});
 
       const matches = transaction.query(selector);
@@ -113,17 +128,20 @@ export class StyleService {
     }).changes;
   }
 
+  /** 断言样式是可编辑的结构化样式。 */
   assertStructured(style: ElementStyleState): asserts style is StyleSpec {
     if (isNativeStyleRef(style)) throw new UnsupportedOperationError('The operation requires a structured style');
     assertStructuredStyleSpec(style);
   }
 
+  /** 返回样式的安全副本。 */
   clone(style: ElementStyleState): ElementStyleState {
     if (isNativeStyleRef(style)) return style;
     assertStructuredStyleSpec(style);
     return cloneMutable(cloneCoreState(style)) as StyleSpec;
   }
 
+  /** 将结构化样式复制为可序列化数据。 */
   serialize(style: ElementStyleState): StyleSpec {
     if (isNativeStyleRef(style)) throw new UnsupportedOperationError('Native styles cannot be serialized');
     assertStructuredStyleSpec(style);
@@ -131,6 +149,7 @@ export class StyleService {
   }
 }
 
+/** 复制并校验元素样式状态。 */
 function cloneStyleState(style: ElementStyleState): ElementStyleState {
   if (isNativeStyleRef(style)) return style;
   const cloned = cloneCoreState(style);
@@ -138,10 +157,12 @@ function cloneStyleState(style: ElementStyleState): ElementStyleState {
   return cloned;
 }
 
+/** 合并完整结构化样式与局部补丁。 */
 function mergeStyle(style: StyleSpec, patch: StylePatch): StyleSpec {
   return mergePlain(style, patch) as StyleSpec;
 }
 
+/** 递归合并普通对象，并支持用 undefined 删除字段。 */
 function mergePlain(base: unknown, patch: object): object {
   const patchRecord = patch as Record<string, unknown>;
   const baseRecord = isPlainObject(base) ? (base as Record<string, unknown>) : undefined;
@@ -163,6 +184,7 @@ function mergePlain(base: unknown, patch: object): object {
   return result;
 }
 
+/** 深度复制为可修改值。 */
 function cloneMutable(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(cloneMutable);
@@ -175,6 +197,7 @@ function cloneMutable(value: unknown): unknown {
   return clone;
 }
 
+/** 严格校验完整结构化样式。 */
 export function assertStructuredStyleSpec(value: unknown): asserts value is StyleSpec {
   const style = record(value, 'Style');
   assertKnownFields(style, styleFields, 'Style');
@@ -186,6 +209,7 @@ export function assertStructuredStyleSpec(value: unknown): asserts value is Styl
   if (hasDefined(style, 'zIndex')) finiteNumber(style.zIndex, 'Style zIndex');
 }
 
+/** 严格校验结构化样式补丁。 */
 function assertStylePatch(value: unknown): asserts value is StylePatch {
   const patch = record(value, 'Style patch');
   assertKnownFields(patch, styleFields, 'Style patch');
@@ -197,6 +221,7 @@ function assertStylePatch(value: unknown): asserts value is StylePatch {
   if (hasDefined(patch, 'zIndex')) finiteNumber(patch.zIndex, 'Style patch zIndex');
 }
 
+/** 校验圆形或图片符号配置。 */
 function assertSymbol(value: unknown, partial: boolean): asserts value is CircleSymbolSpec | IconSymbolSpec {
   const symbol = record(value, partial ? 'Style symbol patch' : 'Style symbol');
   const hasType = hasOwn(symbol, 'type');
@@ -215,6 +240,7 @@ function assertSymbol(value: unknown, partial: boolean): asserts value is Circle
   else assertIconSymbol(symbol, true);
 }
 
+/** 校验圆形符号配置。 */
 function assertCircleSymbol(symbol: Record<string, unknown>, partial: boolean): void {
   assertKnownFields(symbol, circleFields, partial ? 'Circle symbol patch' : 'Circle symbol');
   if (!partial && symbol.type !== 'circle') throw new InvalidArgumentError('Circle symbol requires type circle');
@@ -223,6 +249,7 @@ function assertCircleSymbol(symbol: Record<string, unknown>, partial: boolean): 
   if (hasDefined(symbol, 'stroke')) assertStroke(symbol.stroke, partial, 'Circle symbol stroke');
 }
 
+/** 校验图片符号配置。 */
 function assertIconSymbol(symbol: Record<string, unknown>, partial: boolean): void {
   assertKnownFields(symbol, iconFields, partial ? 'Icon symbol patch' : 'Icon symbol');
   if (!partial && symbol.type !== 'icon') throw new InvalidArgumentError('Icon symbol requires type icon');
@@ -243,11 +270,13 @@ function assertIconSymbol(symbol: Record<string, unknown>, partial: boolean): vo
   if (hasDefined(symbol, 'crossOrigin') && symbol.crossOrigin !== null) stringValue(symbol.crossOrigin, 'Icon symbol crossOrigin');
 }
 
+/** 校验描边样式数组。 */
 function assertStrokeArray(value: unknown, label: string): asserts value is StrokeSpec[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be an array`);
   for (const stroke of value) assertStroke(stroke, false, label);
 }
 
+/** 校验单条描边样式。 */
 function assertStroke(value: unknown, _partial: boolean, label: string): asserts value is StrokeSpec {
   const stroke = record(value, label);
   assertKnownFields(stroke, strokeFields, label);
@@ -261,6 +290,7 @@ function assertStroke(value: unknown, _partial: boolean, label: string): asserts
   if (hasDefined(stroke, 'fitPatternOnce')) booleanValue(stroke.fitPatternOnce, `${label} fitPatternOnce`);
 }
 
+/** 校验纯色或纹理填充。 */
 function assertFill(value: unknown, partial: boolean): asserts value is SolidFillSpec | PatternFillSpec {
   const fill = record(value, partial ? 'Fill patch' : 'Fill');
   const hasType = hasOwn(fill, 'type');
@@ -285,6 +315,7 @@ function assertFill(value: unknown, partial: boolean): asserts value is SolidFil
   assertPatternFields(fill, true);
 }
 
+/** 校验纹理填充的具体字段。 */
 function assertPatternFields(fill: Record<string, unknown>, partial = false): void {
   if (!partial || hasDefined(fill, 'pattern')) oneOf(fill.pattern, ['diagonal', 'cross', 'dot', 'horizontal', 'vertical'], 'Pattern fill pattern');
   if (hasDefined(fill, 'color')) assertColor(fill.color, 'Pattern fill color');
@@ -294,6 +325,7 @@ function assertPatternFields(fill: Record<string, unknown>, partial = false): vo
   if (hasDefined(fill, 'backgroundColor')) assertColor(fill.backgroundColor, 'Pattern fill backgroundColor');
 }
 
+/** 校验文本样式。 */
 function assertText(value: unknown, partial: boolean): asserts value is TextSpec {
   const text = record(value, partial ? 'Text patch' : 'Text');
   assertKnownFields(text, textFields, partial ? 'Text patch' : 'Text');
@@ -329,6 +361,7 @@ function assertText(value: unknown, partial: boolean): asserts value is TextSpec
   if (hasDefined(text, 'keepUpright')) booleanValue(text.keepUpright, 'Text keepUpright');
 }
 
+/** 校验箭头装饰数组。 */
 function assertDecorations(value: unknown): asserts value is ArrowDecorationSpec[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError('Style decorations must be an array');
   for (const candidate of value) {
@@ -342,11 +375,13 @@ function assertDecorations(value: unknown): asserts value is ArrowDecorationSpec
   }
 }
 
+/** 校验单值或二维元组缩放。 */
 function assertScale(value: unknown, label: string): void {
   if (typeof value === 'number') finiteNumber(value, label);
   else tuple(value, 2, label);
 }
 
+/** 校验颜色字符串或数字元组。 */
 function assertColor(value: unknown, label: string): asserts value is Color {
   if (typeof value === 'string') return;
   if (
@@ -358,73 +393,88 @@ function assertColor(value: unknown, label: string): asserts value is Color {
   }
 }
 
+/** 校验指定长度的有限数字元组。 */
 function tuple(value: unknown, length: number, label: string): asserts value is number[] {
   if (!Array.isArray(value) || value.length !== length || !value.every((item) => typeof item === 'number' && Number.isFinite(item))) {
     throw new InvalidArgumentError(`${label} must contain ${length} finite numbers`);
   }
 }
 
+/** 校验有限数字数组。 */
 function numberArray(value: unknown, label: string): asserts value is number[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'number' && Number.isFinite(item))) {
     throw new InvalidArgumentError(`${label} must be an array of finite numbers`);
   }
 }
 
+/** 将普通对象输入收窄为记录。 */
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!isPlainObject(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   return value as Record<string, unknown>;
 }
 
+/** 判断值是否为普通对象。 */
 function isPlainObject(value: unknown): value is object {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
 
+/** 断言记录只包含已知字段。 */
 function assertKnownFields(recordValue: Record<string, unknown>, fields: ReadonlySet<string>, label: string): void {
   for (const key of Reflect.ownKeys(recordValue)) {
     if (typeof key !== 'string' || !fields.has(key)) throw new InvalidArgumentError(`Unknown ${label} field: ${String(key)}`);
   }
 }
 
+/** 判断对象是否拥有指定自有属性。 */
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+/** 判断记录字段存在且不为 undefined。 */
 function hasDefined(value: Record<string, unknown>, key: string): boolean {
   return hasOwn(value, key) && value[key] !== undefined;
 }
 
+/** 校验有限数字。 */
 function finiteNumber(value: unknown, label: string): asserts value is number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new InvalidArgumentError(`${label} must be a finite number`);
 }
 
+/** 校验非负有限数字。 */
 function nonNegativeFiniteNumber(value: unknown, label: string): asserts value is number {
   finiteNumber(value, label);
   if (value < 0) throw new InvalidArgumentError(`${label} must not be negative`);
 }
 
+/** 校验正有限数字。 */
 function positiveFiniteNumber(value: unknown, label: string): asserts value is number {
   finiteNumber(value, label);
   if (value <= 0) throw new InvalidArgumentError(`${label} must be greater than zero`);
 }
 
+/** 校验数字类型。 */
 function numberValue(value: unknown, label: string): asserts value is number {
   if (typeof value !== 'number') throw new InvalidArgumentError(`${label} must be a number`);
 }
 
+/** 校验字符串类型。 */
 function stringValue(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string') throw new InvalidArgumentError(`${label} must be a string`);
 }
 
+/** 校验非空字符串。 */
 function nonEmptyString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
 }
 
+/** 校验布尔类型。 */
 function booleanValue(value: unknown, label: string): asserts value is boolean {
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
 }
 
+/** 校验字符串属于允许值集合。 */
 function oneOf(value: unknown, allowed: readonly string[], label: string): asserts value is string {
   if (typeof value !== 'string' || !allowed.includes(value)) throw new InvalidArgumentError(`${label} is invalid`);
 }

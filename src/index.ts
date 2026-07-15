@@ -1,3 +1,10 @@
+/**
+ * 基于 OpenLayers 的 TypeScript 地图能力库。
+ *
+ * 标准用法从 `useEarth` 开始，再通过 Earth 上的服务管理图层、元素和交互。
+ *
+ * @packageDocumentation
+ */
 export { default as Earth } from './Earth.js';
 export { Element } from './facade/Element.js';
 export { Layer } from './facade/Layer.js';

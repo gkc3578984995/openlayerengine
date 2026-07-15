@@ -33,27 +33,44 @@ import type { FeatureBinding, ProjectionSuppressionLease } from '../FeatureBindi
 import type { LayerAdapter } from '../LayerAdapter.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 
+/** 编辑交互使用的临时 OpenLayers 要素。 */
 type EditFeature = Feature<Geometry>;
+/** 编辑交互使用的临时矢量数据源。 */
 type EditSource = VectorSource<EditFeature>;
+/** 编辑交互使用的临时矢量图层。 */
 type EditLayer = VectorLayer<EditSource>;
 
+/** 一次完整编辑预览的要素集合。 */
 interface RenderBundle {
+  /** 保存预览要素的数据源。 */
   readonly source: EditSource;
+  /** 该预览包含的全部要素。 */
   readonly features: readonly EditFeature[];
+  /** 控制点要素与语义锚点的对应关系。 */
   readonly anchors: readonly (readonly [EditFeature, EditInteractionAnchor])[];
+  /** 可选的编辑底图要素。 */
   readonly underlay: EditFeature | undefined;
 }
 
+/** 单个编辑预览要素的分步清理进度。 */
 interface FeatureCleanupProgress {
+  /** 待清理的预览要素。 */
   readonly feature: EditFeature;
+  /** 是否已经清除几何。 */
   geometryCleared: boolean;
+  /** 是否已经清除样式。 */
   styleCleared: boolean;
+  /** 是否已经销毁要素。 */
   disposed: boolean;
 }
 
+/** 一组编辑预览资源的清理进度。 */
 interface BundleCleanupProgress {
+  /** 等待清理的数据源。 */
   source: EditSource | undefined;
+  /** 数据源是否已经清空。 */
   sourceCleared: boolean;
+  /** 每个预览要素的清理进度。 */
   readonly features: Set<FeatureCleanupProgress>;
 }
 
@@ -73,6 +90,7 @@ export interface EditInteractionAdapterOptions {
   readonly hitTolerance?: number;
 }
 
+/** 编辑控制点和插入点的内置样式。 */
 const controlAnchorStyle = new Style({
   image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#3388ff', width: 2 }) })
 });
@@ -90,11 +108,17 @@ const insertionAnchorStyle = new Style({
  * @internal
  */
 export class EditInteractionAdapter implements EditInteractionPort {
+  /** 编辑交互所属的地图。 */
   readonly #map: OlMap;
+  /** 提供目标矢量图层和数据源。 */
   readonly #layers: LayerAdapter;
+  /** 提供持久要素和投影抑制租约。 */
   readonly #binding: FeatureBinding;
+  /** 编译编辑预览样式。 */
   readonly #styles: StyleCompiler;
+  /** 接收监听器和清理过程中的错误。 */
   readonly #errorReporter: ErrorReporter;
+  /** 控制点命中的像素容差。 */
   readonly #hitTolerance: number;
 
   /**
@@ -206,32 +230,58 @@ export class EditInteractionAdapter implements EditInteractionPort {
   }
 }
 
+/** 管理一次编辑会话的临时图层、交互和可重试清理。 */
 class OpenLayersEditInteractionHandle implements EditInteractionHandle {
+  /** 编辑交互所属的地图。 */
   readonly #map: OlMap;
+  /** 显示编辑预览的临时图层。 */
   readonly #layer: EditLayer;
+  /** 接收地图浏览器事件的 OpenLayers 交互。 */
   readonly #interaction: Interaction;
+  /** 编译编辑预览样式。 */
   readonly #styles: StyleCompiler;
+  /** 已校验的编辑交互配置。 */
   readonly #spec: Readonly<EditInteractionSpec>;
+  /** 接收语义编辑事件。 */
   readonly #listener: (event: EditInteractionEvent) => void;
+  /** 控制点命中的像素容差。 */
   readonly #hitTolerance: number;
+  /** 接收监听器和清理错误。 */
   readonly #errorReporter: ErrorReporter;
+  /** 从控制点要素反查语义锚点。 */
   readonly #anchorByFeature = new WeakMap<EditFeature, EditInteractionAnchor>();
+  /** 等待继续清理的旧预览资源。 */
   readonly #retired = new Set<BundleCleanupProgress>();
+  /** 当前编辑在循环世界中的放置结果。 */
   readonly placement: PreparedWorldEdit;
+  /** 当前持有的投影抑制租约。 */
   #suppression: ProjectionSuppressionLease;
+  /** 当前显示的完整预览。 */
   #bundle: RenderBundle | undefined;
+  /** 当前正在拖拽的控制点。 */
   #dragAnchor: EditControlAnchor | undefined;
+  /** 句柄是否已经允许派发事件。 */
   #published = false;
+  /** 是否正在提交新的预览。 */
   #rendering = false;
+  /** 句柄是否正在关闭。 */
   #closing = false;
+  /** 是否正在执行销毁。 */
   #destroyRunning = false;
+  /** 原生交互是否已经停用。 */
   #deactivated = false;
+  /** 临时图层是否已经从地图移除。 */
   #layerRemoved = false;
+  /** 原生交互是否已经从地图移除。 */
   #interactionRemoved = false;
+  /** 临时图层的数据源是否已经清空。 */
   #layerSourceCleared = false;
+  /** 临时图层是否已经销毁。 */
   #layerDisposed = false;
+  /** 投影抑制租约是否已经释放。 */
   #suppressionReleased = false;
 
+  /** 保存一次编辑会话的全部原生资源和初始状态。 */
   constructor(
     map: OlMap,
     layer: EditLayer,
@@ -258,14 +308,17 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     this.#bundle = { source, features: [], anchors: [], underlay: undefined };
   }
 
+  /** 将投影抑制租约所有权交给当前句柄。 */
   handoffSuppression(): void {
     this.#suppression = this.#suppression.handoff();
   }
 
+  /** 标记安装完成，允许后续事件向外发布。 */
   publish(): void {
     this.#published = true;
   }
 
+  /** 将 OpenLayers 浏览器事件转换为语义编辑事件。 */
   handleEvent(event: MapBrowserEvent): boolean {
     if (!this.#published || this.#closing || this.#rendering) return true;
     try {
@@ -322,6 +375,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
+  /** 原子替换当前编辑预览。 */
   render(state: Readonly<EditInteractionRenderState>): void {
     if (this.#closing) throw new ObjectDisposedError('Edit interaction has been destroyed');
     if (this.#rendering) throw new InvalidArgumentError('Edit interaction render is already in progress');
@@ -378,6 +432,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
+  /** 分步移除并销毁全部编辑资源。 */
   destroy(): void {
     if (this.#destroyComplete() || this.#destroyRunning) return;
     this.#closing = true;
@@ -458,6 +513,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     if (failures.length > 0) throw failures[0];
   }
 
+  /** 打开失败时尽力回滚尚未发布的全部资源。 */
   rollbackOpen(): void {
     this.#closing = true;
     this.#published = false;
@@ -498,6 +554,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     if (!this.#destroyComplete()) throw firstFailure ?? new CapabilityError('Edit interaction open rollback did not complete');
   }
 
+  /** 将临时图层恢复到更新前的数据源。 */
   #restoreSource(previousSource: EditSource | null): void {
     if (this.#closing || this.#layer.getSource() === previousSource) return;
     let firstFailure: unknown;
@@ -515,6 +572,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
+  /** 接管新的预览资源并登记控制点。 */
   #adopt(bundle: RenderBundle): void {
     if (this.#closing) throw new ObjectDisposedError('Edit interaction was destroyed during render');
     const previous = this.#bundle;
@@ -523,12 +581,14 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     if (previous !== undefined) this.#retire(previous, 'render-retire');
   }
 
+  /** 获取当前预览，不存在时抛出统一错误。 */
   #requireBundle(): RenderBundle {
     const bundle = this.#bundle;
     if (bundle === undefined) throw new ObjectDisposedError('Edit interaction has been destroyed');
     return bundle;
   }
 
+  /** 查询指针事件命中的编辑锚点。 */
   #anchorAt(event: MapBrowserEvent): EditInteractionAnchor | undefined {
     const pixel = safePixel(event.pixel);
     if (pixel === undefined) return undefined;
@@ -543,6 +603,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     );
   }
 
+  /** 冻结并发布语义编辑事件。 */
   #emit(event: EditInteractionEvent): void {
     try {
       this.#listener(freezeEvent(event));
@@ -551,6 +612,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
+  /** 将旧预览加入清理队列并立即尝试清理。 */
   #retire(bundle: RenderBundle, operation: string): void {
     this.#enqueueRetirement(bundle);
     const failures: unknown[] = [];
@@ -558,11 +620,13 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     for (const failure of failures) report(this.#errorReporter, failure, operation);
   }
 
+  /** 关闭阶段将预览加入清理队列并上报失败。 */
   #retireAfterClosing(bundle: RenderBundle, operation: string): void {
     if (this.#layer.getSource() !== null) this.#layerSourceCleared = false;
     this.#retire(bundle, operation);
   }
 
+  /** 为一组旧预览资源建立清理进度。 */
   #enqueueRetirement(bundle: RenderBundle): void {
     this.#retired.add({
       source: bundle.source,
@@ -578,6 +642,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     });
   }
 
+  /** 继续清理全部旧预览资源。 */
   #cleanupRetired(failures: unknown[]): void {
     for (const progress of [...this.#retired]) {
       this.#cleanupRetirement(progress, failures);
@@ -585,6 +650,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
+  /** 分步清理一组旧预览资源。 */
   #cleanupRetirement(progress: BundleCleanupProgress, failures: unknown[]): void {
     const source = progress.source;
     if (source !== undefined && !progress.sourceCleared) {
@@ -615,6 +681,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
+  /** 分步清理一个旧预览要素。 */
   #cleanupRetiredFeature(progress: FeatureCleanupProgress, failures: unknown[]): void {
     const feature = progress.feature;
     if (!progress.geometryCleared) {
@@ -652,6 +719,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
+  /** 判断编辑会话的全部销毁步骤是否完成。 */
   #destroyComplete(): boolean {
     return (
       this.#deactivated &&
@@ -666,6 +734,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
   }
 }
 
+/** 校验并冻结编辑交互配置。 */
 function validateSpec(spec: Readonly<EditInteractionSpec>): Readonly<EditInteractionSpec> {
   if (spec === null || typeof spec !== 'object') throw new InvalidArgumentError('Edit interaction spec must be an object');
   if (typeof spec.elementId !== 'string' || spec.elementId.trim().length === 0) {
@@ -680,6 +749,7 @@ function validateSpec(spec: Readonly<EditInteractionSpec>): Readonly<EditInterac
   });
 }
 
+/** 根据目标图层和控制点选择合适的循环世界。 */
 function placementFor(map: OlMap, source: EditSource, controlPoints: readonly Coordinate[]): PreparedWorldEdit {
   const projection = getUserProjection() ?? source.getProjection() ?? map.getView().getProjection();
   const world = horizontalWorldFromExtent(projection.getExtent(), source.getWrapX() === true && projection.canWrapX());
@@ -688,6 +758,7 @@ function placementFor(map: OlMap, source: EditSource, controlPoints: readonly Co
   return prepareWorldEdit(controlPoints, { ...(world === undefined ? {} : { world }), ...(referenceX === undefined ? {} : { referenceX }) });
 }
 
+/** 根据编辑渲染状态准备一组完整预览资源。 */
 function prepareRenderBundle(
   state: Readonly<EditInteractionRenderState>,
   styles: StyleCompiler,
@@ -717,12 +788,14 @@ function prepareRenderBundle(
   return { source, features, anchors: Object.freeze(anchors), underlay };
 }
 
+/** 创建带样式的编辑预览要素。 */
 function createStyledFeature(geometry: RenderGeometryState, style: ReturnType<StyleCompiler['compile']>): EditFeature {
   const feature = new Feature<Geometry>(createGeometry(geometry));
   feature.setStyle(style);
   return feature;
 }
 
+/** 克隆要素的几何和样式。 */
 function cloneStyledFeature(source: EditFeature): EditFeature {
   const geometry = source.getGeometry();
   if (geometry === undefined) throw new ObjectDisposedError('Edit underlay geometry is unavailable');
@@ -731,6 +804,7 @@ function cloneStyledFeature(source: EditFeature): EditFeature {
   return feature;
 }
 
+/** 将渲染几何状态转换为 OpenLayers Geometry。 */
 function createGeometry(state: RenderGeometryState): Geometry {
   if (state.type === 'point') return new Point(copyOlCoordinate(state.coordinates));
   if (state.type === 'polyline') return new LineString(state.coordinates.map(copyOlCoordinate));
@@ -739,6 +813,7 @@ function createGeometry(state: RenderGeometryState): Geometry {
   return new Circle(copyOlCoordinate(state.center), state.radius);
 }
 
+/** 复制并冻结编辑锚点快照。 */
 function snapshotAnchor(anchor: EditInteractionAnchor): EditInteractionAnchor {
   if (anchor === null || typeof anchor !== 'object') throw new InvalidArgumentError('Edit anchor must be an object');
   if (!Number.isSafeInteger(anchor.index) || anchor.index < 0) throw new InvalidArgumentError('Edit anchor index must be a non-negative safe integer');
@@ -755,6 +830,7 @@ function snapshotAnchor(anchor: EditInteractionAnchor): EditInteractionAnchor {
   });
 }
 
+/** 复制并冻结语义编辑事件。 */
 function freezeEvent(event: EditInteractionEvent): EditInteractionEvent {
   const anchor = snapshotAnchor(event.anchor);
   if (event.type === 'insert') return Object.freeze({ type: event.type, anchor: anchor as EditInsertionAnchor });
@@ -767,16 +843,19 @@ function freezeEvent(event: EditInteractionEvent): EditInteractionEvent {
   return Object.freeze({ type: event.type, anchor: anchor as EditControlAnchor, coordinate });
 }
 
+/** 复制并冻结核心坐标。 */
 function copyCoordinate(value: Coordinate): Coordinate {
   const coordinate = safeCoordinate(value);
   if (coordinate === undefined) throw new InvalidArgumentError('Edit coordinate must contain two or three finite numbers');
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
 }
 
+/** 复制坐标供 OpenLayers 使用。 */
 function copyOlCoordinate(value: Coordinate): number[] {
   return [...copyCoordinate(value)];
 }
 
+/** 安全读取二维或三维地图坐标。 */
 function safeCoordinate(value: unknown): Coordinate | undefined {
   if (!Array.isArray(value) || (value.length !== 2 && value.length !== 3) || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
     return undefined;
@@ -784,37 +863,45 @@ function safeCoordinate(value: unknown): Coordinate | undefined {
   return Object.freeze([...value]) as Coordinate;
 }
 
+/** 安全读取屏幕像素。 */
 function safePixel(value: unknown): readonly [number, number] | undefined {
   if (!Array.isArray(value) || value.length !== 2 || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) return undefined;
   return Object.freeze([value[0], value[1]]) as readonly [number, number];
 }
 
+/** 判断地图是否仍包含指定临时图层。 */
 function containsLayer(map: OlMap, layer: EditLayer): boolean {
   return map.getLayers().getArray().includes(layer);
 }
 
+/** 判断地图是否仍包含指定交互。 */
 function containsInteraction(map: OlMap, interaction: Interaction): boolean {
   return map.getInteractions().getArray().includes(interaction);
 }
 
+/** 判断事件是否来自主指针和允许的鼠标按键。 */
 function isPrimary(event: MapBrowserEvent, requireLeftButton: boolean): boolean {
   if (field(event.originalEvent, 'isPrimary') === false) return false;
   const button = field(event.originalEvent, 'button');
   return !requireLeftButton || typeof button !== 'number' || button === 0;
 }
 
+/** 判断原始事件是否按下 Alt。 */
 function isAlt(event: MapBrowserEvent): boolean {
   return field(event.originalEvent, 'altKey') === true;
 }
 
+/** 判断事件是否是指针取消。 */
 function isPointerCancel(event: MapBrowserEvent): boolean {
   return event.type === 'pointercancel' || field(event.originalEvent, 'type') === 'pointercancel';
 }
 
+/** 安全读取未知对象的字段。 */
 function field(value: unknown, key: string): unknown {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
 }
 
+/** 执行清理步骤并收集失败。 */
 function capture(failures: unknown[], work: () => void): void {
   try {
     work();
@@ -823,6 +910,7 @@ function capture(failures: unknown[], work: () => void): void {
   }
 }
 
+/** 安全读取状态，并把成功结果交给回调。 */
 function inspect<T>(failures: unknown[], read: () => T, accept: (value: T) => void): void {
   try {
     accept(read());
@@ -831,6 +919,7 @@ function inspect<T>(failures: unknown[], read: () => T, accept: (value: T) => vo
   }
 }
 
+/** 执行非致命操作并上报失败。 */
 function attempt(errorReporter: ErrorReporter, work: () => void, operation: string): void {
   try {
     work();
@@ -839,6 +928,7 @@ function attempt(errorReporter: ErrorReporter, work: () => void, operation: stri
   }
 }
 
+/** 安全上报编辑交互内部错误。 */
 function report(errorReporter: ErrorReporter, error: unknown, operation: string): void {
   try {
     const result = (errorReporter as (reportedError: unknown, context: object) => unknown)(error, {

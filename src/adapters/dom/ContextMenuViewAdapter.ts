@@ -3,11 +3,15 @@ import { runFinalizers } from '../../core/common/dispose.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import type { ContextMenuViewEvent, ContextMenuViewItem, ContextMenuViewModel, ContextMenuViewPort } from '../../core/ports/ContextMenuViewPort.js';
 
+/** 右键菜单定位时需要的地图事件能力。 */
 interface EventedMap {
+  /** 监听地图渲染完成事件。 */
   on(type: 'postrender', listener: () => void): unknown;
+  /** 移除地图渲染完成事件。 */
   un(type: 'postrender', listener: () => void): void;
 }
 
+/** 需要在菜单内部阻止冒泡和默认行为的事件。 */
 const isolatedMenuEventTypes = [
   'auxclick',
   'dblclick',
@@ -34,19 +38,29 @@ const isolatedMenuEventTypes = [
   'wheel'
 ] as const;
 
+/** 使用 DOM 渲染并定位地图右键菜单。 */
 export class ContextMenuViewAdapter implements ContextMenuViewPort {
+  /** 菜单所属的 OpenLayers 地图。 */
   readonly #map: OLMap;
+  /** 接收菜单选择和关闭事件的监听器。 */
   #listener: ((event: ContextMenuViewEvent) => void) | undefined;
+  /** 菜单根元素。 */
   #root: HTMLDivElement | undefined;
+  /** 菜单当前对应的地图坐标。 */
   #coordinate: readonly number[] | undefined;
+  /** 当前菜单主题。 */
   #theme: 'light' | 'dark' = 'light';
+  /** 是否正在跟踪地图和页面事件。 */
   #tracking = false;
+  /** 适配器是否已经销毁。 */
   #disposed = false;
 
+  /** 保存菜单所属的地图。 */
   constructor(map: OLMap) {
     this.#map = map;
   }
 
+  /** 安装唯一的菜单事件监听器，并返回取消函数。 */
   listen(listener: (event: ContextMenuViewEvent) => void): () => void {
     this.#assertActive();
     if (typeof listener !== 'function') throw new InvalidArgumentError('Context-menu view listener must be a function');
@@ -60,6 +74,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     };
   }
 
+  /** 渲染菜单并显示在指定地图坐标。 */
   show(model: ContextMenuViewModel): void {
     this.#assertActive();
     const root = this.#ensureRoot();
@@ -70,6 +85,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     this.#syncPosition();
   }
 
+  /** 隐藏菜单并停止位置跟踪。 */
   close(): void {
     if (this.#disposed) return;
     if (this.#root !== undefined) this.#root.style.display = 'none';
@@ -77,6 +93,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     this.#stopTracking();
   }
 
+  /** 切换菜单的明暗主题。 */
   setTheme(theme: 'light' | 'dark'): void {
     this.#assertActive();
     if (theme !== 'light' && theme !== 'dark') throw new InvalidArgumentError('Context-menu theme must be light or dark');
@@ -84,6 +101,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     this.#applyTheme();
   }
 
+  /** 销毁菜单 DOM 和全部事件监听。 */
   destroy(): void {
     if (this.#disposed && !this.#tracking && this.#root === undefined) return;
     this.#disposed = true;
@@ -109,6 +127,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     }
   }
 
+  /** 获取菜单根元素，不存在时创建并挂到地图视口。 */
   #ensureRoot(): HTMLDivElement {
     if (this.#root !== undefined) return this.#root;
     if (typeof document === 'undefined') throw new ObjectDisposedError('Context-menu DOM is unavailable');
@@ -124,6 +143,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     return root;
   }
 
+  /** 递归渲染一组菜单项。 */
   #renderItems(items: readonly ContextMenuViewItem[]): HTMLUListElement {
     const list = document.createElement('ul');
     list.className = 'ol-context-menu__list';
@@ -151,6 +171,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     return list;
   }
 
+  /** 处理菜单项点击并上报选择事件。 */
   #handleClick = (event: MouseEvent): void => {
     this.#stopMenuEvent(event);
     const target = event.target;
@@ -160,20 +181,24 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     this.#listener?.(Object.freeze({ type: 'select', key }));
   };
 
+  /** 阻止菜单内部事件影响地图和浏览器默认菜单。 */
   #stopMenuEvent = (event: Event): void => {
     event.preventDefault();
     event.stopPropagation();
   };
 
+  /** 点击菜单外部时请求关闭菜单。 */
   #handleOutsidePointerDown = (event: Event): void => {
     const target = event.target;
     if (this.#root !== undefined && target instanceof Node && !this.#root.contains(target)) this.#listener?.(Object.freeze({ type: 'close' }));
   };
 
+  /** 按下 Escape 时请求关闭菜单。 */
   #handleKeyDown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') this.#listener?.(Object.freeze({ type: 'close' }));
   };
 
+  /** 开始跟踪地图渲染和页面关闭事件。 */
   #startTracking(): void {
     if (this.#tracking) return;
     this.#tracking = true;
@@ -184,6 +209,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     }
   }
 
+  /** 停止跟踪地图和页面事件。 */
   #stopTracking(): void {
     if (!this.#tracking) return;
     runFinalizers([
@@ -198,6 +224,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     this.#tracking = false;
   }
 
+  /** 将地图坐标同步为菜单的屏幕位置。 */
   #syncPosition = (): void => {
     if (this.#root === undefined || this.#coordinate === undefined) return;
     let pixel: unknown;
@@ -211,11 +238,13 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     this.#root.style.top = `${pixel[1]}px`;
   };
 
+  /** 把当前主题类名应用到菜单根元素。 */
   #applyTheme(): void {
     this.#root?.classList.toggle('ol-context-menu--dark', this.#theme === 'dark');
     this.#root?.classList.toggle('ol-context-menu--light', this.#theme === 'light');
   }
 
+  /** 确认适配器仍可使用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('ContextMenuViewAdapter has been destroyed');
   }

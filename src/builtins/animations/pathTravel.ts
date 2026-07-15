@@ -6,8 +6,10 @@ import type { StyleSpec } from '../../core/style/types.js';
 import type { AnimationDefinition, AnimationFrameResult } from '../../services/animation/types.js';
 import { animationRecord, arrayValues, boolean, channel, color, copyColor, finite, interpolateColor, optionalColor, positive } from './validation.js';
 
+/** 内部常量。保存 pathTravelAnimationDefinition 使用的数据。 */
 export const pathTravelAnimationDefinition = Object.freeze({
   type: 'path-travel',
+  /** 校验并整理输入数据。 */
   normalize(input) {
     const record = animationRecord(input, 'path-travel', [
       'type',
@@ -62,11 +64,13 @@ export const pathTravelAnimationDefinition = Object.freeze({
     };
     return Object.freeze(spec);
   },
+  /** 检查动画和图形是否兼容。 */
   assertCompatible(_state, geometry) {
     if (geometry.type !== 'polyline' || geometry.coordinates.length < 2) {
       throw new CapabilityError('Path-travel animation requires polyline render geometry with at least two points');
     }
   },
+  /** 计算当前动画帧。 */
   frame(context, input): AnimationFrameResult {
     if (context.geometry.type !== 'polyline') throw new CapabilityError('Path-travel animation requires polyline render geometry');
     const spec = input as PathTravelAnimationSpec;
@@ -103,6 +107,7 @@ export const pathTravelAnimationDefinition = Object.freeze({
   }
 } satisfies AnimationDefinition);
 
+/** 内部方法。处理 travelPath 相关数据。 */
 function travelPath(coordinates: readonly Coordinate[], curvature: number, smoothness: number): readonly Coordinate[] {
   if (coordinates.length !== 2 || curvature === 0) return coordinates.map(cloneCoordinate);
   const start = coordinates[0];
@@ -121,6 +126,7 @@ function travelPath(coordinates: readonly Coordinate[], curvature: number, smoot
   return points;
 }
 
+/** 内部方法。处理 slicePath 相关数据。 */
 function slicePath(path: readonly Coordinate[], from: number, to: number, smoothness: number): readonly Coordinate[] {
   if (to <= from) {
     const point = pointAt(path, to);
@@ -132,6 +138,7 @@ function slicePath(path: readonly Coordinate[], from: number, to: number, smooth
   return result;
 }
 
+/** 内部方法。处理 pointAt 相关数据。 */
 function pointAt(path: readonly Coordinate[], progress: number): Coordinate {
   const lengths = segmentLengths(path);
   const total = lengths.reduce((sum, value) => sum + value, 0);
@@ -146,6 +153,7 @@ function pointAt(path: readonly Coordinate[], progress: number): Coordinate {
   return cloneCoordinate(path[path.length - 1]);
 }
 
+/** 内部方法。处理 linePrimitives 相关数据。 */
 function linePrimitives(
   trail: readonly Coordinate[],
   gradient: PathTravelAnimationSpec['gradient'],
@@ -168,6 +176,7 @@ function linePrimitives(
   return result;
 }
 
+/** 内部方法。处理 linePrimitive 相关数据。 */
 function linePrimitive(
   coordinates: readonly Coordinate[],
   strokeColor: Color,
@@ -194,6 +203,7 @@ function linePrimitive(
   return Object.freeze({ geometry: Object.freeze({ type: 'polyline', coordinates: Object.freeze(coordinates.map(cloneCoordinate)) }), style });
 }
 
+/** 内部方法。处理 anchorPrimitive 相关数据。 */
 function anchorPrimitive(coordinate: Coordinate, anchorColor: Color, zIndex: number | undefined): LayerRenderPrimitive {
   const style: StyleSpec = {
     symbol: { type: 'circle', radius: 4, fill: { type: 'solid', color: copyColor(anchorColor) } },
@@ -205,6 +215,7 @@ function anchorPrimitive(coordinate: Coordinate, anchorColor: Color, zIndex: num
   });
 }
 
+/** 内部方法。处理 normalizeGradient 相关数据。 */
 function normalizeGradient(value: unknown): readonly (readonly [number, Color])[] {
   const stops = arrayValues(value, 'Path-travel gradient');
   if (stops.length < 2) throw new InvalidArgumentError('Path-travel gradient must contain at least two stops');
@@ -222,6 +233,7 @@ function normalizeGradient(value: unknown): readonly (readonly [number, Color])[
   return Object.freeze(result);
 }
 
+/** 内部方法。处理 gradientColor 相关数据。 */
 function gradientColor(stops: readonly (readonly [number, Color])[], progress: number): Color {
   if (progress <= stops[0][0]) return copyColor(stops[0][1]);
   for (let index = 1; index < stops.length; index += 1) {
@@ -234,35 +246,42 @@ function gradientColor(stops: readonly (readonly [number, Color])[], progress: n
   return copyColor(stops[stops.length - 1][1]);
 }
 
+/** 内部方法。处理 pathLength 相关数据。 */
 function pathLength(path: readonly Coordinate[]): number {
   return segmentLengths(path).reduce((sum, value) => sum + value, 0);
 }
 
+/** 内部方法。处理 segmentLengths 相关数据。 */
 function segmentLengths(path: readonly Coordinate[]): number[] {
   const result: number[] = [];
   for (let index = 0; index < path.length - 1; index += 1) result.push(Math.hypot(path[index + 1][0] - path[index][0], path[index + 1][1] - path[index][1]));
   return result;
 }
 
+/** 内部方法。处理 interpolate 相关数据。 */
 function interpolate(start: Coordinate, end: Coordinate, ratio: number): Coordinate {
   const x = start[0] + (end[0] - start[0]) * ratio;
   const y = start[1] + (end[1] - start[1]) * ratio;
   return start.length === 3 || end.length === 3 ? [x, y, (start[2] ?? 0) + ((end[2] ?? 0) - (start[2] ?? 0)) * ratio] : [x, y];
 }
 
+/** 内部方法。处理 cloneCoordinate 相关数据。 */
 function cloneCoordinate(value: Coordinate): Coordinate {
   return value.length === 3 ? [value[0], value[1], value[2]] : [value[0], value[1]];
 }
 
+/** 内部方法。处理 positiveInteger 相关数据。 */
 function positiveInteger(value: unknown, fallback: number, label: string): number {
   const result = positive(value, fallback, label);
   if (!Number.isSafeInteger(result)) throw new InvalidArgumentError(`${label} must be a positive safe integer`);
   return result;
 }
 
+/** 内部方法。处理 positiveModulo 相关数据。 */
 function positiveModulo(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus;
 }
 
+/** 内部常量。保存 arrowDataUrl 使用的数据。 */
 const arrowDataUrl =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"%3E%3Cpath d="M1 8 15 1l-4 7 4 7z" fill="white"/%3E%3C/svg%3E';

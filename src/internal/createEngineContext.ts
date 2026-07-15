@@ -55,9 +55,12 @@ import { assertStructuredStyleSpec, StyleService } from '../services/style/Style
 import { TransformService } from '../services/transform/TransformService.js';
 import type { EngineContext } from './EngineContext.js';
 
+/** 默认地图中心坐标。 */
 const homeCenter = Object.freeze(fromLonLat([119, 39]));
+/** 使用线样式预设的图形类型。 */
 const lineShapes = new Set(['polyline', 'lune-polyline', 'curve-polyline']);
 
+/** 装配单个 Earth 实例需要的地图对象、适配器与服务。 */
 export function createEngineContext(options: EarthOptions = {}): EngineContext {
   const target = options.target ?? 'olContainer';
   const olView = new View({ center: [...homeCenter], zoom: 4, ...options.view });
@@ -279,12 +282,14 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
   }
 }
 
+/** 按图形类型返回内置默认样式。 */
 function defaultStyle(state: ShapeState): ElementStyleState {
   if (state.type === 'point') return stylePresets['point-default'];
   if (lineShapes.has(state.type)) return stylePresets['line-default'];
   return stylePresets['polygon-default'];
 }
 
+/** 清理 OpenLayers 地图持有的集合与挂载目标。 */
 function cleanupMap(map: Map): void {
   map.getOverlays().clear();
   map.getInteractions().clear();

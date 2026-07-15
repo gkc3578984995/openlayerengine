@@ -22,47 +22,81 @@ import type {
   NormalizedTransformOptions
 } from './types.js';
 
+/** Transform 会话使用的键盘输入子集。 */
 export interface TransformKeyboardInput {
+  /** 订阅键盘按下事件。 */
   on(
     type: 'keydown',
     listener: (event: Readonly<{ key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; preventDefault(): void }>) => void
   ): () => void;
 }
 
+/** 构造 Transform 服务所需的依赖。 */
 export interface TransformServiceDependencies {
+  /** 元素状态仓库。 */
   readonly store: ElementStore;
+  /** 图形定义注册表。 */
   readonly shapes: ShapeRegistry;
+  /** 内部样式服务。 */
   readonly styles: StyleService;
+  /** 互斥交互协调器。 */
   readonly coordinator: InteractionCoordinator;
+  /** 底层变换交互端口。 */
   readonly interaction: TransformInteractionPort;
+  /** 元素动画控制端口。 */
   readonly animations: TransformAnimationPort;
+  /** 临时动画端口。 */
   readonly transients: TransientAnimationPort;
+  /** 可选的工具栏端口。 */
   readonly toolbar?: TransformToolbarPort;
+  /** 可选的鼠标提示端口。 */
   readonly tooltip?: TransformTooltipPort;
+  /** 可选的键盘输入。 */
   readonly input?: TransformKeyboardInput;
+  /** 可选的复制元素 ID 生成器。 */
   readonly createId?: () => string;
+  /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
 }
 
+/** 创建并管理 Transform 会话及共享剪贴板。 */
 export class TransformService implements InternalTransformService {
+  /** 元素状态仓库。 */
   readonly #store: ElementStore;
+  /** 图形定义注册表。 */
   readonly #shapes: ShapeRegistry;
+  /** 内部样式服务。 */
   readonly #styles: StyleService;
+  /** 互斥交互协调器。 */
   readonly #coordinator: InteractionCoordinator;
+  /** 底层变换交互端口。 */
   readonly #interaction: TransformInteractionPort;
+  /** 元素动画控制端口。 */
   readonly #animations: TransformAnimationPort;
+  /** 临时动画端口。 */
   readonly #transients: TransientAnimationPort;
+  /** 可选的工具栏端口。 */
   readonly #toolbar: TransformToolbarPort | undefined;
+  /** 可选的鼠标提示端口。 */
   readonly #tooltip: TransformTooltipPort | undefined;
+  /** 可选的键盘输入。 */
   readonly #input: TransformKeyboardInput | undefined;
+  /** 可选的复制元素 ID 生成器。 */
   readonly #providedCreateId: (() => string) | undefined;
+  /** Transform 错误报告器。 */
   readonly #errorReporter: ErrorReporter;
+  /** 当前活动的 Transform 会话。 */
   readonly #sessions = new Set<TransformSession>();
+  /** 最近复制的元素快照。 */
   #clipboard: ReturnType<ElementStore['get']>;
+  /** 下一个自动生成的复制元素 ID。 */
   #nextId = 0;
+  /** 下一个 Transform 会话 ID。 */
   #nextSessionId = 0;
+  /** 服务是否已销毁。 */
   #disposed = false;
 
+  /** 创建 Transform 服务。 */
   constructor(dependencies: TransformServiceDependencies) {
     if (dependencies.createId !== undefined && typeof dependencies.createId !== 'function')
       throw new InvalidArgumentError('Transform createId must be a function');
@@ -83,14 +117,17 @@ export class TransformService implements InternalTransformService {
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
   }
 
+  /** 启动一个尚未选择元素的 Transform 会话。 */
   start(options?: InternalTransformOptions): InternalTransformSession {
     return this.#start(options);
   }
 
+  /** 启动会话并选择指定元素。 */
   select<T>(elementId: string, options?: InternalTransformOptions): InternalTransformSession<T> {
     return this.#start<T>(options, nonEmptyString(elementId, 'Transform element id'));
   }
 
+  /** 销毁全部会话并清空剪贴板。 */
   destroy(): void {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -99,6 +136,7 @@ export class TransformService implements InternalTransformService {
     this.#clipboard = undefined;
   }
 
+  /** 创建、激活并打开 Transform 会话。 */
   #start<T>(input?: InternalTransformOptions, elementId?: string): TransformSession<T> {
     this.#assertActive();
     const options = this.#normalizeOptions(input);
@@ -135,6 +173,7 @@ export class TransformService implements InternalTransformService {
     }
   }
 
+  /** 校验并补齐 Transform 配置默认值。 */
   #normalizeOptions(input: InternalTransformOptions | undefined): NormalizedTransformOptions {
     const record = inspectRecord(input ?? {}, 'Transform options');
     const allowed = new Set([
@@ -205,6 +244,7 @@ export class TransformService implements InternalTransformService {
     });
   }
 
+  /** 生成未被占用的复制元素 ID。 */
   #createId(): string {
     if (this.#providedCreateId !== undefined) return nonEmptyString(this.#providedCreateId(), 'Generated Transform element id');
     let id: string;
@@ -213,11 +253,13 @@ export class TransformService implements InternalTransformService {
     return id;
   }
 
+  /** 确保 Transform 服务仍可使用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('TransformService has been destroyed');
   }
 }
 
+/** 安全读取普通配置对象的数据属性。 */
 function inspectRecord(input: unknown, label: string): Record<string, unknown> {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError(`${label} must be a plain object`);
   const prototype = Object.getPrototypeOf(input);
@@ -232,19 +274,23 @@ function inspectRecord(input: unknown, label: string): Record<string, unknown> {
   return record;
 }
 
+/** 断言配置只包含允许字段。 */
 function assertFields(record: Record<string, unknown>, allowed: ReadonlySet<string>, label: string): void {
   for (const key of Object.keys(record)) if (!allowed.has(key)) throw new InvalidArgumentError(`Unknown ${label.toLowerCase()} field: ${key}`);
 }
 
+/** 判断对象是否拥有指定自有属性。 */
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+/** 校验非空字符串。 */
 function nonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
+/** 读取带默认值的可选布尔字段。 */
 function optionalBoolean(record: Record<string, unknown>, key: string, fallback: boolean, label: string): boolean {
   if (!hasOwn(record, key) || record[key] === undefined) return fallback;
   const value = record[key];
@@ -252,6 +298,7 @@ function optionalBoolean(record: Record<string, unknown>, key: string, fallback:
   return value;
 }
 
+/** 读取带默认值的非负数字字段。 */
 function optionalNonNegative(record: Record<string, unknown>, key: string, fallback: number, label: string): number {
   if (!hasOwn(record, key) || record[key] === undefined) return fallback;
   const value = record[key];
@@ -259,12 +306,14 @@ function optionalNonNegative(record: Record<string, unknown>, key: string, fallb
   return value;
 }
 
+/** 读取带默认值的正数字段。 */
 function optionalPositive(record: Record<string, unknown>, key: string, fallback: number, label: string): number {
   const value = optionalNonNegative(record, key, fallback, label);
   if (value <= 0) throw new InvalidArgumentError(`${label} must be greater than zero`);
   return value;
 }
 
+/** 读取带默认值的正整数字段。 */
 function optionalPositiveInteger(record: Record<string, unknown>, key: string, fallback: number, label: string): number {
   if (!hasOwn(record, key) || record[key] === undefined) return fallback;
   const value = record[key];
@@ -272,16 +321,19 @@ function optionalPositiveInteger(record: Record<string, unknown>, key: string, f
   return value as number;
 }
 
+/** 校验 Transform 平移模式。 */
 function translateMode(value: unknown): NormalizedTransformOptions['translate'] {
   if (value !== 'none' && value !== 'center' && value !== 'feature') throw new InvalidArgumentError('Transform translate must be none, center, or feature');
   return value;
 }
 
+/** 校验交互冲突策略。 */
 function interactionPolicy(value: unknown): NormalizedTransformOptions['policy'] {
   if (value !== 'replace' && value !== 'reject') throw new InvalidArgumentError('Transform policy must be replace or reject');
   return value;
 }
 
+/** 校验二维或三维地图坐标。 */
 function coordinate(value: unknown, label: string): readonly [number, number] | readonly [number, number, number] {
   if (!Array.isArray(value) || (value.length !== 2 && value.length !== 3) || value.some((part) => typeof part !== 'number' || !Number.isFinite(part))) {
     throw new InvalidArgumentError(`${label} must contain two or three finite numbers`);
@@ -289,11 +341,13 @@ function coordinate(value: unknown, label: string): readonly [number, number] | 
   return Object.freeze([...value]) as readonly [number, number] | readonly [number, number, number];
 }
 
+/** 校验、去重并冻结字符串数组。 */
 function stringArray(value: unknown, label: string): readonly string[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be an array`);
   return Object.freeze([...new Set(value.map((item) => nonEmptyString(item, `${label} item`)))]);
 }
 
+/** 克隆并冻结元素选择器。 */
 function cloneSelector(value: unknown): ElementSelector {
   const record = inspectRecord(value, 'Transform selector');
   assertFields(record, new Set(['id', 'ids', 'module', 'layerId', 'type', 'visible', 'predicate']), 'Transform selector');
@@ -303,6 +357,7 @@ function cloneSelector(value: unknown): ElementSelector {
   }) as ElementSelector;
 }
 
+/** 校验并规范化工具栏配置。 */
 function normalizeToolbar(value: unknown): InternalTransformToolbarOptions {
   const record = inspectRecord(value, 'Transform toolbar');
   assertFields(record, new Set(['items', 'offset', 'className', 'visible']), 'Transform toolbar');
@@ -318,6 +373,7 @@ function normalizeToolbar(value: unknown): InternalTransformToolbarOptions {
   });
 }
 
+/** 校验并冻结工具栏项目。 */
 function toolbarItems(value: unknown): readonly InternalTransformToolbarItemSpec[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError('Transform toolbar items must be an array');
   const keys = new Set<string>();
@@ -341,6 +397,7 @@ function toolbarItems(value: unknown): readonly InternalTransformToolbarItemSpec
   );
 }
 
+/** 校验二维数字元组。 */
 function pair(value: unknown, label: string): readonly [number, number] {
   if (!Array.isArray(value) || value.length !== 2 || value.some((part) => typeof part !== 'number' || !Number.isFinite(part))) {
     throw new InvalidArgumentError(`${label} must contain two finite numbers`);
@@ -348,6 +405,7 @@ function pair(value: unknown, label: string): readonly [number, number] {
   return Object.freeze([value[0], value[1]]);
 }
 
+/** 读取布尔值。 */
 function boolean(value: unknown, label: string): boolean {
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
   return value;
