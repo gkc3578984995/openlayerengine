@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { createControlPointDefinition } from '../src/builtins/shapes/definition.js';
 import { InvalidArgumentError } from '../src/core/errors.js';
+import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import { isTrustedTransformDefinition, renderTrustedShapeState } from '../src/core/shape/trustedRender.js';
 import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
 
 function definition<T extends ShapeType>(type: T): ShapeDefinition<ShapeState<T>> {
@@ -11,6 +13,20 @@ function definition<T extends ShapeType>(type: T): ShapeDefinition<ShapeState<T>
 }
 
 describe('basic shape definitions', () => {
+  it('allows trusted transform derivation only for the registered built-in definition identity', () => {
+    const builtIn = new ShapeRegistry([definition('polyline')]).get('polyline');
+    const custom = createControlPointDefinition({
+      type: 'polyline',
+      previewMin: 1,
+      completeMin: 2,
+      render: (points) => ({ type: 'polyline', coordinates: points })
+    });
+    const customSnapshot = new ShapeRegistry([custom]).get('polyline');
+
+    expect(isTrustedTransformDefinition(builtIn)).toBe(true);
+    expect(isTrustedTransformDefinition(customSnapshot)).toBe(false);
+  });
+
   it('rejects a custom complete outcome that remains incomplete', () => {
     const shape = createControlPointDefinition({
       type: 'polyline',
@@ -575,6 +591,27 @@ describe('basic shape definitions', () => {
     const state = shape.normalize({ type: 'point', controlPoints: [[0, 0]] });
 
     expect(() => shape.toRenderGeometry(state)).toThrow(InvalidArgumentError);
+    expect(() => renderTrustedShapeState(shape, state)).toThrow(InvalidArgumentError);
+  });
+
+  it('does not inherit a trusted renderer when a custom definition reuses a built-in render function', () => {
+    const builtIn = definition('polyline');
+    const acceptUnvalidated = (input: unknown): ShapeState<'polyline'> => input as ShapeState<'polyline'>;
+    const custom = Object.freeze<ShapeDefinition<ShapeState<'polyline'>>>({
+      ...builtIn,
+      normalize: acceptUnvalidated,
+      clone: acceptUnvalidated,
+      isComplete: () => true,
+      tryComplete: (state) => ({ status: 'complete', state })
+    });
+    const registered = new ShapeRegistry([custom]).get('polyline');
+    const nonFinite = Object.freeze({
+      type: 'polyline' as const,
+      controlPoints: Object.freeze([Object.freeze([Number.POSITIVE_INFINITY, 0]), Object.freeze([1, 1])])
+    });
+
+    expect(registered.toRenderGeometry).toBe(builtIn.toRenderGeometry);
+    expect(() => renderTrustedShapeState(registered, nonFinite)).toThrow(InvalidArgumentError);
   });
 
   it.each([

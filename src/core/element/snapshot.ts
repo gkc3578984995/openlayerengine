@@ -50,6 +50,32 @@ export function cloneElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: Rea
   return freezeElementState(state, geometry);
 }
 
+/**
+ * 从已有快照派生只替换几何或样式的新快照。
+ *
+ * 该函数只供已经完成输入校验、且自行创建替换值的内部热路径使用。它复用来源快照中已经隔离并冻结的数据，避免再次复制整个元素状态。
+ * @internal
+ */
+export function deriveElementSnapshot<T>(source: ElementSnapshot<T>, geometry: ShapeState, style: ElementState<T>['style'] = source.style): ElementSnapshot<T> {
+  if (!isElementSnapshot(source)) throw new InvalidArgumentError('Derived Element snapshot source must be a trusted snapshot');
+  if (geometry === null || typeof geometry !== 'object' || geometry.type !== source.type) {
+    throw new InvalidArgumentError('Element type must match derived geometry type');
+  }
+
+  const snapshot = Object.freeze({
+    id: source.id,
+    type: source.type,
+    geometry: deepFreeze(geometry),
+    style: style === source.style ? source.style : deepFreeze(style),
+    ...(source.data === undefined ? {} : { data: source.data }),
+    ...(source.module === undefined ? {} : { module: source.module }),
+    layerId: source.layerId,
+    visible: source.visible
+  }) as ElementSnapshot<T>;
+  elementSnapshots.add(snapshot);
+  return snapshot;
+}
+
 /** 冻结已经整理好的元素状态。 */
 function freezeElementState<T>(state: Readonly<ElementState<T>>, geometry: ShapeState): ElementSnapshot<T> {
   const projected: ElementState<T> = {
@@ -100,11 +126,11 @@ function assertElementStyle(value: unknown): void {
 
 /** 递归冻结普通对象和数组。 */
 function deepFreeze<T>(value: T, visited = new WeakSet<object>()): T {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value) || visited.has(value)) return value;
+  if (value === null || typeof value !== 'object' || visited.has(value)) return value;
   visited.add(value);
   for (const key of Reflect.ownKeys(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (descriptor !== undefined && 'value' in descriptor) deepFreeze(descriptor.value, visited);
   }
-  return Object.freeze(value);
+  return Object.isFrozen(value) ? value : Object.freeze(value);
 }

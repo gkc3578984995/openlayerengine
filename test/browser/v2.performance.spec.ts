@@ -42,6 +42,38 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('#map-a canvas')).toHaveCount(1);
 });
 
+test('万元素与远 world 下 Draw 动态预览保持帧预算和资源稳定', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const map = page.locator('#map-a .ol-viewport');
+  expect(await page.evaluate(() => window.__OL_ENGINE_TEST__.populatePerformanceElements(10_000))).toBe(10_000);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.setViewWorld(50.5));
+  const baseline = await snapshot(page);
+  const idle = frameStats(await sampleFrameIntervals(page, 60));
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startDraw('polyline'));
+  const activeBaseline = await snapshot(page);
+  expect(activeBaseline.map.layers).toBe(baseline.map.layers + 1);
+  expect(activeBaseline.map.interactions).toBe(baseline.map.interactions + 1);
+  await map.click({ position: { x: 180, y: 280 } });
+
+  const box = await map.boundingBox();
+  if (box === null) throw new Error('Draw 地图没有可用的布局范围');
+  const intervals = await Promise.all([sampleFrameIntervals(page, 100), movePointerDuringDrag(page, { x: box.x + 180, y: box.y + 280 }, 240)]).then(
+    ([samples]) => samples
+  );
+  const active = frameStats(intervals);
+  assertFrameBudget(active, idle, '万元素与远 world 下 Draw 动态预览');
+  expectResources(await snapshot(page), activeBaseline);
+
+  await map.click({ button: 'right', position: { x: 380, y: 280 } });
+  await expect.poll(() => page.evaluate(() => (window.__OL_ENGINE_TEST__.drawSummary() as { status?: string }).status)).toBe('finished');
+  expectResources(await snapshot(page), baseline);
+  await testInfo.attach('Draw-万元素远world动态预览性能.json', {
+    body: Buffer.from(JSON.stringify({ idle, active }, null, 2)),
+    contentType: 'application/json'
+  });
+});
+
 test('Transform 连续拖拽保持帧预算、提示跟手和资源稳定', async ({ page }, testInfo) => {
   const map = page.locator('#map-a .ol-viewport');
   const baseline = await snapshot(page);
@@ -100,6 +132,46 @@ test('Transform 连续拖拽保持帧预算、提示跟手和资源稳定', asyn
     }
   });
   expectResources(await snapshot(page), baseline);
+});
+
+test('万顶点 Transform 在远 world 实际拖拽时保持帧预算和资源稳定', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const map = page.locator('#map-a .ol-viewport');
+  const elementId = await page.evaluate(() => window.__OL_ENGINE_TEST__.ensurePerformanceEditElement(10_000));
+  const original = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.setViewWorld(50));
+  const baseline = await snapshot(page);
+  await page.evaluate((id) => window.__OL_ENGINE_TEST__.startTransformElement(id), elementId);
+  await expect.poll(() => transformSummary(page).then(({ status }) => status)).toBe('active');
+  const activeBaseline = await snapshot(page);
+  const idle = frameStats(await sampleFrameIntervals(page, 60));
+  const pixels = await page.evaluate(() => window.__OL_ENGINE_TEST__.transformPixels() as { readonly translate: readonly [number, number] });
+  const box = await map.boundingBox();
+  if (box === null) throw new Error('Transform 地图没有可用的布局范围');
+  const start = { x: box.x + pixels.translate[0], y: box.y + pixels.translate[1] };
+
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  let intervals: readonly number[] = [];
+  try {
+    [intervals] = await Promise.all([sampleFrameIntervals(page, 100), movePointerDuringDrag(page, start, 240)]);
+  } finally {
+    await page.mouse.up();
+  }
+  const active = frameStats(intervals);
+  assertFrameBudget(active, idle, '万顶点 Transform 远 world 实际拖拽');
+  const transformed = await transformSummary(page);
+  expect(transformed.events.some(({ type }) => type === 'translateEnd')).toBe(true);
+  expectResources(await snapshot(page), activeBaseline);
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.cancelTransform());
+  await expect.poll(() => transformSummary(page).then(({ status }) => status)).toBe('cancelled');
+  expect(await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId)).toEqual(original);
+  expectResources(await snapshot(page), baseline);
+  await testInfo.attach('Transform-万顶点远world拖拽性能.json', {
+    body: Buffer.from(JSON.stringify({ idle, active }, null, 2)),
+    contentType: 'application/json'
+  });
 });
 
 test('万元素与远 world 下 Transform 激活时地图平移和缩放保持连续、帧预算及资源稳定', async ({ page }, testInfo) => {
@@ -197,6 +269,34 @@ test('64 顶点 Edit 连续拖拽保持帧预算、预览原子性和资源稳�
   expect(editing.events.some(({ type }) => type === 'modifying')).toBe(true);
   expect(editing.stored).toEqual(editing.original);
 
+  await page.mouse.click(box.x + box.width * 0.9, box.y + box.height * 0.9, { button: 'right' });
+  await expect.poll(() => page.evaluate(() => (window.__OL_ENGINE_TEST__.editSummary() as { status?: string }).status)).toBe('finished');
+  expectResources(await snapshot(page), baseline);
+});
+
+test('万顶点 Edit 反复跨 world 时避免重建全部锚点索引', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const map = page.locator('#map-a .ol-viewport');
+  const elementId = await page.evaluate(() => window.__OL_ENGINE_TEST__.ensurePerformanceEditElement(10_000));
+  const baseline = await snapshot(page);
+  await page.evaluate((id) => window.__OL_ENGINE_TEST__.startEdit(id), elementId);
+  const activeBaseline = await snapshot(page);
+  const worlds = Array.from({ length: 40 }, (_, index) => (index % 2 === 0 ? 1 : 0));
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.measureViewWorldChanges([1, 0]));
+  const durations = await page.evaluate((indices) => window.__OL_ENGINE_TEST__.measureViewWorldChanges(indices), worlds);
+  const crossings = frameStats(durations);
+
+  expect(crossings.averageMs, '万顶点 Edit 跨 world 平均同步耗时').toBeLessThanOrEqual(8);
+  expect(crossings.p95Ms, '万顶点 Edit 跨 world P95 同步耗时').toBeLessThanOrEqual(12);
+  expect(crossings.maxMs, '万顶点 Edit 跨 world 最大同步耗时').toBeLessThanOrEqual(25);
+  expectResources(await snapshot(page), activeBaseline);
+  await testInfo.attach('Edit-万顶点跨world索引性能.json', {
+    body: Buffer.from(JSON.stringify({ crossings, durations }, null, 2)),
+    contentType: 'application/json'
+  });
+
+  const box = await map.boundingBox();
+  if (box === null) throw new Error('Edit 地图没有可用的布局范围');
   await page.mouse.click(box.x + box.width * 0.9, box.y + box.height * 0.9, { button: 'right' });
   await expect.poll(() => page.evaluate(() => (window.__OL_ENGINE_TEST__.editSummary() as { status?: string }).status)).toBe('finished');
   expectResources(await snapshot(page), baseline);

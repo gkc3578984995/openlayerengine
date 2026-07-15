@@ -1,6 +1,7 @@
 import Collection from 'ol/Collection.js';
 import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
 import MultiPoint from 'ol/geom/MultiPoint.js';
 import type Interaction from 'ol/interaction/Interaction.js';
 import type BaseLayer from 'ol/layer/Base.js';
@@ -368,6 +369,46 @@ describe('TransformInteractionAdapter', () => {
     expect(batch?.getGeometry()).toBeUndefined();
   });
 
+  it('streams a 50k Transform geometry into world 50 without a redundant full presentation copy', () => {
+    const map = new MapHarness();
+    map.view.setCenter([50 * 360, 0]);
+    const binding = {
+      wrapsX: vi.fn(() => true),
+      suppressProjection: vi.fn(() => ({ release: vi.fn() }))
+    } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-large-geometry-world-50', options, vi.fn());
+    const target = largeTransformTarget(50_000);
+    const nativeMap = Array.prototype.map;
+    let fullCoordinateMaps = 0;
+    const mapSpy = vi.spyOn(Array.prototype, 'map').mockImplementation(function (
+      this: unknown[],
+      callback: (value: unknown, index: number, values: unknown[]) => unknown,
+      thisArg?: unknown
+    ): unknown[] {
+      if (this.length === 50_000) fullCoordinateMaps += 1;
+      return nativeMap.call(this, callback, thisArg);
+    } as never);
+    const startedAt = performance.now();
+    try {
+      handle.setTarget(target);
+    } finally {
+      mapSpy.mockRestore();
+    }
+    const elapsedMs = performance.now() - startedAt;
+    const preview = transformHandleFeature(map, 'feature').getGeometry();
+    if (!(preview instanceof LineString) || target.geometry.type !== 'polyline') throw new Error('Transform large preview was not created as a LineString.');
+    const coordinates = preview.getCoordinates();
+
+    expect(fullCoordinateMaps).toBe(1);
+    expect(coordinates[0]).toEqual([target.geometry.coordinates[0][0] + 50 * 360, target.geometry.coordinates[0][1]]);
+    expect(coordinates.at(-1)).toEqual([target.geometry.coordinates.at(-1)?.[0] + 50 * 360, target.geometry.coordinates.at(-1)?.[1]]);
+    expect(elapsedMs).toBeLessThan(1_000);
+    handle.destroy();
+  });
+
   it.each([50, -50])('repositions an idle wrapped target when the view moves to world %s and releases the center listener', (world) => {
     const map = new MapHarness();
     const initialCenterListeners = map.view.getListeners('change:center')?.length ?? 0;
@@ -618,6 +659,26 @@ function largeEditTarget(length: number): TransformInteractionTarget {
     canScale: false,
     canStretch: false,
     canEditVertices: true
+  };
+}
+
+function largeTransformTarget(length: number): TransformInteractionTarget {
+  const coordinates = Object.freeze(
+    Array.from({ length }, (_, index): readonly [number, number] => Object.freeze([(index % 1_000) * 0.01 - 5, Math.floor(index / 1_000) * 0.01]))
+  );
+  return {
+    elementId: 'large-transform',
+    type: 'polyline',
+    layerId: 'default',
+    geometry: { type: 'polyline', coordinates },
+    style: {},
+    mode: 'transform',
+    controlPoints: Object.freeze([]),
+    canTranslate: true,
+    canRotate: false,
+    canScale: false,
+    canStretch: false,
+    canEditVertices: false
   };
 }
 

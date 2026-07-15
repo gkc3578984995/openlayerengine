@@ -10,10 +10,12 @@ import type Interaction from 'ol/interaction/Interaction.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import LayerGroup from 'ol/layer/Group.js';
 import type Layer from 'ol/layer/Layer.js';
+import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
 import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import { clearUserProjection, getUserProjection, setUserProjection, useGeographic } from 'ol/proj.js';
 import type Source from 'ol/source/Source.js';
+import VectorSource from 'ol/source/Vector.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import { DrawInteractionAdapter } from '../src/adapters/openlayers/interactions/DrawInteractionAdapter.js';
@@ -48,6 +50,14 @@ class MapHarness {
     return this.interactions;
   }
 
+  addLayer(layer: BaseLayer): void {
+    this.layers.push(layer);
+  }
+
+  removeLayer(layer: BaseLayer): BaseLayer | undefined {
+    return this.layers.remove(layer);
+  }
+
   addInteraction(interaction: Interaction): void {
     this.interactions.push(interaction);
     interaction.setMap(this as unknown as OlMap);
@@ -72,7 +82,15 @@ function setup(wrapX = true, projection = 'EPSG:4326') {
   const styles = new StyleCompiler(refs);
   const reports: unknown[] = [];
   const adapter = new DrawInteractionAdapter(map as unknown as OlMap, layers, styles, { errorReporter: (error) => reports.push(error) });
-  return { adapter, layers, map, reports, source: layers.requireVectorSource('draw-layer'), styles };
+  const businessSource = layers.requireVectorSource('draw-layer');
+  const previewSource = (): VectorSource<Feature<Geometry>> => {
+    for (const candidate of map.getAllLayers()) {
+      const source = candidate.getSource();
+      if (source instanceof VectorSource && source !== businessSource) return source as VectorSource<Feature<Geometry>>;
+    }
+    throw new Error('Missing draw preview source');
+  };
+  return { adapter, businessSource, layers, map, previewSource, reports, styles };
 }
 
 function pointerEvent(
@@ -99,18 +117,26 @@ function interaction(map: MapHarness): Interaction {
 }
 
 describe('DrawInteractionAdapter', () => {
-  it('uses the OpenLayers user projection for both routed coordinates and wrap metadata', () => {
+  it('uses the OpenLayers user projection for routed coordinates, wrap metadata, and a canonical far-world preview', () => {
     const previousUserProjection = getUserProjection();
     useGeographic();
     try {
-      const { adapter, map } = setup(true, 'EPSG:3857');
+      const { adapter, businessSource, map, previewSource } = setup(true, 'EPSG:3857');
       const received: DrawInteractionEvent[] = [];
+      const viewExtent = map.view.getProjection().getExtent();
+      map.view.setCenter([50 * (viewExtent[2] - viewExtent[0]), 0]);
       const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, (event) => received.push(event));
 
       interaction(map).handleEvent(pointerEvent('click', [120, 30]));
+      handle.render({ geometry: { type: 'point', coordinates: [50 * 360 + 12, 30] }, style });
 
       expect(received).toEqual([{ type: 'click', coordinate: [120, 30] }]);
       expect(handle.world).toEqual({ minX: -180, width: 360 });
+      expect(businessSource.getFeatures()).toEqual([]);
+      const source = previewSource();
+      const preview = source.getFeatures()[0];
+      expect((preview.getGeometry() as Point).getCoordinates()).toEqual([12, 30]);
+      expect(source.getFeaturesInExtent([-180, -90, 180, 90])).toEqual([preview]);
       handle.destroy();
     } finally {
       if (previousUserProjection === null) clearUserProjection();
@@ -293,16 +319,33 @@ describe('DrawInteractionAdapter', () => {
       'Draw target must be a registered vector layer'
     );
     requireLayer.mockRestore();
-    vi.spyOn(target.layers, 'requireVectorSource').mockReturnValue(other.source);
+    vi.spyOn(target.layers, 'requireVectorSource').mockReturnValue(other.businessSource);
     expect(() => target.adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn())).toThrowError(
       'Draw target must be a registered vector layer'
     );
     expect(target.map.interactions.getLength()).toBe(0);
   });
 
-  it('publishes a detached wrap world and owns one temporary styled preview Feature', () => {
-    const { adapter, map, source } = setup(true);
+  it('publishes a detached wrap world and isolates one temporary styled preview Feature from the business source', () => {
+    const { adapter, businessSource, layers, map, previewSource } = setup(true);
+    const targetLayer = layers.requireLayer('draw-layer');
+    targetLayer.setZIndex(7);
+    targetLayer.setOpacity(0.75);
+    targetLayer.setExtent([-120, -45, 120, 45]);
+    targetLayer.setMinResolution(0.5);
+    targetLayer.setMaxResolution(100);
+    targetLayer.setMinZoom(1);
+    targetLayer.setMaxZoom(12);
+    const initialPresentationListeners = targetLayer.getListeners('propertychange')?.length ?? 0;
+    const businessFeature = new Feature<Geometry>(new Point([20, 30]));
+    businessSource.addFeature(businessFeature);
+    const businessRevision = businessSource.getRevision();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
+    const previewLayer = map.getAllLayers().find((candidate) => candidate.getSource() === source);
+    if (previewLayer === undefined) throw new Error('Missing draw preview layer');
+    const sourceDispose = vi.spyOn(source, 'dispose');
+    const layerDispose = vi.spyOn(previewLayer, 'dispose');
     const coordinates: [number, number][] = [
       [0, 0],
       [4, 2]
@@ -313,6 +356,19 @@ describe('DrawInteractionAdapter', () => {
     handle.render({ geometry: { type: 'polyline', coordinates }, style });
     coordinates[0][0] = 99;
 
+    expect(map.layers.getLength()).toBe(2);
+    expect(map.layers.getArray().indexOf(previewLayer)).toBeGreaterThan(map.layers.getArray().indexOf(targetLayer));
+    expect(previewLayer.getZIndex()).toBe(7);
+    expect(previewLayer.getVisible()).toBe(true);
+    expect(previewLayer.getOpacity()).toBe(0.75);
+    expect(previewLayer.getExtent()).toEqual([-120, -45, 120, 45]);
+    expect(previewLayer.getMinResolution()).toBe(0.5);
+    expect(previewLayer.getMaxResolution()).toBe(100);
+    expect(previewLayer.getMinZoom()).toBe(1);
+    expect(previewLayer.getMaxZoom()).toBe(12);
+    expect(targetLayer.getListeners('propertychange')?.length ?? 0).toBe(initialPresentationListeners + 1);
+    expect(businessSource.getFeatures()).toEqual([businessFeature]);
+    expect(businessSource.getRevision()).toBe(businessRevision);
     const feature = source.getFeatures()[0];
     expect(source.getFeatures()).toHaveLength(1);
     expect(feature.getGeometry()).toBeInstanceOf(LineString);
@@ -322,18 +378,165 @@ describe('DrawInteractionAdapter', () => {
     ]);
     expect(feature.getStyle()).not.toBeNull();
 
+    targetLayer.setVisible(false);
+    targetLayer.setOpacity(0.25);
+    targetLayer.setExtent([-60, -30, 60, 30]);
+    targetLayer.setMinResolution(2);
+    targetLayer.setMaxResolution(80);
+    targetLayer.setMinZoom(3);
+    targetLayer.setMaxZoom(10);
+    targetLayer.setZIndex(11);
+    expect(previewLayer.getVisible()).toBe(false);
+    expect(previewLayer.getOpacity()).toBe(0.25);
+    expect(previewLayer.getExtent()).toEqual([-60, -30, 60, 30]);
+    expect(previewLayer.getMinResolution()).toBe(2);
+    expect(previewLayer.getMaxResolution()).toBe(80);
+    expect(previewLayer.getMinZoom()).toBe(3);
+    expect(previewLayer.getMaxZoom()).toBe(10);
+    expect(previewLayer.getZIndex()).toBe(11);
+
     handle.render(undefined);
     expect(source.getFeatures()).toEqual([]);
     handle.destroy();
+    expect(map.layers.getLength()).toBe(1);
     expect(map.interactions.getLength()).toBe(0);
+    expect(previewLayer.getSource()).toBeNull();
+    expect(targetLayer.getListeners('propertychange')?.length ?? 0).toBe(initialPresentationListeners);
+    expect(businessSource.getFeatures()).toEqual([businessFeature]);
+    expect(businessSource.getRevision()).toBe(businessRevision);
+    expect(sourceDispose).toHaveBeenCalledOnce();
+    expect(layerDispose).toHaveBeenCalledOnce();
+  });
+
+  it('inserts the preview immediately after its target so a later same-z overlay keeps rendering above it', () => {
+    const { adapter, layers, map, previewSource } = setup();
+    const targetLayer = layers.requireLayer('draw-layer');
+    targetLayer.setZIndex(5);
+    const overlayLayer = new VectorLayer({
+      source: new VectorSource<Feature<Geometry>>(),
+      style: null,
+      zIndex: 5
+    });
+    map.layers.push(overlayLayer);
+
+    const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
+    const previewLayer = map.getAllLayers().find((candidate) => candidate.getSource() === source);
+    if (previewLayer === undefined) throw new Error('Missing draw preview layer');
+
+    expect(map.layers.getArray()).toEqual([targetLayer, previewLayer, overlayLayer]);
+    expect(previewLayer.getZIndex()).toBe(5);
+
+    handle.destroy();
+    expect(map.layers.getArray()).toEqual([targetLayer, overlayLayer]);
+  });
+
+  it('uses the target LayerGroup collection for nested insertion, removal, and listener cleanup', () => {
+    const { adapter, layers, map, previewSource } = setup();
+    const targetLayer = layers.requireLayer('draw-layer');
+    map.layers.remove(targetLayer);
+    const overlayLayer = new VectorLayer({ source: new VectorSource<Feature<Geometry>>(), style: null });
+    const nestedLayers = new Collection<BaseLayer>([targetLayer, overlayLayer]);
+    const group = new LayerGroup({ layers: nestedLayers, visible: false, opacity: 0.4 });
+    map.layers.push(group);
+    const initialPresentationListeners = targetLayer.getListeners('propertychange')?.length ?? 0;
+
+    const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
+    const previewLayer = map.getAllLayers().find((candidate) => candidate.getSource() === source);
+    if (previewLayer === undefined) throw new Error('Missing nested draw preview layer');
+
+    expect(map.layers.getArray()).toEqual([group]);
+    expect(nestedLayers.getArray()).toEqual([targetLayer, previewLayer, overlayLayer]);
+    expect(targetLayer.getListeners('propertychange')?.length ?? 0).toBe(initialPresentationListeners + 1);
+
+    handle.destroy();
+    expect(map.layers.getArray()).toEqual([group]);
+    expect(nestedLayers.getArray()).toEqual([targetLayer, overlayLayer]);
+    expect(targetLayer.getListeners('propertychange')?.length ?? 0).toBe(initialPresentationListeners);
+  });
+
+  it('moves a far wrapped-world preview into the canonical render world without folding its geometry', () => {
+    const wrapped = setup(true);
+    const wrappedHandle = wrapped.adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const wrappedSource = wrapped.previewSource();
+    const farWorldOffset = 50 * 360;
+    wrappedHandle.render({
+      geometry: {
+        type: 'polyline',
+        coordinates: [
+          [170 + farWorldOffset, 1],
+          [190 + farWorldOffset, 2]
+        ]
+      },
+      style
+    });
+
+    expect(wrapped.businessSource.getFeatures()).toEqual([]);
+    expect((wrappedSource.getFeatures()[0].getGeometry() as LineString).getCoordinates()).toEqual([
+      [170, 1],
+      [190, 2]
+    ]);
+
+    wrappedHandle.render({ geometry: { type: 'point', coordinates: [12 + farWorldOffset, 3, 9] }, style });
+    expect((wrappedSource.getFeatures()[0].getGeometry() as Point).getCoordinates()).toEqual([12, 3, 9]);
+
+    wrappedHandle.render({
+      geometry: {
+        type: 'polygon',
+        coordinates: [
+          [
+            [170 + farWorldOffset, 0],
+            [190 + farWorldOffset, 0],
+            [190 + farWorldOffset, 10],
+            [170 + farWorldOffset, 0]
+          ],
+          [
+            [175 + farWorldOffset, 2],
+            [180 + farWorldOffset, 2],
+            [175 + farWorldOffset, 2]
+          ]
+        ]
+      },
+      style
+    });
+    expect((wrappedSource.getFeatures()[0].getGeometry() as Polygon).getCoordinates()).toEqual([
+      [
+        [170, 0],
+        [190, 0],
+        [190, 10],
+        [170, 0]
+      ],
+      [
+        [175, 2],
+        [180, 2],
+        [175, 2]
+      ]
+    ]);
+
+    wrappedHandle.render({ geometry: { type: 'circle', center: [12 + farWorldOffset, 3], radius: 4 }, style });
+    const circle = wrappedSource.getFeatures()[0].getGeometry() as Circle;
+    expect(circle.getCenter()).toEqual([12, 3]);
+    expect(circle.getRadius()).toBe(4);
+    wrappedHandle.destroy();
+
+    const unwrapped = setup(false);
+    const unwrappedHandle = unwrapped.adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const unwrappedSource = unwrapped.previewSource();
+    unwrappedHandle.render({ geometry: { type: 'point', coordinates: [12 + farWorldOffset, 3] }, style });
+
+    expect(unwrapped.businessSource.getFeatures()).toEqual([]);
+    expect((unwrappedSource.getFeatures()[0].getGeometry() as Point).getCoordinates()).toEqual([12 + farWorldOffset, 3]);
+    unwrappedHandle.destroy();
   });
 
   it('keeps Feature, Geometry, source membership, and compiled style stable on the same-type same-style fast path', () => {
-    const { adapter, source, styles } = setup();
+    const { adapter, previewSource, styles } = setup();
     const compile = vi.spyOn(styles, 'compile');
+    const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     const add = vi.spyOn(source, 'addFeature');
     const remove = vi.spyOn(source, 'removeFeature');
-    const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
 
     handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
     const feature = source.getFeatures()[0];
@@ -367,8 +570,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('serializes a render reentered by a synchronous source add listener without leaving a ghost preview', () => {
-    const { adapter, source } = setup();
+    const { adapter, previewSource } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     let reentered = false;
     source.on('addfeature', () => {
       if (reentered) return;
@@ -385,8 +589,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('exposes only complete geometry and style snapshots during a reentrant preview replacement', () => {
-    const { adapter, source } = setup();
+    const { adapter, previewSource } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     const redStyle: ElementStyleState = { strokes: [{ color: '#ff0000', width: 4 }] };
     const greenStyle: ElementStyleState = { strokes: [{ color: '#00ff00', width: 5 }] };
     handle.render({ geometry: { type: 'point', coordinates: [1, 1] }, style });
@@ -415,8 +620,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('finishes preview cleanup when a synchronous source listener destroys during replacement', () => {
-    const { adapter, map, source } = setup();
+    const { adapter, map, previewSource } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     handle.render({ geometry: { type: 'point', coordinates: [1, 1] }, style });
     const first = source.getFeatures()[0];
     const firstDispose = vi.spyOn(first, 'dispose');
@@ -447,8 +653,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('supports every RenderGeometryState using only public OL geometry APIs', () => {
-    const { adapter, source } = setup();
+    const { adapter, previewSource } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
 
     handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
     expect(source.getFeatures()).toHaveLength(1);
@@ -491,8 +698,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('preserves the preceding complete preview when preparation, replacement, or clear fails', () => {
-    const { adapter, source, styles } = setup();
+    const { adapter, previewSource, styles } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     handle.render({
       geometry: {
         type: 'polyline',
@@ -542,8 +750,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('retires replaced and cleared Feature snapshots without retaining native resources', () => {
-    const { adapter, source } = setup();
+    const { adapter, previewSource } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
     const first = source.getFeatures()[0];
     const firstDispose = vi.spyOn(first, 'dispose');
@@ -570,8 +779,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('retains only unfinished replacement retirement work for destroy retry', () => {
-    const { adapter, reports, source } = setup();
+    const { adapter, previewSource, reports } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
     const retired = source.getFeatures()[0];
     const nativeSetGeometry = retired.setGeometry.bind(retired);
@@ -616,8 +826,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('does not retain a detached preview when initial add rollback listeners throw after removal', () => {
-    const { adapter, source } = setup();
+    const { adapter, previewSource } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     const nativeAdd = source.addFeature.bind(source);
     const nativeRemove = source.removeFeature.bind(source);
     vi.spyOn(source, 'addFeature').mockImplementationOnce((feature) => {
@@ -639,8 +850,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('surfaces an incomplete clear rollback while retaining cleanup ownership', () => {
-    const { adapter, map, source } = setup();
+    const { adapter, map, previewSource } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
     const preview = source.getFeatures()[0];
     const dispose = vi.spyOn(preview, 'dispose');
@@ -676,7 +888,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('fully rolls back a partial open even when the first interaction removal fails', () => {
-    const { adapter, map } = setup();
+    const { adapter, layers, map } = setup();
+    const targetLayer = layers.requireLayer('draw-layer');
+    const initialPresentationListeners = targetLayer.getListeners('propertychange')?.length ?? 0;
     const nativeAdd = map.addInteraction.bind(map);
     vi.spyOn(map, 'addInteraction').mockImplementation((candidate) => {
       nativeAdd(candidate);
@@ -695,6 +909,38 @@ describe('DrawInteractionAdapter', () => {
     expect(remove).toHaveBeenCalledTimes(2);
     expect(collectionRemove).toHaveBeenCalledTimes(2);
     expect(map.interactions.getLength()).toBe(0);
+    expect(map.layers.getLength()).toBe(1);
+    expect(targetLayer.getListeners('propertychange')?.length ?? 0).toBe(initialPresentationListeners);
+  });
+
+  it('fully rolls back a partially inserted preview through the same target collection', () => {
+    const { adapter, layers, map } = setup();
+    const targetLayer = layers.requireLayer('draw-layer');
+    const initialPresentationListeners = targetLayer.getListeners('propertychange')?.length ?? 0;
+    const nativeInsert = map.layers.insertAt.bind(map.layers);
+    vi.spyOn(map.layers, 'insertAt').mockImplementation((index, candidate) => {
+      nativeInsert(index, candidate);
+      throw new Error('preview layer add listener failed');
+    });
+    const nativeCollectionRemove = map.layers.remove.bind(map.layers);
+    const collectionRemove = vi
+      .spyOn(map.layers, 'remove')
+      .mockImplementationOnce(() => {
+        throw new Error('first preview layer collection removal failed');
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('second preview layer collection removal failed');
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('third preview layer collection removal failed');
+      });
+    collectionRemove.mockImplementation((candidate) => nativeCollectionRemove(candidate));
+
+    expect(() => adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn())).toThrowError('preview layer add listener failed');
+    expect(collectionRemove).toHaveBeenCalledTimes(4);
+    expect(map.layers.getLength()).toBe(1);
+    expect(map.interactions.getLength()).toBe(0);
+    expect(targetLayer.getListeners('propertychange')?.length ?? 0).toBe(initialPresentationListeners);
   });
 
   it('surfaces an unrecoverable rollback failure instead of hiding it behind the installation error', () => {
@@ -726,12 +972,14 @@ describe('DrawInteractionAdapter', () => {
     expect(abandoned.getActive()).toBe(false);
     abandoned.handleEvent(pointerEvent('click', [1, 2]));
     expect(received).toEqual([]);
+    expect(map.layers.getLength()).toBe(1);
   });
 
   it('stops events first, attempts every cleanup, and retries only unfinished failures', () => {
-    const { adapter, map, reports, source } = setup();
+    const { adapter, map, previewSource, reports } = setup();
     const received: DrawInteractionEvent[] = [];
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, (event) => received.push(event));
+    const source = previewSource();
     handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
     const input = interaction(map);
     const order: string[] = [];
@@ -778,8 +1026,9 @@ describe('DrawInteractionAdapter', () => {
   });
 
   it('keeps destroy cleanup steps independent and does not infer deactivation from removal', () => {
-    const { adapter, map, reports, source } = setup();
+    const { adapter, map, previewSource, reports } = setup();
     const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+    const source = previewSource();
     handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
     const feature = source.getFeatures()[0];
     const input = interaction(map);
@@ -898,6 +1147,8 @@ describe('DrawInteractionAdapter', () => {
     const secondEvents: DrawInteractionEvent[] = [];
     const firstHandle = first.adapter.open({ layerId: 'draw-layer', mode: 'point', freehand: false }, (event) => firstEvents.push(event));
     const secondHandle = second.adapter.open({ layerId: 'draw-layer', mode: 'point', freehand: false }, (event) => secondEvents.push(event));
+    const firstSource = first.previewSource();
+    const secondSource = second.previewSource();
     firstHandle.render({ geometry: { type: 'point', coordinates: [1, 1] }, style });
     secondHandle.render({ geometry: { type: 'point', coordinates: [2, 2] }, style });
 
@@ -910,9 +1161,11 @@ describe('DrawInteractionAdapter', () => {
 
     firstHandle.destroy();
     interaction(second.map).handleEvent(pointerEvent('click', [5, 5]));
-    expect(first.source.getFeatures()).toEqual([]);
+    expect(firstSource.getFeatures()).toEqual([]);
+    expect(first.businessSource.getFeatures()).toEqual([]);
     expect(first.map.interactions.getLength()).toBe(0);
-    expect(second.source.getFeatures()).toHaveLength(1);
+    expect(secondSource.getFeatures()).toHaveLength(1);
+    expect(second.businessSource.getFeatures()).toEqual([]);
     expect(secondEvents).toEqual([
       { type: 'click', coordinate: [4, 4] },
       { type: 'click', coordinate: [5, 5] }

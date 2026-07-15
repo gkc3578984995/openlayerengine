@@ -45,6 +45,7 @@ interface Runtime {
   editEvents: unknown[];
   measureEvents: unknown[];
   transformEvents: unknown[];
+  drawNativeBaseline?: WeakSet<object>;
   editOriginal?: ShapeState;
   editStartLatencyMs?: number;
 }
@@ -82,6 +83,7 @@ interface BrowserFixture {
   readContextMenuProbe(target: ProbeTarget): Readonly<{ received: boolean; defaultPrevented: boolean }> | undefined;
   startDraw(type: ShapeType): unknown;
   drawSummary(): unknown;
+  drawPreviewProbe(pixel: readonly [number, number]): unknown;
   startEdit(elementId: string): unknown;
   editSummary(): unknown;
   startMeasure(type: MeasureType): unknown;
@@ -92,6 +94,7 @@ interface BrowserFixture {
   ensureTransformStaleTarget(): string;
   startTransformByClick(): unknown;
   startTransformDirect(toolbar?: boolean): unknown;
+  startTransformElement(elementId: string, toolbar?: boolean): unknown;
   armTransformOnNextMapClick(): void;
   deferredSingleClickCount(): number;
   transformSummary(): unknown;
@@ -99,6 +102,7 @@ interface BrowserFixture {
   populatePerformanceElements(count: number): number;
   ensurePerformanceEditElement(count: number): string;
   setViewWorld(index: number): unknown;
+  measureViewWorldChanges(indices: readonly number[]): readonly number[];
   setViewRotation(rotation: number): unknown;
   hideTransformToolbar(): void;
   finishTransform(): void;
@@ -199,6 +203,7 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   startDraw(type) {
     endExclusiveSessions(a);
     a.drawEvents = [];
+    a.drawNativeBaseline = nativeFeatureBaseline(a);
     const session = a.earth.draw.start({ type, layerId: 'default' });
     a.draw = session;
     session.on('start', (event) => a.drawEvents.push({ type: event.type, coordinate: [...event.coordinate] }));
@@ -212,6 +217,9 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   },
   drawSummary() {
     return drawSummary(a);
+  },
+  drawPreviewProbe(pixel) {
+    return drawPreviewProbe(a, pixel);
   },
   startEdit(elementId) {
     endExclusiveSessions(a);
@@ -300,6 +308,14 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     subscribeTransform(a, a.transform);
     return transformSummary(a);
   },
+  startTransformElement(elementId, toolbar = false) {
+    endExclusiveSessions(a);
+    const element = requireOwnedElement(a, elementId);
+    a.transformEvents = [];
+    a.transform = a.earth.transform.select(element, transformOptions(toolbar));
+    subscribeTransform(a, a.transform);
+    return transformSummary(a);
+  },
   armTransformOnNextMapClick() {
     endExclusiveSessions(a);
     deferredSingleClickCount = 0;
@@ -369,13 +385,30 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     }).id;
   },
   setViewWorld(index) {
-    if (!Number.isInteger(index) || Math.abs(index) > 100) throw new Error('世界索引必须是 -100 到 100 之间的整数');
+    if (!Number.isFinite(index) || Math.abs(index) > 100) throw new Error('世界位置必须是 -100 到 100 之间的有限数字');
     const view = a.earth.map.getView();
     const extent = view.getProjection().getExtent();
     const width = extent[2] - extent[0];
     view.setCenter([index * width, view.getCenter()?.[1] ?? 0]);
     a.earth.map.renderSync();
     return currentViewState(a);
+  },
+  measureViewWorldChanges(indices) {
+    if (!Array.isArray(indices) || indices.some((index) => !Number.isFinite(index) || Math.abs(index) > 100)) {
+      throw new Error('世界位置必须是 -100 到 100 之间的有限数字数组');
+    }
+    const view = a.earth.map.getView();
+    const extent = view.getProjection().getExtent();
+    const width = extent[2] - extent[0];
+    const y = view.getCenter()?.[1] ?? 0;
+    const durations: number[] = [];
+    for (const index of indices) {
+      const started = performance.now();
+      view.setCenter([index * width, y]);
+      durations.push(performance.now() - started);
+    }
+    a.earth.map.renderSync();
+    return Object.freeze(durations);
   },
   setViewRotation(rotation) {
     if (!Number.isFinite(rotation)) throw new Error('视图旋转角度必须是有限数字');
@@ -530,6 +563,36 @@ function render(current: Runtime): void {
   current.earth.map.renderSync();
 }
 
+/** 记录绘制会话开始前的原生要素，供浏览器回归只命中本次新增的预览。 */
+function nativeFeatureBaseline(current: Runtime): WeakSet<object> {
+  const baseline = new WeakSet<object>();
+  for (const layer of current.earth.map.getAllLayers()) {
+    const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
+    if (!isNativeSourceProbe(source)) continue;
+    for (const feature of source.getFeatures()) baseline.add(feature);
+  }
+  return baseline;
+}
+
+/** 检查本次 Draw 新增的临时要素是否真正进入当前地图的可命中渲染结果。 */
+function drawPreviewProbe(current: Runtime, pixel: readonly [number, number]): Readonly<{ featureCount: number; hit: boolean }> {
+  const baseline = current.drawNativeBaseline;
+  if (baseline === undefined) return Object.freeze({ featureCount: 0, hit: false });
+  current.earth.map.renderSync();
+  let featureCount = 0;
+  for (const layer of current.earth.map.getAllLayers()) {
+    const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
+    if (!isNativeSourceProbe(source)) continue;
+    for (const feature of source.getFeatures()) {
+      if (!baseline.has(feature)) featureCount += 1;
+    }
+  }
+  const hit =
+    current.earth.map.forEachFeatureAtPixel([...pixel], (feature) => (baseline.has(feature) ? undefined : true), { hitTolerance: 6, checkWrapped: true }) ===
+    true;
+  return Object.freeze({ featureCount, hit });
+}
+
 function runtimeSnapshot(current: Runtime): unknown {
   const { earth, target } = current;
   const viewport = earth.map.getViewport();
@@ -630,15 +693,14 @@ function measureSummary(current: Runtime): unknown {
 }
 
 function transformSummary(current: Runtime): unknown {
+  const selectedId = current.transform?.selected?.id;
+  const geometryId = selectedId ?? (current.earth.elements.get('transform-rectangle') === undefined ? undefined : 'transform-rectangle');
   return Object.freeze({
     status: current.transform?.status,
-    selectedId: current.transform?.selected?.id,
+    selectedId,
     toolbar: current.transform?.toolbar !== undefined,
     events: structuredClone(current.transformEvents),
-    geometry:
-      current.earth.isDestroyed || current.earth.elements.get('transform-rectangle') === undefined
-        ? undefined
-        : cloneGeometry(requireOwnedElement(current, 'transform-rectangle').state.geometry),
+    geometry: current.earth.isDestroyed || geometryId === undefined ? undefined : cloneGeometry(requireOwnedElement(current, geometryId).state.geometry),
     resources: runtimeSnapshot(current)
   });
 }
@@ -670,7 +732,6 @@ function subscribeTransform(current: Runtime, session: TransformSession): void {
         current.transformEvents.push({
           type,
           elementId: event.element.id,
-          geometry: cloneGeometry(event.element.state.geometry),
           ...('key' in event ? { key: event.key } : {})
         });
       } else if (type === 'error') {

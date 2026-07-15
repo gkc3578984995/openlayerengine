@@ -1,5 +1,6 @@
 import { InvalidArgumentError } from '../../core/errors.js';
 import type { Coordinate } from '../../core/common/types.js';
+import { registerTrustedTransformDefinition } from '../../core/shape/trustedRender.js';
 import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
 import {
   assertFiniteRenderGeometry,
@@ -37,7 +38,8 @@ const polylineDefinition = createControlPointDefinition({
   capabilities: freehandPolylineCapabilities,
   topology: 'open',
   freehand: true,
-  render: (points) => ({ type: 'polyline', coordinates: points.map(cloneCoordinate) })
+  render: (points) => ({ type: 'polyline', coordinates: points.map(cloneCoordinate) }),
+  renderTrusted: (points) => Object.freeze({ type: 'polyline', coordinates: points })
 });
 
 /** 内部常量。保存 polygonDefinition 使用的数据。 */
@@ -280,6 +282,10 @@ const ellipseDefinition = createControlPointDefinition({
     return { type: 'polygon', coordinates: [closeRing(ring)] };
   }
 });
+
+registerTrustedTransformDefinition(pointDefinition);
+registerTrustedTransformDefinition(polylineDefinition);
+registerTrustedTransformDefinition(circleDefinition);
 
 /** 内部常量。保存 basicShapeDefinitions 使用的数据。 */
 export const basicShapeDefinitions = Object.freeze([

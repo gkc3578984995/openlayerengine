@@ -51,7 +51,8 @@ interface RenderBundle {
   features: readonly EditFeature[];
   /** 当前预览中的完整语义锚点，供低频指针事件执行像素命中。 */
   anchors: readonly EditInteractionAnchor[];
-  readonly anchorIndex: RBush<IndexedAnchor>;
+  /** 以稳定编辑世界坐标建立的锚点索引，展示世界变化时可在双缓冲间共享。 */
+  anchorIndex: RBush<IndexedAnchor>;
   /** 可选的编辑底图要素。 */
   underlay: EditFeature | undefined;
   /** 最近一次写入底图要素的稳定语义几何引用。 */
@@ -526,11 +527,11 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
   }
 
   /** 把已校验计划写入屏幕外缓冲，并原子交接给临时图层。 */
-  #renderPreparedPlan(plan: RenderPlan, worldOffset: number): void {
+  #renderPreparedPlan(plan: RenderPlan, worldOffset: number, reusableAnchorIndex?: RBush<IndexedAnchor>): void {
     let prepared: RenderBundle | undefined = this.#takeStaging();
     try {
       try {
-        syncRenderBundle(prepared, plan, worldOffset, this.#map);
+        syncRenderBundle(prepared, plan, worldOffset, this.#map, reusableAnchorIndex);
       } catch (error) {
         this.#retire(prepared, 'render-prepared-cleanup');
         prepared = undefined;
@@ -842,7 +843,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     this.#worldRepositionPending = false;
     this.#rendering = true;
     try {
-      this.#renderPreparedPlan(plan, nextOffset);
+      this.#renderPreparedPlan(plan, nextOffset, this.#requireBundle().anchorIndex);
       this.#worldOffset = nextOffset;
     } catch (error) {
       this.#worldRepositionPending = true;
@@ -859,15 +860,17 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     const bundle = this.#requireBundle();
     const coordinate = safeCoordinate(this.#map.getCoordinateFromPixelInternal(pixel as unknown as number[]));
     if (coordinate === undefined) return undefined;
+    const indexWorldOffset = internalWorldOffsetForEdit(this.#map, this.placement, this.#worldOffset);
+    const indexCoordinate: Coordinate = indexWorldOffset === 0 ? coordinate : Object.freeze([coordinate[0] - indexWorldOffset, coordinate[1]]);
     const resolution = this.#map.getView().getResolution();
     const maximumTolerance = this.#hitTolerance + Math.max(CONTROL_ANCHOR_HIT_RADIUS, INSERTION_ANCHOR_HIT_RADIUS);
     const candidates =
       resolution !== undefined && Number.isFinite(resolution) && resolution > 0
         ? bundle.anchorIndex.getInExtent([
-            coordinate[0] - maximumTolerance * resolution,
-            coordinate[1] - maximumTolerance * resolution,
-            coordinate[0] + maximumTolerance * resolution,
-            coordinate[1] + maximumTolerance * resolution
+            indexCoordinate[0] - maximumTolerance * resolution,
+            indexCoordinate[1] - maximumTolerance * resolution,
+            indexCoordinate[0] + maximumTolerance * resolution,
+            indexCoordinate[1] + maximumTolerance * resolution
           ])
         : bundle.anchorIndex.getAll();
     let preferred: EditInteractionAnchor | undefined;
@@ -878,7 +881,8 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     let fallbackOrder = -1;
     for (const indexed of candidates) {
       const anchor = indexed.anchor;
-      const anchorPixel = safePixel(this.#map.getPixelFromCoordinate(indexed.coordinate as unknown as number[]));
+      const presentationCoordinate = this.#worldOffset === 0 ? indexed.coordinate : shiftCoordinate(indexed.coordinate, this.#worldOffset);
+      const anchorPixel = safePixel(this.#map.getPixelFromCoordinate(presentationCoordinate as unknown as number[]));
       if (anchorPixel === undefined) continue;
       const deltaX = anchorPixel[0] - pixel[0];
       const deltaY = anchorPixel[1] - pixel[1];
@@ -1124,6 +1128,18 @@ function worldOffsetForEdit(map: OlMap, placement: PreparedWorldEdit): number {
   return Number.isFinite(offset) ? offset : 0;
 }
 
+/** 把编辑坐标系中的展示世界偏移转换为锚点 RBush 使用的视图投影单位。 */
+function internalWorldOffsetForEdit(map: OlMap, placement: PreparedWorldEdit, worldOffset: number): number {
+  if (worldOffset === 0 || placement.handoff.kind === 'identity') return 0;
+  const reference = placement.controlPoints[0];
+  if (reference === undefined) return 0;
+  const stable = coordinateForIndex(map, reference);
+  const presented = coordinateForIndex(map, shiftCoordinate(reference, worldOffset));
+  const offset = presented[0] - stable[0];
+  if (!Number.isFinite(offset)) throw new InvalidArgumentError('Edit anchor world offset must be finite in the view projection');
+  return offset;
+}
+
 /** 水平平移坐标并保留可选高度。 */
 function shiftCoordinate(coordinate: Coordinate, offset: number): Coordinate {
   const x = coordinate[0] + offset;
@@ -1201,7 +1217,8 @@ function validateRenderGeometry(state: RenderGeometryState): RenderGeometryState
 }
 
 /** 原位更新屏幕外缓冲中的 Feature、Geometry 与数据源差异。 */
-function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: number, map: OlMap): void {
+function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: number, map: OlMap, reusableAnchorIndex?: RBush<IndexedAnchor>): void {
+  const anchorIndex = reusableAnchorIndex ?? createAnchorIndex(plan.anchors, map);
   const preview = pooledFeature(bundle, 'preview');
   updateFeatureGeometry(preview, plan.geometry, worldOffset);
   if (preview.getStyle() !== plan.style) preview.setStyle(plan.style);
@@ -1221,20 +1238,13 @@ function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: n
   }
   const controlCoordinates: Coordinate[] = [];
   const insertionCoordinates: Coordinate[] = [];
-  const indexedAnchors: IndexedAnchor[] = [];
-  const anchorExtents: number[][] = [];
   for (let order = 0; order < plan.anchors.length; order += 1) {
     const anchor = plan.anchors[order];
     if (anchor === undefined) continue;
     const coordinate = worldOffset === 0 ? anchor.coordinate : shiftCoordinate(anchor.coordinate, worldOffset);
     if (anchor.kind === 'control') controlCoordinates.push(coordinate);
     else insertionCoordinates.push(coordinate);
-    const internalCoordinate = coordinateForIndex(map, coordinate);
-    indexedAnchors.push({ anchor, coordinate, order });
-    anchorExtents.push([internalCoordinate[0], internalCoordinate[1], internalCoordinate[0], internalCoordinate[1]]);
   }
-  bundle.anchorIndex.clear();
-  if (indexedAnchors.length > 0) bundle.anchorIndex.load(anchorExtents, indexedAnchors);
 
   let insertionAnchors: EditFeature | undefined;
   if (insertionCoordinates.length > 0) {
@@ -1257,7 +1267,25 @@ function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: n
   syncBundleSource(bundle, features);
   bundle.features = features;
   bundle.anchors = plan.anchors;
+  bundle.anchorIndex = anchorIndex;
   bundle.underlay = underlay;
+}
+
+/** 只在语义锚点计划变化时构建新索引；索引坐标不包含动态展示世界偏移。 */
+function createAnchorIndex(anchors: readonly EditInteractionAnchor[], map: OlMap): RBush<IndexedAnchor> {
+  const index = new RBush<IndexedAnchor>();
+  if (anchors.length === 0) return index;
+  const indexedAnchors: IndexedAnchor[] = [];
+  const anchorExtents: number[][] = [];
+  for (let order = 0; order < anchors.length; order += 1) {
+    const anchor = anchors[order];
+    if (anchor === undefined) continue;
+    const internalCoordinate = coordinateForIndex(map, anchor.coordinate);
+    indexedAnchors.push({ anchor, coordinate: anchor.coordinate, order });
+    anchorExtents.push([internalCoordinate[0], internalCoordinate[1], internalCoordinate[0], internalCoordinate[1]]);
+  }
+  if (indexedAnchors.length > 0) index.load(anchorExtents, indexedAnchors);
+  return index;
 }
 
 /** 把用户投影中的展示坐标转换为视图投影，供 RBush 与分辨率使用同一单位。 */

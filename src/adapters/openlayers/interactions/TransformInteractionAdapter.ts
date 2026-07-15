@@ -250,12 +250,12 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       this.#worldRepositionPending = false;
     }
     this.#canonicalTarget = canonicalTarget;
-    this.#target = presentationTarget(canonicalTarget, this.#worldOffset);
+    this.#target = canonicalTarget;
     if (!preserveDrag) {
       this.#cancelPendingDrag();
       this.#drag = undefined;
     }
-    this.#handles.setTarget(this.#target);
+    this.#handles.setTarget(this.#target, this.#worldOffset);
     if (!targetChanged) this.#shiftPresentationWorld(this.#worldOffset - previousOffset);
   }
 
@@ -358,7 +358,10 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (!isPrimary(event) || this.#target === undefined) return false;
     const hit = this.#handles.hit(currentPixel, this.#options.hitTolerance);
     if (hit === undefined || !operationAllowed(this.#target, hit.operation)) return false;
-    const center = this.#target.handleCenter ?? extentCenter(this.#handles.extent ?? [0, 0, 0, 0]);
+    const center =
+      this.#target.handleCenter === undefined
+        ? extentCenter(this.#handles.extent ?? [0, 0, 0, 0])
+        : shiftCoordinate(this.#target.handleCenter, this.#worldOffset);
     const start = currentCoordinate;
     const delta = canonicalDelta(initialDelta(hit, start, center), this.#worldOffset);
     const world = transformWorldFor(this.#map, this.#binding, this.#canonicalTarget);
@@ -577,15 +580,13 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       this.#worldRepositionPending = false;
       return;
     }
-    const previousTarget = this.#target;
-    const presentedTarget = presentationTarget(canonicalTarget, nextOffset);
     this.#worldOffset = nextOffset;
-    this.#target = presentedTarget;
+    this.#target = canonicalTarget;
     try {
-      this.#handles.setTarget(presentedTarget);
+      this.#handles.setTarget(canonicalTarget, nextOffset);
     } catch (error) {
       this.#worldOffset = previousOffset;
-      this.#target = previousTarget;
+      this.#target = canonicalTarget;
       this.#worldRepositionPending = true;
       throw error;
     }
@@ -651,17 +652,6 @@ function snapshotTarget(target: TransformInteractionTarget): TransformInteractio
     controlPoints: Object.freeze(target.controlPoints.map(coordinate)),
     ...(target.handleCenter === undefined ? {} : { handleCenter: coordinate(target.handleCenter) }),
     ...(target.style === undefined ? {} : { style: target.style })
-  });
-}
-
-/** 把规范世界目标整体移入本次交互选择的可见世界。 */
-function presentationTarget(target: TransformInteractionTarget, offset: number): TransformInteractionTarget {
-  if (offset === 0) return target;
-  return Object.freeze({
-    ...target,
-    geometry: translateRenderGeometry(target.geometry, offset, 0),
-    controlPoints: Object.freeze(target.controlPoints.map((value) => shiftCoordinate(value, offset))),
-    ...(target.handleCenter === undefined ? {} : { handleCenter: shiftCoordinate(target.handleCenter, offset) })
   });
 }
 

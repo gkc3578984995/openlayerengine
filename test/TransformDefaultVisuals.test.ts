@@ -147,6 +147,32 @@ describe('Transform 默认视觉', () => {
     harness.handles.destroy();
   });
 
+  it('保留规范目标，并只在写入原生预览、范围和手柄时叠加远 world 偏移', () => {
+    const previewStyle = new Style({ stroke: new Stroke({ color: '#000000' }) });
+    const map = new MapHarness();
+    const worldOffset = 50 * 40_075_016.68557849;
+    map.view.setCenter([worldOffset, 0]);
+    const harness = createHarness(previewStyle, interactionOptions(), undefined, map);
+    const target = polygonTarget({ handleCenter: [2, 3] });
+
+    harness.handles.setTarget(target, worldOffset);
+
+    expect(harness.handles.target).toBe(target);
+    expect(polygonCoordinates(previewFeature(map, previewStyle))?.[0]).toEqual(translatedRing(worldOffset, 0));
+    expect(pointCoordinates(transformHandles(map).get('scale-ne'))).toEqual([worldOffset + 42, 37]);
+    expect(harness.handles.extent).toEqual([worldOffset - 42, -37, worldOffset + 42, 37]);
+
+    harness.handles.setOperationActive(true, 'rotate');
+    const rotationCenter = sourceFeatures(map).find((feature) => iconSource(feature) === centerImage);
+    expect(pointCoordinates(rotationCenter)).toEqual([worldOffset + 2, 3]);
+
+    map.view.setResolution(1);
+    expect(polygonCoordinates(previewFeature(map, previewStyle))?.[0]).toEqual(translatedRing(worldOffset, 0));
+    expect(harness.handles.extent).toEqual([worldOffset - 26, -21, worldOffset + 26, 21]);
+    expect(() => harness.handles.setTarget(target, Number.NaN)).toThrowError('Transform world offset must be finite');
+    harness.handles.destroy();
+  });
+
   it('视图分辨率和旋转变化时按图标视觉尺寸原位更新控制框，并在销毁时解除监听', () => {
     const previewStyle = new Style({ image: new Icon({ src: pointIcon, size: [40, 20], rotateWithView: true }) });
     const map = new MapHarness();

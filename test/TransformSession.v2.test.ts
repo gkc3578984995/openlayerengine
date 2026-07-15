@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { isElementSnapshot } from '../src/core/element/snapshot.js';
+import type { ElementState } from '../src/core/element/types.js';
 import { InteractionConflictError, InvalidArgumentError } from '../src/core/errors.js';
 import type { TransformDelta } from '../src/core/ports/TransformInteractionPort.js';
 import type { TransformToolbarViewHandle } from '../src/core/ports/TransformToolbarPort.js';
@@ -75,6 +77,90 @@ describe('TransformSession v2', () => {
     expect(changes.mock.calls.filter(([changeSet]) => changeSet.changes.some((change: { id: string }) => change.id === 'point-a'))).toHaveLength(1);
     expect(selectEnd).toHaveBeenCalledOnce();
     expect(harness.log.indexOf('transient:handle-stop')).toBeLessThan(harness.log.indexOf('interaction:destroy'));
+  });
+
+  it('reuses the trusted immutable working snapshot and isolates the operation delta', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'line-a', 'polyline', [
+      [0, 0],
+      [4, 2]
+    ]);
+    const session = harness.service.select('line-a');
+    const progress = vi.fn();
+    session.on('translating', progress);
+    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+    const delta = { type: 'translate' as const, x: 5, y: -1 };
+
+    harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta });
+
+    const event = progress.mock.calls[0]?.[0] as Readonly<{ state: Readonly<ElementState>; delta: TransformDelta }>;
+    expect(isElementSnapshot(event.state)).toBe(true);
+    expect(Object.isFrozen(event)).toBe(true);
+    expect(Object.isFrozen(event.state)).toBe(true);
+    expect(Object.isFrozen(event.state.geometry)).toBe(true);
+    const controlPoints = (event.state.geometry as { controlPoints: readonly unknown[] }).controlPoints;
+    expect(Object.isFrozen(controlPoints)).toBe(true);
+    expect((harness.interaction.handle?.target?.geometry as { coordinates?: readonly unknown[] }).coordinates).toBe(controlPoints);
+    expect(event.delta).not.toBe(delta);
+    expect(Object.isFrozen(event.delta)).toBe(true);
+
+    delta.x = 50;
+    delta.y = 60;
+    expect(event.delta).toEqual({ type: 'translate', x: 5, y: -1 });
+    expect(event.state.geometry).toMatchObject({
+      controlPoints: [
+        [5, -1],
+        [9, 1]
+      ]
+    });
+    session.cancel();
+  });
+
+  it('rejects non-finite deltas before publishing an invalid preview snapshot', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'line-a', 'polyline', [
+      [0, 0],
+      [4, 2]
+    ]);
+    const session = harness.service.select('line-a');
+    const progress = vi.fn();
+    const error = vi.fn();
+    session.on('translating', progress);
+    session.on('error', error);
+    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
+
+    harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: { type: 'translate', x: Number.POSITIVE_INFINITY, y: 0 } });
+
+    expect(progress).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledOnce();
+    expect(session.status).toBe('cancelled');
+    expect(harness.store.get('line-a')?.geometry).toMatchObject({
+      controlPoints: [
+        [0, 0],
+        [4, 2]
+      ]
+    });
+  });
+
+  it('keeps definition validation for topology-sensitive transformed shapes', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'polygon-a', 'polygon', [
+      [0, 0],
+      [4, 0],
+      [2, 3]
+    ]);
+    const session = harness.service.select('polygon-a');
+    const scaling = vi.fn();
+    const error = vi.fn();
+    session.on('scaling', scaling);
+    session.on('error', error);
+    harness.interaction.emit({ type: 'operation-start', operation: 'scale', delta: { type: 'scale', scaleX: 1, scaleY: 1, center: [0, 0] } });
+
+    harness.interaction.emit({ type: 'operation-change', operation: 'scale', delta: { type: 'scale', scaleX: 0, scaleY: 1, center: [0, 0] } });
+
+    expect(scaling).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledOnce();
+    expect(session.status).toBe('cancelled');
   });
 
   it('rolls back preview state on cancel and consumes the active right click', () => {

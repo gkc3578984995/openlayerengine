@@ -13,6 +13,7 @@ import type {
 } from '../../core/shape/types.js';
 import { registerShapeFreehandAccumulator } from '../../core/shape/freehandAccumulator.js';
 import { createImmutableSet } from '../../core/shape/immutableSet.js';
+import { registerTrustedShapeRenderer } from '../../core/shape/trustedRender.js';
 
 /** 内部方法。处理 immutableSet 相关数据。 */
 export function immutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
@@ -222,6 +223,8 @@ interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> 
   readonly validate?: (points: readonly Coordinate[]) => void;
   /** 内部字段。保存 render 相关状态。 */
   readonly render: (points: readonly Coordinate[]) => RenderGeometryState;
+  /** 已校验并冻结的控制点可直接使用时采用的渲染路径。 */
+  readonly renderTrusted?: (points: readonly Coordinate[]) => RenderGeometryState;
   /** 内部字段。保存 complete 相关状态。 */
   readonly complete?: (state: ShapeState<T>) => ShapeCompletion<ShapeState<T>>;
 }
@@ -525,6 +528,12 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
       }
     : undefined;
 
+  const toRenderGeometry = (state: ShapeState<T>): RenderGeometryState => {
+    const geometry = options.render(normalize(state).controlPoints);
+    assertFiniteRenderGeometry(geometry);
+    return geometry;
+  };
+
   const definition: ShapeDefinition<ShapeState<T>> = {
     type: options.type,
     capabilities: options.capabilities ?? editableCapabilities,
@@ -541,12 +550,14 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     clone: (state) => normalize(state),
     isComplete: (state) => hasCompleteCount(normalize(state).controlPoints.length),
     tryComplete,
-    toRenderGeometry: (state) => {
-      const geometry = options.render(normalize(state).controlPoints);
-      assertFiniteRenderGeometry(geometry);
-      return geometry;
-    }
+    toRenderGeometry
   };
+
+  registerTrustedShapeRenderer(definition, (state) => {
+    const geometry = options.renderTrusted?.(state.controlPoints) ?? options.render(state.controlPoints);
+    if (options.renderTrusted === undefined) assertFiniteRenderGeometry(geometry);
+    return geometry;
+  });
 
   return Object.freeze(definition);
 }

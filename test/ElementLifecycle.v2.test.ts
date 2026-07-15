@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
+import { createElementSnapshot, deriveElementSnapshot } from '../src/core/element/snapshot.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { DuplicateElementIdError, InvalidArgumentError, ObjectDisposedError } from '../src/core/errors.js';
 import { createNativeRef } from '../src/core/native/types.js';
@@ -26,6 +27,32 @@ function createStore(options?: ConstructorParameters<typeof ElementStore>[1]): E
 }
 
 describe('ElementStore lifecycle and snapshots', () => {
+  it('recursively freezes shallow-frozen replacement values before trusting a derived snapshot', () => {
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const source = createElementSnapshot(shapes, state());
+    const coordinate = [7, 8];
+    const controlPoints = [coordinate];
+    const lineDash = [4, 2];
+    const strokes = [{ color: '#36f', lineDash }];
+    const geometry = Object.freeze({ type: 'point' as const, controlPoints });
+    const style = Object.freeze({ strokes });
+
+    const derived = deriveElementSnapshot(source, geometry, style);
+
+    expect((derived.geometry as { controlPoints: readonly (readonly number[])[] }).controlPoints[0]).toBe(coordinate);
+    expect(Object.isFrozen(controlPoints)).toBe(true);
+    expect(Object.isFrozen(coordinate)).toBe(true);
+    expect(Object.isFrozen(strokes)).toBe(true);
+    expect(Object.isFrozen(strokes[0])).toBe(true);
+    expect(Object.isFrozen(lineDash)).toBe(true);
+    expect(() => {
+      coordinate[0] = 99;
+    }).toThrow(TypeError);
+    expect(() => {
+      lineDash[0] = 99;
+    }).toThrow(TypeError);
+  });
+
   it('deeply isolates and freezes ingress, return values, and historical changes', () => {
     const store = createStore();
     const input = state();

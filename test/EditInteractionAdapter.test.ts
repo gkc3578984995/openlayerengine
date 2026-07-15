@@ -15,6 +15,7 @@ import { clearUserProjection, fromUserCoordinate, getUserProjection, setUserProj
 import type Source from 'ol/source/Source.js';
 import VectorSource from 'ol/source/Vector.js';
 import Style from 'ol/style/Style.js';
+import RBush from 'ol/structs/RBush.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import { FeatureBinding, type ProjectionSuppressionLease } from '../src/adapters/openlayers/FeatureBinding.js';
@@ -368,6 +369,59 @@ describe('EditInteractionAdapter', () => {
 
     handle.destroy();
     expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners);
+  });
+
+  it('reuses the stable anchor index across repeated world repositions and rebuilds it only for a new render plan', () => {
+    const { adapter, map } = setup({ wrapX: true });
+    const received: EditInteractionEvent[] = [];
+    const load = vi.spyOn(RBush.prototype, 'load');
+    const anchorIndexLoadCount = (): number =>
+      load.mock.calls.filter(([, values]) => values.some((value) => value !== null && typeof value === 'object' && 'anchor' in value)).length;
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    try {
+      handle.render(renderState());
+      expect(anchorIndexLoadCount()).toBe(1);
+      const input = editInteraction(map);
+
+      for (const world of [1, -2, 50, -50, 3, 0]) {
+        const offset = world * 360;
+        map.view.setCenter([offset, 0]);
+        expect(input.handleEvent(pointerEvent('pointerdown', [offset, 0]))).toBe(false);
+        expect(input.handleEvent(pointerEvent('pointercancel', [offset, 0], { button: -1 }))).toBe(false);
+        expect(anchorIndexLoadCount()).toBe(1);
+      }
+      expect(received.filter(({ type }) => type === 'move-start')).toEqual(
+        Array.from({ length: 6 }, () => expect.objectContaining({ type: 'move-start', coordinate: [0, 0] }))
+      );
+
+      handle.render(
+        renderState(
+          [
+            [0, 0],
+            [10, 0]
+          ],
+          [5, 0]
+        )
+      );
+      expect(anchorIndexLoadCount()).toBe(2);
+      map.view.setCenter([100 * 360, 0]);
+      expect(input.handleEvent(pointerEvent('click', [100 * 360 + 5, 0]))).toBe(false);
+      expect(received.at(-1)).toEqual({ type: 'insert', anchor: { kind: 'insertion', index: 1, coordinate: [5, 0] } });
+      expect(anchorIndexLoadCount()).toBe(2);
+    } finally {
+      handle.destroy();
+      load.mockRestore();
+    }
   });
 
   it.each([
@@ -1047,6 +1101,42 @@ describe('EditInteractionAdapter', () => {
         [offset + 8, 0]
       ]);
       handle.destroy();
+    } finally {
+      clearUserProjection();
+    }
+  });
+
+  it('queries the stable anchor index in repeated worlds through the OpenLayers user projection', () => {
+    setUserProjection('EPSG:4326');
+    try {
+      const { adapter, map } = setup({ center: [0, 0], projection: 'EPSG:3857', wrapX: true });
+      const received: EditInteractionEvent[] = [];
+      const handle = adapter.open(
+        {
+          elementId: 'editable',
+          controlPoints: [
+            [0, 0],
+            [8, 0]
+          ],
+          underlay: false
+        },
+        (event) => received.push(event)
+      );
+      try {
+        handle.render(renderState());
+        const input = editInteraction(map);
+        for (const world of [50, -50, 3]) {
+          const offset = world * 360;
+          map.view.setCenter([offset, 0]);
+          expect(input.handleEvent(pointerEvent('pointerdown', [offset, 0]))).toBe(false);
+          expect(input.handleEvent(pointerEvent('pointercancel', [offset, 0], { button: -1 }))).toBe(false);
+        }
+        expect(received.filter(({ type }) => type === 'move-start')).toEqual(
+          Array.from({ length: 3 }, () => expect.objectContaining({ type: 'move-start', coordinate: [0, 0] }))
+        );
+      } finally {
+        handle.destroy();
+      }
     } finally {
       clearUserProjection();
     }

@@ -1,5 +1,6 @@
 import { CapabilityError, InvalidArgumentError } from '../errors.js';
 import { snapshotImmutableSet } from './immutableSet.js';
+import { inheritTrustedShapeRenderer, inheritTrustedTransformDefinition } from './trustedRender.js';
 import {
   shapeTypes,
   type ControlPointPolicy,
@@ -171,7 +172,10 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
     tryComplete: requiredFunction(record, 'tryComplete'),
     toRenderGeometry: requiredFunction(record, 'toRenderGeometry')
   } as unknown as ShapeDefinition<S>;
-  return Object.freeze(snapshot);
+  const frozen = Object.freeze(snapshot);
+  inheritTrustedShapeRenderer(definition, frozen);
+  inheritTrustedTransformDefinition(definition, frozen);
+  return frozen;
 }
 
 /** 内部类。管理 ShapeRegistry 相关状态。 */

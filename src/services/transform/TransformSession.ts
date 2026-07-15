@@ -3,7 +3,7 @@ import { runFinalizers } from '../../core/common/dispose.js';
 import type { Coordinate } from '../../core/common/types.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import { compileSelector } from '../../core/element/selector.js';
-import { cloneElementSnapshot, createElementSnapshot, type ElementSnapshot } from '../../core/element/snapshot.js';
+import { cloneElementSnapshot, createElementSnapshot, deriveElementSnapshot, isElementSnapshot, type ElementSnapshot } from '../../core/element/snapshot.js';
 import type { ElementCopyOptions, ElementState } from '../../core/element/types.js';
 import { CapabilityError, InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
 import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
@@ -26,6 +26,7 @@ import type {
 import type { TransformTooltipPort, TransformTooltipViewHandle } from '../../core/ports/TransformTooltipPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
+import { isTrustedTransformDefinition, renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
 import { isNativeStyleRef, type IconSymbolSpec, type StyleSpec, type TextSpec } from '../../core/style/types.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
@@ -514,7 +515,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       elementId: state.id,
       type: state.type,
       layerId: state.layerId,
-      geometry: definition.toRenderGeometry(state.geometry as never),
+      geometry: renderTrustedShapeState(definition, state.geometry as never),
       style: state.style,
       mode: this.#mode,
       controlPoints: Object.freeze(controlPoints),
@@ -554,6 +555,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         this.#emit(type, freeze({ type, state, key: event.key, ...(event.cursor === undefined ? {} : { cursor: event.cursor }) }) as never);
       } else if (event.type === 'operation-start') {
         this.#assertOperationAllowed(event.operation);
+        assertFiniteTransformDelta(event.delta);
         this.#operationOrigin = cloneElementSnapshot(this.#shapes, this.#requireWorking());
         this.#startOperationVisual(event.operation);
         this.#pauseAnimationsFor(event.operation);
@@ -608,13 +610,13 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const state = this.#requireWorking();
     if (operation === 'translate') {
       const type = phase === 'start' ? 'translateStart' : phase === 'change' ? 'translating' : 'translateEnd';
-      this.#emit(type, freeze({ type, state, delta }) as never);
+      this.#emit(type, freezeOperationEvent(type, state, delta) as never);
     } else if (operation === 'rotate') {
       const type = phase === 'start' ? 'rotateStart' : phase === 'change' ? 'rotating' : 'rotateEnd';
-      this.#emit(type, freeze({ type, state, delta }) as never);
+      this.#emit(type, freezeOperationEvent(type, state, delta) as never);
     } else if (operation === 'scale' || operation === 'stretch') {
       const type = phase === 'start' ? 'scaleStart' : phase === 'change' ? 'scaling' : 'scaleEnd';
-      this.#emit(type, freeze({ type, state, delta }) as never);
+      this.#emit(type, freezeOperationEvent(type, state, delta) as never);
     }
   }
 
@@ -1175,11 +1177,16 @@ const defaultToolbarItems: readonly InternalTransformToolbarItemSpec[] = Object.
 
 /** 将变换增量应用到完整元素快照。 */
 function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snapshot: Readonly<ElementState<T>>, delta: TransformDelta): ElementSnapshot<T> {
-  const definition = shapes.get(snapshot.type);
-  const pointVisualTransform = snapshot.geometry.type === 'point' && delta.type !== 'translate' && delta.type !== 'vertex';
-  const geometry = pointVisualTransform ? definition.clone(snapshot.geometry as never) : transformShape(definition, snapshot.geometry, delta);
-  const style = pointVisualTransform ? transformPointStyle(styles, snapshot.style, delta) : styles.clone(snapshot.style);
-  return createElementSnapshot(shapes, { ...snapshot, geometry, style });
+  assertFiniteTransformDelta(delta);
+  const source = isElementSnapshot(snapshot) ? (snapshot as ElementSnapshot<T>) : createElementSnapshot(shapes, snapshot as ElementState<T>);
+  const definition = shapes.get(source.type);
+  const pointVisualTransform = source.geometry.type === 'point' && delta.type !== 'translate' && delta.type !== 'vertex';
+  const geometry = pointVisualTransform ? source.geometry : transformShape(definition, source.geometry, delta);
+  const style = pointVisualTransform ? transformPointStyle(styles, source.style, delta) : source.style;
+  if (delta.type === 'vertex' || !isTrustedTransformDefinition(definition)) {
+    return createElementSnapshot(shapes, { ...source, geometry, style });
+  }
+  return deriveElementSnapshot(source, geometry, style);
 }
 
 /** 将变换增量应用到图形状态。 */
@@ -1191,27 +1198,40 @@ function transformShape(definition: ShapeDefinition, state: ShapeState, delta: T
   }
   if (delta.type === 'translate') {
     if (!definition.capabilities.has('translate')) throw new CapabilityError(`Shape does not support translation: ${state.type}`);
-    if (state.type === 'circle') return { type: 'circle', center: translateCoordinate(state.center, delta.x, delta.y), radius: state.radius };
-    return { type: state.type, controlPoints: state.controlPoints.map((coordinate) => translateCoordinate(coordinate, delta.x, delta.y)) } as ShapeState;
+    if (state.type === 'circle') return Object.freeze({ type: 'circle', center: translateCoordinate(state.center, delta.x, delta.y), radius: state.radius });
+    return freezeControlPointState(
+      state.type,
+      state.controlPoints.map((coordinate) => translateCoordinate(coordinate, delta.x, delta.y))
+    );
   }
   if (delta.type === 'rotate') {
     if (!definition.capabilities.has('rotate')) throw new CapabilityError(`Shape does not support rotation: ${state.type}`);
     if (state.type === 'circle') return definition.clone(state as never) as ShapeState;
-    return { type: state.type, controlPoints: state.controlPoints.map((coordinate) => rotateCoordinate(coordinate, delta.center, delta.angle)) } as ShapeState;
+    return freezeControlPointState(
+      state.type,
+      state.controlPoints.map((coordinate) => rotateCoordinate(coordinate, delta.center, delta.angle))
+    );
   }
   if (!definition.capabilities.has('scale')) throw new CapabilityError(`Shape does not support scaling: ${state.type}`);
   if (state.type === 'circle') {
     const magnitude = (Math.abs(delta.scaleX) + Math.abs(delta.scaleY)) / 2;
-    return {
+    const radius = state.radius * magnitude;
+    assertFiniteNumber(radius, 'Transform circle radius');
+    return Object.freeze({
       type: 'circle',
       center: scaleCoordinate(state.center, delta.center, delta.scaleX, delta.scaleY),
-      radius: state.radius * magnitude
-    };
+      radius
+    });
   }
-  return {
-    type: state.type,
-    controlPoints: state.controlPoints.map((coordinate) => scaleCoordinate(coordinate, delta.center, delta.scaleX, delta.scaleY))
-  } as ShapeState;
+  return freezeControlPointState(
+    state.type,
+    state.controlPoints.map((coordinate) => scaleCoordinate(coordinate, delta.center, delta.scaleX, delta.scaleY))
+  );
+}
+
+/** 冻结刚创建的控制点状态，供受信快照直接复用。 */
+function freezeControlPointState(type: Exclude<ShapeState['type'], 'circle'>, controlPoints: Coordinate[]): ShapeState {
+  return Object.freeze({ type, controlPoints: Object.freeze(controlPoints) }) as ShapeState;
 }
 
 /** 对点元素的符号样式应用旋转或缩放。 */
@@ -1269,7 +1289,7 @@ function cloneCoordinate(coordinate: Coordinate): Coordinate {
 
 /** 平移地图坐标。 */
 function translateCoordinate(coordinate: Coordinate, x: number, y: number): Coordinate {
-  return coordinate.length === 3 ? [coordinate[0] + x, coordinate[1] + y, coordinate[2]] : [coordinate[0] + x, coordinate[1] + y];
+  return transformedCoordinate(coordinate, coordinate[0] + x, coordinate[1] + y);
 }
 
 /** 围绕中心旋转地图坐标。 */
@@ -1278,14 +1298,65 @@ function rotateCoordinate(coordinate: Coordinate, center: Coordinate, angle: num
   const y = coordinate[1] - center[1];
   const cosine = Math.cos(angle);
   const sine = Math.sin(angle);
-  const rotated: Coordinate = [center[0] + x * cosine - y * sine, center[1] + x * sine + y * cosine];
-  return coordinate.length === 3 ? [rotated[0], rotated[1], coordinate[2]] : rotated;
+  return transformedCoordinate(coordinate, center[0] + x * cosine - y * sine, center[1] + x * sine + y * cosine);
 }
 
 /** 围绕中心缩放地图坐标。 */
 function scaleCoordinate(coordinate: Coordinate, center: Coordinate, x: number, y: number): Coordinate {
-  const scaled: Coordinate = [center[0] + (coordinate[0] - center[0]) * x, center[1] + (coordinate[1] - center[1]) * y];
-  return coordinate.length === 3 ? [scaled[0], scaled[1], coordinate[2]] : scaled;
+  return transformedCoordinate(coordinate, center[0] + (coordinate[0] - center[0]) * x, center[1] + (coordinate[1] - center[1]) * y);
+}
+
+/** 创建已经校验有限性的变换坐标。 */
+function transformedCoordinate(source: Coordinate, x: number, y: number): Coordinate {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InvalidArgumentError('Transform produced a non-finite coordinate');
+  return Object.freeze(source.length === 3 ? [x, y, source[2]] : [x, y]);
+}
+
+/** 校验交互传入的变换增量，避免热路径产生非有限几何。 */
+function assertFiniteTransformDelta(delta: TransformDelta): void {
+  if (delta.type === 'translate') {
+    assertFiniteNumber(delta.x, 'Transform translation x');
+    assertFiniteNumber(delta.y, 'Transform translation y');
+    return;
+  }
+  if (delta.type === 'rotate') {
+    assertFiniteNumber(delta.angle, 'Transform rotation angle');
+    assertFiniteCoordinate(delta.center, 'Transform rotation center');
+    return;
+  }
+  if (delta.type === 'scale' || delta.type === 'stretch') {
+    assertFiniteNumber(delta.scaleX, 'Transform scaleX');
+    assertFiniteNumber(delta.scaleY, 'Transform scaleY');
+    assertFiniteCoordinate(delta.center, 'Transform scale center');
+    return;
+  }
+  if (delta.type === 'vertex') {
+    if (!Number.isSafeInteger(delta.index) || delta.index < 0) throw new InvalidArgumentError('Transform vertex index must be a non-negative safe integer');
+    assertFiniteCoordinate(delta.coordinate, 'Transform vertex coordinate');
+    return;
+  }
+  throw new InvalidArgumentError(`Unsupported Transform delta: ${String((delta as { type?: unknown }).type)}`);
+}
+
+/** 校验数值是有限数。 */
+function assertFiniteNumber(value: number, label: string): void {
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new InvalidArgumentError(`${label} must be finite`);
+}
+
+/** 校验坐标维度及各维数值。 */
+function assertFiniteCoordinate(coordinate: Coordinate, label: string): void {
+  if (!Array.isArray(coordinate) || (coordinate.length !== 2 && coordinate.length !== 3))
+    throw new InvalidArgumentError(`${label} must be a 2D or 3D coordinate`);
+  for (const value of coordinate) assertFiniteNumber(value, label);
+}
+
+/** 冻结操作事件本身与小型增量，并复用已经不可变的工作快照。 */
+function freezeOperationEvent<T extends string, D extends TransformDelta>(
+  type: T,
+  state: ElementSnapshot,
+  delta: D
+): Readonly<{ type: T; state: ElementSnapshot; delta: D }> {
+  return Object.freeze({ type, state, delta: deepFreeze(cloneCoreState(delta)) });
 }
 
 /** 克隆并递归冻结状态值。 */

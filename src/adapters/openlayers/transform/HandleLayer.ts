@@ -107,6 +107,8 @@ export class HandleLayer {
   readonly #viewKeys: EventsKey[] = [];
   /** 当前操作目标。 */
   #target: TransformInteractionTarget | undefined;
+  /** 当前目标从规范世界移动到唯一展示世界的水平偏移。 */
+  #worldOffset = 0;
   /** 当前目标的缓冲外接范围。 */
   #extent: TransformExtent | undefined;
   /** 上一次通知界面的选中框右上角。 */
@@ -193,8 +195,9 @@ export class HandleLayer {
   }
 
   /** 切换操作目标；同一元素只原位更新预览、边框和手柄。 */
-  setTarget(target: TransformInteractionTarget): void {
+  setTarget(target: TransformInteractionTarget, worldOffset = 0): void {
     this.#assertActive();
+    if (!Number.isFinite(worldOffset)) throw new InvalidArgumentError('Transform world offset must be finite');
     const targetChanged = this.#target?.elementId !== target.elementId;
     const previewStyle = this.#previewStyleFor(target.style);
     const handleStyle = this.#handleStyleForTarget(target);
@@ -214,8 +217,9 @@ export class HandleLayer {
         this.#activeOperation = undefined;
         this.#blinkVisible = true;
       }
-      this.#syncTargetFeatures(target, previewStyle, handleStyle);
+      this.#syncTargetFeatures(target, previewStyle, handleStyle, worldOffset);
       this.#target = target;
+      this.#worldOffset = worldOffset;
       this.#applyBBoxStyle();
       if (targetChanged) {
         this.#suppression = suppression;
@@ -242,6 +246,7 @@ export class HandleLayer {
     this.clearCopyPreview();
     this.#resetTargetFeatures();
     this.#target = undefined;
+    this.#worldOffset = 0;
     this.#extent = undefined;
     this.#notifiedTopRight = undefined;
     this.#operationActive = false;
@@ -360,6 +365,7 @@ export class HandleLayer {
         () => this.#layer.dispose()
       ]);
       this.#target = undefined;
+      this.#worldOffset = 0;
       this.#extent = undefined;
       this.#preview = undefined;
       this.#bbox = undefined;
@@ -385,13 +391,14 @@ export class HandleLayer {
   #syncTargetFeatures(
     target: TransformInteractionTarget,
     previewStyle: ReturnType<StyleCompiler['compile']>,
-    handleStyle: ReturnType<StyleCompiler['compile']> | undefined
+    handleStyle: ReturnType<StyleCompiler['compile']> | undefined,
+    worldOffset: number
   ): void {
     const preview = this.#preview ?? new Feature<Geometry>();
     this.#preview = preview;
-    updateFeatureGeometry(preview, target.geometry);
+    updateFeatureGeometry(preview, target.geometry, worldOffset);
     if (preview.getStyle() !== previewStyle) preview.setStyle(previewStyle);
-    const geometryExtent = renderExtent(target.geometry);
+    const geometryExtent = presentationExtent(renderExtent(target.geometry), worldOffset);
     setHandleHit(
       preview,
       target.canTranslate && this.#options.translate === 'feature'
@@ -399,15 +406,15 @@ export class HandleLayer {
         : undefined
     );
 
-    const features = [preview, ...this.#syncExtentFeatures(target, handleStyle, geometryExtent)];
+    const features = [preview, ...this.#syncExtentFeatures(target, handleStyle, geometryExtent, worldOffset)];
     const vertexHandleCount = target.canEditVertices ? target.controlPoints.length : 0;
     const batchThreshold = handleStyle === undefined ? vertexBatchThreshold : customVertexBatchThreshold;
     const useVertexBatch = vertexHandleCount >= batchThreshold;
     if (useVertexBatch) {
-      features.push(this.#syncVertexBatch(target.controlPoints, handleStyle));
+      features.push(this.#syncVertexBatch(target.controlPoints, handleStyle, worldOffset));
     } else if (vertexHandleCount > 0) {
       for (let index = 0; index < vertexHandleCount; index += 1) {
-        features.push(this.#handle(`vertex-${index}`, 'vertex', target.controlPoints[index], 'xy', handleStyle, index));
+        features.push(this.#handle(`vertex-${index}`, 'vertex', presentationCoordinate(target.controlPoints[index], worldOffset), 'xy', handleStyle, index));
       }
     }
     this.#syncSourceFeatures(features);
@@ -416,11 +423,11 @@ export class HandleLayer {
   }
 
   /** 原位更新大顶点 MultiPoint 及其命中索引。 */
-  #syncVertexBatch(coordinates: readonly Coordinate[], customStyle: ReturnType<StyleCompiler['compile']> | undefined): Feature<Geometry> {
+  #syncVertexBatch(coordinates: readonly Coordinate[], customStyle: ReturnType<StyleCompiler['compile']> | undefined, worldOffset: number): Feature<Geometry> {
     const feature = this.#vertexBatch ?? new Feature<Geometry>();
     this.#vertexBatch = feature;
-    const coordinatesChanged = this.#syncVertexIndex(coordinates);
-    if (coordinatesChanged) updateMultiPointGeometry(feature, coordinates);
+    const coordinatesChanged = this.#syncVertexIndex(coordinates, worldOffset);
+    if (coordinatesChanged) updateMultiPointGeometry(feature, coordinates, worldOffset);
     const style = customStyle ?? vertexBatchStyle;
     if (feature.getStyle() !== style) feature.setStyle(style);
     if (feature.get(vertexBatchMetadata) !== true) feature.set(vertexBatchMetadata, true, true);
@@ -428,39 +435,39 @@ export class HandleLayer {
   }
 
   /** 大顶点首次批量加载 RBush，单顶点变化时只更新差异条目。 */
-  #syncVertexIndex(coordinates: readonly Coordinate[]): boolean {
+  #syncVertexIndex(coordinates: readonly Coordinate[], worldOffset: number): boolean {
     const entries = this.#vertexEntries;
     if (entries.length !== coordinates.length) {
-      this.#rebuildVertexIndex(coordinates);
+      this.#rebuildVertexIndex(coordinates, worldOffset);
       return true;
     }
     const incrementalLimit = Math.max(32, Math.floor(coordinates.length / 100));
     const changes: Array<Readonly<{ entry: VertexIndexEntry; coordinate: Coordinate }>> = [];
     for (let index = 0; index < coordinates.length; index += 1) {
-      if (coordinatesEqual(entries[index].coordinate, coordinates[index])) continue;
+      if (coordinateEqualsPresentation(entries[index].coordinate, coordinates[index], worldOffset)) continue;
       changes.push({ entry: entries[index], coordinate: coordinates[index] });
       if (changes.length > incrementalLimit) {
-        this.#rebuildVertexIndex(coordinates);
+        this.#rebuildVertexIndex(coordinates, worldOffset);
         return true;
       }
     }
     if (changes.length === 0) return false;
     for (const change of changes) {
-      change.entry.coordinate = change.coordinate;
-      change.entry.internalCoordinate = coordinateForIndex(this.#map, change.coordinate);
+      const presented = presentationCoordinate(change.coordinate, worldOffset);
+      change.entry.coordinate = presented;
+      change.entry.internalCoordinate = coordinateForIndex(this.#map, presented);
       this.#vertexIndex.update(pointExtent(change.entry.internalCoordinate), change.entry);
     }
     return true;
   }
 
   /** 使用点范围一次批量构建大顶点 RBush。 */
-  #rebuildVertexIndex(coordinates: readonly Coordinate[]): void {
+  #rebuildVertexIndex(coordinates: readonly Coordinate[], worldOffset: number): void {
     this.#vertexIndex.clear();
-    const entries = coordinates.map((coordinate, index): VertexIndexEntry => ({
-      index,
-      coordinate,
-      internalCoordinate: coordinateForIndex(this.#map, coordinate)
-    }));
+    const entries = coordinates.map((coordinate, index): VertexIndexEntry => {
+      const presented = presentationCoordinate(coordinate, worldOffset);
+      return { index, coordinate: presented, internalCoordinate: coordinateForIndex(this.#map, presented) };
+    });
     this.#vertexEntries = entries;
     if (entries.length > 0)
       this.#vertexIndex.load(
@@ -513,7 +520,8 @@ export class HandleLayer {
   #syncExtentFeatures(
     target: TransformInteractionTarget,
     handleStyle: ReturnType<StyleCompiler['compile']> | undefined,
-    geometryExtent: TransformExtent
+    geometryExtent: TransformExtent,
+    worldOffset: number
   ): Feature<Geometry>[] {
     const preview = this.#preview;
     if (preview === undefined) throw new InvalidArgumentError('Transform preview feature is missing');
@@ -526,7 +534,7 @@ export class HandleLayer {
     );
     this.#extent = extent;
     const [minX, minY, maxX, maxY] = extent;
-    const center = target.handleCenter ?? extentCenter(extent);
+    const center = target.handleCenter === undefined ? extentCenter(extent) : presentationCoordinate(target.handleCenter, worldOffset);
     const bbox = this.#bbox ?? new Feature<Geometry>();
     this.#bbox = bbox;
     updateFeatureGeometry(bbox, {
@@ -656,7 +664,7 @@ export class HandleLayer {
     }
     const feature = existing ?? new Feature<Geometry>();
     this.#rotationCenter = feature;
-    updatePointGeometry(feature, target.handleCenter ?? extentCenter(extent));
+    updatePointGeometry(feature, target.handleCenter === undefined ? extentCenter(extent) : presentationCoordinate(target.handleCenter, this.#worldOffset));
     if (feature.getStyle() !== centerHandleStyle) feature.setStyle(centerHandleStyle);
     if (this.#activeTargetFeatures.has(feature)) return;
     this.#source.addFeature(feature);
@@ -688,7 +696,7 @@ export class HandleLayer {
   readonly #refreshForView = (): void => {
     if (this.#destroyed || this.#destroying || this.#target === undefined) return;
     const handleStyle = this.#handleStyleForTarget(this.#target);
-    this.#syncExtentFeatures(this.#target, handleStyle, renderExtent(this.#target.geometry));
+    this.#syncExtentFeatures(this.#target, handleStyle, presentationExtent(renderExtent(this.#target.geometry), this.#worldOffset), this.#worldOffset);
     this.#applyBBoxStyle();
     this.#notifyExtentChange();
   };
@@ -806,38 +814,62 @@ function styleFor(operation: TransformHandleHit['operation'], axis: TransformHan
   return scaleHandleStyle;
 }
 
+/** 把规范世界范围平移到当前唯一展示世界。 */
+function presentationExtent(extent: TransformExtent, worldOffset: number): TransformExtent {
+  if (worldOffset === 0) return extent;
+  return Object.freeze([extent[0] + worldOffset, extent[1], extent[2] + worldOffset, extent[3]]);
+}
+
+/** 把规范世界坐标平移到当前唯一展示世界，并保留高度值。 */
+function presentationCoordinate(coordinate: Coordinate, worldOffset: number): Coordinate {
+  if (worldOffset === 0) return coordinate;
+  return Object.freeze(copyPresentationCoordinate(coordinate, worldOffset)) as Coordinate;
+}
+
+/** 创建可交给 OpenLayers 修改的展示世界坐标副本。 */
+function copyPresentationCoordinate(coordinate: Coordinate, worldOffset: number): number[] {
+  return coordinate.length === 3 ? [coordinate[0] + worldOffset, coordinate[1], coordinate[2]] : [coordinate[0] + worldOffset, coordinate[1]];
+}
+
+/** 比较已展示坐标与规范世界坐标叠加偏移后的值。 */
+function coordinateEqualsPresentation(presented: readonly number[], canonical: readonly number[], worldOffset: number): boolean {
+  return presented.length === canonical.length && presented.every((value, index) => value === canonical[index] + (index === 0 ? worldOffset : 0));
+}
+
 /** 将渲染几何状态转换为 OpenLayers Geometry。 */
-function createGeometry(state: RenderGeometryState): Geometry {
-  if (state.type === 'point') return new Point([...state.coordinates]);
-  if (state.type === 'polyline') return new LineString(state.coordinates.map((coordinate) => [...coordinate]));
-  if (state.type === 'polygon') return new Polygon(state.coordinates.map((ring) => ring.map((coordinate) => [...coordinate])));
-  return new CircleGeometry([...state.center], state.radius);
+function createGeometry(state: RenderGeometryState, worldOffset = 0): Geometry {
+  if (state.type === 'point') return new Point(copyPresentationCoordinate(state.coordinates, worldOffset));
+  if (state.type === 'polyline') return new LineString(state.coordinates.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset)));
+  if (state.type === 'polygon') {
+    return new Polygon(state.coordinates.map((ring) => ring.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset))));
+  }
+  return new CircleGeometry(copyPresentationCoordinate(state.center, worldOffset), state.radius);
 }
 
 /** 兼容类型不变时复用 OpenLayers Geometry，仅在类型变化时替换实例。 */
-function updateFeatureGeometry(feature: Feature<Geometry>, state: RenderGeometryState): void {
+function updateFeatureGeometry(feature: Feature<Geometry>, state: RenderGeometryState, worldOffset = 0): void {
   const geometry = feature.getGeometry();
   if (state.type === 'point' && geometry instanceof Point) {
-    if (flatCoordinatesEqual(geometry, state.coordinates)) return;
-    geometry.setCoordinates([...state.coordinates]);
+    if (flatCoordinatesEqual(geometry, state.coordinates, worldOffset)) return;
+    geometry.setCoordinates(copyPresentationCoordinate(state.coordinates, worldOffset));
     return;
   }
   if (state.type === 'polyline' && geometry instanceof LineString) {
-    if (lineCoordinatesEqual(geometry, state.coordinates)) return;
-    geometry.setCoordinates(state.coordinates.map((coordinate) => [...coordinate]));
+    if (lineCoordinatesEqual(geometry, state.coordinates, worldOffset)) return;
+    geometry.setCoordinates(state.coordinates.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset)));
     return;
   }
   if (state.type === 'polygon' && geometry instanceof Polygon) {
-    if (polygonCoordinatesEqual(geometry, state.coordinates)) return;
-    geometry.setCoordinates(state.coordinates.map((ring) => ring.map((coordinate) => [...coordinate])));
+    if (polygonCoordinatesEqual(geometry, state.coordinates, worldOffset)) return;
+    geometry.setCoordinates(state.coordinates.map((ring) => ring.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset))));
     return;
   }
   if (state.type === 'circle' && geometry instanceof CircleGeometry) {
-    if (coordinatesEqual(geometry.getCenter(), state.center) && geometry.getRadius() === state.radius) return;
-    geometry.setCenterAndRadius([...state.center], state.radius);
+    if (coordinateEqualsPresentation(geometry.getCenter(), state.center, worldOffset) && geometry.getRadius() === state.radius) return;
+    geometry.setCenterAndRadius(copyPresentationCoordinate(state.center, worldOffset), state.radius);
     return;
   }
-  feature.setGeometry(createGeometry(state));
+  feature.setGeometry(createGeometry(state, worldOffset));
 }
 
 /** 原位更新点要素坐标。 */
@@ -852,13 +884,14 @@ function updatePointGeometry(feature: Feature<Geometry>, coordinate: Coordinate)
 }
 
 /** 已确认坐标变化后原位更新大顶点 MultiPoint。 */
-function updateMultiPointGeometry(feature: Feature<Geometry>, coordinates: readonly Coordinate[]): void {
+function updateMultiPointGeometry(feature: Feature<Geometry>, coordinates: readonly Coordinate[], worldOffset: number): void {
+  const presented = coordinates.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset));
   const geometry = feature.getGeometry();
   if (geometry instanceof MultiPoint) {
-    geometry.setCoordinates(coordinates.map((coordinate) => [...coordinate]));
+    geometry.setCoordinates(presented);
     return;
   }
-  feature.setGeometry(new MultiPoint(coordinates.map((coordinate) => [...coordinate])));
+  feature.setGeometry(new MultiPoint(presented));
 }
 
 /** 断开退役要素对几何和样式的强引用，并清理 Observable 资源。 */
@@ -869,9 +902,9 @@ function releaseFeature(feature: Feature<Geometry>): void {
 }
 
 /** 无分配比较简单几何的扁平坐标。 */
-function flatCoordinatesEqual(geometry: Point, coordinate: Coordinate): boolean {
+function flatCoordinatesEqual(geometry: Point, coordinate: Coordinate, worldOffset = 0): boolean {
   const flat = geometry.getFlatCoordinates();
-  return flat.length === coordinate.length && flat.every((value, index) => value === coordinate[index]);
+  return flat.length === coordinate.length && flat.every((value, index) => value === coordinate[index] + (index === 0 ? worldOffset : 0));
 }
 
 /** 把一个投影坐标转为 RBush 使用的零面积范围。 */
@@ -880,7 +913,7 @@ function pointExtent(coordinate: Coordinate): [number, number, number, number] {
 }
 
 /** 无分配比较折线坐标，避免未变化状态触发 OpenLayers change 事件。 */
-function lineCoordinatesEqual(geometry: LineString, coordinates: readonly Coordinate[]): boolean {
+function lineCoordinatesEqual(geometry: LineString, coordinates: readonly Coordinate[], worldOffset = 0): boolean {
   const flat = geometry.getFlatCoordinates();
   const stride = geometry.getStride();
   if (flat.length !== coordinates.length * stride) return false;
@@ -888,7 +921,7 @@ function lineCoordinatesEqual(geometry: LineString, coordinates: readonly Coordi
   for (const coordinate of coordinates) {
     if (coordinate.length !== stride) return false;
     for (let index = 0; index < stride; index += 1) {
-      if (flat[offset] !== coordinate[index]) return false;
+      if (flat[offset] !== coordinate[index] + (index === 0 ? worldOffset : 0)) return false;
       offset += 1;
     }
   }
@@ -896,7 +929,7 @@ function lineCoordinatesEqual(geometry: LineString, coordinates: readonly Coordi
 }
 
 /** 无分配比较多边形环和坐标。 */
-function polygonCoordinatesEqual(geometry: Polygon, coordinates: readonly (readonly Coordinate[])[]): boolean {
+function polygonCoordinatesEqual(geometry: Polygon, coordinates: readonly (readonly Coordinate[])[], worldOffset = 0): boolean {
   const flat = geometry.getFlatCoordinates();
   const ends = geometry.getEnds();
   const stride = geometry.getStride();
@@ -906,7 +939,7 @@ function polygonCoordinatesEqual(geometry: Polygon, coordinates: readonly (reado
     for (const coordinate of coordinates[ringIndex]) {
       if (coordinate.length !== stride) return false;
       for (let index = 0; index < stride; index += 1) {
-        if (flat[offset] !== coordinate[index]) return false;
+        if (flat[offset] !== coordinate[index] + (index === 0 ? worldOffset : 0)) return false;
         offset += 1;
       }
     }

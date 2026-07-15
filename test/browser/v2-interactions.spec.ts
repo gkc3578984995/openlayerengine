@@ -37,6 +37,11 @@ interface DrawSummary extends SessionSummary {
   readonly results: readonly ShapeSnapshot[];
 }
 
+interface DrawPreviewProbe {
+  readonly featureCount: number;
+  readonly hit: boolean;
+}
+
 interface EditSummary extends SessionSummary {
   readonly original?: ShapeSnapshot;
   readonly stored?: ShapeSnapshot;
@@ -108,6 +113,24 @@ test('默认与命名 Earth 隔离浏览器右键，并在销毁后只解除所�
   expect(afterB.lifecycle).toBe('ready');
   expect(afterB.listeners.contextmenu).toBe(b.listeners.contextmenu);
   expect(afterB.map.targetAttached).toBe(true);
+});
+
+test('Draw 在远世界副本跨越日期变更线时仍显示动态预览', async ({ page }) => {
+  const map = page.locator('#map-a .ol-viewport');
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.setViewWorld(50.5));
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startDraw('polyline'));
+  await clickMap(map, [180, 280]);
+  const box = await map.boundingBox();
+  if (box === null) throw new Error('地图 viewport 不可见');
+  await page.mouse.move(box.x + 380, box.y + 280);
+
+  await expect.poll(() => drawSummary(page).then((summary) => eventTypes(summary.events))).toContain('change');
+  await expect
+    .poll(() => page.evaluate(() => window.__OL_ENGINE_TEST__.drawPreviewProbe([280, 280]) as DrawPreviewProbe))
+    .toEqual({ featureCount: 1, hit: true });
+
+  await rightClickMap(map, [380, 280]);
+  await expect.poll(() => drawSummary(page).then((summary) => summary.status)).toBe('finished');
 });
 
 test('真实鼠标完成 polygon、attack-arrow 与动态控制点编辑，并验证右键菜单优先级', async ({ page }) => {

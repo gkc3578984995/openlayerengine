@@ -1,3 +1,4 @@
+import type Collection from 'ol/Collection.js';
 import Feature from 'ol/Feature.js';
 import Circle from 'ol/geom/Circle.js';
 import type Geometry from 'ol/geom/Geometry.js';
@@ -5,13 +6,17 @@ import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import Interaction from 'ol/interaction/Interaction.js';
+import type BaseLayer from 'ol/layer/Base.js';
+import LayerGroup from 'ol/layer/Group.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
 import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
+import type { EventsKey } from 'ol/events.js';
+import { unByKey } from 'ol/Observable.js';
 import { getUserProjection } from 'ol/proj.js';
 import VectorSource from 'ol/source/Vector.js';
 import type { Coordinate } from '../../../core/common/types.js';
-import { horizontalWorldFromExtent, type HorizontalWorld } from '../../../core/common/worldWrap.js';
+import { horizontalWorldFromExtent, horizontalWorldIndex, type HorizontalWorld } from '../../../core/common/worldWrap.js';
 import { CapabilityError, InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import type {
   DrawInteractionEvent,
@@ -29,6 +34,8 @@ import type { StyleCompiler } from '../style/StyleCompiler.js';
 type PreviewFeature = Feature<Geometry>;
 /** 存放绘制预览要素的矢量数据源。 */
 type PreviewSource = VectorSource<PreviewFeature>;
+/** 承载唯一绘制预览的数据源隔离图层。 */
+type PreviewLayer = VectorLayer<PreviewSource>;
 /** StyleCompiler 编译后的 OpenLayers 样式。 */
 type CompiledPreviewStyle = ReturnType<StyleCompiler['compile']>;
 
@@ -123,32 +130,63 @@ export class DrawInteractionAdapter implements DrawInteractionPort {
     if (!(layer instanceof VectorLayer) || !(source instanceof VectorSource) || layer.getSource() !== source) {
       throw new InvalidArgumentError(`Draw target must be a registered vector layer: ${safeSpec.layerId}`);
     }
+    const layerCollection = findLayerCollection(this.#map.getLayers(), layer);
+    if (layerCollection === undefined) throw new InvalidArgumentError(`Draw target layer is not attached to the map: ${safeSpec.layerId}`);
 
-    const routing: { handle?: OpenLayersDrawInteractionHandle } = {};
-    const interaction = new Interaction({ handleEvent: (event) => routing.handle?.handleEvent(event) ?? true });
-    const handle = new OpenLayersDrawInteractionHandle(
-      this.#map,
-      source as PreviewSource,
-      this.#styles,
-      interaction,
-      safeSpec,
-      listener,
-      worldFor(this.#map, source),
-      this.#errorReporter
-    );
-    routing.handle = handle;
-
+    let previewSource: PreviewSource | undefined;
+    let previewLayer: PreviewLayer | undefined;
+    let handle: OpenLayersDrawInteractionHandle | undefined;
     try {
+      previewSource = new VectorSource<PreviewFeature>({ wrapX: source.getWrapX() });
+      previewLayer = new VectorLayer<PreviewSource>({
+        source: previewSource,
+        style: null
+      });
+      const routing: { handle?: OpenLayersDrawInteractionHandle } = {};
+      const interaction = new Interaction({ handleEvent: (event) => routing.handle?.handleEvent(event) ?? true });
+      handle = new OpenLayersDrawInteractionHandle(
+        this.#map,
+        layerCollection,
+        layer,
+        previewLayer,
+        previewSource,
+        this.#styles,
+        interaction,
+        safeSpec,
+        listener,
+        worldFor(this.#map, source),
+        this.#errorReporter
+      );
+      routing.handle = handle;
+
+      insertLayerAfter(layerCollection, layer, previewLayer);
+      const attachedTargetIndex = layerCollection.getArray().indexOf(layer);
+      if (attachedTargetIndex < 0 || layerCollection.getArray()[attachedTargetIndex + 1] !== previewLayer) {
+        throw new InvalidArgumentError('OpenLayers did not attach the draw preview layer immediately after its target layer');
+      }
       this.#map.addInteraction(interaction);
       if (!containsInteraction(this.#map, interaction)) throw new InvalidArgumentError('OpenLayers did not attach the draw interaction');
       handle.publish();
       return handle;
     } catch (error) {
-      try {
-        handle.rollbackOpen();
-      } catch (rollbackError) {
-        report(this.#errorReporter, rollbackError, 'open-rollback');
-        throw new AggregateError([error, rollbackError], 'Draw interaction open failed and rollback was incomplete');
+      if (handle !== undefined) {
+        try {
+          handle.rollbackOpen();
+        } catch (rollbackError) {
+          report(this.#errorReporter, rollbackError, 'open-rollback');
+          throw new AggregateError([error, rollbackError], 'Draw interaction open failed and rollback was incomplete');
+        }
+      } else {
+        const rollbackFailures: unknown[] = [];
+        if (previewLayer !== undefined) {
+          capture(rollbackFailures, () => previewLayer?.setSource(null));
+          capture(rollbackFailures, () => previewLayer?.dispose());
+        }
+        if (previewSource !== undefined) capture(rollbackFailures, () => previewSource?.dispose());
+        for (const rollbackFailure of rollbackFailures) report(this.#errorReporter, rollbackFailure, 'open-rollback');
+        if (rollbackFailures.length > 0) {
+          throw new AggregateError([error, ...rollbackFailures], 'Draw interaction open failed and rollback was incomplete');
+        }
       }
       throw error;
     }
@@ -163,7 +201,13 @@ export class DrawInteractionAdapter implements DrawInteractionPort {
 class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   /** 交互所属的地图。 */
   readonly #map: OlMap;
-  /** 存放绘制预览的目标数据源。 */
+  /** 目标业务图层直属的图层集合；临时预览必须在该集合中与目标层保持相邻。 */
+  readonly #layerCollection: Collection<BaseLayer>;
+  /** 提供临时层展示属性的业务目标图层。 */
+  readonly #targetLayer: VectorLayer;
+  /** 隔离绘制预览、避免使业务图层逐帧失效的临时图层。 */
+  readonly #layer: PreviewLayer;
+  /** 存放唯一绘制预览的临时数据源。 */
   readonly #source: PreviewSource;
   /** 编译绘制预览样式。 */
   readonly #styles: StyleCompiler;
@@ -193,6 +237,16 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   #deactivated = false;
   /** 原生交互是否已经从地图移除。 */
   #interactionRemoved = false;
+  /** 临时预览图层是否已经从地图移除。 */
+  #layerRemoved = false;
+  /** 临时图层是否已经解除数据源引用。 */
+  #layerSourceCleared = false;
+  /** 临时数据源是否已经销毁。 */
+  #sourceDisposed = false;
+  /** 临时图层是否已经销毁。 */
+  #layerDisposed = false;
+  /** 目标图层展示属性监听键；销毁后清空。 */
+  #targetPresentationKey: EventsKey | undefined;
   /** 是否正在执行销毁。 */
   #destroyRunning = false;
   /** 是否正在自由绘制。 */
@@ -218,7 +272,10 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
    * 创建尚未对外发布的原生交互句柄。
    *
    * @param map 承载原生交互的地图。
-   * @param source 存放唯一临时预览 Feature 的目标数据源。
+   * @param layerCollection 目标业务图层直属的图层集合。
+   * @param targetLayer 提供可见性、透明度、范围和层级等展示属性的业务图层。
+   * @param layer 承载唯一临时预览 Feature 的隔离图层。
+   * @param source 存放唯一临时预览 Feature 的隔离数据源。
    * @param styles 编译预览样式的编译器。
    * @param interaction 转发浏览器地图事件的 OpenLayers 交互。
    * @param spec 已校验并冻结的交互配置。
@@ -229,6 +286,9 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
    */
   constructor(
     map: OlMap,
+    layerCollection: Collection<BaseLayer>,
+    targetLayer: VectorLayer,
+    layer: PreviewLayer,
     source: PreviewSource,
     styles: StyleCompiler,
     interaction: Interaction,
@@ -238,6 +298,9 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     errorReporter: ErrorReporter
   ) {
     this.#map = map;
+    this.#layerCollection = layerCollection;
+    this.#targetLayer = targetLayer;
+    this.#layer = layer;
     this.#source = source;
     this.#styles = styles;
     this.#interaction = interaction;
@@ -245,6 +308,14 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     this.#listener = listener;
     this.world = world;
     this.#errorReporter = errorReporter;
+    syncPreviewLayerPresentation(this.#targetLayer, this.#layer);
+    this.#targetPresentationKey = this.#targetLayer.on('propertychange', () => {
+      try {
+        syncPreviewLayerPresentation(this.#targetLayer, this.#layer);
+      } catch (error) {
+        report(this.#errorReporter, error, 'target-layer-presentation');
+      }
+    });
   }
 
   /**
@@ -412,7 +483,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       compiledStyle = this.#styles.compile(state.style);
       this.#compiledStyles.set(styleIdentity, compiledStyle);
     }
-    return Object.freeze({ geometry: copyRenderGeometryState(state.geometry), styleIdentity, compiledStyle });
+    return Object.freeze({ geometry: copyRenderGeometryState(state.geometry, this.world), styleIdentity, compiledStyle });
   }
 
   /**
@@ -459,6 +530,12 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     const failures: unknown[] = [];
     this.#destroyRunning = true;
     try {
+      const targetPresentationKey = this.#targetPresentationKey;
+      if (targetPresentationKey !== undefined) {
+        const failureCount = failures.length;
+        capture(failures, () => unByKey(targetPresentationKey));
+        if (failures.length === failureCount && this.#targetPresentationKey === targetPresentationKey) this.#targetPresentationKey = undefined;
+      }
       if (!this.#deactivated) {
         const failureCount = failures.length;
         capture(failures, () => this.#interaction.setActive(false));
@@ -484,6 +561,21 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       this.#renderQueueHead = 0;
       this.#cleanupRetired(failures);
 
+      if (!this.#layerRemoved) {
+        const failureCount = failures.length;
+        capture(failures, () => this.#layerCollection.remove(this.#layer));
+        inspect(
+          failures,
+          () => containsLayer(this.#layerCollection, this.#layer),
+          (attached) => {
+            if (!attached) this.#layerRemoved = true;
+          }
+        );
+        if (!this.#layerRemoved && failures.length === failureCount) {
+          failures.push(new CapabilityError('OpenLayers did not remove the draw preview layer'));
+        }
+      }
+
       if (!this.#interactionRemoved) {
         const failureCount = failures.length;
         capture(failures, () => this.#map.removeInteraction(this.#interaction));
@@ -497,6 +589,32 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
         if (!this.#interactionRemoved && failures.length === failureCount) {
           failures.push(new CapabilityError('OpenLayers did not remove the draw interaction'));
         }
+      }
+
+      if (!this.#layerSourceCleared) {
+        const failureCount = failures.length;
+        capture(failures, () => this.#layer.setSource(null));
+        inspect(
+          failures,
+          () => this.#layer.getSource(),
+          (current) => {
+            if (current === null) this.#layerSourceCleared = true;
+          }
+        );
+        if (!this.#layerSourceCleared && failures.length === failureCount) {
+          failures.push(new CapabilityError('OpenLayers did not clear the draw preview layer source'));
+        }
+      }
+
+      if (this.#retired.size === 0 && this.#layerSourceCleared && !this.#sourceDisposed) {
+        const failureCount = failures.length;
+        capture(failures, () => this.#source.dispose());
+        if (failures.length === failureCount) this.#sourceDisposed = true;
+      }
+      if (this.#layerRemoved && this.#layerSourceCleared && !this.#layerDisposed) {
+        const failureCount = failures.length;
+        capture(failures, () => this.#layer.dispose());
+        if (failures.length === failureCount) this.#layerDisposed = true;
       }
     } finally {
       this.#destroyRunning = false;
@@ -536,8 +654,17 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
         report(this.#errorReporter, error, 'open-rollback-collection-remove');
       }
     }
-    if (!containsInteraction(this.#map, this.#interaction)) {
-      this.#interactionRemoved = true;
+    for (let attempt = 0; attempt < 2 && containsLayer(this.#layerCollection, this.#layer); attempt += 1) {
+      try {
+        this.#layerCollection.remove(this.#layer);
+      } catch (error) {
+        firstFailure ??= error;
+        report(this.#errorReporter, error, 'open-rollback-layer-collection-remove');
+      }
+    }
+    if (!containsInteraction(this.#map, this.#interaction)) this.#interactionRemoved = true;
+    if (!containsLayer(this.#layerCollection, this.#layer)) this.#layerRemoved = true;
+    if (this.#interactionRemoved && this.#layerRemoved) {
       try {
         this.destroy();
       } catch (error) {
@@ -881,6 +1008,11 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     return (
       this.#deactivated &&
       this.#interactionRemoved &&
+      this.#layerRemoved &&
+      this.#layerSourceCleared &&
+      this.#sourceDisposed &&
+      this.#layerDisposed &&
+      this.#targetPresentationKey === undefined &&
       this.#preview === undefined &&
       this.#previewState === undefined &&
       this.#renderQueue.length === 0 &&
@@ -913,6 +1045,57 @@ function containsInteraction(map: OlMap, interaction: Interaction): boolean {
   return map.getInteractions().getArray().includes(interaction);
 }
 
+/** 递归定位目标图层直属的集合，使嵌套 LayerGroup 中的预览仍保持正确顺序和父级约束。 */
+function findLayerCollection(collection: Collection<BaseLayer>, target: BaseLayer): Collection<BaseLayer> | undefined {
+  if (collection.getArray().includes(target)) return collection;
+  for (const layer of collection.getArray()) {
+    if (!(layer instanceof LayerGroup)) continue;
+    const nested = findLayerCollection(layer.getLayers(), target);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
+/** 将预览插入目标之后；真实 OL Collection 使用公开 API，并兼容仓库既有的最小 Map 测试替身。 */
+function insertLayerAfter(collection: Collection<BaseLayer>, target: BaseLayer, preview: PreviewLayer): void {
+  const targetIndex = collection.getArray().indexOf(target);
+  if (targetIndex < 0) throw new InvalidArgumentError('OpenLayers detached the draw target layer during installation');
+  const insertAt = Reflect.get(collection, 'insertAt');
+  if (typeof insertAt === 'function') {
+    Reflect.apply(insertAt, collection, [targetIndex + 1, preview]);
+    return;
+  }
+  collection.getArray().splice(targetIndex + 1, 0, preview);
+}
+
+/** 判断目标直属集合是否仍包含指定临时预览图层。 */
+function containsLayer(collection: Collection<BaseLayer>, layer: PreviewLayer): boolean {
+  return collection.getArray().includes(layer);
+}
+
+/** 使隔离预览层实时保持目标业务层的展示约束，同时沿用后插顺序置于同层级之上。 */
+function syncPreviewLayerPresentation(target: VectorLayer, preview: PreviewLayer): void {
+  const visible = target.getVisible();
+  if (preview.getVisible() !== visible) preview.setVisible(visible);
+  const opacity = target.getOpacity();
+  if (preview.getOpacity() !== opacity) preview.setOpacity(opacity);
+  const extent = target.getExtent();
+  if (preview.getExtent() !== extent) preview.setExtent(extent);
+  const minResolution = target.getMinResolution();
+  if (preview.getMinResolution() !== minResolution) preview.setMinResolution(minResolution);
+  const maxResolution = target.getMaxResolution();
+  if (preview.getMaxResolution() !== maxResolution) preview.setMaxResolution(maxResolution);
+  const minZoom = target.getMinZoom();
+  if (preview.getMinZoom() !== minZoom) preview.setMinZoom(minZoom);
+  const maxZoom = target.getMaxZoom();
+  if (preview.getMaxZoom() !== maxZoom) preview.setMaxZoom(maxZoom);
+  const zIndex = target.getZIndex();
+  if (preview.getZIndex() !== zIndex) {
+    if (zIndex === undefined) preview.unset('zIndex');
+    else preview.setZIndex(zIndex);
+  }
+}
+
 /** 根据渲染状态创建完整的预览要素快照。 */
 function createPreviewFeature(state: PreparedPreview): PreviewFeature {
   const geometry = createGeometry(state.geometry);
@@ -921,22 +1104,48 @@ function createPreviewFeature(state: PreparedPreview): PreviewFeature {
   return feature;
 }
 
-/** 校验并复制渲染几何，保证 render 返回后不再读取调用方数组。 */
-function copyRenderGeometryState(state: RenderGeometryState): RenderGeometryState {
-  if (state.type === 'point') return Object.freeze({ type: state.type, coordinates: copyFrozenCoordinate(state.coordinates) });
+/** 校验、复制并把可环绕预览整体移回规范世界，保证远世界副本也能进入 OpenLayers 的渲染查询。 */
+function copyRenderGeometryState(state: RenderGeometryState, world?: HorizontalWorld): RenderGeometryState {
+  const worldOffset = previewWorldOffset(state, world);
+  if (state.type === 'point') return Object.freeze({ type: state.type, coordinates: copyFrozenCoordinate(state.coordinates, worldOffset) });
   if (state.type === 'polyline') {
-    return Object.freeze({ type: state.type, coordinates: Object.freeze(state.coordinates.map(copyFrozenCoordinate)) });
+    return Object.freeze({
+      type: state.type,
+      coordinates: Object.freeze(state.coordinates.map((coordinate) => copyFrozenCoordinate(coordinate, worldOffset)))
+    });
   }
   if (state.type === 'polygon') {
     return Object.freeze({
       type: state.type,
-      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map(copyFrozenCoordinate))))
+      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => copyFrozenCoordinate(coordinate, worldOffset)))))
     });
   }
   if (state.type !== 'circle' || !Number.isFinite(state.radius) || state.radius < 0) {
     throw new InvalidArgumentError('Draw preview circle radius must be a finite non-negative number');
   }
-  return Object.freeze({ type: state.type, center: copyFrozenCoordinate(state.center), radius: state.radius });
+  return Object.freeze({ type: state.type, center: copyFrozenCoordinate(state.center, worldOffset), radius: state.radius });
+}
+
+/** 使用首个坐标计算整幅草稿回到规范世界所需的统一水平偏移，避免破坏跨日期变更线的连续几何。 */
+function previewWorldOffset(state: RenderGeometryState, world: HorizontalWorld | undefined): number {
+  if (world === undefined) return 0;
+  const anchor = previewAnchor(state);
+  if (anchor === undefined) return 0;
+  const safeAnchor = copyFrozenCoordinate(anchor);
+  const offset = -horizontalWorldIndex(safeAnchor[0], world) * world.width;
+  if (!Number.isFinite(offset)) throw new InvalidArgumentError('Draw preview world offset exceeds the finite numeric range');
+  return offset;
+}
+
+/** 读取草稿的稳定水平锚点；空折线或空多边形无需世界转换。 */
+function previewAnchor(state: RenderGeometryState): Coordinate | undefined {
+  if (state.type === 'point') return state.coordinates;
+  if (state.type === 'circle') return state.center;
+  if (state.type === 'polyline') return state.coordinates[0];
+  for (const ring of state.coordinates) {
+    if (ring[0] !== undefined) return ring[0];
+  }
+  return undefined;
 }
 
 /** 判断现有 OpenLayers Geometry 是否能安全走原位更新快路。 */
@@ -1026,11 +1235,14 @@ function freezeEvent(event: DrawInteractionEvent): DrawInteractionEvent {
   return Object.freeze({ type: event.type, coordinate: safeCoordinate(event.coordinate) as Coordinate });
 }
 
-/** 复制并冻结语义坐标元组。 */
-function copyFrozenCoordinate(value: Coordinate): Coordinate {
+/** 复制、平移并冻结语义坐标元组。 */
+function copyFrozenCoordinate(value: Coordinate, xOffset = 0): Coordinate {
   const coordinate = safeCoordinate(value);
   if (coordinate === undefined) throw new InvalidArgumentError('Draw preview coordinate must contain two or three finite numbers');
-  return coordinate;
+  if (xOffset === 0) return coordinate;
+  const x = coordinate[0] + xOffset;
+  if (!Number.isFinite(x)) throw new InvalidArgumentError('Draw preview coordinate exceeds the finite numeric range after world normalization');
+  return Object.freeze(coordinate.length === 3 ? [x, coordinate[1], coordinate[2]] : [x, coordinate[1]]);
 }
 
 /** 安全上报绘制交互内部错误。 */
