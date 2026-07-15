@@ -9,6 +9,7 @@ import type { InputEventMap } from '../../core/ports/InputPort.js';
 import type { DrawInteractionEvent, DrawInteractionHandle, DrawInteractionPort, DrawInteractionRenderState } from '../../core/ports/DrawInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
+import { shapeFreehandAccumulatorFor, type ShapeFreehandAccumulator } from '../../core/shape/freehandAccumulator.js';
 import type { ElementStyleState } from '../../core/style/types.js';
 import type { ElementGeneration } from '../../core/transaction/types.js';
 import type { StyleService } from '../style/StyleService.js';
@@ -104,13 +105,14 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   /** 当前指针坐标。 */
   #pointer: Coordinate | undefined;
   /** 控制点历史快照。 */
-  #history: Coordinate[][] = [[]];
+  #redoControlPoints: Coordinate[] = [];
   /** 当前历史索引。 */
-  #historyIndex = 0;
   /** 正在执行的完成操作数量。 */
   #completionCount = 0;
   /** 是否正在自由绘制。 */
   #freehandActive = false;
+  /** 仅供可信 built-in policy 使用的会话私有 O(1) 采样累加器。 */
+  #freehandAccumulator: ShapeFreehandAccumulator | undefined;
   /** 是否正在提交草稿。 */
   #completionActive = false;
   /** 是否正在执行 finish。 */
@@ -240,20 +242,16 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
 
   /** 撤销最近一次控制点操作。 */
   undo(): boolean {
-    if (this.#status !== 'active' || this.#completionActive || this.#historyIndex === 0) return false;
-    const nextIndex = this.#historyIndex - 1;
-    const nextControlPoints = cloneCoordinates(this.#history[nextIndex]);
-    const previousIndex = this.#historyIndex;
-    const previousControlPoints = this.#controlPoints;
+    if (this.#status !== 'active' || this.#completionActive || this.#controlPoints.length === 0) return false;
     const previousPointer = this.#pointer;
-    this.#historyIndex = nextIndex;
-    this.#controlPoints = nextControlPoints;
+    const removed = this.#controlPoints.pop() as Coordinate;
+    this.#redoControlPoints.push(removed);
     this.#pointer = undefined;
     try {
       this.#renderPreview(undefined);
     } catch (error) {
-      this.#historyIndex = previousIndex;
-      this.#controlPoints = previousControlPoints;
+      this.#redoControlPoints.pop();
+      this.#controlPoints.push(removed);
       this.#pointer = previousPointer;
       throw error;
     }
@@ -262,20 +260,16 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
 
   /** 重做最近一次撤销操作。 */
   redo(): boolean {
-    if (this.#status !== 'active' || this.#completionActive || this.#historyIndex >= this.#history.length - 1) return false;
-    const nextIndex = this.#historyIndex + 1;
-    const nextControlPoints = cloneCoordinates(this.#history[nextIndex]);
-    const previousIndex = this.#historyIndex;
-    const previousControlPoints = this.#controlPoints;
+    if (this.#status !== 'active' || this.#completionActive || this.#redoControlPoints.length === 0) return false;
     const previousPointer = this.#pointer;
-    this.#historyIndex = nextIndex;
-    this.#controlPoints = nextControlPoints;
+    const restored = this.#redoControlPoints.pop() as Coordinate;
+    this.#controlPoints.push(restored);
     this.#pointer = undefined;
     try {
       this.#renderPreview(undefined);
     } catch (error) {
-      this.#historyIndex = previousIndex;
-      this.#controlPoints = previousControlPoints;
+      this.#controlPoints.pop();
+      this.#redoControlPoints.push(restored);
       this.#pointer = previousPointer;
       throw error;
     }
@@ -318,6 +312,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       else if (event.type === 'click') this.#addControlPoint(event.coordinate);
       else if (event.type === 'freehand-start') this.#startFreehand(event.coordinate);
       else if (event.type === 'freehand-sample') this.#sampleFreehand(event.coordinate);
+      else if (event.type === 'freehand-samples') this.#sampleFreehandBatch(event.coordinates);
       else if (event.type === 'freehand-complete') this.#completeFreehand(event.coordinate);
       else this.#cancelFreehand();
     } catch (error) {
@@ -375,7 +370,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     if (policy === undefined) throw new InvalidArgumentError(`Shape does not support freehand drawing: ${this.#definition.type}`);
     this.#resetDraft();
     this.#freehandActive = true;
-    this.#controlPoints = cloneCoordinates(policy.appendSample([], cloneCoordinate(input)));
+    this.#freehandAccumulator = shapeFreehandAccumulatorFor(policy.appendSample);
+    this.#appendFreehandSample(policy, cloneCoordinate(input));
     this.#emit('start', freeze({ type: 'start', coordinate: cloneCoordinate(this.#controlPoints[0]) }));
     if (this.#status !== 'active') return;
     this.#renderFreehand('preview');
@@ -383,12 +379,28 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
 
   /** 向自由绘制轨迹追加采样点。 */
   #sampleFreehand(input: Coordinate): void {
+    this.#sampleFreehandBatch([input]);
+  }
+
+  /** 按输入顺序累积一帧内的全部采样，并且最多发布一次完整预览。 */
+  #sampleFreehandBatch(inputs: readonly Coordinate[]): void {
     if (!this.#freehandActive) return;
     const policy = this.#definition.freehand;
     if (policy === undefined) throw new InvalidArgumentError(`Shape does not support freehand drawing: ${this.#definition.type}`);
-    const coordinate = this.#placeCoordinate(input);
-    this.#controlPoints = cloneCoordinates(policy.appendSample(this.#controlPoints, coordinate));
+    for (const input of inputs) {
+      const coordinate = this.#placeCoordinate(input);
+      this.#appendFreehandSample(policy, coordinate);
+    }
     this.#renderFreehand('preview');
+  }
+
+  /** 使用 trusted built-in 快路或保持 custom policy 的逐点快照语义。 */
+  #appendFreehandSample(policy: NonNullable<ShapeDefinition['freehand']>, coordinate: Coordinate): void {
+    if (this.#freehandAccumulator !== undefined) {
+      this.#freehandAccumulator.append(this.#controlPoints, coordinate);
+      return;
+    }
+    this.#controlPoints = cloneCoordinates(policy.appendSample(this.#controlPoints, coordinate));
   }
 
   /** 完成自由绘制草稿。 */
@@ -541,8 +553,10 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #showPreview(draft: ShapeState, coordinate: Coordinate | undefined): void {
     const geometry = this.#definition.clone(draft as never) as ShapeState;
     const renderGeometry = this.#definition.toRenderGeometry(geometry as never);
-    this.#setPreview(freeze({ geometry: renderGeometry, style: this.#styleFor(geometry) }));
-    this.#emit('change', freeze({ type: 'change', geometry: freeze(cloneCoreState(geometry)), ...(coordinate === undefined ? {} : { coordinate }) }));
+    this.#setPreview(Object.freeze({ geometry: deepFreeze(cloneCoreState(renderGeometry)), style: this.#styleFor(geometry) }));
+    if ((this.#listeners.get('change')?.size ?? 0) > 0) {
+      this.#emit('change', freeze({ type: 'change', geometry, ...(coordinate === undefined ? {} : { coordinate }) }));
+    }
   }
 
   /** 安全更新底层绘制预览。 */
@@ -582,18 +596,16 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
 
   /** 记录当前控制点历史。 */
   #recordHistory(): void {
-    this.#history.splice(this.#historyIndex + 1);
-    this.#history.push(cloneCoordinates(this.#controlPoints));
-    this.#historyIndex = this.#history.length - 1;
+    this.#redoControlPoints = [];
   }
 
   /** 清空当前草稿并重置预览。 */
   #resetDraft(): void {
     this.#controlPoints = [];
+    this.#redoControlPoints = [];
     this.#pointer = undefined;
-    this.#history = [[]];
-    this.#historyIndex = 0;
     this.#freehandActive = false;
+    this.#freehandAccumulator = undefined;
     this.#setPreview(undefined);
   }
 

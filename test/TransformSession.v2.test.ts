@@ -236,9 +236,11 @@ describe('TransformSession v2', () => {
       pointRadius: 11,
       handleCenter: [8, 9]
     });
+    harness.interaction.emit({ type: 'bounds-change', topRight: [25, 26] });
     harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
     harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: { type: 'translate', x: 2, y: 3 } });
-    expect(harness.toolbarPort.views[0]?.updateOptions).toHaveBeenCalledWith({ position: [8, 9] });
+    expect(harness.toolbarPort.views[0]?.updateOptions).toHaveBeenCalledWith({ position: [25, 26] });
+    expect(harness.toolbarPort.views[0]?.updateOptions).toHaveBeenCalledTimes(1);
     session.cancel();
   });
 

@@ -132,10 +132,104 @@ describe('DrawInteractionAdapter', () => {
 
     expect(received).toEqual([
       { type: 'freehand-start', coordinate: [1, 2] },
-      { type: 'freehand-sample', coordinate: [3, 4] },
+      { type: 'freehand-samples', coordinates: [[3, 4]] },
       { type: 'freehand-complete', coordinate: [4, 5] }
     ]);
     handle.destroy();
+  });
+
+  it('batches every pointerdrag in order per animation frame and flushes synchronously before pointerup', () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const request = vi.fn((callback: FrameRequestCallback) => {
+      const id = ++nextFrame;
+      frames.set(id, callback);
+      return id;
+    });
+    const cancel = vi.fn((id: number) => frames.delete(id));
+    vi.stubGlobal('requestAnimationFrame', request);
+    vi.stubGlobal('cancelAnimationFrame', cancel);
+    const { adapter, map } = setup();
+    const received: DrawInteractionEvent[] = [];
+    const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: true }, (event) => received.push(event));
+    const input = interaction(map);
+
+    try {
+      input.handleEvent(pointerEvent('pointerdown', [0, 0], { shiftKey: true }));
+      const started = performance.now();
+      for (let index = 1; index <= 5_000; index += 1) input.handleEvent(pointerEvent('pointerdrag', [index, index % 17], { button: -1 }));
+      const queuedMs = performance.now() - started;
+
+      expect(request).toHaveBeenCalledOnce();
+      expect(received).toEqual([{ type: 'freehand-start', coordinate: [0, 0] }]);
+      const firstFrame = frames.get(1);
+      expect(firstFrame).toBeDefined();
+      frames.delete(1);
+      firstFrame?.(performance.now());
+
+      const batch = received[1];
+      expect(batch?.type).toBe('freehand-samples');
+      if (batch?.type !== 'freehand-samples') throw new Error('Missing freehand batch');
+      expect(batch.coordinates).toHaveLength(5_000);
+      expect(batch.coordinates[0]).toEqual([1, 1]);
+      expect(batch.coordinates[2_499]).toEqual([2_500, 1]);
+      expect(batch.coordinates[4_999]).toEqual([5_000, 2]);
+      expect(queuedMs).toBeLessThan(1_000);
+
+      input.handleEvent(pointerEvent('pointerdrag', [5_001, 3], { button: -1 }));
+      input.handleEvent(pointerEvent('pointerdrag', [5_002, 4], { button: -1 }));
+      const pendingFrame = frames.get(2);
+      input.handleEvent(pointerEvent('pointerup', [5_003, 5], { button: -1 }));
+
+      expect(received.slice(-2)).toEqual([
+        {
+          type: 'freehand-samples',
+          coordinates: [
+            [5_001, 3],
+            [5_002, 4]
+          ]
+        },
+        { type: 'freehand-complete', coordinate: [5_003, 5] }
+      ]);
+      pendingFrame?.(performance.now());
+      expect(received).toHaveLength(4);
+      expect(cancel).toHaveBeenCalledWith(2);
+    } finally {
+      handle.destroy();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('invalidates a pending freehand frame on native cancel and destroy, including stale callbacks', () => {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const { adapter, map } = setup();
+    const received: DrawInteractionEvent[] = [];
+    const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: true }, (event) => received.push(event));
+    const input = interaction(map);
+
+    try {
+      input.handleEvent(pointerEvent('pointerdown', [0, 0], { shiftKey: true }));
+      input.handleEvent(pointerEvent('pointerdrag', [1, 1], { button: -1 }));
+      const cancelledFrame = callbacks[0];
+      input.handleEvent(pointerEvent('pointercancel', [1, 1], { button: -1 }));
+      cancelledFrame?.(performance.now());
+      expect(received).toEqual([{ type: 'freehand-start', coordinate: [0, 0] }, { type: 'freehand-cancel' }]);
+
+      input.handleEvent(pointerEvent('pointerdown', [2, 2], { shiftKey: true }));
+      input.handleEvent(pointerEvent('pointerdrag', [3, 3], { button: -1 }));
+      const destroyedFrame = callbacks[1];
+      handle.destroy();
+      destroyedFrame?.(performance.now());
+      expect(received).toEqual([{ type: 'freehand-start', coordinate: [0, 0] }, { type: 'freehand-cancel' }, { type: 'freehand-start', coordinate: [2, 2] }]);
+    } finally {
+      handle.destroy();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('consumes double clicks while drawing so default map zoom does not run', () => {
@@ -180,7 +274,7 @@ describe('DrawInteractionAdapter', () => {
       { type: 'move', coordinate: [1, 2] },
       { type: 'click', coordinate: [3, 4] },
       { type: 'freehand-start', coordinate: [5, 6] },
-      { type: 'freehand-sample', coordinate: [6, 7] },
+      { type: 'freehand-samples', coordinates: [[6, 7]] },
       { type: 'freehand-complete', coordinate: [7, 8] },
       { type: 'click', coordinate: [9, 10] },
       { type: 'freehand-start', coordinate: [11, 12] },
@@ -232,6 +326,44 @@ describe('DrawInteractionAdapter', () => {
     expect(source.getFeatures()).toEqual([]);
     handle.destroy();
     expect(map.interactions.getLength()).toBe(0);
+  });
+
+  it('keeps Feature, Geometry, source membership, and compiled style stable on the same-type same-style fast path', () => {
+    const { adapter, source, styles } = setup();
+    const compile = vi.spyOn(styles, 'compile');
+    const add = vi.spyOn(source, 'addFeature');
+    const remove = vi.spyOn(source, 'removeFeature');
+    const handle = adapter.open({ layerId: 'draw-layer', mode: 'vertices', freehand: false }, vi.fn());
+
+    handle.render({ geometry: { type: 'point', coordinates: [1, 2] }, style });
+    const feature = source.getFeatures()[0];
+    const geometry = feature.getGeometry() as Point;
+    handle.render({ geometry: { type: 'point', coordinates: [3, 4] }, style });
+
+    expect(source.getFeatures()).toEqual([feature]);
+    expect(feature.getGeometry()).toBe(geometry);
+    expect(geometry.getCoordinates()).toEqual([3, 4]);
+    expect(compile).toHaveBeenCalledOnce();
+    expect(add).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+
+    let rejectNext = true;
+    source.on('changefeature', () => {
+      if (!rejectNext) return;
+      rejectNext = false;
+      throw new Error('geometry listener failed');
+    });
+    expect(() => handle.render({ geometry: { type: 'point', coordinates: [9, 9] }, style })).toThrowError('geometry listener failed');
+    expect(source.getFeatures()).toEqual([feature]);
+    expect(feature.getGeometry()).toBe(geometry);
+    expect(geometry.getCoordinates()).toEqual([3, 4]);
+
+    handle.render({ geometry: { type: 'point', coordinates: [5, 6] }, style });
+    expect(geometry.getCoordinates()).toEqual([5, 6]);
+    expect(compile).toHaveBeenCalledOnce();
+    expect(add).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+    handle.destroy();
   });
 
   it('serializes a render reentered by a synchronous source add listener without leaving a ghost preview', () => {
@@ -297,7 +429,9 @@ describe('DrawInteractionAdapter', () => {
       handle.destroy();
     });
 
-    expect(() => handle.render({ geometry: { type: 'point', coordinates: [2, 2] }, style })).toThrowError('Draw interaction was destroyed during render');
+    expect(() => handle.render({ geometry: { type: 'point', coordinates: [2, 2] }, style: { strokes: [{ color: '#3366ff', width: 3 }] } })).toThrowError(
+      'Draw interaction was destroyed during render'
+    );
 
     expect(source.getFeatures()).toEqual([]);
     expect(map.interactions.getLength()).toBe(0);
@@ -376,7 +510,9 @@ describe('DrawInteractionAdapter', () => {
     vi.spyOn(styles, 'compile').mockImplementationOnce(() => {
       throw new Error('compile failed');
     });
-    expect(() => handle.render({ geometry: { type: 'point', coordinates: [9, 9] }, style })).toThrowError('compile failed');
+    expect(() => handle.render({ geometry: { type: 'point', coordinates: [9, 9] }, style: { strokes: [{ color: '#3366ff', width: 3 }] } })).toThrowError(
+      'compile failed'
+    );
     expect(source.getFeatures()).toEqual([feature]);
     expect(feature.getGeometry()).toBe(previousGeometry);
     expect(feature.getStyle()).toBe(previousStyle);
@@ -412,7 +548,7 @@ describe('DrawInteractionAdapter', () => {
     const first = source.getFeatures()[0];
     const firstDispose = vi.spyOn(first, 'dispose');
 
-    handle.render({ geometry: { type: 'point', coordinates: [3, 4] }, style });
+    handle.render({ geometry: { type: 'point', coordinates: [3, 4] }, style: { strokes: [{ color: '#3366ff', width: 3 }] } });
 
     const second = source.getFeatures()[0];
     const secondDispose = vi.spyOn(second, 'dispose');
@@ -456,7 +592,7 @@ describe('DrawInteractionAdapter', () => {
     });
     dispose.mockImplementation(() => nativeDispose());
 
-    handle.render({ geometry: { type: 'point', coordinates: [3, 4] }, style });
+    handle.render({ geometry: { type: 'point', coordinates: [3, 4] }, style: { strokes: [{ color: '#3366ff', width: 3 }] } });
 
     expect(source.getFeatures()).toHaveLength(1);
     expect(source.getFeatures()[0]).not.toBe(retired);

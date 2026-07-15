@@ -8,7 +8,7 @@ import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 function session(overrides: Partial<ExclusiveInteractionSession> = {}): ExclusiveInteractionSession {
   return {
     cancel: vi.fn(),
-    handleContextMenu: vi.fn(() => 'pass'),
+    handleContextMenu: vi.fn(() => 'pass' as const),
     ...overrides
   };
 }

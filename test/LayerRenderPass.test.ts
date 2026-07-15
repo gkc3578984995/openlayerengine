@@ -3,6 +3,7 @@ import Geometry from 'ol/geom/Geometry.js';
 import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import VectorLayer from 'ol/layer/Vector.js';
+import type OlMap from 'ol/Map.js';
 import VectorSource from 'ol/source/Vector.js';
 import { getWidth } from 'ol/extent.js';
 import { get as getProjection } from 'ol/proj.js';
@@ -39,7 +40,7 @@ beforeEach(() => {
 });
 
 describe('LayerRenderPass', () => {
-  it('同层一千个元素动画与 Transform 临时目标只安装一个 postrender 并且每帧只触发一次 changed', () => {
+  it('同层一千个元素动画与 Transform 临时目标只安装一个 postrender，下一帧不使业务图层缓存失效', () => {
     const states = Array.from({ length: 1_000 }, (_, index) => pointElement(`point-${index}`, { geometry: { type: 'point', controlPoints: [[index, 0]] } }));
     const shapes = new ShapeRegistry(basicShapeDefinitions);
     const store = new ElementStore(shapes);
@@ -49,7 +50,7 @@ describe('LayerRenderPass', () => {
     const harness = createPassHarness(states);
     const on = vi.spyOn(harness.layer, 'on');
     const changed = vi.spyOn(harness.layer, 'changed');
-    const pass = new LayerRenderPass(harness.layers, harness.binding, harness.styles);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
     const manager = new AnimationManagerImpl({ store, shapes, render: pass });
     const applied: Array<{ value: LayerRenderValue; time: number }> = [];
     const cleared: string[] = [];
@@ -73,11 +74,16 @@ describe('LayerRenderPass', () => {
     expect(pass.activeLoopCount).toBe(1);
     expect(harness.layer.hasListener('postrender')).toBe(true);
     changed.mockClear();
+    harness.render.mockClear();
+    const revision = harness.layer.getRevision();
     dispatchFrame(harness.layer, 100, 0);
 
-    expect(changed).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
+    expect(harness.render).toHaveBeenCalledTimes(1);
+    expect(harness.layer.getRevision()).toBe(revision);
     expect(renderSpies.getVectorContext).toHaveBeenCalledTimes(1);
-    expect(renderSpies.drawFeature).toHaveBeenCalledTimes(3_000);
+    expect(renderSpies.drawFeature).toHaveBeenCalledTimes(1_000);
+    expect(harness.styles.compile).toHaveBeenCalledTimes(1_000);
     expect(applied).toEqual([{ value: { visible: true }, time: 100 }]);
     expect(manager.activeCount).toBe(1_001);
     expect(elements.status).toBe('running');
@@ -94,7 +100,7 @@ describe('LayerRenderPass', () => {
 
   it('注册目标按 channel 应用和清理临时值，销毁最后循环后移除监听', () => {
     const harness = createPassHarness([]);
-    const pass = new LayerRenderPass(harness.layers, harness.binding, harness.styles);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
     const changed = vi.spyOn(harness.layer, 'changed');
     const apply = vi.fn();
     const clear = vi.fn();
@@ -106,11 +112,14 @@ describe('LayerRenderPass', () => {
     const loop = pass.open('default', () => batch);
 
     loop.requestRender();
-    expect(changed).toHaveBeenCalledTimes(1);
+    expect(harness.render).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
+    harness.render.mockClear();
     changed.mockClear();
     dispatchFrame(harness.layer, 420, 0);
     expect(apply).toHaveBeenCalledWith({ visible: false }, { layerId: 'default', time: 420, resolution: 1 });
-    expect(changed).toHaveBeenCalledTimes(1);
+    expect(harness.render).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
 
     batch = { contributions: [], requestNextFrame: false };
     dispatchFrame(harness.layer, 840, 0);
@@ -130,7 +139,7 @@ describe('LayerRenderPass', () => {
   it('隔离单个临时目标异常并继续处理同层贡献和下一帧调度', () => {
     const harness = createPassHarness([]);
     const reported = vi.fn();
-    const pass = new LayerRenderPass(harness.layers, harness.binding, harness.styles, { errorReporter: reported });
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles, { errorReporter: reported });
     const changed = vi.spyOn(harness.layer, 'changed');
     const successful = vi.fn();
     pass.registerTarget({
@@ -154,13 +163,14 @@ describe('LayerRenderPass', () => {
 
     expect(reported).toHaveBeenCalledOnce();
     expect(successful).toHaveBeenCalledWith({ visible: true }, { layerId: 'default', time: 420, resolution: 1 });
-    expect(changed).toHaveBeenCalledTimes(1);
+    expect(harness.render).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
     pass.destroy();
   });
 
   it('临时目标 clear 首次失败时保留注册和应用记录，重复销毁后完成清理', () => {
     const harness = createPassHarness([]);
-    const pass = new LayerRenderPass(harness.layers, harness.binding, harness.styles);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
     let fail = true;
     const clear = vi.fn(() => {
       if (fail) {
@@ -185,7 +195,7 @@ describe('LayerRenderPass', () => {
 
   it('严格拒绝临时目标访问器且不执行 getter', () => {
     const harness = createPassHarness([]);
-    const pass = new LayerRenderPass(harness.layers, harness.binding, harness.styles);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
     const getter = vi.fn(() => 'default');
     const target = { targetId: 'bbox', apply: vi.fn(), clear: vi.fn() };
     Object.defineProperty(target, 'layerId', { enumerable: true, get: getter });
@@ -201,7 +211,7 @@ describe('LayerRenderPass', () => {
     const store = new ElementStore(shapes);
     store.add(state);
     const harness = createPassHarness([state], false);
-    const pass = new LayerRenderPass(harness.layers, harness.binding, harness.styles);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
     const manager = new AnimationManagerImpl({ store, shapes, render: pass });
     manager.play({ id: 'point' }, { type: 'pulse' });
     const projection = getProjection('EPSG:3857');
@@ -214,13 +224,67 @@ describe('LayerRenderPass', () => {
     pass.destroy();
   });
 
+  it.each([2 ** 53, -(2 ** 53)])('极远 world %s 不会让副本枚举失去进展', (world) => {
+    const state = pointElement('point');
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    store.add(state);
+    const harness = createPassHarness([state]);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
+    const manager = new AnimationManagerImpl({ store, shapes, render: pass });
+    manager.play({ id: 'point' }, { type: 'pulse' });
+    const projection = getProjection('EPSG:3857');
+    if (projection === null) throw new Error('测试需要 EPSG:3857 投影');
+
+    dispatchFrame(harness.layer, 0, getWidth(projection.getExtent()) * world, 3);
+
+    expect(renderSpies.drawFeature).toHaveBeenCalledOnce();
+    manager.destroy();
+    pass.destroy();
+  });
+
+  it('在每个可见世界平移后重新解析依赖几何的样式，同时只编译一次样式函数', () => {
+    const state = polylineElement('flight');
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    store.add(state);
+    const harness = createPassHarness([state]);
+    const resolveStyle = vi.fn((feature: Feature<Geometry>) => {
+      const geometry = feature.getGeometry();
+      if (!(geometry instanceof LineString)) throw new Error('Expected a translated path geometry');
+      return new Style({ geometry: new Point(geometry.getLastCoordinate()) });
+    });
+    harness.styles.compile.mockReturnValue(resolveStyle);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
+    const manager = new AnimationManagerImpl({ store, shapes, render: pass });
+    manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, arrow: true, repeat: true, showStart: false, showEnd: false });
+    const projection = getProjection('EPSG:3857');
+    if (projection === null) throw new Error('测试需要 EPSG:3857 投影');
+    const worldWidth = getWidth(projection.getExtent());
+    const decorationXs: number[] = [];
+    renderSpies.drawFeature.mockImplementation((_feature: Feature<Geometry>, style: Style) => {
+      const geometry = style.getGeometry();
+      if (geometry instanceof Point) decorationXs.push(geometry.getCoordinates()[0]);
+    });
+
+    dispatchFrame(harness.layer, 500, worldWidth, 3);
+
+    expect(harness.styles.compile).toHaveBeenCalledOnce();
+    expect(resolveStyle).toHaveBeenCalledTimes(3);
+    expect(decorationXs).toHaveLength(3);
+    expect(decorationXs[1] - decorationXs[0]).toBeCloseTo(worldWidth);
+    expect(decorationXs[2] - decorationXs[1]).toBeCloseTo(worldWidth);
+    manager.destroy();
+    pass.destroy();
+  });
+
   it('在相邻 world copy 绘制 pulse、dash-flow 与 path-travel，且规范坐标和动画时间保持连续', () => {
     const states = [pointElement('point', { geometry: { type: 'point', controlPoints: [[10, 20]] } }), polylineElement('dash'), polylineElement('flight')];
     const shapes = new ShapeRegistry(basicShapeDefinitions);
     const store = new ElementStore(shapes);
     for (const state of states) store.add(state);
     const harness = createPassHarness(states);
-    const pass = new LayerRenderPass(harness.layers, harness.binding, harness.styles);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
     const manager = new AnimationManagerImpl({ store, shapes, render: pass });
     const point = manager.play({ id: 'point' }, { type: 'pulse', periodMs: 1_000 });
     const dash = manager.play({ id: 'dash' }, { type: 'dash-flow', speed: 24 });
@@ -237,10 +301,10 @@ describe('LayerRenderPass', () => {
       if (geometry !== undefined) drawnExtents.push([...geometry.getExtent()]);
     });
 
-    dispatchFrame(harness.layer, 0, 0);
+    dispatchFrame(harness.layer, 0, 0, 3);
     drawnExtents.length = 0;
     harness.styles.compile.mockClear();
-    dispatchFrame(harness.layer, 500, worldWidth);
+    dispatchFrame(harness.layer, 500, worldWidth, 3);
 
     expect(drawnExtents.some(([minX, , maxX]) => minX <= worldWidth + 10 && maxX >= worldWidth + 10)).toBe(true);
     expect(drawnExtents.some(([minX]) => Math.abs(minX) < 1)).toBe(true);
@@ -254,7 +318,7 @@ describe('LayerRenderPass', () => {
     expect(store.get('point')?.geometry).toEqual({ type: 'point', controlPoints: [[10, 20]] });
     expect(store.get('dash')?.geometry).toEqual(polylineElement('dash').geometry);
 
-    dispatchFrame(harness.layer, 1_000, -worldWidth);
+    dispatchFrame(harness.layer, 1_000, -worldWidth, 3);
     expect(flight.status).toBe('finished');
     expect(point.status).toBe('running');
     expect(dash.status).toBe('running');
@@ -264,6 +328,8 @@ describe('LayerRenderPass', () => {
 });
 
 interface PassHarness {
+  readonly map: OlMap;
+  readonly render: ReturnType<typeof vi.fn>;
   readonly layer: VectorLayer;
   readonly layers: LayerAdapter;
   readonly binding: FeatureBinding;
@@ -271,6 +337,8 @@ interface PassHarness {
 }
 
 function createPassHarness(states: readonly ElementState[], wrapX = true): PassHarness {
+  const render = vi.fn();
+  const map = { render } as unknown as OlMap;
   const layer = new VectorLayer({ source: new VectorSource({ wrapX }) });
   const features = new Map<string, Feature<Geometry>>();
   for (const state of states) {
@@ -304,16 +372,18 @@ function createPassHarness(states: readonly ElementState[], wrapX = true): PassH
   } as unknown as FeatureBinding;
   const compile = vi.fn(() => new Style());
   const styles = { compile } as unknown as PassHarness['styles'];
-  return { layer, layers, binding, styles };
+  return { map, render, layer, layers, binding, styles };
 }
 
-function dispatchFrame(layer: VectorLayer, time: number, centerX: number): void {
+function dispatchFrame(layer: VectorLayer, time: number, centerX: number, visibleWorlds = 1): void {
   const projection = getProjection('EPSG:3857');
   if (projection === null) throw new Error('测试需要 EPSG:3857 投影');
+  const worldWidth = getWidth(projection.getExtent());
   layer.dispatchEvent({
     type: 'postrender',
     frameState: {
       time,
+      extent: [centerX - (worldWidth * visibleWorlds) / 2, -1_000, centerX + (worldWidth * visibleWorlds) / 2, 1_000],
       viewState: { center: [centerX, 0], resolution: 1, projection }
     }
   } as never);

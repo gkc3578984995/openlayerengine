@@ -9,9 +9,8 @@
     "rootDir": "./src",
     "strict": true,
     "moduleResolution": "Bundler",
-    "baseUrl": "./src",
     "paths": {
-      "@/*": ["*"]
+      "@/*": ["./src/*"]
     },
     "esModuleInterop": true,
     "skipLibCheck": false,
@@ -21,6 +20,7 @@
   "exclude": [
     "vite.config.ts",
     "playwright.config.ts",
+    "playwright.performance.config.ts",
     "vitest.config.ts",
     "vitest.code.config.ts",
     "rollup.config.mjs",

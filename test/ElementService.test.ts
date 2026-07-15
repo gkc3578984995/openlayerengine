@@ -67,6 +67,7 @@ describe('ElementService', () => {
         process.execPath,
         [
           tsc,
+          '--ignoreConfig',
           '--noEmit',
           '--pretty',
           'false',

@@ -66,6 +66,12 @@ export class InputRouter {
     };
   }
 
+  /** 将键盘焦点交给当前地图。 */
+  focus(): void {
+    this.#assertActive();
+    this.#port.focus?.();
+  }
+
   /** 注册唯一的右键事件仲裁器。 */
   setContextMenuArbiter(arbiter: ContextMenuArbiter): () => void {
     this.#assertActive();

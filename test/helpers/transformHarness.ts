@@ -231,6 +231,7 @@ export class FakeTooltipHandle implements TransformTooltipViewHandle {
 }
 
 export class FakeTransformInput {
+  readonly focus = vi.fn();
   listener: ((event: KeyboardInput) => void) | undefined;
 
   on(_type: 'keydown', listener: (event: KeyboardInput) => void): () => void {

@@ -61,7 +61,7 @@ function moduleSpecifiers(file: string): string[] {
 describe('OpenLayers 10 contract', () => {
   it('pins the supported OL and TypeScript dependency contract', () => {
     expect(packageContract.devDependencies?.ol).toBe('10.9.0');
-    expect(packageContract.devDependencies?.typescript).toBe('5.9.3');
+    expect(packageContract.devDependencies?.typescript).toBe('6.0.3');
     expect(packageContract.peerDependencies?.ol).toBe('^10.9.0');
     expect(packageContract.peerDependenciesMeta?.ol?.optional).toBe(true);
   });

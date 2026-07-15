@@ -75,6 +75,20 @@ export class ElementStore {
   }
 
   /**
+   * 解析仓库内部已经深冻结的元素快照，不再复制其大体量几何。
+   *
+   * 该方法只供可信的内部服务热路径使用；公开读取仍必须通过 `get` 获得隔离副本。
+   *
+   * @param id 元素 ID。
+   * @returns 元素存在时返回仓库持有的只读快照，否则返回 `undefined`。
+   * @internal
+   */
+  resolve<T>(id: string): Readonly<ElementState<T>> | undefined {
+    this.#assertActive();
+    return this.#states.get(id) as ElementSnapshot<T> | undefined;
+  }
+
+  /**
    * 读取元素 ID 当前实例生命周期的身份令牌。
    *
    * @param id 元素 ID。

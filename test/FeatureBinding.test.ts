@@ -60,13 +60,31 @@ describe('FeatureBinding', () => {
   coversCapabilities('element-icon-point', 'layer-feature-hide-show', 'layer-param-live-sync');
 
   it('subscribes once before seeding existing Store state', () => {
-    const { adapter, binding, subscribe } = setup([point('seed')]);
+    const { adapter, binding, store, subscribe } = setup([point('seed')]);
     const feature = binding.requireFeature('seed');
+    const get = vi.spyOn(store, 'get');
 
     expect(subscribe).toHaveBeenCalledTimes(1);
     expect(adapter.requireVectorSource('default').getFeatures()).toEqual([feature]);
     expect(binding.elementIdFor(feature)).toBe('seed');
+    expect(binding.resolveFeature(feature)).toEqual({ elementId: 'seed', layerId: 'default', visible: true });
+    expect(get).not.toHaveBeenCalled();
+    expect(binding.wrapsX('seed')).toBe(adapter.requireVectorSource('default').getWrapX());
     expect(feature.getId()).toBe('seed');
+  });
+
+  it('地图连续缩放时复用已绑定要素的静态样式', () => {
+    const { binding } = setup([point('zoom-static')]);
+    const feature = binding.requireFeature('zoom-static');
+    const styleFunction = feature.getStyleFunction();
+    expect(styleFunction).toBeDefined();
+
+    const first = styleFunction?.(feature, 1);
+    for (const resolution of [0.5, 0.25, 2, 4, 8]) {
+      expect(styleFunction?.(feature, resolution)).toBe(first);
+    }
+    feature.changed();
+    expect(styleFunction?.(feature, 16)).toBe(first);
   });
 
   it('closes the subscribe-before-seed initialization window', () => {
@@ -519,11 +537,13 @@ describe('FeatureBinding', () => {
     expect(() => store.update({ id: 'dirty' }, { geometry: { type: 'point', controlPoints: [[5, 6]] } })).not.toThrow();
     expect(store.get('dirty')?.geometry).toEqual({ type: 'point', controlPoints: [[5, 6]] });
     expect((feature.getGeometry() as Point).getCoordinates()).toEqual([1, 2]);
+    expect(binding.resolveFeature(feature)).toBeUndefined();
     expect(errorReporter).toHaveBeenCalled();
 
     store.update({ id: 'dirty' }, { data: { label: 'next' } });
     expect((feature.getGeometry() as Point).getCoordinates()).toEqual([5, 6]);
     expect(binding.requireFeature('dirty')).toBe(feature);
+    expect(binding.resolveFeature(feature)).toEqual({ elementId: 'dirty', layerId: 'default', visible: true });
   });
 
   it('isolates a dirty projection within a multi-change set and reconciles idempotently without reverse reads', () => {

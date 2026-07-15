@@ -269,6 +269,42 @@ test('Transform 忽略会话启动前点击产生的延迟 singleclick', async (
   expect(cancelled.resources.map.interactions).toBe(baseline.map.interactions);
 });
 
+test('Transform 聚焦当前地图接收键盘事件，并在按住 Alt 时保持缩放可用', async ({ page }) => {
+  const map = page.locator('#map-a .ol-viewport');
+  const baseline = await snapshot(page, 'a');
+  const elementId = await page.evaluate(() => window.__OL_ENGINE_TEST__.ensureTransformElement());
+  const original = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startTransformDirect(false));
+
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.querySelector('#map-a'))).toBe(true);
+
+  await page.keyboard.press('Alt');
+  expect((await transformSummary(page)).status).toBe('active');
+
+  const pixels = await transformHandlePixels(page);
+  await page.keyboard.down('Alt');
+  try {
+    await dragMap(map, pixels.scale, [pixels.scale[0] + 32, pixels.scale[1] - 26]);
+  } finally {
+    await page.keyboard.up('Alt');
+  }
+  await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('scaleEnd');
+  expect((await transformSummary(page)).geometry).toEqual(original);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.finishTransform());
+  await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('finished');
+  const scaled = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
+  expect(scaled).not.toEqual(original);
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.startTransformDirect(false));
+  await page.keyboard.press('Escape');
+  await expect.poll(() => transformSummary(page).then((summary) => summary.status)).toBe('cancelled');
+  expect(await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId)).toEqual(scaled);
+  const cancelled = await transformSummary(page);
+  expect(cancelled.resources.map.layers).toBe(baseline.map.layers);
+  expect(cancelled.resources.map.interactions).toBe(baseline.map.interactions);
+  expect(cancelled.resources.map.overlays).toBe(baseline.map.overlays);
+});
+
 test('Transform 通过 singleclick 选择并分别执行 translate、scale、rotate，再验证直接选择与清理', async ({ page }) => {
   const map = page.locator('#map-a .ol-viewport');
   const baseline = await snapshot(page, 'a');
@@ -348,6 +384,36 @@ test('Transform 通过 singleclick 选择并分别执行 translate、scale、rot
   expect(direct.resources.dom.toolbars).toBe(baseline.dom.toolbars + 1);
   expect(direct.resources.dom.transformTooltips).toBe(baseline.dom.transformTooltips + 1);
 
+  pixels = await transformHandlePixels(page);
+  const mapBox = await map.boundingBox();
+  const toolbar = page.locator('#map-a .ol-toolbar');
+  const toolbarBox = await toolbar.boundingBox();
+  if (mapBox === null || toolbarBox === null) throw new Error('Transform 工具栏或地图没有可用的布局范围');
+  expect(await toolbar.evaluate((element) => getComputedStyle(element).flexDirection)).toBe('column');
+  expect(Math.abs(toolbarBox.x - (mapBox.x + pixels.bounds.right + 15))).toBeLessThanOrEqual(2);
+  expect(Math.abs(toolbarBox.y - (mapBox.y + pixels.bounds.top))).toBeLessThanOrEqual(2);
+
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.setViewRotation(Math.PI / 6));
+  pixels = await transformHandlePixels(page);
+  const rotatedToolbarBox = await toolbar.boundingBox();
+  if (rotatedToolbarBox === null) throw new Error('旋转视图后 Transform 工具栏不可见');
+  expect(Math.abs(rotatedToolbarBox.x - (mapBox.x + pixels.bounds.right + 15))).toBeLessThanOrEqual(2);
+  expect(Math.abs(rotatedToolbarBox.y - (mapBox.y + pixels.bounds.top))).toBeLessThanOrEqual(2);
+  await page.evaluate(() => window.__OL_ENGINE_TEST__.setViewRotation(0));
+
+  const tooltip = page.locator('#map-a .ol-transform-tooltip');
+  for (const target of [
+    [180, 180],
+    [460, 320]
+  ] as const) {
+    await page.mouse.move(mapBox.x + target[0], mapBox.y + target[1]);
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    const tooltipBox = await tooltip.boundingBox();
+    if (tooltipBox === null) throw new Error('Transform 提示框没有可用的布局范围');
+    expect(Math.abs(tooltipBox.x - (mapBox.x + target[0] + 15))).toBeLessThanOrEqual(2);
+    expect(Math.abs(tooltipBox.y + tooltipBox.height - (mapBox.y + target[1] - 11))).toBeLessThanOrEqual(2);
+  }
+
   const committed = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
   await page.evaluate(() => window.__OL_ENGINE_TEST__.hideTransformToolbar());
   pixels = await transformHandlePixels(page);
@@ -392,6 +458,8 @@ async function transformHandlePixels(page: Page): Promise<{
   readonly keys: readonly string[];
   readonly translate: readonly [number, number];
   readonly scale: readonly [number, number];
+  readonly scaleAnchor: readonly [number, number];
+  readonly bounds: Readonly<{ left: number; right: number; top: number; bottom: number }>;
   readonly rotate: readonly [number, number];
 }> {
   return page.evaluate(
@@ -401,6 +469,8 @@ async function transformHandlePixels(page: Page): Promise<{
         readonly keys: readonly string[];
         readonly translate: readonly [number, number];
         readonly scale: readonly [number, number];
+        readonly scaleAnchor: readonly [number, number];
+        readonly bounds: Readonly<{ left: number; right: number; top: number; bottom: number }>;
         readonly rotate: readonly [number, number];
       }
   );

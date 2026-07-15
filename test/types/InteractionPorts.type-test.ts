@@ -41,6 +41,7 @@ type ExpectedDrawEvent =
   | { readonly type: 'click'; readonly coordinate: Coordinate }
   | { readonly type: 'freehand-start'; readonly coordinate: Coordinate }
   | { readonly type: 'freehand-sample'; readonly coordinate: Coordinate }
+  | { readonly type: 'freehand-samples'; readonly coordinates: readonly Coordinate[] }
   | { readonly type: 'freehand-complete'; readonly coordinate: Coordinate }
   | { readonly type: 'freehand-cancel' };
 type ExpectedDrawHandle = {

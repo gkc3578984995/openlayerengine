@@ -2,10 +2,10 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './test/browser',
-  testIgnore: '**/*.performance.spec.ts',
+  testMatch: '**/*.performance.spec.ts',
   fullyParallel: false,
   workers: 1,
-  timeout: 30_000,
+  timeout: 60_000,
   expect: { timeout: 5_000 },
   use: {
     baseURL: 'http://127.0.0.1:4177',

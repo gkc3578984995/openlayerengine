@@ -139,6 +139,7 @@ class FakeOverlayPort implements OverlayPort {
   layoutListener: (() => void) | undefined;
   layoutSubscriptions = 0;
   layoutDisposals = 0;
+  viewScale = 10;
   viewOffset: readonly [number, number] = [0, 0];
   failAttach = false;
   failAction = false;
@@ -176,11 +177,11 @@ class FakeOverlayPort implements OverlayPort {
   }
 
   coordinateToPixel(coordinate: readonly number[]): readonly [number, number] {
-    return [coordinate[0] * 10 + this.viewOffset[0], coordinate[1] * 10 + this.viewOffset[1]];
+    return [coordinate[0] * this.viewScale + this.viewOffset[0], coordinate[1] * this.viewScale + this.viewOffset[1]];
   }
 
   pixelToCoordinate(pixel: readonly number[]): readonly [number, number] {
-    return [(pixel[0] - this.viewOffset[0]) / 10, (pixel[1] - this.viewOffset[1]) / 10];
+    return [(pixel[0] - this.viewOffset[0]) / this.viewScale, (pixel[1] - this.viewOffset[1]) / this.viewScale];
   }
 
   getBounds(): PixelBounds | undefined {
@@ -385,6 +386,103 @@ describe('Descriptor lifecycle', () => {
     expect(port.layoutDisposals).toBe(0);
     second.destroy();
     expect(port.layoutDisposals).toBe(1);
+  });
+
+  it('subscribes to layout only while a dependent descriptor is visible', () => {
+    const { port, service } = setup();
+    const descriptor = service.createDescriptor(descriptorSpec('visibility-layout', { fixedMode: 'pixel', fixedLine: false }));
+
+    expect(port.layoutSubscriptions).toBe(1);
+    descriptor.hide();
+    expect(port.layoutDisposals).toBe(1);
+    expect(port.layoutListener).toBeUndefined();
+
+    descriptor.show();
+    expect(port.layoutSubscriptions).toBe(2);
+    expect(port.layoutListener).toBeDefined();
+
+    descriptor.hide();
+    expect(port.layoutDisposals).toBe(2);
+    expect(port.layoutListener).toBeUndefined();
+
+    descriptor.show();
+    expect(port.layoutSubscriptions).toBe(3);
+    descriptor.destroy();
+    expect(port.layoutDisposals).toBe(3);
+  });
+
+  it('rolls back a layout subscription when showing a hidden descriptor fails', () => {
+    const { port, service } = setup();
+    const descriptor = service.createDescriptor(descriptorSpec('visibility-layout-rollback', { fixedMode: 'pixel', fixedLine: false }));
+    descriptor.hide();
+    port.failUpdate = true;
+
+    expect(() => descriptor.show()).toThrow('update failed');
+    expect(descriptor.visible).toBe(false);
+    expect(port.layoutSubscriptions).toBe(2);
+    expect(port.layoutDisposals).toBe(2);
+    expect(port.layoutListener).toBeUndefined();
+
+    port.failUpdate = false;
+    descriptor.show();
+    expect(descriptor.visible).toBe(true);
+    expect(port.layoutListener).toBeDefined();
+  });
+
+  it('主动重算隐藏期间平移缩放后的像素固定位置与固定线再显示', () => {
+    const { port, service, store } = setup();
+    const descriptor = service.createDescriptor(descriptorSpec('visibility-layout-refresh', { fixedMode: 'pixel' }));
+    const lineId = 'descriptor:visibility-layout-refresh:fixed-line';
+
+    descriptor.hide();
+    port.viewScale = 20;
+    port.viewOffset = [40, -20];
+    descriptor.show();
+
+    expect(port.states.get('visibility-layout-refresh')).toMatchObject({ visible: true, position: [3, 6] });
+    expect(store.get(lineId)).toMatchObject({
+      visible: true,
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [10, 10],
+          [7, 8]
+        ]
+      }
+    });
+    expect(port.layoutSubscriptions).toBe(2);
+  });
+
+  it('主动重算失败时回滚 Overlay、固定线和临时布局订阅', () => {
+    const { port, service, store } = setup();
+    const descriptor = service.createDescriptor(descriptorSpec('visibility-layout-refresh-rollback', { fixedMode: 'pixel' }));
+    const lineId = 'descriptor:visibility-layout-refresh-rollback:fixed-line';
+    descriptor.hide();
+    port.viewScale = 20;
+    port.viewOffset = [40, -20];
+    vi.spyOn(port, 'getBounds').mockImplementationOnce(() => {
+      throw new Error('bounds failed');
+    });
+
+    expect(() => descriptor.show()).toThrow('bounds failed');
+    expect(descriptor.visible).toBe(false);
+    expect(port.states.get('visibility-layout-refresh-rollback')).toMatchObject({ visible: false, position: [10, 10] });
+    expect(store.get(lineId)?.visible).toBe(false);
+    expect(port.layoutListener).toBeUndefined();
+    expect(port.layoutDisposals).toBe(2);
+
+    descriptor.show();
+    expect(port.states.get('visibility-layout-refresh-rollback')).toMatchObject({ visible: true, position: [3, 6] });
+    expect(store.get(lineId)).toMatchObject({
+      visible: true,
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [10, 10],
+          [7, 8]
+        ]
+      }
+    });
   });
 
   it('keeps pixel-fixed overlays at one viewport pixel and updates a nearest-edge fixed line without render loops', () => {
@@ -1081,6 +1179,10 @@ class FakeOverlayMap {
     if (index >= 0) this.overlays.splice(index, 1);
   }
 
+  getOverlays(): Readonly<{ getArray(): unknown[] }> {
+    return { getArray: () => this.overlays };
+  }
+
   getViewport(): HTMLElement {
     return this.viewport as unknown as HTMLElement;
   }
@@ -1130,6 +1232,25 @@ function adapterState(id: string, elementRef: OverlayRenderState['elementRef'], 
 }
 
 describe('OverlayAdapter lifecycle', () => {
+  it('keeps hidden overlays out of the map render loop and mounts them only while visible', () => {
+    const map = new FakeOverlayMap();
+    const refs = new NativeRefRegistry();
+    const adapter = new OverlayAdapter(map as unknown as OlMap, refs);
+    const elementRef = refs.register('element', new FakeDomElement('div'));
+    const hidden = adapterState('visibility', elementRef, { visible: false });
+    const visible = adapterState('visibility', elementRef, { visible: true });
+
+    adapter.attach(hidden);
+    expect(map.overlays).toHaveLength(0);
+    adapter.update(hidden, visible);
+    expect(map.overlays).toHaveLength(1);
+    adapter.update(visible, hidden);
+    expect(map.overlays).toHaveLength(0);
+    adapter.detach('visibility');
+    adapter.releaseElement(elementRef, 'external');
+    adapter.destroy();
+  });
+
   it('owns layout subscriptions and removes them during adapter destroy', () => {
     const map = new FakeOverlayMap();
     const adapter = new OverlayAdapter(map as unknown as OlMap, new NativeRefRegistry());
@@ -1364,6 +1485,73 @@ describe('OverlayAdapter lifecycle', () => {
     second.dispatch('click', { target: newItem });
     expect(action).toHaveBeenCalledTimes(1);
     expect(action).toHaveBeenCalledWith({ type: 'item', index: 0 });
+  });
+
+  it('does not duplicate a mounted Overlay when a setter fails before the visibility transition', () => {
+    const map = new FakeOverlayMap();
+    const refs = new NativeRefRegistry();
+    const adapter = new OverlayAdapter(map as unknown as OlMap, refs);
+    const ref = refs.register('element', new FakeDomElement('div'));
+    const before = adapterState('visibility-setter-failure', ref);
+    const after = adapterState('visibility-setter-failure', ref, { visible: false, offset: [3, 4] });
+    adapter.attach(before);
+    const addOverlay = vi.spyOn(map, 'addOverlay');
+
+    overlayHarness.failNext = 'setOffset';
+    expect(() => adapter.update(before, after)).toThrow('setOffset failed');
+
+    expect(addOverlay).not.toHaveBeenCalled();
+    expect(map.overlays).toHaveLength(1);
+    expect(new Set(map.overlays).size).toBe(1);
+    adapter.destroy();
+  });
+
+  it('does not scan the complete native overlay collection on ordinary updates', () => {
+    const map = new FakeOverlayMap();
+    const refs = new NativeRefRegistry();
+    const adapter = new OverlayAdapter(map as unknown as OlMap, refs);
+    const ref = refs.register('element', new FakeDomElement('div'));
+    let before = adapterState('collection-scan', ref);
+    adapter.attach(before);
+    const getOverlays = vi.spyOn(map, 'getOverlays');
+
+    for (let index = 0; index < 100; index += 1) {
+      const after = adapterState('collection-scan', ref, { position: [index + 2, index + 3] });
+      adapter.update(before, after);
+      before = after;
+    }
+
+    expect(getOverlays).not.toHaveBeenCalled();
+    adapter.destroy();
+  });
+
+  it('restores native Overlay setters even when collection compensation also fails', () => {
+    const map = new FakeOverlayMap();
+    const refs = new NativeRefRegistry();
+    const adapter = new OverlayAdapter(map as unknown as OlMap, refs);
+    const ref = refs.register('element', new FakeDomElement('div'));
+    const before = adapterState('visibility-rollback-failure', ref);
+    const after = adapterState('visibility-rollback-failure', ref, { visible: false });
+    adapter.attach(before);
+    const nativeRemove = map.removeOverlay.bind(map);
+    vi.spyOn(map, 'removeOverlay').mockImplementationOnce((overlay) => {
+      nativeRemove(overlay);
+      throw new Error('remove failed');
+    });
+    vi.spyOn(map, 'addOverlay').mockImplementationOnce(() => {
+      throw new Error('rollback add failed');
+    });
+
+    expect(() => adapter.update(before, after)).toThrow('remove failed');
+
+    const overlay = overlayHarness.instances[0] as { getPosition(): number[] | undefined };
+    expect(overlay.getPosition()).toEqual([1, 2]);
+    expect(map.overlays).toHaveLength(0);
+
+    adapter.update(before, before);
+    expect(map.overlays).toHaveLength(1);
+    expect(new Set(map.overlays).size).toBe(1);
+    adapter.destroy();
   });
 
   it('destroys adapter-owned bindings, overlays, DOM ownership, and refs idempotently', () => {

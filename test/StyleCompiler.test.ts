@@ -517,9 +517,10 @@ describe('StyleCompiler', () => {
     expect(() => compiler.compile({ decorations: [{ type: 'arrow', placement: 'repeat', offset: -1 }] })).toThrow(InvalidArgumentError);
   });
 
-  it('caches only within one feature and invalidates for feature, geometry, resolution, and view changes', () => {
+  it('只在几何或分辨率依赖发生变化时重建样式', () => {
     let viewRotation = 0;
-    const { compiler } = compilerWithCanvas(() => viewRotation);
+    const getViewRotation = vi.fn(() => viewRotation);
+    const { compiler } = compilerWithCanvas(getViewRotation);
     const spec: StyleSpec = {
       strokes: [{ color: '#f00', lineDash: [2, 2], fitPatternOnce: true }],
       decorations: [{ type: 'arrow', placement: 'end' }]
@@ -536,7 +537,7 @@ describe('StyleCompiler', () => {
 
     firstFeature.changed();
     const featureChanged = compiled(firstFeature, 1) as Style[];
-    expect(featureChanged).not.toBe(first);
+    expect(featureChanged).toBe(first);
 
     firstFeature.getGeometry()?.setCoordinates([
       [0, 0],
@@ -549,9 +550,146 @@ describe('StyleCompiler', () => {
     const resolutionChanged = compiled(firstFeature, 2) as Style[];
     expect(resolutionChanged).not.toBe(geometryChanged);
 
+    firstFeature.setGeometry(
+      new LineString([
+        [0, 0],
+        [40, 0]
+      ])
+    );
+    const geometryReplaced = compiled(firstFeature, 2) as Style[];
+    expect(geometryReplaced).not.toBe(resolutionChanged);
+    expect(geometryCoordinate(geometryReplaced.at(-1) as Style)).toEqual([40, 0]);
+
     viewRotation = Math.PI / 3;
     const viewChanged = compiled(firstFeature, 2) as Style[];
-    expect(viewChanged).not.toBe(resolutionChanged);
+    expect(viewChanged).toBe(geometryReplaced);
+    expect(getViewRotation).not.toHaveBeenCalled();
+  });
+
+  it('要素、几何、分辨率和视图变化时复用静态样式对象', () => {
+    let viewRotation = 0;
+    const getViewRotation = vi.fn(() => viewRotation);
+    const { compiler, canvases } = compilerWithCanvas(getViewRotation);
+    const feature = line([
+      [0, 0],
+      [10, 0]
+    ]);
+    const originalGeometry = feature.getGeometry();
+    const getCoordinates = vi.spyOn(originalGeometry, 'getCoordinates');
+    const compiled = styleFunction(
+      compiler.compile({
+        strokes: [{ color: '#000', width: 2 }],
+        fill: { type: 'pattern', pattern: 'dot', color: '#1677ff' },
+        symbol: { type: 'icon', src: iconSource, rotateWithView: true },
+        text: { text: 'static', rotateWithView: true }
+      })
+    );
+
+    const first = compiled(feature, 1) as Style[];
+    expect(
+      compiled(
+        line([
+          [100, 100],
+          [110, 110]
+        ]),
+        1
+      )
+    ).toBe(first);
+    feature.changed();
+    expect(compiled(feature, 1)).toBe(first);
+    originalGeometry.setCoordinates([
+      [0, 0],
+      [30, 0]
+    ]);
+    expect(compiled(feature, 2)).toBe(first);
+    feature.setGeometry(
+      new LineString([
+        [100, 100],
+        [200, 200]
+      ])
+    );
+    viewRotation = Math.PI / 2;
+    expect(compiled(feature, 4)).toBe(first);
+
+    expect(canvases).toHaveLength(1);
+    expect(getCoordinates).not.toHaveBeenCalled();
+    expect(getViewRotation).not.toHaveBeenCalled();
+  });
+
+  it('重复箭头随分辨率重建且不读取视图旋转', () => {
+    const getViewRotation = vi.fn(() => Math.PI / 2);
+    const { compiler } = compilerWithCanvas(getViewRotation);
+    const feature = line([
+      [0, 0],
+      [20, 0]
+    ]);
+    const compiled = styleFunction(compiler.compile({ strokes: [{ color: '#000' }], decorations: [{ type: 'arrow', placement: 'repeat', spacing: 5 }] }));
+
+    const atOne = compiled(feature, 1) as Style[];
+    expect(compiled(feature, 1)).toBe(atOne);
+    const atTwo = compiled(feature, 2) as Style[];
+    expect(atTwo).not.toBe(atOne);
+    expect(atOne.slice(1).map(geometryCoordinate)).toEqual([
+      [0, 0],
+      [5, 0],
+      [10, 0],
+      [15, 0],
+      [20, 0]
+    ]);
+    expect(atTwo.slice(1).map(geometryCoordinate)).toEqual([
+      [0, 0],
+      [10, 0],
+      [20, 0]
+    ]);
+    expect(getViewRotation).not.toHaveBeenCalled();
+  });
+
+  it('视图旋转时只重建具有屏幕偏移的样式', () => {
+    let viewRotation = 0;
+    const getViewRotation = vi.fn(() => viewRotation);
+    const { compiler } = compilerWithCanvas(getViewRotation);
+    const feature = point();
+    const compiled = styleFunction(
+      compiler.compile({
+        symbol: { type: 'icon', src: iconSource, displacement: [10, 5], rotateWithView: true },
+        text: { text: 'offset', offsetX: 6, offsetY: 2, rotateWithView: true }
+      })
+    );
+
+    const first = compiled(feature, 1) as Style[];
+    expect(compiled(feature, 2)).toBe(first);
+    viewRotation = Math.PI / 2;
+    const rotated = compiled(feature, 2) as Style[];
+    expect(rotated).not.toBe(first);
+    expect((rotated[0].getImage() as Icon).getDisplacement()[0]).toBeCloseTo(-5);
+    expect((rotated[0].getImage() as Icon).getDisplacement()[1]).toBeCloseTo(10);
+    expect(rotated[0].getText()?.getOffsetX()).toBeCloseTo(-2);
+    expect(rotated[0].getText()?.getOffsetY()).toBeCloseTo(-6);
+    expect(getViewRotation).toHaveBeenCalledTimes(3);
+  });
+
+  it('几何或屏幕偏移旋转变化前复用自定义箭头样式', () => {
+    let viewRotation = 0;
+    const getViewRotation = vi.fn(() => viewRotation);
+    const { compiler } = compilerWithCanvas(getViewRotation);
+    const feature = line([
+      [0, 0],
+      [10, 0]
+    ]);
+    const compiled = styleFunction(
+      compiler.compile({
+        strokes: [{ color: '#1677ff' }],
+        decorations: [{ type: 'arrow', placement: 'end', symbol: { type: 'icon', src: iconSource, displacement: [8, 0] } }]
+      })
+    );
+
+    const first = compiled(feature, 1) as Style[];
+    expect(compiled(feature, 2)).toBe(first);
+    viewRotation = Math.PI / 2;
+    const rotated = compiled(feature, 2) as Style[];
+    expect(rotated).not.toBe(first);
+    expect((rotated[1].getImage() as Icon).getDisplacement()[0]).toBeCloseTo(0);
+    expect((rotated[1].getImage() as Icon).getDisplacement()[1]).toBeCloseTo(8);
   });
 
   it('does not read Feature coordinates for geometry-independent styles', () => {

@@ -37,6 +37,10 @@ interface OverlayAdapterRecord {
   state: Readonly<OverlayRenderState>;
   /** 实际 OpenLayers Overlay。 */
   readonly overlay: Overlay;
+  /** Overlay 是否当前挂在地图集合中。 */
+  mounted: boolean;
+  /** 最近一次挂载状态是否已由成功交接或失败补偿后的集合读取得到确认。 */
+  mountStateKnown: boolean;
   /** Overlay 当前使用的 DOM 元素。 */
   element: HTMLElement;
   /** 可选的描述牌动作绑定。 */
@@ -55,6 +59,8 @@ export class OverlayAdapter implements OverlayPort {
   readonly #records = new Map<string, OverlayAdapterRecord>();
   /** 保存布局监听的清理函数。 */
   readonly #layoutDisposers = new Set<() => void>();
+  /** 当前 postrender 批次共享的视口范围。 */
+  #layoutViewportBounds: DOMRect | undefined;
   /** 适配器是否已经销毁。 */
   #disposed = false;
 
@@ -80,17 +86,19 @@ export class OverlayAdapter implements OverlayPort {
       ...(state.className === undefined ? {} : { className: state.className }),
       position: state.visible && state.position !== undefined ? [...state.position] : undefined
     });
-    try {
-      this.#map.addOverlay(overlay);
-    } catch (error) {
+    if (state.visible) {
       try {
-        this.#map.removeOverlay(overlay);
-      } catch {
-        // 尝试原生回滚后仍保留最初的挂载错误。
+        this.#map.addOverlay(overlay);
+      } catch (error) {
+        try {
+          this.#map.removeOverlay(overlay);
+        } catch {
+          // 尝试原生回滚后仍保留最初的挂载错误。
+        }
+        throw error;
       }
-      throw error;
     }
-    this.#records.set(state.id, { state, overlay, element, action: undefined, drag: undefined });
+    this.#records.set(state.id, { state, overlay, mounted: state.visible, mountStateKnown: true, element, action: undefined, drag: undefined });
   }
 
   /** 将新的核心状态同步到已有 Overlay。 */
@@ -99,6 +107,13 @@ export class OverlayAdapter implements OverlayPort {
     if (before.id !== after.id) throw new InvalidArgumentError('Overlay adapter update cannot change id');
     const record = this.#requireRecord(before.id);
     if (record.state.elementRef !== before.elementRef) throw new InvalidArgumentError(`Overlay adapter state is stale: ${before.id}`);
+    if (!record.mountStateKnown) {
+      const mounted = this.#mountedState(record.overlay);
+      if (mounted !== undefined) {
+        record.mounted = mounted;
+        record.mountStateKnown = true;
+      }
+    }
     const elementChanged = before.elementRef !== after.elementRef;
     const nextElement = elementChanged ? this.#resolveElement(after.elementRef) : record.element;
     let nextActionBinding: (() => void) | undefined;
@@ -115,18 +130,30 @@ export class OverlayAdapter implements OverlayPort {
       throw error;
     }
 
+    let mountTransitionAttempted = false;
     try {
       this.#applyNative(record.overlay, before, after, nextElement);
+      if (record.mounted !== after.visible) {
+        mountTransitionAttempted = true;
+        if (after.visible) this.#map.addOverlay(record.overlay);
+        else this.#map.removeOverlay(record.overlay);
+      }
     } catch (error) {
       try {
-        this.#restoreNative(record.overlay, before, record.element);
+        runFinalizers([
+          ...(mountTransitionAttempted ? [() => this.#restoreMounted(record.overlay, record.mounted)] : []),
+          () => this.#restoreNative(record.overlay, before, record.element),
+          ...(nextDragBinding === undefined ? [] : [nextDragBinding]),
+          ...(nextActionBinding === undefined ? [] : [nextActionBinding])
+        ]);
       } catch {
-        // 补偿全部 setter 后仍保留最初的 OpenLayers 写入错误。
+        // 补偿失败不能覆盖最初的 OpenLayers 写入错误。
       }
-      try {
-        runFinalizers([...(nextDragBinding === undefined ? [] : [nextDragBinding]), ...(nextActionBinding === undefined ? [] : [nextActionBinding])]);
-      } catch {
-        // 保留最初的 OpenLayers 写入错误。
+      const mounted = this.#mountedState(record.overlay);
+      if (mounted === undefined) record.mountStateKnown = false;
+      else {
+        record.mounted = mounted;
+        record.mountStateKnown = true;
       }
       throw error;
     }
@@ -148,6 +175,8 @@ export class OverlayAdapter implements OverlayPort {
         // 旧绑定清理失败不能让已经提交的新绑定失效。
       }
     }
+    record.mounted = after.visible;
+    record.mountStateKnown = true;
     record.state = after;
   }
 
@@ -164,7 +193,7 @@ export class OverlayAdapter implements OverlayPort {
     runFinalizers([
       ...(drag === undefined ? [] : [drag.bindingDisposer]),
       ...(action === undefined ? [] : [action.bindingDisposer]),
-      () => this.#map.removeOverlay(record.overlay)
+      ...(record.mounted ? [() => this.#map.removeOverlay(record.overlay)] : [])
     ]);
   }
 
@@ -216,7 +245,7 @@ export class OverlayAdapter implements OverlayPort {
     const record = this.#records.get(id);
     if (record === undefined) return undefined;
     const elementBounds = record.element.getBoundingClientRect();
-    const viewportBounds = this.#map.getViewport().getBoundingClientRect();
+    const viewportBounds = this.#layoutViewportBounds ?? this.#map.getViewport().getBoundingClientRect();
     const bounds = {
       left: elementBounds.left - viewportBounds.left,
       top: elementBounds.top - viewportBounds.top,
@@ -230,9 +259,17 @@ export class OverlayAdapter implements OverlayPort {
   subscribeLayout(listener: () => void): () => void {
     this.#assertActive();
     if (typeof listener !== 'function') throw new InvalidArgumentError('Overlay layout listener must be a function');
-    this.#map.on('postrender', listener);
+    const wrapped = (): void => {
+      this.#layoutViewportBounds = this.#map.getViewport().getBoundingClientRect();
+      try {
+        listener();
+      } finally {
+        this.#layoutViewportBounds = undefined;
+      }
+    };
+    this.#map.on('postrender', wrapped);
     const disposer = once(() => {
-      this.#map.un('postrender', listener);
+      this.#map.un('postrender', wrapped);
       this.#layoutDisposers.delete(disposer);
     });
     this.#layoutDisposers.add(disposer);
@@ -314,6 +351,23 @@ export class OverlayAdapter implements OverlayPort {
       }
     }
     if (failure !== undefined) throw failure;
+  }
+
+  /** 根据实际 Overlay 集合状态恢复更新前的挂载关系，避免重复插入同一个实例。 */
+  #restoreMounted(overlay: Overlay, mounted: boolean): void {
+    const currentlyMounted = this.#map.getOverlays().getArray().includes(overlay);
+    if (currentlyMounted === mounted) return;
+    if (mounted) this.#map.addOverlay(overlay);
+    else this.#map.removeOverlay(overlay);
+  }
+
+  /** 仅在交接结果不确定时读取真实集合中的挂载状态。 */
+  #mountedState(overlay: Overlay): boolean | undefined {
+    try {
+      return this.#map.getOverlays().getArray().includes(overlay);
+    } catch {
+      return undefined;
+    }
   }
 
   /** 在描述牌 DOM 上安装点击动作识别。 */

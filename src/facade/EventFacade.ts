@@ -431,8 +431,8 @@ export class EventFacade implements EventService {
     const layer = pointer.element === undefined ? undefined : this.#layers.get(pointer.element.layerId);
     return Object.freeze({
       type: pointer.type,
-      coordinate: Object.freeze([...pointer.coordinate]) as Coordinate,
-      pixel: Object.freeze([...pointer.pixel]) as Pixel,
+      coordinate: pointer.coordinate as Coordinate,
+      pixel: pointer.pixel as Pixel,
       ...(element === undefined ? {} : { element, olFeature: element.olFeature }),
       ...(pointer.element?.module === undefined ? {} : { module: pointer.element.module }),
       ...(layer === undefined ? {} : { layer }),

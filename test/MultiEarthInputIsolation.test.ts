@@ -8,9 +8,30 @@ import type { InputEventMap, InputType } from '../src/core/ports/InputPort.js';
 import { InputRouter } from '../src/services/events/InputRouter.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
+class FocusableEventTarget extends EventTarget {
+  readonly focus = vi.fn();
+  readonly #attributes = new Map<string, string>();
+
+  hasAttribute(name: string): boolean {
+    return this.#attributes.has(name);
+  }
+
+  getAttribute(name: string): string | null {
+    return this.#attributes.get(name) ?? null;
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.#attributes.set(name, value);
+  }
+
+  removeAttribute(name: string): void {
+    this.#attributes.delete(name);
+  }
+}
+
 class MapHarness {
-  readonly target = new EventTarget();
-  readonly viewport = new EventTarget();
+  readonly target = new FocusableEventTarget();
+  readonly viewport = new FocusableEventTarget();
   readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
   on(type: string, listener: (event: unknown) => void): void {
@@ -264,6 +285,28 @@ describe('multi-Earth input isolation', () => {
     map.viewport.dispatchEvent(eventWith('keydown', { key: 'viewport', code: 'KeyV', repeat: false }));
     expect(keydown).toHaveBeenCalledOnce();
     expect(keydown.mock.calls[0][0]).toMatchObject({ key: 'viewport', code: 'KeyV' });
+    router.destroy();
+    adapter.destroy();
+  });
+
+  it('让活动地图键盘作用域可聚焦，并在点击视口后接收快捷键', () => {
+    const map = new MapHarness();
+    const adapter = new InputAdapter(map as unknown as OlMap, new FakeHitTest(), new NativeRefRegistry());
+    const router = new InputRouter(adapter);
+    const keydown = vi.fn();
+    const dispose = router.on('keydown', keydown);
+
+    expect(map.target.getAttribute('tabindex')).toBe('0');
+    map.viewport.dispatchEvent(eventWith('pointerdown', { button: 0 }));
+    expect(map.target.focus).toHaveBeenCalledWith({ preventScroll: true });
+
+    map.target.dispatchEvent(eventWith('keydown', { key: 'Delete', code: 'Delete', repeat: false }));
+    expect(keydown).toHaveBeenCalledOnce();
+
+    dispose();
+    expect(map.target.hasAttribute('tabindex')).toBe(false);
+    map.viewport.dispatchEvent(eventWith('pointerdown', { button: 0 }));
+    expect(map.target.focus).toHaveBeenCalledOnce();
     router.destroy();
     adapter.destroy();
   });

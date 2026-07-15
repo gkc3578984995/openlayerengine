@@ -102,12 +102,26 @@ export class ElementServiceImpl implements ElementService {
 
   /** 按 ID 获取元素；不存在时清理旧句柄缓存。 */
   get<T>(id: string): Element<T> | undefined {
-    const state = this.#store.get<T>(id);
-    if (state === undefined) {
+    if (this.#store.generationOf(id) === undefined) {
       this.#handles.delete(id);
       return undefined;
     }
     return this.#currentHandle<T>(id);
+  }
+
+  /**
+   * O(1) 确认公开句柄仍属于当前 Earth 和当前元素代次。
+   *
+   * @param element 待确认的公开元素句柄。
+   * @returns 句柄仍由当前服务缓存且原生要素身份有效时返回 `true`。
+   * @internal
+   */
+  ownsCurrentHandle(element: Element): boolean {
+    const feature = elementHandleFeature(element);
+    if (feature === undefined) return false;
+    const id = element.id;
+    const cached = this.#handles.get(id);
+    return cached?.handle === element && cached.feature === feature && this.#binding.isCurrentFeature(id, feature);
   }
 
   /** 按条件查询元素，并转换为稳定的公开句柄。 */
@@ -203,11 +217,13 @@ export class ElementServiceImpl implements ElementService {
     const feature = this.#binding.requireFeature(id);
     const cached = this.#handles.get(id);
     if (cached?.feature === feature) return cached.handle as Element<T>;
+    const generation = this.#store.generationOf(id);
+    if (generation === undefined) return missingElement(id);
     const handle = constructElementHandle<T>({
       id,
       feature,
       removedByHandle: false,
-      isCurrent: () => this.#store.get(id) !== undefined && this.#binding.isCurrentFeature(id, feature),
+      isCurrent: () => this.#store.isGenerationCurrent(id, generation) && this.#binding.isCurrentFeature(id, feature),
       getState: () => this.#store.get<T>(id) ?? missingElement(id),
       update: (patch: ElementPatch<T>) => {
         this.update({ id }, patch);
@@ -225,7 +241,7 @@ export class ElementServiceImpl implements ElementService {
     if (this.#createId !== undefined) return requireString(this.#createId(), 'Generated element id');
     let id: string;
     do id = `element-${++this.#nextId}`;
-    while (this.#store.get(id) !== undefined);
+    while (this.#store.generationOf(id) !== undefined);
     return id;
   }
 

@@ -237,7 +237,7 @@ function descriptorLineStyle(color: string): ElementState['style'] {
 
 /** 判断 Descriptor 是否需要布局监听。 */
 function needsLayout(state: Readonly<InternalDescriptorState>): boolean {
-  return state.fixedLine || state.fixedMode === 'pixel';
+  return state.visible && (state.fixedLine || state.fixedMode === 'pixel');
 }
 
 /** 计算像素到元素边界最近的连接点。 */
@@ -1078,6 +1078,8 @@ export class OverlayService {
   /** 更新 Descriptor 记录及关联 Overlay 的可见状态。 */
   #setDescriptorVisibleCore<T>(record: DescriptorRecord<T>, visible: boolean): void {
     if (record.state.visible === visible) {
+      if (needsLayout(record.state)) this.#acquireLayout(record.state.id);
+      else if (this.#layoutIds.has(record.state.id)) this.#leaveLayout(record.state.id);
       if (visible) record.closeArmed = true;
       return;
     }
@@ -1085,22 +1087,47 @@ export class OverlayService {
     const afterState = freeze({ ...beforeState, visible });
     const afterOverlay = descriptorOverlayState(afterState);
     const beforeRender = descriptorRenderState(record);
-    const afterRender = renderStateAt(afterOverlay, record.renderPosition);
-    this.#port.update(beforeRender, afterRender);
+    let afterFixedPixel = record.fixedPixel;
+    let afterRenderPosition = record.renderPosition;
+    if (visible && afterState.fixedMode === 'pixel') {
+      if (afterFixedPixel === undefined) afterFixedPixel = this.#port.coordinateToPixel(afterState.position);
+      const currentPosition = afterFixedPixel === undefined ? undefined : this.#port.pixelToCoordinate(afterFixedPixel);
+      if (currentPosition !== undefined) afterRenderPosition = freeze([...currentPosition]) as Coordinate;
+    }
+    const afterRender = renderStateAt(afterOverlay, afterRenderPosition);
+    const addsLayout = !needsLayout(beforeState) && needsLayout(afterState);
+    const removesLayout = needsLayout(beforeState) && !needsLayout(afterState);
+    let layoutAdded = false;
+    let portUpdated = false;
     try {
-      if (record.state.fixedLine) this.#store.update({ id: record.lineId }, { visible });
+      if (addsLayout) {
+        this.#acquireLayout(record.state.id);
+        layoutAdded = true;
+      }
+      this.#port.update(beforeRender, afterRender);
+      portUpdated = true;
+      if (afterState.fixedLine) {
+        if (visible) this.#syncDescriptorLine(record, afterState);
+        else this.#store.update({ id: record.lineId }, { visible: false });
+      }
     } catch (error) {
+      const rollback: Array<() => void> = [];
+      if (portUpdated) rollback.push(() => this.#port.update(afterRender, beforeRender));
+      if (layoutAdded) rollback.push(() => this.#leaveLayout(record.state.id));
       try {
-        this.#port.update(afterRender, beforeRender);
+        runFinalizers(rollback);
       } catch {
-        // 保留元素仓库触发的原始异常。
+        // 保留布局订阅、适配器或元素仓库触发的原始异常。
       }
       throw error;
     }
     record.state = afterState;
     record.overlay.state = afterOverlay;
+    record.renderPosition = afterRenderPosition;
+    record.fixedPixel = afterFixedPixel;
     if (visible) record.closeArmed = true;
     else record.dragState = undefined;
+    if (removesLayout) this.#leaveLayout(record.state.id);
   }
 
   /** 执行指定 Descriptor 的关闭行为。 */
@@ -1316,27 +1343,32 @@ export class OverlayService {
         record.renderPosition = freeze([...position]) as Coordinate;
       }
     }
-    if (!record.state.fixedLine) return;
-    const anchorPixel = this.#port.coordinateToPixel(record.state.position);
-    const bounds = this.#port.getBounds(record.state.id);
-    let endpoint = record.state.position;
+    this.#syncDescriptorLine(record, record.state);
+  }
+
+  /** 按目标 Descriptor 状态同步固定线，供布局帧与显示交接共享。 */
+  #syncDescriptorLine<T>(record: DescriptorRecord<T>, state: Readonly<InternalDescriptorState<T>>): void {
+    if (!state.fixedLine) return;
+    const anchorPixel = this.#port.coordinateToPixel(state.position);
+    const bounds = this.#port.getBounds(state.id);
+    let endpoint = state.position;
     if (anchorPixel !== undefined && bounds !== undefined) {
       const edgePixel = nearestBoundsPoint(anchorPixel, bounds);
       endpoint = this.#port.pixelToCoordinate(edgePixel) ?? endpoint;
     }
     const current = this.#store.get(record.lineId);
     if (current === undefined) return;
-    const geometry = { type: 'polyline' as const, controlPoints: [record.state.position, endpoint] };
-    const style = descriptorLineStyle(record.state.fixedLineColor);
+    const geometry = { type: 'polyline' as const, controlPoints: [state.position, endpoint] };
+    const style = descriptorLineStyle(state.fixedLineColor);
     const geometryChanged = !samePolyline(current.geometry, geometry);
     const styleChanged = !sameLineStyle(current.style, style);
-    if (geometryChanged || styleChanged || current.visible !== record.state.visible) {
+    if (geometryChanged || styleChanged || current.visible !== state.visible) {
       this.#store.update(
         { id: record.lineId },
         {
           ...(geometryChanged ? { geometry } : {}),
           ...(styleChanged ? { style } : {}),
-          ...(current.visible !== record.state.visible ? { visible: record.state.visible } : {})
+          ...(current.visible !== state.visible ? { visible: state.visible } : {})
         }
       );
     }

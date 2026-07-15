@@ -5,11 +5,11 @@ import { isNativeStyleRef, type NativeStyleRef } from '../core/style/types.js';
 import type { DrawService as InternalDrawService } from '../services/draw/DrawService.js';
 import type { InternalDrawOptions, InternalDrawSession } from '../services/draw/types.js';
 import { elementHandleFeature, type Element } from './Element.js';
+import type { ElementServiceImpl } from './ElementService.js';
 import { inspectStyleInput } from './StyleFacade.js';
 import { DrawSessionFacade } from './DrawSessionFacade.js';
 import { EditSessionFacade } from './EditSessionFacade.js';
 import type { DrawOptions, DrawService, DrawSession, EditOptions, EditSession } from './drawTypes.js';
-import type { ElementService } from './types.js';
 
 /**
  * 将内部绘制服务映射为公开元素句柄 API，并负责原生样式引用的所有权校验。
@@ -20,7 +20,7 @@ export class DrawFacade implements DrawService {
   /** 执行实际绘制和编辑工作的内部服务。 */
   readonly #service: InternalDrawService;
   /** 将内部元素状态转换为公开元素句柄。 */
-  readonly #elements: ElementService;
+  readonly #elements: ElementServiceImpl;
   /** 管理原生样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
 
@@ -29,7 +29,7 @@ export class DrawFacade implements DrawService {
    * @param elements 当前 Earth 的公开元素服务。
    * @param nativeRefs 当前 Earth 的原生对象引用注册表。
    */
-  constructor(service: InternalDrawService, elements: ElementService, nativeRefs: NativeRefRegistry) {
+  constructor(service: InternalDrawService, elements: ElementServiceImpl, nativeRefs: NativeRefRegistry) {
     this.#service = service;
     this.#elements = elements;
     this.#nativeRefs = nativeRefs;
@@ -97,13 +97,12 @@ export class DrawFacade implements DrawService {
 }
 
 /** 确认编辑目标属于当前 Earth，并返回元素 ID。 */
-function currentElementId<T>(element: Element<T>, elements: ElementService): string {
+function currentElementId<T>(element: Element<T>, elements: ElementServiceImpl): string {
   const feature = elementHandleFeature(element);
   if (feature === undefined) throw new InvalidArgumentError('Draw edit target must be an Element');
   const id = element.id;
-  void element.state;
-  const current = elements.get<T>(id);
-  if (current === undefined || elementHandleFeature(current) !== feature) {
+  void element.olFeature;
+  if (!elements.ownsCurrentHandle(element)) {
     throw new InvalidArgumentError(`Draw edit Element does not belong to this Earth: ${id}`);
   }
   return id;

@@ -120,6 +120,8 @@ export interface AnimationManager {
 
 /** 动画帧上下文。向内部动画定义提供当前元素和时间。 */
 export interface AnimationFrameContext {
+  /** 动画实例。当前动画记录在完整生命周期内保持稳定的内部身份。 */
+  readonly instance: object;
   /** 元素状态。当前元素的只读状态。 */
   readonly state: Readonly<ElementState>;
   /** 几何。当前元素用于渲染的几何。 */

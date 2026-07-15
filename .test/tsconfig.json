@@ -3,11 +3,10 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "..",
-    "baseUrl": "..",
     "types": ["node", "vite/client"],
     "paths": {
-      "@vrsim/earth-engine-ol": ["src/index.ts"],
-      "@vrsim/earth-engine-ol/style.css": ["src/assets/style/public.scss"]
+      "@vrsim/earth-engine-ol": ["../src/index.ts"],
+      "@vrsim/earth-engine-ol/style.css": ["../src/assets/style/public.scss"]
     }
   },
   "include": ["./**/*.ts"],

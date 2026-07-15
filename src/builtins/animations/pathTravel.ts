@@ -6,6 +6,25 @@ import type { StyleSpec } from '../../core/style/types.js';
 import type { AnimationDefinition, AnimationFrameResult } from '../../services/animation/types.js';
 import { animationRecord, arrayValues, boolean, channel, color, copyColor, finite, interpolateColor, optionalColor, positive } from './validation.js';
 
+/** 路径采样与累计长度缓存。 */
+interface TravelPathMetrics {
+  /** 用于检测几何版本变化的源坐标身份。 */
+  readonly sourceCoordinates: readonly Coordinate[];
+  /** 生成缓存时使用的曲率。 */
+  readonly curvature: number;
+  /** 生成缓存时使用的平滑度。 */
+  readonly smoothness: number;
+  /** 实际参与动画采样的路径。 */
+  readonly path: readonly Coordinate[];
+  /** 每个路径点对应的累计二维长度。 */
+  readonly cumulativeLengths: readonly number[];
+  /** 路径二维总长度。 */
+  readonly totalLength: number;
+}
+
+/** 按动画记录实例保存路径指标，记录释放后缓存不会阻止垃圾回收。 */
+const travelPathCache = new WeakMap<object, TravelPathMetrics>();
+
 /** 内部常量。保存 pathTravelAnimationDefinition 使用的数据。 */
 export const pathTravelAnimationDefinition = Object.freeze({
   type: 'path-travel',
@@ -74,17 +93,20 @@ export const pathTravelAnimationDefinition = Object.freeze({
   frame(context, input): AnimationFrameResult {
     if (context.geometry.type !== 'polyline') throw new CapabilityError('Path-travel animation requires polyline render geometry');
     const spec = input as PathTravelAnimationSpec;
-    const path = travelPath(context.geometry.coordinates, spec.curvature ?? 0, spec.smoothness ?? 180);
-    const length = pathLength(path);
+    const metrics = cachedTravelPath(context.instance, context.geometry.coordinates, spec);
+    const path = metrics.path;
     const rawProgress =
-      spec.durationMs === undefined ? (context.elapsedMs / 1000) * ((spec.speed ?? 1) / Math.max(length, Number.EPSILON)) : context.elapsedMs / spec.durationMs;
+      spec.durationMs === undefined
+        ? (context.elapsedMs / 1000) * ((spec.speed ?? 1) / Math.max(metrics.totalLength, Number.EPSILON))
+        : context.elapsedMs / spec.durationMs;
     const finished = spec.repeat !== true && rawProgress >= 1;
     if (finished && spec.finishBehavior !== 'retain') {
+      travelPathCache.delete(context.instance);
       return Object.freeze({ value: Object.freeze({ primitives: Object.freeze([]) }), finished: true });
     }
     const progress = finished ? 1 : spec.repeat === true ? positiveModulo(rawProgress, 1) : Math.min(1, rawProgress);
     const startProgress = finished ? 0 : Math.max(0, progress - (spec.trailLength ?? 0.25));
-    const trail = slicePath(path, startProgress, progress, spec.smoothness ?? 180);
+    const trail = slicePath(metrics, startProgress, progress, spec.smoothness ?? 180);
     const inheritedColor = context.style.strokes?.[context.style.strokes.length - 1]?.color ?? '#00d8ff';
     const baseColor = spec.color ?? inheritedColor;
     const retainedColor = finished && spec.endLineColor !== undefined ? spec.endLineColor : baseColor;
@@ -107,6 +129,33 @@ export const pathTravelAnimationDefinition = Object.freeze({
   }
 } satisfies AnimationDefinition);
 
+/** 返回当前动画记录实例与几何对应的缓存路径及累计长度。 */
+function cachedTravelPath(instance: object, coordinates: readonly Coordinate[], spec: PathTravelAnimationSpec): TravelPathMetrics {
+  const curvature = spec.curvature ?? 0;
+  const smoothness = spec.smoothness ?? 180;
+  const cached = travelPathCache.get(instance);
+  if (cached !== undefined && cached.curvature === curvature && cached.smoothness === smoothness && cached.sourceCoordinates === coordinates) {
+    return cached;
+  }
+  const path = travelPath(coordinates, curvature, smoothness);
+  const cumulativeLengths = [0];
+  let totalLength = 0;
+  for (let index = 1; index < path.length; index += 1) {
+    totalLength += Math.hypot(path[index][0] - path[index - 1][0], path[index][1] - path[index - 1][1]);
+    cumulativeLengths.push(totalLength);
+  }
+  const metrics: TravelPathMetrics = {
+    sourceCoordinates: coordinates,
+    curvature,
+    smoothness,
+    path,
+    cumulativeLengths,
+    totalLength
+  };
+  travelPathCache.set(instance, metrics);
+  return metrics;
+}
+
 /** 内部方法。处理 travelPath 相关数据。 */
 function travelPath(coordinates: readonly Coordinate[], curvature: number, smoothness: number): readonly Coordinate[] {
   if (coordinates.length !== 2 || curvature === 0) return coordinates.map(cloneCoordinate);
@@ -127,30 +176,33 @@ function travelPath(coordinates: readonly Coordinate[], curvature: number, smoot
 }
 
 /** 内部方法。处理 slicePath 相关数据。 */
-function slicePath(path: readonly Coordinate[], from: number, to: number, smoothness: number): readonly Coordinate[] {
+function slicePath(metrics: TravelPathMetrics, from: number, to: number, smoothness: number): readonly Coordinate[] {
   if (to <= from) {
-    const point = pointAt(path, to);
+    const point = pointAt(metrics, to);
     return [point, cloneCoordinate(point)];
   }
   const count = Math.max(2, Math.min(256, Math.ceil((to - from) * smoothness)));
   const result: Coordinate[] = [];
-  for (let index = 0; index <= count; index += 1) result.push(pointAt(path, from + ((to - from) * index) / count));
+  for (let index = 0; index <= count; index += 1) result.push(pointAt(metrics, from + ((to - from) * index) / count));
   return result;
 }
 
 /** 内部方法。处理 pointAt 相关数据。 */
-function pointAt(path: readonly Coordinate[], progress: number): Coordinate {
-  const lengths = segmentLengths(path);
-  const total = lengths.reduce((sum, value) => sum + value, 0);
-  if (total <= Number.EPSILON) return cloneCoordinate(path[0]);
-  let remaining = Math.min(1, Math.max(0, progress)) * total;
-  for (let index = 0; index < lengths.length; index += 1) {
-    const length = lengths[index];
-    if (remaining <= length || index === lengths.length - 1)
-      return interpolate(path[index], path[index + 1], length <= Number.EPSILON ? 0 : remaining / length);
-    remaining -= length;
+function pointAt(metrics: TravelPathMetrics, progress: number): Coordinate {
+  const { cumulativeLengths, path, totalLength } = metrics;
+  if (totalLength <= Number.EPSILON) return cloneCoordinate(path[0]);
+  const targetLength = Math.min(1, Math.max(0, progress)) * totalLength;
+  let low = 1;
+  let high = cumulativeLengths.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (cumulativeLengths[middle] < targetLength) low = middle + 1;
+    else high = middle;
   }
-  return cloneCoordinate(path[path.length - 1]);
+  const startIndex = low - 1;
+  const segmentLength = cumulativeLengths[low] - cumulativeLengths[startIndex];
+  const segmentProgress = segmentLength <= Number.EPSILON ? 0 : (targetLength - cumulativeLengths[startIndex]) / segmentLength;
+  return interpolate(path[startIndex], path[low], segmentProgress);
 }
 
 /** 内部方法。处理 linePrimitives 相关数据。 */
@@ -244,18 +296,6 @@ function gradientColor(stops: readonly (readonly [number, Color])[], progress: n
     return interpolateColor(left[1], right[1], width <= Number.EPSILON ? 1 : (progress - left[0]) / width);
   }
   return copyColor(stops[stops.length - 1][1]);
-}
-
-/** 内部方法。处理 pathLength 相关数据。 */
-function pathLength(path: readonly Coordinate[]): number {
-  return segmentLengths(path).reduce((sum, value) => sum + value, 0);
-}
-
-/** 内部方法。处理 segmentLengths 相关数据。 */
-function segmentLengths(path: readonly Coordinate[]): number[] {
-  const result: number[] = [];
-  for (let index = 0; index < path.length - 1; index += 1) result.push(Math.hypot(path[index + 1][0] - path[index][0], path[index + 1][1] - path[index][1]));
-  return result;
 }
 
 /** 内部方法。处理 interpolate 相关数据。 */

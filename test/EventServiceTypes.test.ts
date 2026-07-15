@@ -23,6 +23,7 @@ describe('EventService public types', () => {
         process.execPath,
         [
           tsc,
+          '--ignoreConfig',
           '--noEmit',
           '--pretty',
           'false',

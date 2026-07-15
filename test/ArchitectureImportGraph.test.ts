@@ -73,12 +73,8 @@ function isOpenLayersResolution(resolvedModule: ts.ResolvedModuleFull): boolean 
 function fallbackSourcePath(importer: string, specifier: string): string | undefined {
   if (specifier.startsWith('@/')) return resolve(sourceRoot, specifier.slice(2));
   if (specifier.startsWith('.')) return resolve(dirname(importer), specifier);
-  const configuredBaseUrl = compilerOptions.baseUrl;
-  if (configuredBaseUrl !== undefined) {
-    const baseUrl = isAbsolute(configuredBaseUrl) ? configuredBaseUrl : resolve(dirname(configPath), configuredBaseUrl);
-    const candidate = resolve(baseUrl, specifier);
-    if (existsSync(candidate) || existsSync(`${candidate}.ts`) || existsSync(join(candidate, 'index.ts')) || specifier.includes('/../')) return candidate;
-  }
+  const candidate = resolve(sourceRoot, specifier);
+  if (existsSync(candidate) || existsSync(`${candidate}.ts`) || existsSync(join(candidate, 'index.ts')) || specifier.includes('/../')) return candidate;
   return undefined;
 }
 
@@ -168,7 +164,7 @@ describe('architecture import graph', () => {
     expect(findImportViolations('core', importer, 'const module = import(target);')).toEqual(['core/example.ts: core -> non-static dynamic']);
   });
 
-  it('classifies normalized aliases, baseUrl paths, source escapes, and external packages through TypeScript resolution', () => {
+  it('classifies normalized aliases, source-root paths, source escapes, and external packages through TypeScript resolution', () => {
     const importer = join(sourceRoot, 'core', 'example.ts');
     expect(classifyImport(importer, '../common/Utils.js')).toBe('legacy');
     expect(classifyImport(importer, '@/core/../base')).toBe('legacy');

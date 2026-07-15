@@ -29,6 +29,15 @@ import type { StyleCompiler } from '../style/StyleCompiler.js';
 type PreviewFeature = Feature<Geometry>;
 /** 存放绘制预览要素的矢量数据源。 */
 type PreviewSource = VectorSource<PreviewFeature>;
+/** StyleCompiler 编译后的 OpenLayers 样式。 */
+type CompiledPreviewStyle = ReturnType<StyleCompiler['compile']>;
+
+/** 已校验并脱离调用方所有权、但尚未写入 OpenLayers 对象的预览快照。 */
+interface PreparedPreview {
+  readonly geometry: RenderGeometryState;
+  readonly styleIdentity: object;
+  readonly compiledStyle: CompiledPreviewStyle;
+}
 
 /** 单个预览要素分步清理的进度。 */
 interface FeatureCleanupProgress {
@@ -42,6 +51,12 @@ interface FeatureCleanupProgress {
   styleCleared: boolean;
   /** 是否已经销毁要素。 */
   disposed: boolean;
+}
+
+/** 可取消的浏览器动画帧；保存调度时的 cancel 引用以便测试和销毁可靠取消。 */
+interface AnimationFrameRegistration {
+  id: number | undefined;
+  readonly cancel: (id: number) => void;
 }
 
 /**
@@ -166,6 +181,10 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   readonly world: HorizontalWorld | undefined;
   /** 当前显示的预览要素。 */
   #preview: PreviewFeature | undefined;
+  /** 当前 Feature 对应的完整语义快照，用于同类型原位更新和异常回滚。 */
+  #previewState: PreparedPreview | undefined;
+  /** 按稳定语义 style 身份缓存编译结果。 */
+  readonly #compiledStyles = new WeakMap<object, CompiledPreviewStyle>();
   /** 句柄是否已经允许派发事件。 */
   #published = false;
   /** 句柄是否正在关闭。 */
@@ -178,12 +197,18 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   #destroyRunning = false;
   /** 是否正在自由绘制。 */
   #freehandActive = false;
+  /** 当前动画帧内尚未按顺序发布的自由绘制采样。 */
+  readonly #pendingFreehandSamples: Coordinate[] = [];
+  /** 当前自由绘制批次对应的浏览器动画帧。 */
+  #freehandFrame: AnimationFrameRegistration | undefined;
   /** 是否需要忽略自由绘制后的下一次点击。 */
   #suppressNextClick = false;
   /** 是否正在处理预览渲染队列。 */
   #rendering = false;
   /** 等待按顺序提交的预览快照。 */
-  readonly #renderQueue: Array<PreviewFeature | undefined> = [];
+  readonly #renderQueue: Array<PreparedPreview | undefined> = [];
+  /** 下一个待处理队列索引，避免 Array.shift 的线性搬移。 */
+  #renderQueueHead = 0;
   /** 等待继续清理的旧预览要素。 */
   readonly #retired = new Map<PreviewFeature, FeatureCleanupProgress>();
   /** 已经完成清理的预览要素。 */
@@ -249,6 +274,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     if (type === 'pointerdown') {
       this.#suppressNextClick = false;
       if (this.#spec.freehand && isShift(event) && isPrimary(event, true) && coordinate !== undefined) {
+        this.#discardPendingFreehandSamples();
         this.#freehandActive = true;
         this.#emit({ type: 'freehand-start', coordinate });
         return false;
@@ -258,15 +284,19 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
 
     if (this.#freehandActive) {
       if (type === 'pointerdrag' && isPrimary(event, false) && coordinate !== undefined) {
-        this.#emit({ type: 'freehand-sample', coordinate });
+        this.#queueFreehandSample(coordinate);
         return false;
       }
       if (type === 'pointerup' && isPrimary(event, false)) {
-        this.#freehandActive = false;
         if (isPointerCancel(event) || coordinate === undefined) {
+          this.#freehandActive = false;
+          this.#discardPendingFreehandSamples();
           this.#suppressNextClick = true;
           this.#emit({ type: 'freehand-cancel' });
         } else {
+          this.#flushPendingFreehandSamples();
+          if (this.#closing) return false;
+          this.#freehandActive = false;
           this.#suppressNextClick = true;
           this.#emit({ type: 'freehand-complete', coordinate });
         }
@@ -274,6 +304,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       }
       if (type === 'pointercancel') {
         this.#freehandActive = false;
+        this.#discardPendingFreehandSamples();
         this.#suppressNextClick = true;
         this.#emit({ type: 'freehand-cancel' });
         return false;
@@ -290,6 +321,47 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     return true;
   }
 
+  /** 保留同一帧内全部 pointerdrag 采样，并在 rAF 不可用时退化为同步单点批次。 */
+  #queueFreehandSample(coordinate: Coordinate): void {
+    this.#pendingFreehandSamples.push(coordinate);
+    if (this.#freehandFrame !== undefined) return;
+    const schedule = globalThis.requestAnimationFrame;
+    const cancel = globalThis.cancelAnimationFrame;
+    if (typeof schedule !== 'function' || typeof cancel !== 'function') {
+      this.#flushPendingFreehandSamples();
+      return;
+    }
+    const registration: AnimationFrameRegistration = {
+      id: undefined,
+      cancel: cancel.bind(globalThis)
+    };
+    this.#freehandFrame = registration;
+    registration.id = schedule(() => {
+      if (this.#freehandFrame !== registration) return;
+      this.#freehandFrame = undefined;
+      this.#flushPendingFreehandSamples();
+    });
+  }
+
+  /** 取消待执行帧并按采样顺序一次发布给语义核心。 */
+  #flushPendingFreehandSamples(): void {
+    const frame = this.#freehandFrame;
+    this.#freehandFrame = undefined;
+    if (frame?.id !== undefined) frame.cancel(frame.id);
+    if (this.#pendingFreehandSamples.length === 0) return;
+    const coordinates = this.#pendingFreehandSamples.splice(0);
+    if (this.#closing || !this.#published || !this.#freehandActive) return;
+    this.#emit({ type: 'freehand-samples', coordinates });
+  }
+
+  /** 取消待执行帧并丢弃尚未发布的采样。 */
+  #discardPendingFreehandSamples(): void {
+    const frame = this.#freehandFrame;
+    this.#freehandFrame = undefined;
+    if (frame?.id !== undefined) frame.cancel(frame.id);
+    this.#pendingFreehandSamples.length = 0;
+  }
+
   /**
    * 原子替换当前预览快照；传入 `undefined` 时清空预览。
    *
@@ -304,19 +376,16 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
    */
   render(state: Readonly<DrawInteractionRenderState> | undefined): void {
     if (this.#closing) throw new ObjectDisposedError('Draw interaction has been destroyed');
-    this.#renderQueue.push(state === undefined ? undefined : createPreviewFeature(state, this.#styles));
+    this.#renderQueue.push(state === undefined ? undefined : this.#preparePreview(state));
     if (this.#rendering) return;
 
     this.#rendering = true;
     let failed = false;
     let firstFailure: unknown;
     try {
-      while (this.#renderQueue.length > 0) {
-        const prepared = this.#renderQueue.shift();
-        if (this.#closing) {
-          if (prepared !== undefined) this.#retire(prepared, true, 'render-closing-cleanup');
-          continue;
-        }
+      while (this.#renderQueueHead < this.#renderQueue.length) {
+        const prepared = this.#renderQueue[this.#renderQueueHead++];
+        if (this.#closing) continue;
         try {
           this.#renderPrepared(prepared);
           if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
@@ -329,8 +398,21 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       }
     } finally {
       this.#rendering = false;
+      this.#renderQueue.length = 0;
+      this.#renderQueueHead = 0;
     }
     if (failed) throw firstFailure;
+  }
+
+  /** 校验、复制 geometry 并按 style 身份复用编译结果。 */
+  #preparePreview(state: Readonly<DrawInteractionRenderState>): PreparedPreview {
+    const styleIdentity = state.style as object;
+    let compiledStyle = this.#compiledStyles.get(styleIdentity);
+    if (compiledStyle === undefined) {
+      compiledStyle = this.#styles.compile(state.style);
+      this.#compiledStyles.set(styleIdentity, compiledStyle);
+    }
+    return Object.freeze({ geometry: copyRenderGeometryState(state.geometry), styleIdentity, compiledStyle });
   }
 
   /**
@@ -340,17 +422,22 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
    * @returns 无返回值。
    * @internal
    */
-  #renderPrepared(prepared: PreviewFeature | undefined): void {
+  #renderPrepared(prepared: PreparedPreview | undefined): void {
     if (prepared === undefined) {
       this.#clearPreviewAtomically();
       return;
     }
     const current = this.#preview;
     if (current === undefined) {
-      this.#addInitialPreview(prepared);
+      this.#addInitialPreview(createPreviewFeature(prepared), prepared);
       return;
     }
-    this.#replacePreviewAtomically(current, prepared);
+    const previous = this.#previewState;
+    if (previous !== undefined && previous.styleIdentity === prepared.styleIdentity && previous.geometry.type === prepared.geometry.type) {
+      this.#updatePreviewGeometryAtomically(current, previous, prepared);
+      return;
+    }
+    this.#replacePreviewAtomically(current, createPreviewFeature(prepared), prepared);
   }
 
   /**
@@ -367,6 +454,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     this.#closing = true;
     this.#published = false;
     this.#freehandActive = false;
+    this.#discardPendingFreehandSamples();
     this.#suppressNextClick = false;
     const failures: unknown[] = [];
     this.#destroyRunning = true;
@@ -389,11 +477,11 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       const preview = this.#preview;
       if (preview !== undefined) {
         this.#preview = undefined;
+        this.#previewState = undefined;
         this.#enqueueRetirement(preview, false);
       }
-      for (const queued of this.#renderQueue.splice(0)) {
-        if (queued !== undefined) this.#enqueueRetirement(queued, true);
-      }
+      this.#renderQueue.length = 0;
+      this.#renderQueueHead = 0;
       this.#cleanupRetired(failures);
 
       if (!this.#interactionRemoved) {
@@ -483,12 +571,13 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
    * @throws 安装预览或验证安装后置条件时产生的异常。
    * @internal
    */
-  #addInitialPreview(feature: PreviewFeature): void {
+  #addInitialPreview(feature: PreviewFeature, state: PreparedPreview): void {
     try {
       this.#source.addFeature(feature);
       if (!this.#source.hasFeature(feature)) throw new InvalidArgumentError('OpenLayers did not attach the draw preview');
       if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
       this.#preview = feature;
+      this.#previewState = state;
     } catch (error) {
       if (this.#source.hasFeature(feature)) {
         try {
@@ -501,9 +590,55 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       const attached = this.#source.hasFeature(feature);
       if (!attached || this.#closing) {
         this.#preview = undefined;
+        this.#previewState = undefined;
         this.#retire(feature, !attached, 'render-add-cleanup');
       }
       throw error;
+    }
+  }
+
+  /**
+   * 同类型同 style 快路：保持 Feature、Geometry 和 source membership，仅原位替换坐标。
+   * setter 或同步 changefeature 监听器抛错时恢复上一完整快照。
+   */
+  #updatePreviewGeometryAtomically(current: PreviewFeature, previous: PreparedPreview, next: PreparedPreview): void {
+    const geometry = current.getGeometry();
+    if (geometry === undefined || !geometrySupportsState(geometry, next.geometry)) {
+      this.#replacePreviewAtomically(current, createPreviewFeature(next), next);
+      return;
+    }
+    try {
+      applyGeometryState(geometry, next.geometry);
+      if (!this.#source.hasFeature(current)) throw new InvalidArgumentError('OpenLayers detached the draw preview during geometry update');
+      if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
+      this.#previewState = next;
+    } catch (error) {
+      if (this.#closing) {
+        this.#previewState = undefined;
+        throw error;
+      }
+      const rollbackFailures: unknown[] = [];
+      capture(rollbackFailures, () => applyGeometryState(geometry, previous.geometry));
+      if (!this.#source.hasFeature(current)) {
+        capture(rollbackFailures, () => this.#source.addFeature(current));
+      }
+      if (rollbackFailures.length === 0 && this.#source.hasFeature(current)) {
+        this.#preview = current;
+        this.#previewState = previous;
+        throw error;
+      }
+      for (const rollbackError of rollbackFailures) report(this.#errorReporter, rollbackError, 'render-update-rollback');
+      this.#closing = true;
+      this.#published = false;
+      if (this.#source.hasFeature(current)) {
+        this.#preview = current;
+        this.#previewState = previous;
+      } else {
+        this.#preview = undefined;
+        this.#previewState = undefined;
+        this.#retire(current, true, 'render-update-abandoned');
+      }
+      throw new AggregateError([error, ...rollbackFailures], 'Draw preview geometry update failed and rollback was incomplete');
     }
   }
 
@@ -516,7 +651,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
    * @throws {@link AggregateError} 当替换和恢复均未得到原快照时抛出。
    * @internal
    */
-  #replacePreviewAtomically(current: PreviewFeature, prepared: PreviewFeature): void {
+  #replacePreviewAtomically(current: PreviewFeature, prepared: PreviewFeature, state: PreparedPreview): void {
     try {
       this.#source.removeFeature(current);
       if (this.#source.hasFeature(current)) throw new InvalidArgumentError('OpenLayers did not detach the preceding draw preview');
@@ -525,10 +660,12 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       if (!this.#source.hasFeature(prepared)) throw new InvalidArgumentError('OpenLayers did not attach the replacement draw preview');
       if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
       this.#preview = prepared;
+      this.#previewState = state;
       this.#retire(current, true, 'render-retire');
     } catch (error) {
       if (this.#closing) {
         this.#preview = undefined;
+        this.#previewState = undefined;
         this.#retire(current, !this.#source.hasFeature(current), 'render-closing-current-cleanup');
         this.#retire(prepared, !this.#source.hasFeature(prepared), 'render-closing-prepared-cleanup');
         throw error;
@@ -559,9 +696,11 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       this.#published = false;
       if (this.#source.hasFeature(prepared)) {
         this.#preview = prepared;
+        this.#previewState = state;
         this.#retire(current, true, 'render-replacement-abandoned-current');
       } else {
         this.#preview = undefined;
+        this.#previewState = undefined;
         this.#retire(current, true, 'render-replacement-abandoned-current');
         this.#retire(prepared, true, 'render-replacement-abandoned-prepared');
       }
@@ -585,10 +724,12 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       if (this.#source.hasFeature(current)) throw new InvalidArgumentError('OpenLayers did not remove the draw preview');
       if (this.#closing) throw new ObjectDisposedError('Draw interaction was destroyed during render');
       this.#preview = undefined;
+      this.#previewState = undefined;
       this.#retire(current, true, 'render-clear-retire');
     } catch (error) {
       if (this.#closing) {
         this.#preview = undefined;
+        this.#previewState = undefined;
         this.#retire(current, !this.#source.hasFeature(current), 'render-clear-closing-cleanup');
         throw error;
       }
@@ -604,6 +745,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
       }
       if (!this.#source.hasFeature(current)) {
         this.#preview = undefined;
+        this.#previewState = undefined;
         this.#closing = true;
         this.#published = false;
         this.#retire(current, true, 'render-clear-abandoned');
@@ -736,7 +878,16 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
    * @internal
    */
   #destroyComplete(): boolean {
-    return this.#deactivated && this.#interactionRemoved && this.#preview === undefined && this.#renderQueue.length === 0 && this.#retired.size === 0;
+    return (
+      this.#deactivated &&
+      this.#interactionRemoved &&
+      this.#preview === undefined &&
+      this.#previewState === undefined &&
+      this.#renderQueue.length === 0 &&
+      this.#retired.size === 0 &&
+      this.#freehandFrame === undefined &&
+      this.#pendingFreehandSamples.length === 0
+    );
   }
 }
 
@@ -763,12 +914,58 @@ function containsInteraction(map: OlMap, interaction: Interaction): boolean {
 }
 
 /** 根据渲染状态创建完整的预览要素快照。 */
-function createPreviewFeature(state: Readonly<DrawInteractionRenderState>, styles: StyleCompiler): PreviewFeature {
+function createPreviewFeature(state: PreparedPreview): PreviewFeature {
   const geometry = createGeometry(state.geometry);
-  const compiled = styles.compile(state.style);
   const feature = new Feature<Geometry>(geometry);
-  feature.setStyle(compiled);
+  feature.setStyle(state.compiledStyle);
   return feature;
+}
+
+/** 校验并复制渲染几何，保证 render 返回后不再读取调用方数组。 */
+function copyRenderGeometryState(state: RenderGeometryState): RenderGeometryState {
+  if (state.type === 'point') return Object.freeze({ type: state.type, coordinates: copyFrozenCoordinate(state.coordinates) });
+  if (state.type === 'polyline') {
+    return Object.freeze({ type: state.type, coordinates: Object.freeze(state.coordinates.map(copyFrozenCoordinate)) });
+  }
+  if (state.type === 'polygon') {
+    return Object.freeze({
+      type: state.type,
+      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map(copyFrozenCoordinate))))
+    });
+  }
+  if (state.type !== 'circle' || !Number.isFinite(state.radius) || state.radius < 0) {
+    throw new InvalidArgumentError('Draw preview circle radius must be a finite non-negative number');
+  }
+  return Object.freeze({ type: state.type, center: copyFrozenCoordinate(state.center), radius: state.radius });
+}
+
+/** 判断现有 OpenLayers Geometry 是否能安全走原位更新快路。 */
+function geometrySupportsState(geometry: Geometry, state: RenderGeometryState): boolean {
+  if (state.type === 'point') return geometry instanceof Point;
+  if (state.type === 'polyline') return geometry instanceof LineString;
+  if (state.type === 'polygon') return geometry instanceof Polygon;
+  return geometry instanceof Circle;
+}
+
+/** 只通过 OpenLayers 公共 setter 原子发布一种完整 geometry 状态。 */
+function applyGeometryState(geometry: Geometry, state: RenderGeometryState): void {
+  if (state.type === 'point' && geometry instanceof Point) {
+    geometry.setCoordinates(copyCoordinate(state.coordinates));
+    return;
+  }
+  if (state.type === 'polyline' && geometry instanceof LineString) {
+    geometry.setCoordinates(state.coordinates.map(copyCoordinate));
+    return;
+  }
+  if (state.type === 'polygon' && geometry instanceof Polygon) {
+    geometry.setCoordinates(state.coordinates.map((ring) => ring.map(copyCoordinate)));
+    return;
+  }
+  if (state.type === 'circle' && geometry instanceof Circle) {
+    geometry.setCenterAndRadius(copyCoordinate(state.center), state.radius);
+    return;
+  }
+  throw new InvalidArgumentError('Draw preview geometry type changed during in-place update');
 }
 
 /** 将渲染几何状态转换为 OpenLayers Geometry。 */
@@ -820,7 +1017,20 @@ function field(value: unknown, key: string): unknown {
 /** 复制并冻结语义绘制事件。 */
 function freezeEvent(event: DrawInteractionEvent): DrawInteractionEvent {
   if (event.type === 'freehand-cancel') return Object.freeze({ type: event.type });
+  if (event.type === 'freehand-samples') {
+    return Object.freeze({
+      type: event.type,
+      coordinates: Object.freeze(event.coordinates.map((coordinate) => safeCoordinate(coordinate) as Coordinate))
+    });
+  }
   return Object.freeze({ type: event.type, coordinate: safeCoordinate(event.coordinate) as Coordinate });
+}
+
+/** 复制并冻结语义坐标元组。 */
+function copyFrozenCoordinate(value: Coordinate): Coordinate {
+  const coordinate = safeCoordinate(value);
+  if (coordinate === undefined) throw new InvalidArgumentError('Draw preview coordinate must contain two or three finite numbers');
+  return coordinate;
 }
 
 /** 安全上报绘制交互内部错误。 */

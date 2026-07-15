@@ -60,6 +60,8 @@ export interface InputEventMap {
 
 /** 内部接口。约定 InputPort 使用的数据和操作。 */
 export interface InputPort {
+  /** 将键盘焦点交给当前地图。 */
+  focus?(): void;
   /** 监听内部事件并返回取消函数。 */
   listen<T extends InputType>(type: T, listener: (event: InputEventMap[T]) => void): () => void;
 }

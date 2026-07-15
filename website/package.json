@@ -12,16 +12,16 @@
     "@element-plus/icons-vue": "^2.3.2",
     "@vrsim/earth-engine-ol": "file:..",
     "element-plus": "^2.14.3",
-    "ol": "^7.5.2",
-    "sass": "^1.77.8",
+    "ol": "10.9.0",
+    "sass": "^1.101.0",
     "shiki": "^4.3.1",
-    "vue": "^3.4.37",
-    "vue-router": "^4.6.4"
+    "vue": "^3.5.39",
+    "vue-router": "^5.2.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^5.1.2",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.1",
-    "vue-tsc": "^2.0.29"
+    "@vitejs/plugin-vue": "^6.0.8",
+    "typescript": "6.0.3",
+    "vite": "^8.1.4",
+    "vue-tsc": "^3.3.7"
   }
 }

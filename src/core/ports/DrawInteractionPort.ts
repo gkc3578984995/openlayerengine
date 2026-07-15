@@ -57,6 +57,12 @@ export type DrawInteractionEvent =
       readonly coordinate: Coordinate;
     }
   | {
+      /** 自由绘制批量采样事件判别字段。 */
+      readonly type: 'freehand-samples';
+      /** 同一动画帧内按输入顺序收集的中间采样坐标。 */
+      readonly coordinates: readonly Coordinate[];
+    }
+  | {
       /** 自由绘制完成事件判别字段。 */
       readonly type: 'freehand-complete';
       /** 最后一个有效采样坐标。 */

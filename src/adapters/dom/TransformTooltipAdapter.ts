@@ -77,11 +77,13 @@ class TooltipView implements TransformTooltipViewHandle {
   /** 更新提示框内容、位置和可见性。 */
   update(patch: Partial<TransformTooltipViewState>): void {
     if (this.#destroyed) return;
-    this.#state = copyState({ ...this.#state, ...patch });
-    this.#overlay?.setPosition([...this.#state.position]);
-    this.#overlay?.setOffset([...this.#state.offset]);
-    this.#render();
-    this.#applyVisibility();
+    const previous = this.#state;
+    const next = copyState({ ...previous, ...patch });
+    this.#state = next;
+    if (!numbersEqual(previous.position, next.position)) this.#overlay?.setPosition([...next.position]);
+    if (!numbersEqual(previous.offset, next.offset)) this.#overlay?.setOffset([...next.offset]);
+    if (!stringsEqual(previous.lines, next.lines)) this.#render();
+    if (previous.visible !== next.visible) this.#applyVisibility();
   }
 
   /** 显示提示框。 */
@@ -117,13 +119,18 @@ class TooltipView implements TransformTooltipViewHandle {
   #render(): void {
     const root = this.#root;
     if (root === undefined) return;
-    root.replaceChildren();
-    for (const line of this.#state.lines) {
-      const row = root.ownerDocument.createElement('div');
-      row.className = 'ol-transform-tooltip-line';
-      row.textContent = line;
-      root.append(row);
+    const rows = Array.from(root.children) as HTMLElement[];
+    for (let index = 0; index < this.#state.lines.length; index += 1) {
+      const line = this.#state.lines[index];
+      let row = rows[index];
+      if (row === undefined) {
+        row = root.ownerDocument.createElement('div');
+        row.className = 'ol-transform-tooltip-line';
+        root.append(row);
+      }
+      if (row.textContent !== line) row.textContent = line;
     }
+    for (let index = this.#state.lines.length; index < rows.length; index += 1) rows[index]?.remove();
   }
 
   /** 应用提示框可见状态。 */
@@ -154,6 +161,16 @@ function copyState(state: TransformTooltipViewState): TransformTooltipViewState 
     offset: Object.freeze([state.offset[0], state.offset[1]]) as readonly [number, number],
     visible: state.visible
   });
+}
+
+/** 判断两个数字数组是否逐项相同。 */
+function numbersEqual(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/** 判断两组提示文字是否逐项相同。 */
+function stringsEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 /** 读取不能为空的字符串。 */

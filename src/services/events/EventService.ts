@@ -2,6 +2,7 @@ import type { ElementStore } from '../../core/element/ElementStore.js';
 import { compileSelector } from '../../core/element/selector.js';
 import type { ElementSelector, ElementState } from '../../core/element/types.js';
 import { runFinalizers } from '../../core/common/dispose.js';
+import type { Coordinate, Pixel } from '../../core/common/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { InputEventMap, InputType } from '../../core/ports/InputPort.js';
@@ -64,6 +65,8 @@ export class EventService {
   #nextId = 0;
   /** 服务是否已销毁。 */
   #disposed = false;
+  /** 最近命中元素的版本化快照，避免连续移动时重复深复制。 */
+  #cachedElement: Readonly<{ id: string; revision: unknown; state: Readonly<ElementState> }> | undefined;
 
   /** 创建事件服务。 */
   constructor(router: InputRouter, store: ElementStore, errorReporter: ErrorReporter = defaultErrorReporter) {
@@ -153,6 +156,7 @@ export class EventService {
   destroy(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#cachedElement = undefined;
     this.#records.clear();
     const disposers = [...this.#routerDisposers.values()];
     this.#routerDisposers.clear();
@@ -182,7 +186,7 @@ export class EventService {
     }
 
     const pointer = event as InputEventMap[Exclude<InputType, 'keydown'>];
-    const state = pointer.elementId === undefined ? undefined : this.#store.get(pointer.elementId);
+    const state = pointer.elementId === undefined ? undefined : this.#elementState(pointer.elementId);
     for (const id of ids) {
       const current = this.#records.get(type)?.get(id);
       if (current === undefined) continue;
@@ -257,10 +261,24 @@ export class EventService {
     if (record.once) this.#remove(record.type, record.id);
     try {
       const result = record.listener(event);
-      void Promise.resolve(result).catch((error: unknown) => this.#report(error, 'listener'));
+      if (isPromiseLike(result)) void Promise.resolve(result).catch((error: unknown) => this.#report(error, 'listener'));
     } catch (error) {
       this.#report(error, 'listener');
     }
+  }
+
+  /** 按元素内容版本复用 Store 返回的冻结快照。 */
+  #elementState(id: string): Readonly<ElementState> | undefined {
+    const revision = this.#store.revisionOf(id);
+    if (revision === undefined) {
+      if (this.#cachedElement?.id === id) this.#cachedElement = undefined;
+      return undefined;
+    }
+    if (this.#cachedElement?.id === id && this.#cachedElement.revision === revision) return this.#cachedElement.state;
+    const state = this.#store.get(id);
+    if (state === undefined) return undefined;
+    this.#cachedElement = Object.freeze({ id, revision, state });
+    return state;
   }
 
   /** 创建只能执行一次的订阅释放函数。 */
@@ -308,10 +326,26 @@ function routedPointer(
 ): RoutedPointerEvent {
   return Object.freeze({
     type: event.type,
-    coordinate: Object.freeze([...event.coordinate]) as RoutedPointerEvent['coordinate'],
-    pixel: Object.freeze([...event.pixel]) as RoutedPointerEvent['pixel'],
+    coordinate: frozenCoordinate(event.coordinate),
+    pixel: frozenPair(event.pixel),
     ...(element === undefined ? {} : { element }),
     nativeEventRef: event.nativeEventRef,
     ...(phase === undefined ? {} : { phase })
   });
+}
+
+/** 保留已冻结的坐标，只为不可信输入创建完整的二维或三维副本。 */
+function frozenCoordinate(value: Coordinate): Coordinate {
+  if (Object.isFrozen(value)) return value;
+  return Object.freeze(value.length === 3 ? [value[0], value[1], value[2]] : [value[0], value[1]]) as Coordinate;
+}
+
+/** 保留已冻结的像素，只为不可信输入创建二维副本。 */
+function frozenPair(value: Pixel): Pixel {
+  return Object.isFrozen(value) ? value : (Object.freeze([value[0], value[1]]) as Pixel);
+}
+
+/** 判断回调结果是否需要异步拒绝处理。 */
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (typeof value === 'object' || typeof value === 'function') && value !== null && typeof (value as { then?: unknown }).then === 'function';
 }

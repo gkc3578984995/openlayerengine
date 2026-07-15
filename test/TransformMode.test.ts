@@ -164,6 +164,21 @@ describe('Transform 编辑模式', () => {
     expect(tooltip.state.lines.join('')).not.toContain('Shift');
   });
 
+  it('选中框范围变化后把工具栏锚定到右上角', () => {
+    const harness = createTransformHarness({});
+    addElement(harness, 'line-a', 'polyline', [
+      [0, 0],
+      [4, 2]
+    ]);
+    harness.service.select('line-a', { toolbar: {} });
+    const toolbar = harness.toolbarPort.views[0];
+    if (toolbar === undefined) throw new Error('Transform toolbar was not created.');
+
+    harness.interaction.emit({ type: 'bounds-change', topRight: [6, 5] });
+
+    expect(toolbar.updateOptions).toHaveBeenCalledWith({ position: [6, 5] });
+  });
+
   it.each(['cancel', 'finish', 'destroy'] as const)('%s 会停止尚未结束的 transient，重复清理不会泄漏或重复停止', (terminal) => {
     const harness = createTransformHarness();
     addElement(harness, 'point-a', 'point', [[1, 2]]);

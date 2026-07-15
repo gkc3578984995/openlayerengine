@@ -2,18 +2,20 @@ import Feature from 'ol/Feature.js';
 import Circle from 'ol/geom/Circle.js';
 import Geometry from 'ol/geom/Geometry.js';
 import LineString from 'ol/geom/LineString.js';
+import MultiPoint from 'ol/geom/MultiPoint.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import Interaction from 'ol/interaction/Interaction.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
 import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
-import { getUserProjection } from 'ol/proj.js';
+import { unByKey } from 'ol/Observable.js';
+import type { EventsKey } from 'ol/events.js';
+import { fromUserCoordinate, getUserProjection } from 'ol/proj.js';
 import VectorSource from 'ol/source/Vector.js';
-import CircleStyle from 'ol/style/Circle.js';
-import Fill from 'ol/style/Fill.js';
-import Stroke from 'ol/style/Stroke.js';
 import Style from 'ol/style/Style.js';
+import type { RenderFunction } from 'ol/style/Style.js';
+import RBush from 'ol/structs/RBush.js';
 import type { Coordinate } from '../../../core/common/types.js';
 import { horizontalWorldFromExtent, prepareWorldEdit, type PreparedWorldEdit } from '../../../core/common/worldWrap.js';
 import { CapabilityError, InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
@@ -29,6 +31,7 @@ import type {
 } from '../../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
+import type { ElementStyleState } from '../../../core/style/types.js';
 import type { FeatureBinding, ProjectionSuppressionLease } from '../FeatureBinding.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
@@ -45,11 +48,53 @@ interface RenderBundle {
   /** 保存预览要素的数据源。 */
   readonly source: EditSource;
   /** 该预览包含的全部要素。 */
-  readonly features: readonly EditFeature[];
-  /** 控制点要素与语义锚点的对应关系。 */
-  readonly anchors: readonly (readonly [EditFeature, EditInteractionAnchor])[];
+  features: readonly EditFeature[];
+  /** 当前预览中的完整语义锚点，供低频指针事件执行像素命中。 */
+  anchors: readonly EditInteractionAnchor[];
+  readonly anchorIndex: RBush<IndexedAnchor>;
   /** 可选的编辑底图要素。 */
-  readonly underlay: EditFeature | undefined;
+  underlay: EditFeature | undefined;
+  /** 最近一次写入底图要素的稳定语义几何引用。 */
+  underlayGeometryState: RenderGeometryState | undefined;
+  /** 最近一次写入底图要素的展示世界偏移。 */
+  underlayWorldOffset: number;
+  /** 按稳定逻辑槽位复用预览、底图和锚点要素。 */
+  readonly pool: Map<string, EditFeature>;
+}
+
+interface IndexedAnchor {
+  readonly anchor: EditInteractionAnchor;
+  readonly coordinate: Coordinate;
+  readonly order: number;
+}
+
+/** 一帧编辑预览在写入屏幕外缓冲前完成校验的不可变计划。 */
+interface RenderPlan {
+  /** 当前预览几何快照。 */
+  readonly geometry: RenderGeometryState;
+  /** 当前预览编译样式。 */
+  readonly style: ReturnType<StyleCompiler['compile']>;
+  /** 当前帧全部语义锚点。 */
+  readonly anchors: readonly EditInteractionAnchor[];
+  /** 可选的首次成功渲染底图几何。 */
+  readonly underlayGeometry: RenderGeometryState | undefined;
+  /** 可选的首次成功渲染底图样式。 */
+  readonly underlayStyle: ReturnType<StyleCompiler['compile']> | undefined;
+}
+
+/** 浏览器动画帧内只保留最后一次控制点移动。 */
+interface PendingMove {
+  readonly anchor: EditControlAnchor;
+  readonly coordinate: Coordinate;
+}
+
+/** 一类批量锚点的 Canvas 视觉参数，单位均为 CSS 像素。 */
+interface AnchorBatchVisual {
+  readonly radius: number;
+  readonly fill: string;
+  readonly stroke: string;
+  readonly strokeWidth: number;
+  readonly lineDash?: readonly number[];
 }
 
 /** 单个编辑预览要素的分步清理进度。 */
@@ -90,17 +135,57 @@ export interface EditInteractionAdapterOptions {
   readonly hitTolerance?: number;
 }
 
-/** 编辑控制点和插入点的内置样式。 */
+/** 控制点和插入点的视觉半径（CSS 像素）。 */
+const CONTROL_ANCHOR_RADIUS = 5;
+const INSERTION_ANCHOR_RADIUS = 4;
+const CONTROL_ANCHOR_HIT_RADIUS = CONTROL_ANCHOR_RADIUS + 1;
+const INSERTION_ANCHOR_HIT_RADIUS = INSERTION_ANCHOR_RADIUS + 0.75;
+
+/** 编辑控制点和插入点的批量 Canvas 样式。 */
 const controlAnchorStyle = new Style({
-  image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#3388ff', width: 2 }) })
+  renderer: createAnchorBatchRenderer({ radius: CONTROL_ANCHOR_RADIUS, fill: '#ffffff', stroke: '#3388ff', strokeWidth: 2 }),
+  zIndex: 1
 });
 const insertionAnchorStyle = new Style({
-  image: new CircleStyle({
-    radius: 4,
-    fill: new Fill({ color: 'rgba(255,255,255,0.75)' }),
-    stroke: new Stroke({ color: '#3388ff', width: 1.5, lineDash: [3, 2] })
-  })
+  renderer: createAnchorBatchRenderer({
+    radius: INSERTION_ANCHOR_RADIUS,
+    fill: 'rgba(255,255,255,0.75)',
+    stroke: '#3388ff',
+    strokeWidth: 1.5,
+    lineDash: [3, 2]
+  }),
+  zIndex: 0
 });
+
+/** 为一个 MultiPoint 批次创建单路径 Canvas renderer。 */
+function createAnchorBatchRenderer(visual: AnchorBatchVisual): RenderFunction {
+  return (coordinates, state) => {
+    const points = coordinates as readonly (readonly number[])[];
+    if (points.length === 0) return;
+    const context = state.context;
+    const pixelRatio = state.pixelRatio;
+    const radius = visual.radius * pixelRatio;
+    context.save();
+    try {
+      context.beginPath();
+      for (const point of points) {
+        const x = point[0];
+        const y = point[1];
+        if (x === undefined || y === undefined) continue;
+        context.moveTo(x + radius, y);
+        context.arc(x, y, radius, 0, 2 * Math.PI);
+      }
+      context.fillStyle = visual.fill;
+      context.fill();
+      context.strokeStyle = visual.stroke;
+      context.lineWidth = visual.strokeWidth * pixelRatio;
+      if (visual.lineDash !== undefined) context.setLineDash(visual.lineDash.map((length) => length * pixelRatio));
+      context.stroke();
+    } finally {
+      context.restore();
+    }
+  };
+}
 
 /**
  * 将语义编辑端口映射为独立的 OpenLayers 临时图层、交互、锚点命中测试和投影抑制租约。
@@ -175,7 +260,7 @@ export class EditInteractionAdapter implements EditInteractionPort {
     let transientLayer: EditLayer | undefined;
     let handle: OpenLayersEditInteractionHandle | undefined;
     try {
-      transientSource = new VectorSource<EditFeature>({ wrapX: persistentSource.getWrapX() });
+      transientSource = new VectorSource<EditFeature>({ wrapX: false });
       const targetZIndex = targetLayer.getZIndex();
       transientLayer = new VectorLayer<EditSource>({
         source: transientSource,
@@ -248,8 +333,8 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
   readonly #hitTolerance: number;
   /** 接收监听器和清理错误。 */
   readonly #errorReporter: ErrorReporter;
-  /** 从控制点要素反查语义锚点。 */
-  readonly #anchorByFeature = new WeakMap<EditFeature, EditInteractionAnchor>();
+  /** 视图中心变化监听器的取消键。 */
+  #viewCenterKey: EventsKey | undefined;
   /** 等待继续清理的旧预览资源。 */
   readonly #retired = new Set<BundleCleanupProgress>();
   /** 当前编辑在循环世界中的放置结果。 */
@@ -258,8 +343,32 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
   #suppression: ProjectionSuppressionLease;
   /** 当前显示的完整预览。 */
   #bundle: RenderBundle | undefined;
+  /** 屏幕外等待下一帧更新的双缓冲预览。 */
+  #staging: RenderBundle | undefined;
+  /** 首次成功渲染时冻结的底图几何。 */
+  #underlayGeometry: RenderGeometryState | undefined;
+  /** 首次成功渲染时冻结的底图样式。 */
+  #underlayStyle: ReturnType<StyleCompiler['compile']> | undefined;
+  /** 最近一次成功编译的元素样式引用。 */
+  #compiledStyleState: ElementStyleState | undefined;
+  /** 同一编辑会话复用的已编译预览样式。 */
+  #compiledStyle: ReturnType<StyleCompiler['compile']> | undefined;
+  /** 最近一次成功渲染的 Core 编辑世界计划。 */
+  #currentPlan: RenderPlan | undefined;
+  /** Core 编辑世界到当前展示世界的水平偏移。 */
+  #worldOffset = 0;
+  /** 拖拽或渲染期间需要延迟应用的跨世界重定位。 */
+  #worldRepositionPending = false;
   /** 当前正在拖拽的控制点。 */
   #dragAnchor: EditControlAnchor | undefined;
+  /** 拖拽开始时冻结的展示世界偏移。 */
+  #dragPresentationOffset: number | undefined;
+  /** 等待下一动画帧发布的最新移动。 */
+  #pendingMove: PendingMove | undefined;
+  /** 当前移动合并使用的动画帧句柄。 */
+  #moveFrame: number | undefined;
+  /** 使已取消但仍回调的旧动画帧失效。 */
+  #moveFrameToken = 0;
   /** 句柄是否已经允许派发事件。 */
   #published = false;
   /** 是否正在提交新的预览。 */
@@ -305,7 +414,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     this.#listener = listener;
     this.#hitTolerance = hitTolerance;
     this.#errorReporter = errorReporter;
-    this.#bundle = { source, features: [], anchors: [], underlay: undefined };
+    this.#bundle = emptyRenderBundle(source);
   }
 
   /** 将投影抑制租约所有权交给当前句柄。 */
@@ -315,6 +424,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
 
   /** 标记安装完成，允许后续事件向外发布。 */
   publish(): void {
+    if (this.placement.handoff.kind === 'wrapped') this.#viewCenterKey = this.#map.getView().on('change:center', this.#onViewCenterChange);
     this.#published = true;
   }
 
@@ -325,19 +435,27 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       const type = event.type;
       if (isPointerCancel(event)) {
         const anchor = this.#dragAnchor;
+        this.#cancelPendingMove();
         if (anchor === undefined) return true;
         this.#dragAnchor = undefined;
-        this.#emit({ type: 'move-cancel', anchor });
+        this.#dragPresentationOffset = undefined;
+        try {
+          this.#emit({ type: 'move-cancel', anchor });
+        } finally {
+          this.#flushWorldReposition();
+        }
         return false;
       }
 
       if (type === 'pointerdown') {
         if (!isPrimary(event, true)) return true;
-        const anchor = this.#anchorAt(event);
+        const anchor = this.#anchorAt(event, 'control');
         if (anchor?.kind === 'control' && !isAlt(event)) {
-          const coordinate = safeCoordinate(event.coordinate);
+          const coordinate = this.#canonicalCoordinate(event.coordinate);
           if (coordinate === undefined) return true;
+          this.#cancelPendingMove();
           this.#dragAnchor = anchor;
+          this.#dragPresentationOffset = this.#worldOffset;
           this.#emit({ type: 'move-start', anchor, coordinate });
         }
         return anchor === undefined;
@@ -345,21 +463,28 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
 
       const dragAnchor = this.#dragAnchor;
       if (dragAnchor !== undefined && type === 'pointerdrag') {
-        const coordinate = safeCoordinate(event.coordinate);
+        const coordinate = this.#canonicalCoordinate(event.coordinate);
         if (!isPrimary(event, false) || coordinate === undefined) return false;
-        this.#emit({ type: 'move', anchor: dragAnchor, coordinate });
+        this.#queueMove(dragAnchor, coordinate);
         return false;
       }
       if (dragAnchor !== undefined && type === 'pointerup') {
+        this.#flushPendingMove();
+        if (this.#closing) return false;
+        const coordinate = this.#canonicalCoordinate(event.coordinate);
         this.#dragAnchor = undefined;
-        const coordinate = safeCoordinate(event.coordinate);
-        if (!isPrimary(event, false) || coordinate === undefined) this.#emit({ type: 'move-cancel', anchor: dragAnchor });
-        else this.#emit({ type: 'move-end', anchor: dragAnchor, coordinate });
+        this.#dragPresentationOffset = undefined;
+        try {
+          if (!isPrimary(event, false) || coordinate === undefined) this.#emit({ type: 'move-cancel', anchor: dragAnchor });
+          else this.#emit({ type: 'move-end', anchor: dragAnchor, coordinate });
+        } finally {
+          this.#flushWorldReposition();
+        }
         return false;
       }
 
       if (type !== 'click' || !isPrimary(event, true)) return true;
-      const anchor = this.#anchorAt(event);
+      const anchor = this.#anchorAt(event, isAlt(event) ? 'control' : 'insertion');
       if (anchor?.kind === 'insertion' && !isAlt(event)) {
         this.#emit({ type: 'insert', anchor });
         return false;
@@ -380,16 +505,37 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     if (this.#closing) throw new ObjectDisposedError('Edit interaction has been destroyed');
     if (this.#rendering) throw new InvalidArgumentError('Edit interaction render is already in progress');
     this.#rendering = true;
-    let prepared: RenderBundle | undefined;
     try {
-      const current = this.#requireBundle();
-      prepared = prepareRenderBundle(
-        state,
-        this.#styles,
-        this.#spec.underlay ? current.underlay : undefined,
-        this.#spec.underlay,
-        current.source.getWrapX() === true
+      this.#requireBundle();
+      const safeState = validateRenderState(state);
+      const geometry = validateRenderGeometry(safeState.geometry);
+      const plan = prepareRenderPlan(
+        safeState,
+        geometry,
+        this.#styleFor(safeState.style),
+        this.#spec.underlay ? this.#underlayGeometry : undefined,
+        this.#spec.underlay ? this.#underlayStyle : undefined,
+        this.#spec.underlay
       );
+      this.#renderPreparedPlan(plan, this.#worldOffset);
+      this.#currentPlan = plan;
+    } finally {
+      this.#rendering = false;
+      this.#flushWorldReposition();
+    }
+  }
+
+  /** 把已校验计划写入屏幕外缓冲，并原子交接给临时图层。 */
+  #renderPreparedPlan(plan: RenderPlan, worldOffset: number): void {
+    let prepared: RenderBundle | undefined = this.#takeStaging();
+    try {
+      try {
+        syncRenderBundle(prepared, plan, worldOffset, this.#map);
+      } catch (error) {
+        this.#retire(prepared, 'render-prepared-cleanup');
+        prepared = undefined;
+        throw error;
+      }
       if (this.#closing) throw new ObjectDisposedError('Edit interaction was destroyed during render');
       const previousSource = this.#layer.getSource();
       try {
@@ -410,10 +556,11 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
           throw error;
         }
         if (this.#layer.getSource() === previousSource) {
-          this.#retire(prepared, 'render-rollback-cleanup');
+          this.#keepStaging(prepared);
           prepared = undefined;
         } else {
           this.#adopt(prepared);
+          this.#commitUnderlay(plan);
           prepared = undefined;
           this.#closing = true;
           this.#published = false;
@@ -421,6 +568,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
         throw error;
       }
       this.#adopt(prepared);
+      this.#commitUnderlay(plan);
       prepared = undefined;
       if (this.#closing) throw new ObjectDisposedError('Edit interaction was destroyed during render');
     } finally {
@@ -428,7 +576,6 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
         if (this.#closing) this.#retireAfterClosing(prepared, 'render-closing-cleanup');
         else this.#retire(prepared, 'render-prepared-cleanup');
       }
-      this.#rendering = false;
     }
   }
 
@@ -438,9 +585,23 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     this.#closing = true;
     this.#published = false;
     this.#dragAnchor = undefined;
+    this.#dragPresentationOffset = undefined;
+    this.#worldRepositionPending = false;
+    this.#cancelPendingMove();
+    this.#currentPlan = undefined;
+    this.#underlayGeometry = undefined;
+    this.#underlayStyle = undefined;
+    this.#compiledStyleState = undefined;
+    this.#compiledStyle = undefined;
     const failures: unknown[] = [];
     this.#destroyRunning = true;
     try {
+      const viewCenterKey = this.#viewCenterKey;
+      if (viewCenterKey !== undefined) {
+        const failureCount = failures.length;
+        capture(failures, () => unByKey(viewCenterKey));
+        if (failures.length === failureCount && this.#viewCenterKey === viewCenterKey) this.#viewCenterKey = undefined;
+      }
       if (!this.#deactivated) {
         capture(failures, () => this.#interaction.setActive(false));
         inspect(
@@ -478,6 +639,11 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       if (current !== undefined) {
         this.#bundle = undefined;
         this.#enqueueRetirement(current);
+      }
+      const staging = this.#staging;
+      if (staging !== undefined) {
+        this.#staging = undefined;
+        if (staging !== current) this.#enqueueRetirement(staging);
       }
       this.#cleanupRetired(failures);
       if (!this.#layerSourceCleared) {
@@ -572,13 +738,49 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
-  /** 接管新的预览资源并登记控制点。 */
+  /** 取得屏幕外缓冲；首次渲染时只额外创建一个数据源。 */
+  #takeStaging(): RenderBundle {
+    const staging = this.#staging ?? emptyRenderBundle(new VectorSource<EditFeature>({ wrapX: false }));
+    this.#staging = undefined;
+    return staging;
+  }
+
+  /** 失败回滚后保留已准备好的屏幕外缓冲，供下一帧原位更新。 */
+  #keepStaging(bundle: RenderBundle): void {
+    if (this.#closing) {
+      this.#retireAfterClosing(bundle, 'render-closing-cleanup');
+      return;
+    }
+    const previous = this.#staging;
+    this.#staging = bundle;
+    if (previous !== undefined && previous !== bundle) this.#retire(previous, 'render-staging-replace');
+  }
+
+  /** 接管新的预览资源并把上一帧转为下一次更新使用的屏幕外缓冲。 */
   #adopt(bundle: RenderBundle): void {
     if (this.#closing) throw new ObjectDisposedError('Edit interaction was destroyed during render');
     const previous = this.#bundle;
     this.#bundle = bundle;
-    for (const [feature, anchor] of bundle.anchors) this.#anchorByFeature.set(feature, anchor);
-    if (previous !== undefined) this.#retire(previous, 'render-retire');
+    this.#staging = previous;
+  }
+
+  /** 首次成功交接时冻结底图的几何与样式，后续双缓冲只复用该快照。 */
+  #commitUnderlay(plan: RenderPlan): void {
+    if (!this.#spec.underlay || this.#underlayGeometry !== undefined) return;
+    if (plan.underlayGeometry === undefined || plan.underlayStyle === undefined) {
+      throw new CapabilityError('Edit underlay snapshot was not prepared');
+    }
+    this.#underlayGeometry = plan.underlayGeometry;
+    this.#underlayStyle = plan.underlayStyle;
+  }
+
+  /** 样式引用未变化时复用编译结果；失败不会污染上一份可用缓存。 */
+  #styleFor(style: ElementStyleState): ReturnType<StyleCompiler['compile']> {
+    if (this.#compiledStyleState === style && this.#compiledStyle !== undefined) return this.#compiledStyle;
+    const compiled = this.#styles.compile(style);
+    this.#compiledStyleState = style;
+    this.#compiledStyle = compiled;
+    return compiled;
   }
 
   /** 获取当前预览，不存在时抛出统一错误。 */
@@ -588,19 +790,171 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     return bundle;
   }
 
-  /** 查询指针事件命中的编辑锚点。 */
-  #anchorAt(event: MapBrowserEvent): EditInteractionAnchor | undefined {
+  /** 把展示世界中的输入坐标恢复为本次编辑固定的 Core 世界坐标。 */
+  #canonicalCoordinate(value: unknown): Coordinate | undefined {
+    const coordinate = safeCoordinate(value);
+    if (coordinate === undefined) return undefined;
+    const frozenOffset = this.#dragPresentationOffset ?? this.#worldOffset;
+    const viewOffset = this.#dragPresentationOffset === undefined ? frozenOffset : worldOffsetForEdit(this.#map, this.placement);
+    const replayOffset = frozenOffset - viewOffset;
+    const replayed = replayOffset === 0 ? coordinate : shiftCoordinate(coordinate, replayOffset);
+    return frozenOffset === 0 ? replayed : shiftCoordinate(replayed, -frozenOffset);
+  }
+
+  /** 视图跨越整数世界时更新预览副本；拖拽和渲染期间只记录待处理状态。 */
+  readonly #onViewCenterChange = (): void => {
+    if (this.#closing || !this.#published) return;
+    try {
+      this.#repositionForView();
+    } catch (error) {
+      report(this.#errorReporter, error, 'view-center');
+    }
+  };
+
+  /** 在安全时机应用待处理的展示世界重定位，不把失败传播到输入或渲染调用方。 */
+  #flushWorldReposition(): void {
+    if (!this.#worldRepositionPending || this.#closing || !this.#published || this.#dragAnchor !== undefined || this.#rendering) return;
+    try {
+      this.#repositionForView();
+    } catch (error) {
+      report(this.#errorReporter, error, 'view-center-pending');
+    }
+  }
+
+  /** 仅在整数世界发生变化时，以双缓冲方式整体平移预览和锚点索引。 */
+  #repositionForView(): void {
+    if (this.#closing || !this.#published) return;
+    if (this.#dragAnchor !== undefined || this.#rendering) {
+      this.#worldRepositionPending = true;
+      return;
+    }
+    const nextOffset = worldOffsetForEdit(this.#map, this.placement);
+    if (nextOffset === this.#worldOffset) {
+      this.#worldRepositionPending = false;
+      return;
+    }
+    const plan = this.#currentPlan;
+    if (plan === undefined) {
+      this.#worldOffset = nextOffset;
+      this.#worldRepositionPending = false;
+      return;
+    }
+    this.#worldRepositionPending = false;
+    this.#rendering = true;
+    try {
+      this.#renderPreparedPlan(plan, nextOffset);
+      this.#worldOffset = nextOffset;
+    } catch (error) {
+      this.#worldRepositionPending = true;
+      throw error;
+    } finally {
+      this.#rendering = false;
+    }
+  }
+
+  /** 在完整语义锚点上按像素距离查询最近命中，并优先返回当前操作需要的类型。 */
+  #anchorAt(event: MapBrowserEvent, preferredKind: EditInteractionAnchor['kind']): EditInteractionAnchor | undefined {
     const pixel = safePixel(event.pixel);
     if (pixel === undefined) return undefined;
-    return this.#map.forEachFeatureAtPixel(
-      [...pixel],
-      (feature) => (feature instanceof Feature ? this.#anchorByFeature.get(feature as EditFeature) : undefined),
-      {
-        layerFilter: (layer) => layer === this.#layer,
-        hitTolerance: this.#hitTolerance,
-        checkWrapped: true
+    const bundle = this.#requireBundle();
+    const coordinate = safeCoordinate(this.#map.getCoordinateFromPixelInternal(pixel as unknown as number[]));
+    if (coordinate === undefined) return undefined;
+    const resolution = this.#map.getView().getResolution();
+    const maximumTolerance = this.#hitTolerance + Math.max(CONTROL_ANCHOR_HIT_RADIUS, INSERTION_ANCHOR_HIT_RADIUS);
+    const candidates =
+      resolution !== undefined && Number.isFinite(resolution) && resolution > 0
+        ? bundle.anchorIndex.getInExtent([
+            coordinate[0] - maximumTolerance * resolution,
+            coordinate[1] - maximumTolerance * resolution,
+            coordinate[0] + maximumTolerance * resolution,
+            coordinate[1] + maximumTolerance * resolution
+          ])
+        : bundle.anchorIndex.getAll();
+    let preferred: EditInteractionAnchor | undefined;
+    let preferredDistance = Number.POSITIVE_INFINITY;
+    let preferredOrder = -1;
+    let fallback: EditInteractionAnchor | undefined;
+    let fallbackDistance = Number.POSITIVE_INFINITY;
+    let fallbackOrder = -1;
+    for (const indexed of candidates) {
+      const anchor = indexed.anchor;
+      const anchorPixel = safePixel(this.#map.getPixelFromCoordinate(indexed.coordinate as unknown as number[]));
+      if (anchorPixel === undefined) continue;
+      const deltaX = anchorPixel[0] - pixel[0];
+      const deltaY = anchorPixel[1] - pixel[1];
+      const distance = deltaX * deltaX + deltaY * deltaY;
+      const radius = anchor.kind === 'control' ? CONTROL_ANCHOR_HIT_RADIUS : INSERTION_ANCHOR_HIT_RADIUS;
+      const tolerance = radius + this.#hitTolerance;
+      if (distance > tolerance * tolerance) continue;
+      if (anchor.kind === preferredKind) {
+        if (distance < preferredDistance || (distance === preferredDistance && indexed.order > preferredOrder)) {
+          preferred = anchor;
+          preferredDistance = distance;
+          preferredOrder = indexed.order;
+        }
+      } else if (distance < fallbackDistance || (distance === fallbackDistance && indexed.order > fallbackOrder)) {
+        fallback = anchor;
+        fallbackDistance = distance;
+        fallbackOrder = indexed.order;
       }
-    );
+    }
+    return preferred ?? fallback;
+  }
+
+  /** 浏览器中把同一动画帧内的 pointerdrag 合并为最后一个坐标；无 rAF 时保持同步语义。 */
+  #queueMove(anchor: EditControlAnchor, coordinate: Coordinate): void {
+    const requestFrame = globalThis.requestAnimationFrame;
+    if (typeof requestFrame !== 'function') {
+      this.#emit({ type: 'move', anchor, coordinate });
+      return;
+    }
+    this.#pendingMove = { anchor, coordinate };
+    if (this.#moveFrame !== undefined) return;
+    const token = ++this.#moveFrameToken;
+    try {
+      this.#moveFrame = requestFrame.call(globalThis, () => {
+        if (token !== this.#moveFrameToken) return;
+        this.#moveFrame = undefined;
+        const pending = this.#pendingMove;
+        this.#pendingMove = undefined;
+        if (pending === undefined || this.#closing || !this.#published || this.#dragAnchor !== pending.anchor) return;
+        this.#emit({ type: 'move', anchor: pending.anchor, coordinate: pending.coordinate });
+      });
+    } catch (error) {
+      this.#moveFrame = undefined;
+      this.#pendingMove = undefined;
+      report(this.#errorReporter, error, 'move-frame-request');
+      this.#emit({ type: 'move', anchor, coordinate });
+    }
+  }
+
+  /** pointerup 前同步发布最后一个待处理移动，保证 move-end 的事件顺序。 */
+  #flushPendingMove(): void {
+    const pending = this.#pendingMove;
+    this.#pendingMove = undefined;
+    this.#cancelMoveFrame();
+    if (pending === undefined || this.#closing || !this.#published || this.#dragAnchor !== pending.anchor) return;
+    this.#emit({ type: 'move', anchor: pending.anchor, coordinate: pending.coordinate });
+  }
+
+  /** 取消待处理移动，供 cancel 与 destroy 阶段阻止迟到回调。 */
+  #cancelPendingMove(): void {
+    this.#pendingMove = undefined;
+    this.#cancelMoveFrame();
+  }
+
+  /** 取消当前动画帧并使无法取消的迟到回调失效。 */
+  #cancelMoveFrame(): void {
+    const frame = this.#moveFrame;
+    this.#moveFrame = undefined;
+    this.#moveFrameToken += 1;
+    const cancelFrame = globalThis.cancelAnimationFrame;
+    if (frame === undefined || typeof cancelFrame !== 'function') return;
+    try {
+      cancelFrame.call(globalThis, frame);
+    } catch (error) {
+      report(this.#errorReporter, error, 'move-frame-cancel');
+    }
   }
 
   /** 冻结并发布语义编辑事件。 */
@@ -632,7 +986,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       source: bundle.source,
       sourceCleared: false,
       features: new Set(
-        bundle.features.map((feature) => ({
+        [...bundle.pool.values()].map((feature) => ({
           feature,
           geometryCleared: false,
           styleCleared: false,
@@ -725,8 +1079,10 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       this.#deactivated &&
       this.#layerRemoved &&
       this.#interactionRemoved &&
+      this.#viewCenterKey === undefined &&
       this.#layerSourceCleared &&
       this.#bundle === undefined &&
+      this.#staging === undefined &&
       this.#retired.size === 0 &&
       this.#layerDisposed &&
       this.#suppressionReleased
@@ -758,69 +1114,425 @@ function placementFor(map: OlMap, source: EditSource, controlPoints: readonly Co
   return prepareWorldEdit(controlPoints, { ...(world === undefined ? {} : { world }), ...(referenceX === undefined ? {} : { referenceX }) });
 }
 
-/** 根据编辑渲染状态准备一组完整预览资源。 */
-function prepareRenderBundle(
-  state: Readonly<EditInteractionRenderState>,
-  styles: StyleCompiler,
-  existingUnderlay: EditFeature | undefined,
-  includeUnderlay: boolean,
-  wrapX: boolean
-): RenderBundle {
+/** 计算初始编辑世界到当前视图最近整数世界副本的水平偏移。 */
+function worldOffsetForEdit(map: OlMap, placement: PreparedWorldEdit): number {
+  if (placement.handoff.kind === 'identity') return 0;
+  const reference = placement.controlPoints[0];
+  const center = map.getView().getCenter();
+  if (reference === undefined || center === undefined || !Number.isFinite(center[0])) return 0;
+  const offset = Math.round((center[0] - reference[0]) / placement.handoff.world.width) * placement.handoff.world.width;
+  return Number.isFinite(offset) ? offset : 0;
+}
+
+/** 水平平移坐标并保留可选高度。 */
+function shiftCoordinate(coordinate: Coordinate, offset: number): Coordinate {
+  const x = coordinate[0] + offset;
+  if (!Number.isFinite(x)) throw new InvalidArgumentError('Shifted edit world coordinate must be finite');
+  return Object.freeze(coordinate.length === 3 ? [x, coordinate[1], coordinate[2]] : [x, coordinate[1]]) as Coordinate;
+}
+
+/** 创建尚未写入任何预览要素的双缓冲资源。 */
+function emptyRenderBundle(source: EditSource): RenderBundle {
+  return {
+    source,
+    features: [],
+    anchors: [],
+    anchorIndex: new RBush<IndexedAnchor>(),
+    underlay: undefined,
+    underlayGeometryState: undefined,
+    underlayWorldOffset: 0,
+    pool: new Map()
+  };
+}
+
+/** 校验渲染状态外壳，并保留原始样式引用供会话级缓存命中。 */
+function validateRenderState(state: Readonly<EditInteractionRenderState>): Readonly<EditInteractionRenderState> {
   if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Edit render state must be an object');
   if (!Array.isArray(state.anchors)) throw new InvalidArgumentError('Edit render anchors must be an array');
-  const compiled = styles.compile(state.style);
-  const preview = new Feature<Geometry>(createGeometry(state.geometry));
-  preview.setStyle(compiled);
-  const underlay = includeUnderlay
-    ? existingUnderlay === undefined
-      ? createStyledFeature(state.geometry, compiled)
-      : cloneStyledFeature(existingUnderlay)
-    : undefined;
-  const anchors: Array<readonly [EditFeature, EditInteractionAnchor]> = [];
-  for (const input of state.anchors) {
-    const anchor = snapshotAnchor(input);
-    const feature = new Feature<Geometry>(new Point([...anchor.coordinate]));
-    feature.setStyle(anchor.kind === 'control' ? controlAnchorStyle : insertionAnchorStyle);
-    anchors.push([feature, anchor]);
+  return state;
+}
+
+/** 在写入屏幕外缓冲前校验并冻结一帧完整渲染计划。 */
+function prepareRenderPlan(
+  state: Readonly<EditInteractionRenderState>,
+  geometry: RenderGeometryState,
+  style: ReturnType<StyleCompiler['compile']>,
+  existingUnderlayGeometry: RenderGeometryState | undefined,
+  existingUnderlayStyle: ReturnType<StyleCompiler['compile']> | undefined,
+  includeUnderlay: boolean
+): RenderPlan {
+  const anchors = snapshotAnchors(state.anchors);
+  const stableGeometry = renderGeometryIsFrozen(geometry) ? geometry : snapshotRenderGeometry(geometry);
+  return Object.freeze({
+    geometry: stableGeometry,
+    style,
+    anchors,
+    underlayGeometry: includeUnderlay ? (existingUnderlayGeometry ?? stableGeometry) : undefined,
+    underlayStyle: includeUnderlay ? (existingUnderlayStyle ?? style) : undefined
+  });
+}
+
+/** 一次线性校验渲染几何；OpenLayers setter 会在当前调用内复制坐标。 */
+function validateRenderGeometry(state: RenderGeometryState): RenderGeometryState {
+  if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Edit preview geometry must be an object');
+  if (state.type === 'point') {
+    assertCoordinate(state.coordinates);
+    return state;
   }
-  const features = Object.freeze([...(underlay === undefined ? [] : [underlay]), preview, ...anchors.map(([feature]) => feature)]);
-  const source = new VectorSource<EditFeature>({ features: [...features], wrapX });
-  return { source, features, anchors: Object.freeze(anchors), underlay };
+  if (state.type === 'polyline') {
+    if (!Array.isArray(state.coordinates)) throw new InvalidArgumentError('Edit preview polyline coordinates must be an array');
+    for (const coordinate of state.coordinates) assertCoordinate(coordinate);
+    return state;
+  }
+  if (state.type === 'polygon') {
+    if (!Array.isArray(state.coordinates)) throw new InvalidArgumentError('Edit preview polygon coordinates must be an array');
+    for (const ring of state.coordinates) {
+      if (!Array.isArray(ring)) throw new InvalidArgumentError('Edit preview polygon ring must be an array');
+      for (const coordinate of ring) assertCoordinate(coordinate);
+    }
+    return state;
+  }
+  if (state.type === 'circle') {
+    assertCoordinate(state.center);
+    if (!Number.isFinite(state.radius) || state.radius < 0) throw new InvalidArgumentError('Edit preview circle radius must be a finite non-negative number');
+    return state;
+  }
+  throw new InvalidArgumentError('Unknown edit preview geometry type');
 }
 
-/** 创建带样式的编辑预览要素。 */
-function createStyledFeature(geometry: RenderGeometryState, style: ReturnType<StyleCompiler['compile']>): EditFeature {
-  const feature = new Feature<Geometry>(createGeometry(geometry));
-  feature.setStyle(style);
+/** 原位更新屏幕外缓冲中的 Feature、Geometry 与数据源差异。 */
+function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: number, map: OlMap): void {
+  const preview = pooledFeature(bundle, 'preview');
+  updateFeatureGeometry(preview, plan.geometry, worldOffset);
+  if (preview.getStyle() !== plan.style) preview.setStyle(plan.style);
+
+  let underlay: EditFeature | undefined;
+  if (plan.underlayGeometry !== undefined && plan.underlayStyle !== undefined) {
+    underlay = pooledFeature(bundle, 'underlay');
+    if (bundle.underlayGeometryState !== plan.underlayGeometry || bundle.underlayWorldOffset !== worldOffset || underlay.getGeometry() === undefined) {
+      updateFeatureGeometry(underlay, plan.underlayGeometry, worldOffset);
+      bundle.underlayGeometryState = plan.underlayGeometry;
+      bundle.underlayWorldOffset = worldOffset;
+    }
+    if (underlay.getStyle() !== plan.underlayStyle) underlay.setStyle(plan.underlayStyle);
+  } else {
+    bundle.underlayGeometryState = undefined;
+    bundle.underlayWorldOffset = 0;
+  }
+  const controlCoordinates: Coordinate[] = [];
+  const insertionCoordinates: Coordinate[] = [];
+  const indexedAnchors: IndexedAnchor[] = [];
+  const anchorExtents: number[][] = [];
+  for (let order = 0; order < plan.anchors.length; order += 1) {
+    const anchor = plan.anchors[order];
+    if (anchor === undefined) continue;
+    const coordinate = worldOffset === 0 ? anchor.coordinate : shiftCoordinate(anchor.coordinate, worldOffset);
+    if (anchor.kind === 'control') controlCoordinates.push(coordinate);
+    else insertionCoordinates.push(coordinate);
+    const internalCoordinate = coordinateForIndex(map, coordinate);
+    indexedAnchors.push({ anchor, coordinate, order });
+    anchorExtents.push([internalCoordinate[0], internalCoordinate[1], internalCoordinate[0], internalCoordinate[1]]);
+  }
+  bundle.anchorIndex.clear();
+  if (indexedAnchors.length > 0) bundle.anchorIndex.load(anchorExtents, indexedAnchors);
+
+  let insertionAnchors: EditFeature | undefined;
+  if (insertionCoordinates.length > 0) {
+    insertionAnchors = pooledFeature(bundle, 'anchors:insertion');
+    updateMultiPointGeometry(insertionAnchors, insertionCoordinates);
+    if (insertionAnchors.getStyle() !== insertionAnchorStyle) insertionAnchors.setStyle(insertionAnchorStyle);
+  }
+  let controlAnchors: EditFeature | undefined;
+  if (controlCoordinates.length > 0) {
+    controlAnchors = pooledFeature(bundle, 'anchors:control');
+    updateMultiPointGeometry(controlAnchors, controlCoordinates);
+    if (controlAnchors.getStyle() !== controlAnchorStyle) controlAnchors.setStyle(controlAnchorStyle);
+  }
+  const features: readonly EditFeature[] = Object.freeze([
+    ...(underlay === undefined ? [] : [underlay]),
+    preview,
+    ...(insertionAnchors === undefined ? [] : [insertionAnchors]),
+    ...(controlAnchors === undefined ? [] : [controlAnchors])
+  ]);
+  syncBundleSource(bundle, features);
+  bundle.features = features;
+  bundle.anchors = plan.anchors;
+  bundle.underlay = underlay;
+}
+
+/** 把用户投影中的展示坐标转换为视图投影，供 RBush 与分辨率使用同一单位。 */
+function coordinateForIndex(map: OlMap, coordinate: Coordinate): readonly [number, number] {
+  const transformed = getUserProjection() === null ? coordinate : fromUserCoordinate(coordinate as unknown as number[], map.getView().getProjection());
+  const x = transformed[0];
+  const y = transformed[1];
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InvalidArgumentError('Edit anchor projection must produce finite coordinates');
+  return [x, y];
+}
+
+/** 只为展示副本平移渲染几何，不修改 Core 编辑世界中的快照。 */
+function presentationGeometry(state: RenderGeometryState, worldOffset: number): RenderGeometryState {
+  if (worldOffset === 0) return state;
+  if (state.type === 'point') return Object.freeze({ type: 'point', coordinates: shiftCoordinate(state.coordinates, worldOffset) });
+  if (state.type === 'polyline') {
+    return Object.freeze({ type: 'polyline', coordinates: Object.freeze(state.coordinates.map((value) => shiftCoordinate(value, worldOffset))) });
+  }
+  if (state.type === 'polygon') {
+    return Object.freeze({
+      type: 'polygon',
+      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((value) => shiftCoordinate(value, worldOffset)))))
+    });
+  }
+  return Object.freeze({ type: 'circle', center: shiftCoordinate(state.center, worldOffset), radius: state.radius });
+}
+
+/** 按逻辑槽位取得可复用的临时要素。 */
+function pooledFeature(bundle: RenderBundle, key: string): EditFeature {
+  const existing = bundle.pool.get(key);
+  if (existing !== undefined) return existing;
+  const feature = new Feature<Geometry>();
+  bundle.pool.set(key, feature);
   return feature;
 }
 
-/** 克隆要素的几何和样式。 */
-function cloneStyledFeature(source: EditFeature): EditFeature {
-  const geometry = source.getGeometry();
-  if (geometry === undefined) throw new ObjectDisposedError('Edit underlay geometry is unavailable');
-  const feature = new Feature<Geometry>(geometry.clone());
-  feature.setStyle(source.getStyle());
-  return feature;
+/** 只把要素集合差异写入屏幕外数据源。 */
+function syncBundleSource(bundle: RenderBundle, features: readonly EditFeature[]): void {
+  const previous = new Set(bundle.features);
+  const next = new Set(features);
+  for (const feature of previous) {
+    if (!next.has(feature)) bundle.source.removeFeature(feature);
+  }
+  const additions = features.filter((feature) => !previous.has(feature));
+  if (additions.length > 0) bundle.source.addFeatures(additions);
+}
+
+/** 判断渲染几何是否可以由当前计划长期安全复用。 */
+function renderGeometryIsFrozen(state: RenderGeometryState): boolean {
+  if (!Object.isFrozen(state)) return false;
+  if (state.type === 'point') return Object.isFrozen(state.coordinates);
+  if (state.type === 'polyline') return Object.isFrozen(state.coordinates) && state.coordinates.every(Object.isFrozen);
+  if (state.type === 'polygon') {
+    return Object.isFrozen(state.coordinates) && state.coordinates.every((ring) => Object.isFrozen(ring) && ring.every(Object.isFrozen));
+  }
+  return Object.isFrozen(state.center);
+}
+
+/** 深拷贝并校验渲染几何，避免调用方在缓冲切换后修改输入数组。 */
+function snapshotRenderGeometry(state: RenderGeometryState): RenderGeometryState {
+  if (state.type === 'point') return Object.freeze({ type: 'point', coordinates: Object.freeze(copyCoordinate(state.coordinates)) });
+  if (state.type === 'polyline') {
+    return Object.freeze({
+      type: 'polyline',
+      coordinates: Object.freeze(state.coordinates.map((coordinate) => Object.freeze(copyCoordinate(coordinate))))
+    });
+  }
+  if (state.type === 'polygon') {
+    return Object.freeze({
+      type: 'polygon',
+      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => Object.freeze(copyCoordinate(coordinate))))))
+    });
+  }
+  if (state.type === 'circle') {
+    return Object.freeze({ type: 'circle', center: Object.freeze(copyCoordinate(state.center)), radius: state.radius });
+  }
+  throw new InvalidArgumentError('Unknown edit preview geometry type');
 }
 
 /** 将渲染几何状态转换为 OpenLayers Geometry。 */
 function createGeometry(state: RenderGeometryState): Geometry {
-  if (state.type === 'point') return new Point(copyOlCoordinate(state.coordinates));
-  if (state.type === 'polyline') return new LineString(state.coordinates.map(copyOlCoordinate));
-  if (state.type === 'polygon') return new Polygon(state.coordinates.map((ring) => ring.map(copyOlCoordinate)));
-  if (!Number.isFinite(state.radius) || state.radius < 0) throw new InvalidArgumentError('Edit preview circle radius must be a finite non-negative number');
-  return new Circle(copyOlCoordinate(state.center), state.radius);
+  if (state.type === 'point') return new Point(state.coordinates as unknown as number[]);
+  if (state.type === 'polyline') return new LineString(state.coordinates as unknown as number[][]);
+  if (state.type === 'polygon') return new Polygon(state.coordinates as unknown as number[][][]);
+  return new Circle(state.center as unknown as number[], state.radius);
+}
+
+/** 类型不变时原位更新几何，并跳过坐标完全相同的 setter。 */
+function updateFeatureGeometry(feature: EditFeature, state: RenderGeometryState, worldOffset = 0): void {
+  const geometry = feature.getGeometry();
+  if (state.type === 'polyline' && geometry instanceof LineString && updateLineStringFlatCoordinates(geometry, state.coordinates, worldOffset)) return;
+  if (state.type === 'polygon' && geometry instanceof Polygon && updatePolygonFlatCoordinates(geometry, state.coordinates, worldOffset)) return;
+  const presented = presentationGeometry(state, worldOffset);
+  if (presented.type === 'point' && geometry instanceof Point) {
+    if (flatCoordinatesEqual(geometry, presented.coordinates)) return;
+    geometry.setCoordinates(presented.coordinates as unknown as number[]);
+    return;
+  }
+  if (presented.type === 'polyline' && geometry instanceof LineString) {
+    if (lineCoordinatesEqual(geometry, presented.coordinates)) return;
+    geometry.setCoordinates(presented.coordinates as unknown as number[][]);
+    return;
+  }
+  if (presented.type === 'polygon' && geometry instanceof Polygon) {
+    if (polygonCoordinatesEqual(geometry, presented.coordinates)) return;
+    geometry.setCoordinates(presented.coordinates as unknown as number[][][]);
+    return;
+  }
+  if (presented.type === 'circle' && geometry instanceof Circle) {
+    if (coordinatesEqual(geometry.getCenter(), presented.center) && geometry.getRadius() === presented.radius) return;
+    geometry.setCenterAndRadius(presented.center as unknown as number[], presented.radius);
+    return;
+  }
+  feature.setGeometry(createGeometry(presented));
+}
+
+/** 在屏幕外 LineString 的 flatCoordinates 上原位同步世界偏移，避免每帧分配整条坐标链。 */
+function updateLineStringFlatCoordinates(geometry: LineString, coordinates: readonly Coordinate[], worldOffset: number): boolean {
+  const flat = geometry.getFlatCoordinates();
+  const stride = geometry.getStride();
+  if (flat.length !== coordinates.length * stride || coordinates.some((coordinate) => coordinate.length !== stride)) return false;
+  let changed = false;
+  let offset = 0;
+  for (const coordinate of coordinates) {
+    for (let dimension = 0; dimension < stride; dimension += 1) {
+      const source = coordinate[dimension];
+      if (source === undefined) return false;
+      const value = dimension === 0 ? source + worldOffset : source;
+      if (!Number.isFinite(value)) throw new InvalidArgumentError('Shifted edit world coordinate must be finite');
+      if (flat[offset] !== value) {
+        flat[offset] = value;
+        changed = true;
+      }
+      offset += 1;
+    }
+  }
+  if (changed) geometry.changed();
+  return true;
+}
+
+/** 在环结构不变时原位同步 Polygon，覆盖大多边形顶点拖拽的跨世界热路径。 */
+function updatePolygonFlatCoordinates(geometry: Polygon, rings: readonly (readonly Coordinate[])[], worldOffset: number): boolean {
+  const flat = geometry.getFlatCoordinates();
+  const ends = geometry.getEnds();
+  const stride = geometry.getStride();
+  if (ends.length !== rings.length) return false;
+  let expectedEnd = 0;
+  for (let ringIndex = 0; ringIndex < rings.length; ringIndex += 1) {
+    const ring = rings[ringIndex];
+    if (ring === undefined || ring.some((coordinate) => coordinate.length !== stride)) return false;
+    expectedEnd += ring.length * stride;
+    if (ends[ringIndex] !== expectedEnd) return false;
+  }
+  if (flat.length !== expectedEnd) return false;
+  let changed = false;
+  let offset = 0;
+  for (const ring of rings) {
+    for (const coordinate of ring) {
+      for (let dimension = 0; dimension < stride; dimension += 1) {
+        const source = coordinate[dimension];
+        if (source === undefined) return false;
+        const value = dimension === 0 ? source + worldOffset : source;
+        if (!Number.isFinite(value)) throw new InvalidArgumentError('Shifted edit world coordinate must be finite');
+        if (flat[offset] !== value) {
+          flat[offset] = value;
+          changed = true;
+        }
+        offset += 1;
+      }
+    }
+  }
+  if (changed) geometry.changed();
+  return true;
+}
+
+/** 原位更新同类锚点批次，并跳过未变化的 MultiPoint setter。 */
+function updateMultiPointGeometry(feature: EditFeature, coordinates: readonly Coordinate[]): void {
+  const geometry = feature.getGeometry();
+  if (geometry instanceof MultiPoint) {
+    if (multiPointCoordinatesEqual(geometry, coordinates)) return;
+    geometry.setCoordinates(coordinates as unknown as number[][]);
+    return;
+  }
+  feature.setGeometry(new MultiPoint(coordinates as unknown as number[][]));
+}
+
+/** 无分配比较 Point 的扁平坐标。 */
+function flatCoordinatesEqual(geometry: Point, coordinate: Coordinate): boolean {
+  return coordinatesEqual(geometry.getFlatCoordinates(), coordinate);
+}
+
+/** 无分配比较 MultiPoint 的扁平坐标。 */
+function multiPointCoordinatesEqual(geometry: MultiPoint, coordinates: readonly Coordinate[]): boolean {
+  const flat = geometry.getFlatCoordinates();
+  const stride = geometry.getStride();
+  if (flat.length !== coordinates.length * stride) return false;
+  let offset = 0;
+  for (const coordinate of coordinates) {
+    if (coordinate.length !== stride) return false;
+    for (let index = 0; index < stride; index += 1) {
+      if (flat[offset] !== coordinate[index]) return false;
+      offset += 1;
+    }
+  }
+  return true;
+}
+
+/** 无分配比较 LineString 的扁平坐标。 */
+function lineCoordinatesEqual(geometry: LineString, coordinates: readonly Coordinate[]): boolean {
+  const flat = geometry.getFlatCoordinates();
+  const stride = geometry.getStride();
+  if (flat.length !== coordinates.length * stride) return false;
+  let offset = 0;
+  for (const coordinate of coordinates) {
+    if (coordinate.length !== stride) return false;
+    for (let index = 0; index < stride; index += 1) {
+      if (flat[offset] !== coordinate[index]) return false;
+      offset += 1;
+    }
+  }
+  return true;
+}
+
+/** 无分配比较 Polygon 的环终点和扁平坐标。 */
+function polygonCoordinatesEqual(geometry: Polygon, coordinates: readonly (readonly Coordinate[])[]): boolean {
+  const flat = geometry.getFlatCoordinates();
+  const ends = geometry.getEnds();
+  const stride = geometry.getStride();
+  if (ends.length !== coordinates.length) return false;
+  let offset = 0;
+  for (let ringIndex = 0; ringIndex < coordinates.length; ringIndex += 1) {
+    const ring = coordinates[ringIndex];
+    if (ring === undefined) return false;
+    for (const coordinate of ring) {
+      if (coordinate.length !== stride) return false;
+      for (let index = 0; index < stride; index += 1) {
+        if (flat[offset] !== coordinate[index]) return false;
+        offset += 1;
+      }
+    }
+    if (ends[ringIndex] !== offset) return false;
+  }
+  return offset === flat.length;
+}
+
+/** 比较 OpenLayers 与核心坐标数组。 */
+function coordinatesEqual(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 /** 复制并冻结编辑锚点快照。 */
+function snapshotAnchors(anchors: readonly EditInteractionAnchor[]): readonly EditInteractionAnchor[] {
+  if (Object.isFrozen(anchors)) {
+    let reusable = true;
+    for (const anchor of anchors) {
+      if (snapshotAnchor(anchor) !== anchor) {
+        reusable = false;
+        break;
+      }
+    }
+    if (reusable) return anchors;
+  }
+  return Object.freeze(anchors.map(snapshotAnchor));
+}
+
 function snapshotAnchor(anchor: EditInteractionAnchor): EditInteractionAnchor {
   if (anchor === null || typeof anchor !== 'object') throw new InvalidArgumentError('Edit anchor must be an object');
   if (!Number.isSafeInteger(anchor.index) || anchor.index < 0) throw new InvalidArgumentError('Edit anchor index must be a non-negative safe integer');
-  const coordinate = Object.freeze(copyCoordinate(anchor.coordinate));
-  if (anchor.kind === 'insertion') return Object.freeze({ kind: 'insertion', index: anchor.index, coordinate });
+  assertCoordinate(anchor.coordinate);
+  const reusable = Object.isFrozen(anchor) && Object.isFrozen(anchor.coordinate);
+  const coordinate = reusable ? anchor.coordinate : Object.freeze(copyCoordinate(anchor.coordinate));
+  if (anchor.kind === 'insertion') return reusable ? anchor : Object.freeze({ kind: 'insertion', index: anchor.index, coordinate });
   if (anchor.kind !== 'control' || typeof anchor.removable !== 'boolean') throw new InvalidArgumentError('Unknown edit anchor kind');
   if (anchor.role !== undefined && typeof anchor.role !== 'string') throw new InvalidArgumentError('Edit control anchor role must be a string');
+  if (reusable) return anchor;
   return Object.freeze({
     kind: 'control',
     index: anchor.index,
@@ -845,22 +1557,24 @@ function freezeEvent(event: EditInteractionEvent): EditInteractionEvent {
 
 /** 复制并冻结核心坐标。 */
 function copyCoordinate(value: Coordinate): Coordinate {
-  const coordinate = safeCoordinate(value);
-  if (coordinate === undefined) throw new InvalidArgumentError('Edit coordinate must contain two or three finite numbers');
-  return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
-}
-
-/** 复制坐标供 OpenLayers 使用。 */
-function copyOlCoordinate(value: Coordinate): number[] {
-  return [...copyCoordinate(value)];
+  assertCoordinate(value);
+  return value.length === 3 ? [value[0], value[1], value[2]] : [value[0], value[1]];
 }
 
 /** 安全读取二维或三维地图坐标。 */
 function safeCoordinate(value: unknown): Coordinate | undefined {
-  if (!Array.isArray(value) || (value.length !== 2 && value.length !== 3) || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
-    return undefined;
-  }
-  return Object.freeze([...value]) as Coordinate;
+  if (!isCoordinate(value)) return undefined;
+  return Object.freeze(value.length === 3 ? [value[0], value[1], value[2]] : [value[0], value[1]]);
+}
+
+/** 校验二维或三维有限坐标。 */
+function assertCoordinate(value: unknown): asserts value is Coordinate {
+  if (!isCoordinate(value)) throw new InvalidArgumentError('Edit coordinate must contain two or three finite numbers');
+}
+
+/** 判断未知值是否是二维或三维有限坐标。 */
+function isCoordinate(value: unknown): value is Coordinate {
+  return Array.isArray(value) && (value.length === 2 || value.length === 3) && value.every((item) => typeof item === 'number' && Number.isFinite(item));
 }
 
 /** 安全读取屏幕像素。 */

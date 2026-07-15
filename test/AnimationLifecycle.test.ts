@@ -39,6 +39,30 @@ describe('动画生命周期', () => {
     expect(render.frame('layer-b', 100).contributions[0]).toEqual(expect.objectContaining({ targetId: 'point', channel: 'pulse' }));
   });
 
+  it('图层索引在旧记录迁入时保持创建顺序并准确维护帧推进计数', () => {
+    const { manager, render, store } = createAnimationHarness([pointElement('first', { layerId: 'layer-a' }), pointElement('second', { layerId: 'layer-b' })]);
+    const first = manager.play({ id: 'first' }, { type: 'pulse', channel: 'first' });
+    const second = manager.play({ id: 'second' }, { type: 'pulse', channel: 'second' });
+
+    store.update({ id: 'first' }, { layerId: 'layer-b' });
+    expect(render.frame('layer-b', 0).contributions.map(({ targetId }) => targetId)).toEqual(['first', 'second']);
+
+    first.pause();
+    second.pause();
+    expect(render.frame('layer-b', 100).requestNextFrame).toBe(false);
+
+    second.resume();
+    expect(render.frame('layer-b', 200).requestNextFrame).toBe(true);
+
+    second.stop();
+    expect(render.frame('layer-b', 300)).toEqual(
+      expect.objectContaining({ requestNextFrame: false, contributions: [expect.objectContaining({ targetId: 'first' })] })
+    );
+
+    store.hide({ id: 'first' });
+    expect(render.activeLoopCount).toBe(0);
+  });
+
   it('运行中的 path-travel 在下一帧读取事务更新后的 geometry', () => {
     const { manager, render, store } = createAnimationHarness([polylineElement('flight')]);
     manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, repeat: false, trailLength: 0.5, showStart: false, showEnd: false, arrow: false });
@@ -68,6 +92,79 @@ describe('动画生命周期', () => {
         [200, 0]
       ]
     });
+  });
+
+  it('五万点 path-travel 每个 geometry revision 只准备一次且帧循环不再读取 Store 或转换几何', () => {
+    const { manager, render, shapes, store } = createAnimationHarness([
+      polylineElement('large-flight', { geometry: { type: 'polyline', controlPoints: largePath(0) } })
+    ]);
+    manager.play(
+      { id: 'large-flight' },
+      {
+        type: 'path-travel',
+        durationMs: 1_000_000,
+        curvature: 0,
+        smoothness: 2,
+        trailLength: 0.001,
+        arrow: false,
+        showStart: false,
+        showEnd: false
+      }
+    );
+    const get = vi.spyOn(store, 'get');
+    const getShape = vi.spyOn(shapes, 'get');
+    const hypot = vi.spyOn(Math, 'hypot');
+
+    try {
+      render.frame('default', 0);
+      expect(hypot).toHaveBeenCalledTimes(49_999);
+      render.frame('default', 16);
+      expect(hypot).toHaveBeenCalledTimes(49_999);
+      expect(get).not.toHaveBeenCalled();
+      expect(getShape).not.toHaveBeenCalled();
+
+      store.update({ id: 'large-flight' }, { geometry: { type: 'polyline', controlPoints: largePath(1) } });
+      get.mockClear();
+      getShape.mockClear();
+      hypot.mockClear();
+
+      render.frame('default', 32);
+      expect(hypot).toHaveBeenCalledTimes(49_999);
+      render.frame('default', 48);
+      expect(hypot).toHaveBeenCalledTimes(49_999);
+      expect(get).not.toHaveBeenCalled();
+      expect(getShape).not.toHaveBeenCalled();
+    } finally {
+      hypot.mockRestore();
+    }
+  });
+
+  it('retain 动画完成后保留贡献但不再请求后续帧', () => {
+    const { manager, render } = createAnimationHarness([polylineElement('retained-flight')]);
+    const handle = manager.play(
+      { id: 'retained-flight' },
+      {
+        type: 'path-travel',
+        durationMs: 100,
+        repeat: false,
+        finishBehavior: 'retain',
+        showStart: false,
+        showEnd: false,
+        arrow: false
+      }
+    );
+
+    expect(render.frame('default', 0).requestNextFrame).toBe(true);
+    const completed = render.frame('default', 100);
+    expect(completed.requestNextFrame).toBe(false);
+    expect(completed.contributions).toEqual([expect.objectContaining({ targetId: 'retained-flight' })]);
+    expect(handle.status).toBe('finished');
+    expect(manager.activeCount).toBe(1);
+    expect(render.activeLoopCount).toBe(1);
+
+    const retained = render.frame('default', 200);
+    expect(retained.requestNextFrame).toBe(false);
+    expect(retained.contributions).toEqual([expect.objectContaining({ targetId: 'retained-flight' })]);
   });
 
   it('Transform preview 只覆盖动画帧输入，清理后恢复 Store geometry 且时间连续', () => {
@@ -288,3 +385,7 @@ describe('动画生命周期', () => {
     expect(render.activeLoopCount).toBe(0);
   });
 });
+
+function largePath(offset: number): Array<[number, number]> {
+  return Array.from({ length: 50_000 }, (_, index) => [index, (index + offset) % 17]);
+}

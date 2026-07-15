@@ -24,6 +24,8 @@ import type {
 
 /** Transform 会话使用的键盘输入子集。 */
 export interface TransformKeyboardInput {
+  /** 将键盘焦点交给当前地图。 */
+  focus?(): void;
   /** 订阅键盘按下事件。 */
   on(
     type: 'keydown',

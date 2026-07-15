@@ -8,13 +8,14 @@ import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js'
 import type { InputEventMap } from '../../core/ports/InputPort.js';
 import type {
   EditControlAnchor,
+  EditInteractionAnchor,
   EditInteractionEvent,
   EditInteractionHandle,
   EditInteractionPort,
   EditInteractionRenderState
 } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
-import type { ShapeDefinition, ShapeEditTopology, ShapeState } from '../../core/shape/types.js';
+import type { ControlPointTopology, RenderGeometryState, ShapeDefinition, ShapeEditTopology, ShapeState } from '../../core/shape/types.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
 import type { ContextMenuDecision, ExclusiveInteractionSession, InteractionCancelReason, InteractionStatus } from '../events/types.js';
@@ -95,10 +96,14 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #entryRevision: ElementRevision | undefined;
   /** 当前编辑中的图形状态。 */
   #workingState: ShapeState | undefined;
+  /** 最近一次成功渲染对应的控制点拓扑。 */
+  #renderedTopology: ControlPointTopology | undefined;
   /** 拖动开始时的图形状态。 */
   #dragOrigin: ShapeState | undefined;
   /** 当前拖动控制点索引。 */
   #dragIndex: number | undefined;
+  /** 当前拖拽控制点最近一次完成世界放置的坐标。 */
+  #dragCoordinate: Coordinate | undefined;
   /** 编辑历史快照。 */
   #history: ShapeState[] = [];
   /** 当前历史索引。 */
@@ -157,7 +162,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
     const entryRevision = this.#store.revisionOf(this.elementId);
     if (entryRevision === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
-    const entry = this.#store.get<T>(this.elementId);
+    const entry = this.#store.resolve<T>(this.elementId);
     if (entry === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
     if (entry.type !== this.#definition.type) throw new InvalidArgumentError('Edit shape definition does not match the target element');
     const topology = this.#topology();
@@ -177,8 +182,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       );
       this.#handle = handle;
       if (this.#status !== 'active') throw new ObjectDisposedError('Edit session was cancelled while opening');
-      this.#workingState = this.#stateFromControlPoints(handle.placement.controlPoints);
-      this.#history = [this.#cloneShape(this.#workingState)];
+      this.#workingState = freezeShapeState(this.#stateFromControlPoints(handle.placement.controlPoints));
+      this.#history = [this.#workingState];
       this.#historyIndex = 0;
       this.#render();
       if (this.#status !== 'active') throw new ObjectDisposedError('Edit session was cancelled while opening');
@@ -263,7 +268,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   undo(): boolean {
     if (this.#status !== 'active' || this.#historyIndex === 0) return false;
     const nextIndex = this.#historyIndex - 1;
-    const nextState = this.#cloneShape(this.#history[nextIndex]);
+    const nextState = this.#history[nextIndex];
     const previousIndex = this.#historyIndex;
     const previousState = this.#workingState;
     const previousDragOrigin = this.#dragOrigin;
@@ -280,7 +285,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       this.#dragIndex = previousDragIndex;
       throw error;
     }
-    this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'undo' }));
+    this.#emit('modifying', modifyingEvent(this.#workingState, 'undo'));
     return true;
   }
 
@@ -288,7 +293,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   redo(): boolean {
     if (this.#status !== 'active' || this.#historyIndex >= this.#history.length - 1) return false;
     const nextIndex = this.#historyIndex + 1;
-    const nextState = this.#cloneShape(this.#history[nextIndex]);
+    const nextState = this.#history[nextIndex];
     const previousIndex = this.#historyIndex;
     const previousState = this.#workingState;
     const previousDragOrigin = this.#dragOrigin;
@@ -305,7 +310,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       this.#dragIndex = previousDragIndex;
       throw error;
     }
-    this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'redo' }));
+    this.#emit('modifying', modifyingEvent(this.#workingState, 'redo'));
     return true;
   }
 
@@ -385,8 +390,9 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   /** 保存控制点拖动的起始状态。 */
   #startMove(anchor: EditControlAnchor): void {
     const working = this.#requireWorkingState();
-    this.#dragOrigin = this.#definition.clone(working as never) as ShapeState;
+    this.#dragOrigin = working;
     this.#dragIndex = anchor.index;
+    this.#dragCoordinate = anchor.coordinate;
   }
 
   /** 根据拖动坐标更新控制点。 */
@@ -394,13 +400,14 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     if (this.#dragOrigin === undefined || this.#dragIndex !== anchor.index) throw new InvalidArgumentError('Edit move sequence is not active');
     const state = this.#requireWorkingState();
     const coordinate = this.#placeCoordinate(input, anchor.index);
-    this.#workingState = this.#topology().move(state as never, anchor.index, coordinate) as ShapeState;
-    this.#render();
+    this.#workingState = freezeShapeState(this.#topology().move(state as never, anchor.index, coordinate) as ShapeState);
+    this.#dragCoordinate = coordinate;
+    this.#render(end ? undefined : { anchor, coordinate });
     if (end) {
       this.#recordHistory();
       this.#clearDrag();
     }
-    this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'move', coordinate }));
+    this.#emit('modifying', modifyingEvent(this.#workingState, 'move', coordinate));
   }
 
   /** 放弃当前未完成的拖动。 */
@@ -409,6 +416,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#workingState = this.#dragOrigin;
     this.#dragOrigin = undefined;
     this.#dragIndex = undefined;
+    this.#dragCoordinate = undefined;
     this.#render();
   }
 
@@ -417,46 +425,45 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     const topology = this.#topology();
     if (topology.insert === undefined) throw new InvalidArgumentError(`Shape does not support control-point insertion: ${this.#definition.type}`);
     const coordinate = this.#placeCoordinate(input, Math.max(0, index - 1));
-    this.#workingState = topology.insert(this.#requireWorkingState() as never, index, coordinate) as ShapeState;
+    this.#workingState = freezeShapeState(topology.insert(this.#requireWorkingState() as never, index, coordinate) as ShapeState);
     this.#recordHistory();
     this.#render();
-    this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'insert', coordinate }));
+    this.#emit('modifying', modifyingEvent(this.#workingState, 'insert', coordinate));
   }
 
   /** 移除指定控制点。 */
   #remove(anchor: EditControlAnchor): void {
     const topology = this.#topology();
     if (!anchor.removable || topology.remove === undefined) throw new InvalidArgumentError(`Shape does not support removing control point ${anchor.index}`);
-    this.#workingState = topology.remove(this.#requireWorkingState() as never, anchor.index) as ShapeState;
+    this.#workingState = freezeShapeState(topology.remove(this.#requireWorkingState() as never, anchor.index) as ShapeState);
     this.#recordHistory();
     this.#render();
-    this.#emit('modifying', freeze({ type: 'modifying', state: this.#workingState, operation: 'remove', coordinate: cloneCoordinate(anchor.coordinate) }));
+    this.#emit('modifying', modifyingEvent(this.#workingState, 'remove', cloneCoordinate(anchor.coordinate)));
   }
 
   /** 将当前编辑状态发送到底层端口。 */
-  #render(): void {
+  #render(activeMove?: Readonly<{ anchor: EditControlAnchor; coordinate: Coordinate }>): void {
     const handle = this.#handle;
     const state = this.#requireWorkingState();
     const entry = this.#entryState;
     if (handle === undefined || entry === undefined) throw new ObjectDisposedError('Edit interaction is not open');
-    const description = this.#topology().describe(state as never);
-    const preview: EditInteractionRenderState = freeze({
-      geometry: this.#definition.toRenderGeometry(state as never),
+    const description = activeMove === undefined ? this.#topology().describe(state as never) : undefined;
+    const preview: EditInteractionRenderState = Object.freeze({
+      geometry: freezeRenderGeometry(this.#definition.toRenderGeometry(state as never)),
       style: entry.style,
-      anchors: [
-        ...description.handles.map((anchor) => ({ ...anchor, kind: 'control' as const })),
-        ...description.insertions.map((anchor) => ({ ...anchor, kind: 'insertion' as const }))
-      ]
+      anchors: activeMove === undefined ? freezeAnchors(description as ControlPointTopology) : freezeActiveAnchor(activeMove)
     });
     handle.render(preview);
+    if (description !== undefined) this.#renderedTopology = this.#status === 'active' ? description : undefined;
   }
 
   /** 将输入坐标放置到连续的编辑世界。 */
   #placeCoordinate(coordinate: Coordinate, index: number): Coordinate {
     const state = this.#requireWorkingState();
-    const reference = this.#topology()
-      .describe(state as never)
-      .handles.find((handle) => handle.index === index)?.coordinate;
+    const movingReference = this.#dragIndex === index ? this.#dragCoordinate : undefined;
+    const handles = movingReference === undefined ? (this.#renderedTopology?.handles ?? this.#topology().describe(state as never).handles) : undefined;
+    const indexed = handles?.[index];
+    const reference = movingReference ?? (indexed?.index === index ? indexed : handles?.find((handle) => handle.index === index))?.coordinate;
     return placeCoordinateInEditWorld(coordinate, reference?.[0] ?? coordinate[0], this.#requireHandle().placement.handoff);
   }
 
@@ -481,19 +488,15 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   /** 将当前图形状态写入编辑历史。 */
   #recordHistory(): void {
     this.#history.splice(this.#historyIndex + 1);
-    this.#history.push(this.#cloneShape(this.#requireWorkingState()));
+    this.#history.push(this.#requireWorkingState());
     this.#historyIndex = this.#history.length - 1;
-  }
-
-  /** 克隆图形状态以隔离历史修改。 */
-  #cloneShape(state: ShapeState): ShapeState {
-    return this.#definition.clone(state as never) as ShapeState;
   }
 
   /** 清除当前拖动状态。 */
   #clearDrag(): void {
     this.#dragOrigin = undefined;
     this.#dragIndex = undefined;
+    this.#dragCoordinate = undefined;
   }
 
   /** 获取并校验当前图形的编辑拓扑。 */
@@ -540,7 +543,10 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
             : [
                 () => {
                   handle.destroy();
-                  if (this.#handle === handle) this.#handle = undefined;
+                  if (this.#handle === handle) {
+                    this.#handle = undefined;
+                    this.#renderedTopology = undefined;
+                  }
                 }
               ]),
           ...(unsubscribeStore === undefined
@@ -638,6 +644,68 @@ function cloneCoordinate(coordinate: Coordinate): Coordinate {
 }
 
 /** 冻结事件或状态对象。 */
+function freezeShapeState(state: ShapeState): ShapeState {
+  if (Object.isFrozen(state)) return state;
+  if ('controlPoints' in state) {
+    for (const coordinate of state.controlPoints) Object.freeze(coordinate);
+    Object.freeze(state.controlPoints);
+  } else {
+    Object.freeze(state.center);
+  }
+  return Object.freeze(state);
+}
+
+function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryState {
+  if (Object.isFrozen(geometry)) return geometry;
+  if (geometry.type === 'point') {
+    Object.freeze(geometry.coordinates);
+  } else if (geometry.type === 'polyline') {
+    for (const coordinate of geometry.coordinates) Object.freeze(coordinate);
+    Object.freeze(geometry.coordinates);
+  } else if (geometry.type === 'polygon') {
+    for (const ring of geometry.coordinates) {
+      for (const coordinate of ring) Object.freeze(coordinate);
+      Object.freeze(ring);
+    }
+    Object.freeze(geometry.coordinates);
+  } else {
+    Object.freeze(geometry.center);
+  }
+  return Object.freeze(geometry);
+}
+
+function freezeActiveAnchor(activeMove: Readonly<{ anchor: EditControlAnchor; coordinate: Coordinate }>): readonly EditInteractionAnchor[] {
+  Object.freeze(activeMove.coordinate);
+  return Object.freeze([Object.freeze({ ...activeMove.anchor, coordinate: activeMove.coordinate })]);
+}
+
+function freezeAnchors(topology: ControlPointTopology): readonly EditInteractionAnchor[] {
+  const anchors = new Array<EditInteractionAnchor>(topology.handles.length + topology.insertions.length);
+  let offset = 0;
+  for (const anchor of topology.handles) {
+    Object.freeze(anchor.coordinate);
+    anchors[offset++] = Object.freeze({ ...anchor, kind: 'control' as const });
+  }
+  for (const anchor of topology.insertions) {
+    Object.freeze(anchor.coordinate);
+    anchors[offset++] = Object.freeze({ ...anchor, kind: 'insertion' as const });
+  }
+  return Object.freeze(anchors);
+}
+
+function modifyingEvent(
+  state: ShapeState,
+  operation: InternalEditSessionEventMap['modifying']['operation'],
+  coordinate?: Coordinate
+): InternalEditSessionEventMap['modifying'] {
+  return Object.freeze({
+    type: 'modifying',
+    state: freezeShapeState(state),
+    operation,
+    ...(coordinate === undefined ? {} : { coordinate: Object.freeze(coordinate) })
+  });
+}
+
 function freeze<T>(value: T): T {
   return deepFreeze(cloneCoreState(value));
 }

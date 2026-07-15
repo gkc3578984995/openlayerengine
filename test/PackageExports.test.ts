@@ -109,6 +109,7 @@ describe('2.0 发布入口', () => {
       process.execPath,
       [
         resolve(projectRoot, 'node_modules/typescript/bin/tsc'),
+        '--ignoreConfig',
         '--noEmit',
         '--strict',
         '--skipLibCheck',

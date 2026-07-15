@@ -17,13 +17,28 @@ export function renderExtent(geometry: RenderGeometryState): TransformExtent {
       geometry.center[1] + geometry.radius
     ]);
   }
-  const coordinates = geometry.type === 'polyline' ? geometry.coordinates : geometry.coordinates.flat();
-  return Object.freeze([
-    Math.min(...coordinates.map((coordinate) => coordinate[0])),
-    Math.min(...coordinates.map((coordinate) => coordinate[1])),
-    Math.max(...coordinates.map((coordinate) => coordinate[0])),
-    Math.max(...coordinates.map((coordinate) => coordinate[1]))
-  ]);
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  if (geometry.type === 'polyline') {
+    for (const coordinate of geometry.coordinates) {
+      minX = Math.min(minX, coordinate[0]);
+      minY = Math.min(minY, coordinate[1]);
+      maxX = Math.max(maxX, coordinate[0]);
+      maxY = Math.max(maxY, coordinate[1]);
+    }
+  } else {
+    for (const ring of geometry.coordinates) {
+      for (const coordinate of ring) {
+        minX = Math.min(minX, coordinate[0]);
+        minY = Math.min(minY, coordinate[1]);
+        maxX = Math.max(maxX, coordinate[0]);
+        maxY = Math.max(maxY, coordinate[1]);
+      }
+    }
+  }
+  return Object.freeze([minX, minY, maxX, maxY]);
 }
 
 /** 计算范围中心坐标。 */

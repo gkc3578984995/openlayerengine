@@ -446,10 +446,11 @@ function compileSnippetDiagnostics(snippets: readonly { readonly file: string; r
     declarationDir: undefined,
     outDir: undefined,
     rootDir: repositoryRoot,
-    baseUrl: repositoryRoot,
+    types: ['node', 'vite/client'],
     paths: {
-      '@/*': ['src/*'],
-      '@vrsim/earth-engine-ol': ['src/index.ts']
+      '@/*': ['./src/*'],
+      '@vrsim/earth-engine-ol': ['./src/index.ts'],
+      '@vrsim/earth-engine-ol/style.css': ['./src/assets/style/public.scss']
     }
   };
   const virtualSources = new Map(snippets.map((snippet) => [pathKey(resolve(repositoryRoot, '.test-snippets', snippet.file)), snippet.code]));

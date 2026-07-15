@@ -46,6 +46,7 @@ interface Runtime {
   measureEvents: unknown[];
   transformEvents: unknown[];
   editOriginal?: ShapeState;
+  editStartLatencyMs?: number;
 }
 
 interface NativeFeatureProbe {
@@ -65,9 +66,15 @@ interface NativeSourceProbe {
   getFeatures(): readonly NativeFeatureProbe[];
 }
 
+interface MultiPointGeometryProbe {
+  getType(): string;
+  getCoordinates(): readonly (readonly number[])[];
+}
+
 interface BrowserFixture {
   readonly ready: boolean;
   snapshot(name: MapName): unknown;
+  viewState(name: MapName): Readonly<{ center: readonly number[]; zoom?: number; resolution?: number; rotation: number }>;
   globalSnapshot(): unknown;
   registryKeys(): readonly string[];
   sameEarth(name: MapName): boolean;
@@ -89,12 +96,17 @@ interface BrowserFixture {
   deferredSingleClickCount(): number;
   transformSummary(): unknown;
   transformPixels(): unknown;
+  populatePerformanceElements(count: number): number;
+  ensurePerformanceEditElement(count: number): string;
+  setViewWorld(index: number): unknown;
+  setViewRotation(rotation: number): unknown;
   hideTransformToolbar(): void;
   finishTransform(): void;
   cancelTransform(): void;
   registerMenus(elementId?: string): void;
   closeMenu(): void;
   elementPixel(elementId: string, controlPointIndex?: number): readonly [number, number];
+  editControlPixel(controlPointIndex: number): readonly [number, number];
   elementState(elementId: string): unknown;
   destroyA(preserveViewport?: boolean): Promise<void>;
   recreateDefaultA(): unknown;
@@ -142,7 +154,7 @@ let deferredSingleClickCount = 0;
 let a = createRuntime(
   useEarth({
     target: mapATarget,
-    view: { center: [0, 0], zoom: 3 },
+    view: { center: [0, 0], zoom: 3, multiWorld: true },
     controls: { zoom: false, rotate: false, attribution: false }
   })
 );
@@ -150,7 +162,7 @@ const b = createRuntime(
   useEarth({
     id: 'map-b',
     target: mapBTarget,
-    view: { center: [0, 0], zoom: 3 },
+    view: { center: [0, 0], zoom: 3, multiWorld: true },
     controls: { zoom: false, rotate: false, attribution: false }
   })
 );
@@ -162,6 +174,9 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   ready: true,
   snapshot(name) {
     return runtimeSnapshot(runtime(name));
+  },
+  viewState(name) {
+    return currentViewState(runtime(name));
   },
   globalSnapshot,
   registryKeys,
@@ -203,11 +218,19 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     const element = requireOwnedElement(a, elementId);
     a.editEvents = [];
     a.editOriginal = cloneGeometry(element.state.geometry);
+    const started = performance.now();
     const session = a.earth.draw.edit(element);
+    a.editStartLatencyMs = performance.now() - started;
     a.edit = session;
-    session.on('modifying', (event) =>
-      a.editEvents.push({ type: event.type, operation: event.operation, geometry: cloneGeometry(event.geometry), coordinate: event.coordinate })
-    );
+    session.on('modifying', (event) => {
+      const record = { type: event.type, operation: event.operation, geometry: event.geometry, coordinate: event.coordinate };
+      const previous = a.editEvents.at(-1);
+      if (event.operation === 'move' && isRecord(previous) && previous.type === 'modifying' && previous.operation === 'move') {
+        a.editEvents[a.editEvents.length - 1] = record;
+      } else {
+        a.editEvents.push(record);
+      }
+    });
     session.on('complete', (event) =>
       a.editEvents.push({ type: event.type, elementId: event.element.id, geometry: cloneGeometry(event.element.state.geometry) })
     );
@@ -299,6 +322,67 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   transformPixels() {
     return transformPixels(a);
   },
+  populatePerformanceElements(count) {
+    if (!Number.isInteger(count) || count < 0 || count > 10_000) throw new Error('性能测试元素数量必须是 0 到 10000 之间的整数');
+    const columns = Math.max(1, Math.ceil(Math.sqrt(count)));
+    const spacing = 110_000;
+    const offset = ((columns - 1) * spacing) / 2;
+    for (let index = 0; index < count; index += 1) {
+      const id = `browser-performance-point-${index}`;
+      if (a.earth.elements.get(id) !== undefined) continue;
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      a.earth.elements.add({
+        id,
+        module: 'browser-performance',
+        geometry: { type: 'point', controlPoints: [[column * spacing - offset, offset - row * spacing]] },
+        style: {
+          symbol: {
+            type: 'circle',
+            radius: 3,
+            fill: { type: 'solid', color: index % 2 === 0 ? '#2563eb' : '#16a34a' }
+          }
+        }
+      });
+    }
+    a.earth.map.renderSync();
+    return count;
+  },
+  ensurePerformanceEditElement(count) {
+    if (!Number.isInteger(count) || count < 2 || count > 10_000) throw new Error('编辑顶点数量必须是 2 到 10000 之间的整数');
+    const id = `browser-performance-edit-${count}`;
+    const existing = a.earth.elements.get(id);
+    if (existing !== undefined) return existing.id;
+    const view = a.earth.map.getView();
+    const center = view.getCenter() ?? [0, 0];
+    const resolution = view.getResolution() ?? 1;
+    const controlPoints: Coordinate[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const progress = index / Math.max(1, count - 1) - 0.5;
+      controlPoints.push([center[0] + progress * resolution * 700, center[1] + Math.sin(index * 0.15) * resolution * 160]);
+    }
+    return a.earth.elements.add({
+      id,
+      module: 'browser-performance-edit',
+      geometry: { type: 'polyline', controlPoints },
+      style: { strokes: [{ color: '#7c3aed', width: 2 }] }
+    }).id;
+  },
+  setViewWorld(index) {
+    if (!Number.isInteger(index) || Math.abs(index) > 100) throw new Error('世界索引必须是 -100 到 100 之间的整数');
+    const view = a.earth.map.getView();
+    const extent = view.getProjection().getExtent();
+    const width = extent[2] - extent[0];
+    view.setCenter([index * width, view.getCenter()?.[1] ?? 0]);
+    a.earth.map.renderSync();
+    return currentViewState(a);
+  },
+  setViewRotation(rotation) {
+    if (!Number.isFinite(rotation)) throw new Error('视图旋转角度必须是有限数字');
+    a.earth.map.getView().setRotation(rotation);
+    a.earth.map.renderSync();
+    return currentViewState(a);
+  },
   hideTransformToolbar() {
     a.transform?.toolbar?.hide();
   },
@@ -322,6 +406,26 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     const state = requireOwnedElement(a, elementId).state.geometry;
     const coordinate = state.type === 'circle' ? state.center : state.controlPoints[controlPointIndex];
     if (coordinate === undefined) throw new Error(`Element control point does not exist: ${elementId}/${controlPointIndex}`);
+    return pixelOf(a, coordinate);
+  },
+  editControlPixel(controlPointIndex) {
+    if (!Number.isSafeInteger(controlPointIndex) || controlPointIndex < 0) throw new Error('Edit control-point index must be a non-negative safe integer.');
+    a.earth.map.renderSync();
+    let controlCoordinates: readonly (readonly number[])[] | undefined;
+    for (const layer of a.earth.map.getLayers().getArray()) {
+      const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
+      if (!isNativeSourceProbe(source)) continue;
+      for (const feature of source.getFeatures()) {
+        const featureStyle = feature.getStyle?.();
+        if (!isAnchorStyleProbe(featureStyle) || featureStyle.getZIndex() !== 1) continue;
+        const geometry = (feature as NativeFeatureProbe & { getGeometry?: () => unknown }).getGeometry?.();
+        if (!isMultiPointGeometryProbe(geometry)) continue;
+        const coordinates = geometry.getCoordinates();
+        if (controlCoordinates === undefined || coordinates.length > controlCoordinates.length) controlCoordinates = coordinates;
+      }
+    }
+    const coordinate = controlCoordinates?.[controlPointIndex];
+    if (coordinate === undefined) throw new Error(`Edit control point does not exist: ${controlPointIndex}`);
     return pixelOf(a, coordinate);
   },
   elementState(elementId) {
@@ -460,6 +564,18 @@ function runtimeSnapshot(current: Runtime): unknown {
   });
 }
 
+function currentViewState(current: Runtime): Readonly<{ center: readonly number[]; zoom?: number; resolution?: number; rotation: number }> {
+  const view = current.earth.map.getView();
+  const zoom = view.getZoom();
+  const resolution = view.getResolution();
+  return Object.freeze({
+    center: Object.freeze([...(view.getCenter() ?? [])]),
+    ...(zoom === undefined ? {} : { zoom }),
+    ...(resolution === undefined ? {} : { resolution }),
+    rotation: view.getRotation()
+  });
+}
+
 function globalSnapshot(): unknown {
   return Object.freeze({
     registryKeys: registryKeys(),
@@ -494,9 +610,10 @@ function drawSummary(current: Runtime): unknown {
 function editSummary(current: Runtime): unknown {
   const session = current.edit;
   const complete = [...current.editEvents].reverse().find((event) => isRecord(event) && event.type === 'complete');
-  const elementId = isRecord(complete) && typeof complete.elementId === 'string' ? complete.elementId : current.draw?.results.at(-1)?.id;
+  const elementId = isRecord(complete) && typeof complete.elementId === 'string' ? complete.elementId : session?.element.id;
   return Object.freeze({
     status: session?.status,
+    startLatencyMs: current.editStartLatencyMs,
     original: current.editOriginal === undefined ? undefined : cloneGeometry(current.editOriginal),
     stored: elementId === undefined ? undefined : cloneGeometry(requireOwnedElement(current, elementId).state.geometry),
     events: structuredClone(current.editEvents),
@@ -581,12 +698,36 @@ function transformPixels(current: Runtime): unknown {
   const scale = handles.get('scale-ne');
   const rotate = handles.get('rotate');
   if (translate === undefined || scale === undefined || rotate === undefined) return fallbackTransformPixels(current, [...handles.keys()]);
+  const scaleBounds = transformScaleBounds(current, handles);
   return Object.freeze({
     probe: 'native',
     keys: Object.freeze([...handles.keys()]),
     translate: hittableHandlePixel(current, 'feature', translate),
     scale: hittableHandlePixel(current, 'scale-ne', scale),
+    scaleAnchor: pixelOf(current, scale.coordinate),
+    bounds: scaleBounds,
     rotate: hittableHandlePixel(current, 'rotate', rotate)
+  });
+}
+
+function transformScaleBounds(
+  current: Runtime,
+  handles: ReadonlyMap<string, Readonly<{ coordinate: Coordinate }>>
+): Readonly<{ left: number; right: number; top: number; bottom: number }> {
+  const pixels = ['scale-sw', 'scale-nw', 'scale-ne', 'scale-se'].map((key) => {
+    const handle = handles.get(key);
+    if (handle === undefined) throw new Error(`Transform 缺少控制框角点：${key}`);
+    return pixelOf(current, handle.coordinate);
+  });
+  return pixelBounds(pixels);
+}
+
+function pixelBounds(pixels: readonly (readonly [number, number])[]): Readonly<{ left: number; right: number; top: number; bottom: number }> {
+  return Object.freeze({
+    left: Math.min(...pixels.map((pixel) => pixel[0])),
+    right: Math.max(...pixels.map((pixel) => pixel[0])),
+    top: Math.min(...pixels.map((pixel) => pixel[1])),
+    bottom: Math.max(...pixels.map((pixel) => pixel[1]))
   });
 }
 
@@ -661,17 +802,35 @@ function fallbackTransformPixels(current: Runtime, keys: readonly string[] = [])
   if (resolution === undefined) throw new Error('Map resolution is unavailable.');
   const buffer = 16 * resolution;
   const center: readonly [number, number] = [(minX + maxX) / 2, (minY + maxY) / 2];
+  const bounds = pixelBounds([
+    pixelOf(current, [minX - buffer, minY - buffer]),
+    pixelOf(current, [minX - buffer, maxY + buffer]),
+    pixelOf(current, [maxX + buffer, maxY + buffer]),
+    pixelOf(current, [maxX + buffer, minY - buffer])
+  ]);
   return Object.freeze({
     probe: 'fallback',
     keys: Object.freeze([...keys]),
     translate: pixelOf(current, center),
     scale: pixelOf(current, [maxX + buffer, maxY + buffer]),
+    scaleAnchor: pixelOf(current, [maxX + buffer, maxY + buffer]),
+    bounds,
     rotate: pixelOf(current, [center[0], maxY + buffer * 2])
   });
 }
 
 function isNativeSourceProbe(value: unknown): value is NativeSourceProbe {
   return value !== null && typeof value === 'object' && typeof (value as Partial<NativeSourceProbe>).getFeatures === 'function';
+}
+
+function isAnchorStyleProbe(value: unknown): value is { getZIndex(): number | undefined } {
+  return value !== null && typeof value === 'object' && typeof (value as { getZIndex?: unknown }).getZIndex === 'function';
+}
+
+function isMultiPointGeometryProbe(value: unknown): value is MultiPointGeometryProbe {
+  if (value === null || typeof value !== 'object') return false;
+  const probe = value as Partial<MultiPointGeometryProbe>;
+  return typeof probe.getType === 'function' && probe.getType() === 'MultiPoint' && typeof probe.getCoordinates === 'function';
 }
 
 function isTransformHandleMetadata(value: unknown): value is { readonly key: string; readonly coordinate: Coordinate } {

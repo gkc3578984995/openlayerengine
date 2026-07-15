@@ -30,9 +30,13 @@ interface FakeMapInspection {
 
 vi.mock('ol/interaction/defaults.js', async () => {
   const { default: DragPan } = await import('ol/interaction/DragPan.js');
+  const { default: DoubleClickZoom } = await import('ol/interaction/DoubleClickZoom.js');
+  const { default: MouseWheelZoom } = await import('ol/interaction/MouseWheelZoom.js');
   return {
-    defaults: () => {
+    defaults: (options: { doubleClickZoom?: boolean; mouseWheelZoom?: boolean } = {}) => {
       const values: unknown[] = [new DragPan()];
+      if (options.doubleClickZoom !== false) values.push(new DoubleClickZoom());
+      if (options.mouseWheelZoom !== false) values.push(new MouseWheelZoom());
       return {
         getArray: () => values,
         push: (value: unknown) => values.push(value),
@@ -305,7 +309,7 @@ describe('Earth v2 服务装配', () => {
     context.destroy();
   });
 
-  it('移除 DoubleClickZoom 并只安装零延迟 MouseWheelZoom 替代交互', () => {
+  it('移除 DoubleClickZoom 并保留一个默认平滑 MouseWheelZoom 交互', () => {
     const context = createEngineContext({ target: 'map-a' });
     const map = context.map as unknown as FakeMapInspection;
     const interactions = map.getInteractions().getArray();

@@ -14,7 +14,7 @@ import type {
   EditInteractionSpec
 } from '../src/core/ports/EditInteractionPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
-import type { ShapeType } from '../src/core/shape/types.js';
+import type { ShapeDefinition, ShapeType } from '../src/core/shape/types.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
 import { EditSession } from '../src/services/draw/EditSession.js';
 import { InteractionCoordinator } from '../src/services/events/InteractionCoordinator.js';
@@ -96,12 +96,13 @@ function setup(
   underlay = false,
   placement?: PreparedWorldEdit,
   beforeSession?: (store: ElementStore) => void,
-  configure?: (context: Readonly<{ keyboard: FakeKeyboardInput; port: FakeEditPort; store: ElementStore }>) => void
+  configure?: (context: Readonly<{ keyboard: FakeKeyboardInput; port: FakeEditPort; store: ElementStore }>) => void,
+  sessionDefinition?: ShapeDefinition
 ) {
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   const store = new ElementStore(shapes);
   store.add(state);
-  const definition = shapes.get(state.type);
+  const definition = sessionDefinition ?? shapes.get(state.type);
   if (definition === undefined) throw new Error(`Missing definition: ${state.type}`);
   const coordinator = new InteractionCoordinator();
   const port = new FakeEditPort();
@@ -190,7 +191,10 @@ describe('EditSession', () => {
     if (moved?.kind !== 'control') throw new Error('Missing movable anchor');
     port.emit({ type: 'move-start', anchor: moved, coordinate: moved.coordinate });
     port.emit({ type: 'move', anchor: moved, coordinate: [4, 2] });
+    expect(port.renders.at(-1)?.anchors).toEqual([{ ...moved, coordinate: [4, 2] }]);
     port.emit({ type: 'move-end', anchor: moved, coordinate: [4, 2] });
+    expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'control')).toHaveLength(3);
+    expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'insertion')).toHaveLength(2);
 
     const insertion = port.renders.at(-1)?.anchors.find((anchor) => anchor.kind === 'insertion');
     if (insertion?.kind !== 'insertion') throw new Error('Missing insertion anchor');
@@ -211,6 +215,48 @@ describe('EditSession', () => {
     expect(operations.slice(-2)).toEqual(['insert', 'remove']);
     expect(store.get(entry.id)?.geometry).toEqual(entry.geometry);
     expect(session.status).toBe('active');
+  });
+
+  it('starts a ten-thousand-vertex polyline without quadratic topology expansion', () => {
+    const controlPoints = Array.from({ length: 10_000 }, (_value, index) => [index, Math.sin(index)] as [number, number]);
+    const { port, session } = setup(element('polyline', controlPoints));
+
+    expect(port.renders).toHaveLength(1);
+    expect(port.renders[0].anchors.filter(({ kind }) => kind === 'control')).toHaveLength(10_000);
+    expect(port.renders[0].anchors.filter(({ kind }) => kind === 'insertion')).toHaveLength(9_999);
+
+    session.cancel();
+    expect(port.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('reuses the most recently rendered topology when placing a moved control point', () => {
+    const baseDefinition = basicShapeDefinitions.find(({ type }) => type === 'polyline');
+    if (baseDefinition?.editTopology === undefined) throw new Error('Missing polyline edit topology');
+    const describe = vi.fn(baseDefinition.editTopology.describe);
+    const observedDefinition: ShapeDefinition = {
+      ...baseDefinition,
+      editTopology: { ...baseDefinition.editTopology, describe }
+    };
+    const entry = element('polyline', [
+      [0, 0],
+      [4, 0],
+      [8, 0]
+    ]);
+    const { port, session } = setup(entry, false, undefined, undefined, undefined, observedDefinition);
+    expect(describe).toHaveBeenCalledTimes(2);
+
+    const moved = port.renders[0].anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 1);
+    if (moved?.kind !== 'control') throw new Error('Missing movable anchor');
+    port.emit({ type: 'move-start', anchor: moved, coordinate: moved.coordinate });
+    port.emit({ type: 'move', anchor: moved, coordinate: [4, 2] });
+
+    expect(describe).toHaveBeenCalledTimes(2);
+    expect(port.renders.at(-1)?.anchors).toEqual([{ ...moved, coordinate: [4, 2] }]);
+    port.emit({ type: 'move-cancel', anchor: moved });
+    expect(describe).toHaveBeenCalledTimes(3);
+    expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'control')).toHaveLength(3);
+    expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'insertion')).toHaveLength(2);
+    session.cancel();
   });
 
   it('uses Plot topology and keeps undo/redo history inside only the current edit', () => {

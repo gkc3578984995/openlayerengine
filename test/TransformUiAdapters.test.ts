@@ -13,6 +13,8 @@ interface OverlayRecord {
   readonly stopEvent: boolean | undefined;
   readonly insertFirst: boolean | undefined;
   readonly className: string | undefined;
+  setOffsetCalls: number;
+  setPositionCalls: number;
   disposed: boolean;
   setElement(value: HTMLElement | undefined): void;
   setOffset(value: number[]): void;
@@ -32,6 +34,8 @@ vi.mock('ol/Overlay.js', () => {
     readonly stopEvent: boolean | undefined;
     readonly insertFirst: boolean | undefined;
     readonly className: string | undefined;
+    setOffsetCalls = 0;
+    setPositionCalls = 0;
     disposed = false;
 
     constructor(options: Record<string, unknown>) {
@@ -49,10 +53,12 @@ vi.mock('ol/Overlay.js', () => {
     }
 
     setOffset(value: number[]): void {
+      this.setOffsetCalls += 1;
       this.offset = [...value];
     }
 
     setPosition(value: number[] | undefined): void {
+      this.setPositionCalls += 1;
       this.position = value === undefined ? undefined : [...value];
     }
 
@@ -85,7 +91,7 @@ describe('TransformToolbarAdapter', () => {
     expect(edit.innerHTML).toContain('viewBox="0 0 1024 1024"');
     expect(remove.className.split(' ')).toEqual(expect.arrayContaining(['ol-toolbar-item', 'toolbar-remove', 'is-disabled']));
     expect(remove.disabled).toBe(true);
-    expect(overlay).toMatchObject({ positioning: 'bottom-left', stopEvent: true, insertFirst: false, position: [120, 30], offset: [15, 0] });
+    expect(overlay).toMatchObject({ positioning: 'top-left', stopEvent: true, insertFirst: false, position: [120, 30], offset: [15, 0] });
 
     remove.dispatch('click');
     expect(events).toEqual([]);
@@ -132,7 +138,9 @@ describe('TransformToolbarAdapter', () => {
     expect(root.className).toBe('ol-toolbar updated-toolbar');
 
     view.destroy();
-    expect(unByKey).toHaveBeenCalledOnce();
+    expect(unByKey).not.toHaveBeenCalled();
+    expect(map.on).not.toHaveBeenCalled();
+    expect(map.view.on).not.toHaveBeenCalled();
     expect(map.removedOverlays).toEqual([overlay]);
     expect(overlay.element).toBeUndefined();
     expect(overlay.disposed).toBe(true);
@@ -149,6 +157,40 @@ describe('TransformToolbarAdapter', () => {
 });
 
 describe('TransformTooltipAdapter', () => {
+  it('只更新变化的提示字段，连续移动时保留文字 DOM 并立即采用最新位置', () => {
+    const documentTarget = new FakeDocument();
+    installDomGlobals(documentTarget);
+    const map = new FakeMap();
+    const view = new TransformTooltipAdapter(map as unknown as OlMap).open({
+      ownerId: 'transform-owner',
+      position: [10, 20],
+      lines: ['移动中'],
+      offset: [15, -11],
+      visible: true
+    });
+    const overlay = requireOverlay(0);
+    const root = requireRoot(overlay);
+    const line = root.children[0];
+
+    view.update({ position: [11, 21] });
+    view.update({ position: [12, 22] });
+
+    expect(overlay.position).toEqual([12, 22]);
+    expect(overlay.setPositionCalls).toBe(3);
+    expect(overlay.setOffsetCalls).toBe(0);
+    expect(root.children[0]).toBe(line);
+
+    view.update({ position: [12, 22] });
+    expect(overlay.setPositionCalls).toBe(3);
+    expect(root.children[0]).toBe(line);
+
+    view.update({ lines: ['旋转中…当前：45°'] });
+    expect(root.children[0]).toBe(line);
+    expect(root.children[0]?.textContent).toBe('旋转中…当前：45°');
+
+    view.destroy();
+  });
+
   it('渲染中文多行提示，并随状态更新位置、偏移和可见性', () => {
     const documentTarget = new FakeDocument();
     installDomGlobals(documentTarget);

@@ -2,7 +2,6 @@ import Feature from 'ol/Feature.js';
 import type Map from 'ol/Map.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import type { Pixel } from '../../../core/common/types.js';
-import type { ElementStore } from '../../../core/element/ElementStore.js';
 import { InvalidArgumentError } from '../../../core/errors.js';
 import type { LayerManager } from '../../../core/layer/LayerManager.js';
 import type { FeatureBinding } from '../FeatureBinding.js';
@@ -20,8 +19,6 @@ export interface TransformHit {
 export class TransformHitTest {
   /** 用于执行像素命中的地图。 */
   readonly #map: Map;
-  /** 提供元素状态。 */
-  readonly #store: ElementStore;
   /** 提供图层状态。 */
   readonly #manager: LayerManager;
   /** 识别受管理的矢量图层。 */
@@ -30,9 +27,8 @@ export class TransformHitTest {
   readonly #binding: FeatureBinding;
 
   /** 保存命中检测所需的地图和状态依赖。 */
-  constructor(map: Map, store: ElementStore, manager: LayerManager, layers: LayerAdapter, binding: FeatureBinding) {
+  constructor(map: Map, manager: LayerManager, layers: LayerAdapter, binding: FeatureBinding) {
     this.#map = map;
-    this.#store = store;
     this.#manager = manager;
     this.#layers = layers;
     this.#binding = binding;
@@ -44,25 +40,22 @@ export class TransformHitTest {
     if (!Number.isFinite(hitTolerance) || hitTolerance < 0) throw new InvalidArgumentError('Transform hitTolerance must be a finite non-negative number');
     const hits: TransformHit[] = [];
     const seen = new Set<string>();
+    const eligibleLayers = new globalThis.Map<BaseLayer, string | undefined>();
+    const eligibleLayerId = (layer: BaseLayer): string | undefined => {
+      if (eligibleLayers.has(layer)) return eligibleLayers.get(layer);
+      const layerId = this.#layers.vectorLayerIdFor(layer);
+      const state = layerId === undefined ? undefined : this.#manager.get(layerId);
+      const eligible = state?.kind === 'vector' && state.visible && state.opacity > 0 ? layerId : undefined;
+      eligibleLayers.set(layer, eligible);
+      return eligible;
+    };
     this.#map.forEachFeatureAtPixel(
       [...pixel],
       (candidate, layer) => {
         if (!(candidate instanceof Feature)) return undefined;
-        const layerId = this.#layers.vectorLayerIdFor(layer as BaseLayer);
+        const layerId = eligibleLayerId(layer as BaseLayer);
         const identity = this.#binding.resolveFeature(candidate);
-        const state = identity === undefined ? undefined : this.#store.get(identity.elementId);
-        const layerState = layerId === undefined ? undefined : this.#manager.get(layerId);
-        if (
-          identity === undefined ||
-          state === undefined ||
-          !identity.visible ||
-          layerId === undefined ||
-          identity.layerId !== layerId ||
-          layerState?.kind !== 'vector' ||
-          !layerState.visible ||
-          layerState.opacity === 0 ||
-          seen.has(identity.elementId)
-        ) {
+        if (identity === undefined || !identity.visible || layerId === undefined || identity.layerId !== layerId || seen.has(identity.elementId)) {
           return undefined;
         }
         seen.add(identity.elementId);
@@ -72,7 +65,7 @@ export class TransformHitTest {
       {
         hitTolerance,
         checkWrapped: true,
-        layerFilter: (layer) => this.#layers.isRegisteredVectorLayer(layer)
+        layerFilter: (layer) => eligibleLayerId(layer) !== undefined
       }
     );
     return Object.freeze(hits);

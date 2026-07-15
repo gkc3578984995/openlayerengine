@@ -11,6 +11,7 @@ import type {
   ShapeState,
   ShapeType
 } from '../../core/shape/types.js';
+import { registerShapeFreehandAccumulator } from '../../core/shape/freehandAccumulator.js';
 import { createImmutableSet } from '../../core/shape/immutableSet.js';
 
 /** 内部方法。处理 immutableSet 相关数据。 */
@@ -400,8 +401,11 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     return normalize({ type: options.type, controlPoints: result });
   };
 
-  const insertionCandidates = (points: readonly Coordinate[]): readonly ControlPointInsertion[] =>
-    rawInsertionCandidates(points).filter((candidate) => {
+  const insertionCandidates = (points: readonly Coordinate[]): readonly ControlPointInsertion[] => {
+    if (options.completeMax !== undefined && points.length >= options.completeMax) return [];
+    const candidates = rawInsertionCandidates(points);
+    if (options.validate === undefined) return candidates;
+    return candidates.filter((candidate) => {
       try {
         insertControlPoint(points, candidate.index, candidate.coordinate);
         return true;
@@ -410,6 +414,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
         throw error;
       }
     });
+  };
 
   const removableState = (points: readonly Coordinate[], index: number): ShapeState<T> | undefined => {
     if (!Number.isInteger(index) || index < 0 || index >= points.length || !isStructurallyRemovable(points.length, index)) return undefined;
@@ -424,6 +429,12 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     }
   };
 
+  const isRemovalAvailable = (points: readonly Coordinate[], index: number): boolean => {
+    if (!Number.isInteger(index) || index < 0 || index >= points.length || !isStructurallyRemovable(points.length, index)) return false;
+    if (options.validate === undefined) return hasCompleteCount(points.length - 1);
+    return removableState(points, index) !== undefined;
+  };
+
   const editTopology: ShapeEditTopology<ShapeState<T>> = {
     describe: (state) => {
       const normalized = normalize(state);
@@ -432,7 +443,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
           index,
           coordinate: cloneCoordinate(coordinate),
           role: topologyMode === 'arrow' && index < 2 ? 'tail' : 'control',
-          removable: removableState(normalized.controlPoints, index) !== undefined
+          removable: isRemovalAvailable(normalized.controlPoints, index)
         })),
         insertions: insertionCandidates(normalized.controlPoints).map(({ index, coordinate }) => ({ index, coordinate: cloneCoordinate(coordinate) }))
       };
@@ -478,18 +489,26 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     return normalized;
   };
 
+  const appendFreehandSampleInPlace = (samples: Coordinate[], coordinate: Coordinate): void => {
+    const next = normalizeCoordinate(coordinate, 'freehand sample');
+    const dimension = samples[0]?.length ?? next.length;
+    if (next.length !== dimension) {
+      throw new InvalidArgumentError(`${options.type} freehand samples must use a uniform dimension`);
+    }
+    if (samples.length === 0 || !coordinatesEqual(samples[samples.length - 1], next)) samples.push(next);
+  };
+
+  const appendSample: ShapeFreehandPolicy<ShapeState<T>>['appendSample'] = (samples, coordinate) => {
+    const normalizedSamples = normalizeFreehandSamples(samples);
+    appendFreehandSampleInPlace(normalizedSamples, coordinate);
+    return normalizedSamples;
+  };
+
+  if (options.freehand) registerShapeFreehandAccumulator(appendSample, { append: appendFreehandSampleInPlace });
+
   const freehand: ShapeFreehandPolicy<ShapeState<T>> | undefined = options.freehand
     ? {
-        appendSample: (samples, coordinate) => {
-          const normalizedSamples = normalizeFreehandSamples(samples);
-          const next = normalizeCoordinate(coordinate, 'freehand sample');
-          const dimension = normalizedSamples[0]?.length ?? next.length;
-          if (next.length !== dimension) {
-            throw new InvalidArgumentError(`${options.type} freehand samples must use a uniform dimension`);
-          }
-          if (normalizedSamples.length === 0 || !coordinatesEqual(normalizedSamples[normalizedSamples.length - 1], next)) normalizedSamples.push(next);
-          return normalizedSamples;
-        },
+        appendSample,
         normalizeSamples: (samples, phase) => {
           if (phase !== 'preview' && phase !== 'complete') throw new InvalidArgumentError(`Unknown freehand phase: ${String(phase)}`);
           const normalizedSamples = normalizeFreehandSamples(samples);

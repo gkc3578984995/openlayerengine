@@ -59,6 +59,8 @@ export interface TransformInteractionTarget {
   readonly mode: TransformInteractionMode;
   /** 控制点。保存可编辑的图形控制点。 */
   readonly controlPoints: readonly Coordinate[];
+  /** 当前展示世界中的自定义变换中心。 */
+  readonly handleCenter?: Coordinate;
   /** 可平移。表示当前图形是否支持平移。 */
   readonly canTranslate: boolean;
   /** 可旋转。表示当前图形是否支持旋转。 */
@@ -83,6 +85,7 @@ export interface TransformCopyPreview {
 export type TransformInteractionEvent =
   | Readonly<{ type: 'select-request'; pixel: Pixel; coordinate?: Coordinate; candidateIds: readonly string[] }>
   | Readonly<{ type: 'pointer-move'; pixel: Pixel; coordinate: Coordinate }>
+  | Readonly<{ type: 'bounds-change'; topRight: Coordinate }>
   | Readonly<{
       /** 类型。标识当前数据或事件的类型。 */
       type: 'enter-handle';

@@ -12,6 +12,7 @@ import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 type InputListener = (event: InputEventMap[InputType]) => void;
 
 class FakeInputPort implements InputPort {
+  readonly focus = vi.fn();
   readonly listenCounts = new Map<InputType, number>();
   readonly disposeCounts = new Map<InputType, number>();
   readonly listeners = new Map<InputType, InputListener>();
@@ -69,9 +70,9 @@ class MapHarness {
     this.listeners.get(type)?.delete(listener);
   }
 
-  emit(type: string, originalEvent: Event): void {
+  emit(type: string, originalEvent: Event, fields: Readonly<Record<string, unknown>> = {}): void {
     for (const listener of [...(this.listeners.get(type) ?? [])]) {
-      listener({ coordinate: [1, 2], pixel: [3, 4], originalEvent });
+      listener({ coordinate: [1, 2], pixel: [3, 4], originalEvent, ...fields });
     }
   }
 
@@ -112,6 +113,8 @@ describe('InputRouter', () => {
   it('installs rightclick immediately and multiplexes every input type through one port listener', () => {
     const port = new FakeInputPort();
     const router = new InputRouter(port);
+    router.focus();
+    expect(port.focus).toHaveBeenCalledOnce();
     expect(port.listenCounts.get('rightclick')).toBe(1);
 
     const types = ['pointermove', 'click', 'leftdown', 'leftup', 'doubleclick', 'rightclick', 'keydown'] as const;
@@ -305,6 +308,23 @@ describe('InputRouter', () => {
     expect(stopImmediatePropagation).not.toHaveBeenCalled();
     expect(refs.activeTransientCount).toBe(0);
     router.destroy();
+    adapter.destroy();
+  });
+
+  it('skips feature hit testing while OpenLayers is dragging the map', () => {
+    const map = new MapHarness();
+    const hit = vi.fn(() => ({ elementId: 'point', layerId: 'layer' }));
+    const adapter = new InputAdapter(map as unknown as OlMap, { atPixel: hit, getScreenExtent: () => undefined }, new NativeRefRegistry());
+    const received = vi.fn();
+    adapter.listen('pointermove', received);
+
+    map.emit('pointermove', nativeEvent('pointermove'), { dragging: true });
+    expect(hit).not.toHaveBeenCalled();
+    expect(received).toHaveBeenLastCalledWith(expect.not.objectContaining({ elementId: expect.anything() }));
+
+    map.emit('pointermove', nativeEvent('pointermove'), { dragging: false });
+    expect(hit).toHaveBeenCalledOnce();
+    expect(received).toHaveBeenLastCalledWith(expect.objectContaining({ elementId: 'point' }));
     adapter.destroy();
   });
 

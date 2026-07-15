@@ -5,6 +5,7 @@ import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import VectorLayer from 'ol/layer/Vector.js';
+import type OlMap from 'ol/Map.js';
 import { unByKey } from 'ol/Observable.js';
 import { getWidth } from 'ol/extent.js';
 import type { EventsKey } from 'ol/events.js';
@@ -65,6 +66,8 @@ interface LoopRecord {
 
 /** 在 OpenLayers 图层 postrender 阶段执行统一渲染批次。 */
 export class LayerRenderPass implements LayerRenderPort {
+  /** 仅调度地图帧，不改变业务图层 revision。 */
+  readonly #map: OlMap;
   /** 提供受管理的 OpenLayers 图层。 */
   readonly #layers: LayerAdapter;
   /** 识别默认元素渲染目标。 */
@@ -83,10 +86,11 @@ export class LayerRenderPass implements LayerRenderPort {
   #destroying = false;
 
   /** 保存图层、要素绑定、样式和错误上报依赖。 */
-  constructor(layers: LayerAdapter, binding: FeatureBinding, styles: StyleCompiler, options: LayerRenderPassOptions = {}) {
+  constructor(map: OlMap, layers: LayerAdapter, binding: FeatureBinding, styles: StyleCompiler, options: LayerRenderPassOptions = {}) {
     if (options.errorReporter !== undefined && typeof options.errorReporter !== 'function') {
       throw new InvalidArgumentError('LayerRenderPass errorReporter must be a function');
     }
+    this.#map = map;
     this.#layers = layers;
     this.#binding = binding;
     this.#styles = styles;
@@ -126,7 +130,7 @@ export class LayerRenderPass implements LayerRenderPort {
     let destroyed = false;
     return {
       requestRender: () => {
-        if (!destroyed && !record.destroyed && this.#loops.get(safeLayerId) === record) layer.changed();
+        if (!destroyed && !record.destroyed && this.#loops.get(safeLayerId) === record) this.#map.render?.();
       },
       destroy: () => {
         if (destroyed) return;
@@ -218,7 +222,7 @@ export class LayerRenderPass implements LayerRenderPort {
       return;
     }
     const seen = new Set<string>();
-    let drawing: Readonly<{ context: ReturnType<typeof getVectorContext>; offsets: readonly number[] }> | undefined;
+    let drawing: ReturnType<typeof getVectorContext> | undefined;
     for (const contribution of batch.contributions) {
       try {
         const target = this.#targets.get(targetKey(record.layerId, contribution.targetId));
@@ -233,8 +237,8 @@ export class LayerRenderPass implements LayerRenderPort {
         for (const primitive of contribution.value.primitives ?? []) {
           this.#attempt(
             () => {
-              drawing ??= Object.freeze({ context: getVectorContext(event), offsets: worldOffsets(event, record.layer) });
-              this.#drawPrimitive(drawing.context, drawing.offsets, primitive, frame.resolution);
+              drawing ??= getVectorContext(event);
+              this.#drawPrimitive(drawing, event, record.layer, primitive, frame.resolution);
             },
             'draw-primitive',
             contribution.targetId
@@ -253,22 +257,33 @@ export class LayerRenderPass implements LayerRenderPort {
         this.#report(error, 'clear-target-channel', applied.spec.targetId);
       }
     }
-    if (batch.requestNextFrame && !record.destroyed && this.#loops.get(record.layerId) === record) record.layer.changed();
+    if (batch.requestNextFrame && !record.destroyed && this.#loops.get(record.layerId) === record) this.#map.render?.();
   }
 
   /** 在当前帧的矢量上下文中绘制一个图元。 */
-  #drawPrimitive(vectorContext: ReturnType<typeof getVectorContext>, offsets: readonly number[], primitive: LayerRenderPrimitive, resolution: number): void {
-    for (const offset of offsets) {
-      const geometry = createGeometry(primitive.geometry);
-      if (offset !== 0) geometry.translate(offset, 0);
-      const feature = new Feature<Geometry>(geometry);
-      try {
-        const styles = resolveStyles(this.#styles.compile(primitive.style), feature, resolution);
+  #drawPrimitive(
+    vectorContext: ReturnType<typeof getVectorContext>,
+    event: RenderEvent,
+    layer: VectorLayer,
+    primitive: LayerRenderPrimitive,
+    resolution: number
+  ): void {
+    const geometry = createGeometry(primitive.geometry);
+    const feature = new Feature<Geometry>(geometry);
+    try {
+      const compiledStyle = this.#styles.compile(primitive.style);
+      const offsets = worldOffsets(event, layer, geometry.getExtent(), resolution);
+      let appliedOffset = 0;
+      for (const offset of offsets) {
+        const delta = offset - appliedOffset;
+        if (delta !== 0) geometry.translate(delta, 0);
+        appliedOffset = offset;
+        const styles = resolveStyles(compiledStyle, feature, resolution);
         for (const style of styles) vectorContext.drawFeature(feature, style);
-      } finally {
-        feature.setGeometry(undefined);
-        feature.dispose();
       }
+    } finally {
+      feature.setGeometry(undefined);
+      feature.dispose();
     }
   }
 
@@ -379,7 +394,7 @@ function resolveStyles(style: StyleLike, feature: Feature<Geometry>, resolution:
 }
 
 /** 计算循环世界中本帧需要重复绘制的水平偏移。 */
-function worldOffsets(event: RenderEvent, layer: VectorLayer): readonly number[] {
+function worldOffsets(event: RenderEvent, layer: VectorLayer, geometryExtent: readonly number[], resolution: number): readonly number[] {
   const frameState = event.frameState;
   if (frameState === undefined || frameState === null) return [0];
   if (layer.getSource()?.getWrapX() !== true) return [0];
@@ -387,8 +402,39 @@ function worldOffsets(event: RenderEvent, layer: VectorLayer): readonly number[]
   if (!projection.canWrapX()) return [0];
   const width = getWidth(projection.getExtent());
   if (!Number.isFinite(width) || width <= 0) return [0];
-  const world = Math.round(frameState.viewState.center[0] / width);
-  return Object.freeze([(world - 1) * width, world * width, (world + 1) * width]);
+  const frameExtent = frameState.extent;
+  if (
+    frameExtent === undefined ||
+    frameExtent === null ||
+    frameExtent.length < 4 ||
+    frameExtent.some((value) => !Number.isFinite(value)) ||
+    geometryExtent.length < 4 ||
+    geometryExtent.some((value) => !Number.isFinite(value))
+  ) {
+    return nearestWorldOffset(frameState.viewState.center[0], width);
+  }
+  const renderBuffer = layer.getRenderBuffer();
+  const padding = typeof renderBuffer === 'number' && Number.isFinite(renderBuffer) && Number.isFinite(resolution) ? Math.max(0, renderBuffer * resolution) : 0;
+  const firstWorld = Math.ceil((frameExtent[0] - padding - geometryExtent[2]) / width);
+  const lastWorld = Math.floor((frameExtent[2] + padding - geometryExtent[0]) / width);
+  if (!Number.isFinite(firstWorld) || !Number.isFinite(lastWorld) || firstWorld > lastWorld) return [];
+  if (!Number.isSafeInteger(firstWorld) || !Number.isSafeInteger(lastWorld)) return nearestWorldOffset(frameState.viewState.center[0], width);
+  const maximumCopies = 256;
+  const availableCopies = lastWorld - firstWorld + 1;
+  const copyCount = Number.isSafeInteger(availableCopies) ? Math.min(availableCopies, maximumCopies) : maximumCopies;
+  const preferredWorld = Math.min(lastWorld, Math.max(firstWorld, Math.round(frameState.viewState.center[0] / width)));
+  const preferredFirst = preferredWorld - Math.floor((copyCount - 1) / 2);
+  const boundedFirst = Math.min(lastWorld - copyCount + 1, Math.max(firstWorld, preferredFirst));
+  const offsets: number[] = [];
+  for (let index = 0; index < copyCount; index += 1) offsets.push((boundedFirst + index) * width);
+  return Object.freeze(offsets);
+}
+
+/** 在无法安全枚举极远世界时，仅返回离视图中心最近的有限副本。 */
+function nearestWorldOffset(centerX: number, width: number): readonly number[] {
+  if (!Number.isFinite(centerX)) return Object.freeze([0]);
+  const offset = Math.round(centerX / width) * width;
+  return Object.freeze([Number.isFinite(offset) ? offset : 0]);
 }
 
 /** 生成图层和目标组合键。 */

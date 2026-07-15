@@ -1,6 +1,6 @@
 # @vrsim/earth-engine-ol
 
-基于 OpenLayers 7 的 TypeScript 地图基础能力封装库，面向业务地图快速开发。库内封装了地图实例、基础矢量图层、覆盖物、风场、绘制测量、标绘、要素变换、全局事件和常用地理计算工具。
+基于 OpenLayers 10.9 的 TypeScript 地图基础能力封装库，面向业务地图快速开发。库内封装了地图实例、基础矢量图层、覆盖物、风场、绘制测量、标绘、要素变换、全局事件和常用地理计算工具。
 
 ## 功能范围
 
@@ -13,7 +13,7 @@
 ## 安装
 
 ```bash
-npm install @vrsim/earth-engine-ol ol@^7
+npm install @vrsim/earth-engine-ol ol@10.9.0
 ```
 
 `ol` 是 peer dependency，需要由业务项目显式安装。

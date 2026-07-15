@@ -115,11 +115,16 @@ describe('ElementStore', () => {
     const added = store.add(input);
     const first = store.get<{ label: string }>('point-1');
     const second = store.get<{ label: string }>('point-1');
+    const resolved = store.resolve<{ label: string }>('point-1');
 
     expect(added).toEqual(input);
     expect(first).toEqual(input);
     expect(first).not.toBe(input);
     expect(first).not.toBe(second);
+    expect(first).not.toBe(resolved);
+    expect(resolved).toBe(store.resolve('point-1'));
+    expect(Object.isFrozen(resolved)).toBe(true);
+    expect(Object.isFrozen(resolved?.geometry)).toBe(true);
     expect(first?.geometry).not.toBe(input.geometry);
     expect(first?.data).not.toBe(input.data);
   });

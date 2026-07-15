@@ -309,10 +309,18 @@ export class FeatureBinding {
     if (this.#lifecycle !== 'active') return undefined;
     const elementId = this.elementIdFor(feature);
     if (elementId === undefined) return undefined;
+    if (this.#dirty.has(elementId)) return undefined;
     const binding = this.#bindings.get(elementId);
-    const state = this.#store.get(elementId);
-    if (binding === undefined || state === undefined) return undefined;
-    return { elementId, layerId: state.layerId, visible: state.visible };
+    if (binding === undefined) return undefined;
+    return { elementId, layerId: binding.layerId, visible: binding.visible };
+  }
+
+  /** 判断元素所属矢量源是否启用水平世界环绕。 */
+  wrapsX(elementId: string): boolean {
+    this.#assertActive();
+    const binding = this.#bindings.get(elementId);
+    if (binding === undefined) return false;
+    return this.#layers.requireVectorSource(binding.layerId).getWrapX() === true;
   }
 
   /** 对照整个元素 Store 修正全部要素绑定。 */

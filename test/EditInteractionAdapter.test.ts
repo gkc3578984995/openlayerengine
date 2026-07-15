@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import Collection from 'ol/Collection.js';
 import type { FeatureLike } from 'ol/Feature.js';
-import type Geometry from 'ol/geom/Geometry.js';
 import LineString from 'ol/geom/LineString.js';
-import Point from 'ol/geom/Point.js';
+import MultiPoint from 'ol/geom/MultiPoint.js';
+import Polygon from 'ol/geom/Polygon.js';
 import type Interaction from 'ol/interaction/Interaction.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import LayerGroup from 'ol/layer/Group.js';
@@ -11,9 +11,10 @@ import type Layer from 'ol/layer/Layer.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
 import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
-import { clearUserProjection, setUserProjection } from 'ol/proj.js';
+import { clearUserProjection, fromUserCoordinate, getUserProjection, setUserProjection } from 'ol/proj.js';
 import type Source from 'ol/source/Source.js';
 import VectorSource from 'ol/source/Vector.js';
+import Style from 'ol/style/Style.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import { FeatureBinding, type ProjectionSuppressionLease } from '../src/adapters/openlayers/FeatureBinding.js';
@@ -31,10 +32,6 @@ import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#3366ff', width: 3 }] };
-
-interface FeatureAtPixelOptions {
-  readonly layerFilter?: (layer: Layer<Source>) => boolean;
-}
 
 class MapHarness {
   readonly layers = new Collection<BaseLayer>();
@@ -82,25 +79,14 @@ class MapHarness {
     return this.view;
   }
 
-  forEachFeatureAtPixel<T>(
-    pixel: readonly number[],
-    callback: (feature: FeatureLike, layer: Layer<Source>, geometry: Geometry) => T,
-    options: FeatureAtPixelOptions = {}
-  ): T | undefined {
-    for (const candidate of [...this.layers.getArray()].reverse()) {
-      if (!(candidate instanceof VectorLayer) || (options.layerFilter !== undefined && !options.layerFilter(candidate))) continue;
-      const source = candidate.getSource();
-      if (source === null) continue;
-      for (const feature of [...source.getFeatures()].reverse()) {
-        const geometry = feature.getGeometry();
-        if (!(geometry instanceof Point)) continue;
-        const coordinate = geometry.getCoordinates();
-        if (coordinate[0] !== pixel[0] || coordinate[1] !== pixel[1]) continue;
-        const result = callback(feature, candidate, geometry);
-        if (result !== undefined) return result;
-      }
-    }
-    return undefined;
+  getPixelFromCoordinate(coordinate: number[]): [number, number] {
+    return [coordinate[0] ?? Number.NaN, coordinate[1] ?? Number.NaN];
+  }
+
+  getCoordinateFromPixelInternal(pixel: number[]): [number, number] {
+    if (getUserProjection() === null) return [pixel[0] ?? Number.NaN, pixel[1] ?? Number.NaN];
+    const coordinate = fromUserCoordinate(pixel, this.view.getProjection());
+    return [coordinate[0] ?? Number.NaN, coordinate[1] ?? Number.NaN];
   }
 }
 
@@ -198,6 +184,22 @@ function pointerEvent(
   } as unknown as MapBrowserEvent;
 }
 
+function fakeCanvasContext() {
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    setLineDash: vi.fn(),
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0
+  };
+}
+
 describe('EditInteractionAdapter', () => {
   it('hands off persistent projection suppression and renders detached preview, underlay, and anchors in the selected world copy', () => {
     const entry = element([
@@ -216,7 +218,8 @@ describe('EditInteractionAdapter', () => {
       [190, 20]
     ];
 
-    const handle = adapter.open({ elementId: entry.id, controlPoints: callerControlPoints, underlay: true }, vi.fn());
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open({ elementId: entry.id, controlPoints: callerControlPoints, underlay: true }, (event) => received.push(event));
     callerControlPoints[0] = [999, 999];
 
     expect(acquisition?.active).toBe(false);
@@ -242,6 +245,7 @@ describe('EditInteractionAdapter', () => {
     const layer = temporaryLayer(map);
     const source = layer.getSource();
     if (source === null) throw new Error('Missing temporary source');
+    expect(source.getWrapX()).toBe(false);
     const firstLines = source
       .getFeatures()
       .map((feature) => feature.getGeometry())
@@ -257,8 +261,19 @@ describe('EditInteractionAdapter', () => {
         [550, 20]
       ]
     ]);
-    expect(source.getFeatures().filter((feature) => feature.getGeometry() instanceof Point)).toHaveLength(3);
+    const firstAnchorBatches = source
+      .getFeatures()
+      .map((feature) => feature.getGeometry())
+      .filter((geometry): geometry is MultiPoint => geometry instanceof MultiPoint);
+    expect(firstAnchorBatches).toHaveLength(2);
+    expect(firstAnchorBatches.reduce((count, geometry) => count + geometry.getCoordinates().length, 0)).toBe(3);
     expect(store.get(entry.id)).toEqual(entry);
+
+    const input = editInteraction(map);
+    expect(input.handleEvent(pointerEvent('pointerdown', [170, 10]))).toBe(true);
+    input.handleEvent(pointerEvent('pointerdown', [530, 10]));
+    input.handleEvent(pointerEvent('pointercancel', [530, 10], { button: -1 }));
+    expect(received.map(({ type }) => type)).toEqual(['move-start', 'move-cancel']);
 
     handle.render(
       renderState(
@@ -297,6 +312,344 @@ describe('EditInteractionAdapter', () => {
     expect(store.get(entry.id)).toEqual(entry);
   });
 
+  it.each([1, -1, 50, -50])('moves an idle edit preview to world %s while preserving canonical hit and drag events', (world) => {
+    const { adapter, map } = setup({ wrapX: true });
+    const initialCenterListeners = map.view.getListeners('change:center')?.length ?? 0;
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    handle.render(renderState());
+    expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners + 1);
+
+    const offset = world * 360;
+    map.view.setCenter([offset, 0]);
+
+    const source = temporaryLayer(map).getSource();
+    if (source === null) throw new Error('Missing repositioned edit source');
+    const line = source
+      .getFeatures()
+      .map((feature) => feature.getGeometry())
+      .find((geometry): geometry is LineString => geometry instanceof LineString);
+    expect(line?.getCoordinates()).toEqual([
+      [offset, 0],
+      [offset + 8, 0]
+    ]);
+    const anchorCoordinates = source
+      .getFeatures()
+      .map((feature) => feature.getGeometry())
+      .filter((geometry): geometry is MultiPoint => geometry instanceof MultiPoint)
+      .flatMap((geometry) => geometry.getCoordinates());
+    expect(anchorCoordinates).toEqual(
+      expect.arrayContaining([
+        [offset, 0],
+        [offset + 4, 0],
+        [offset + 8, 0]
+      ])
+    );
+
+    const input = editInteraction(map);
+    expect(input.handleEvent(pointerEvent('pointerdown', [offset, 0]))).toBe(false);
+    expect(input.handleEvent(pointerEvent('pointerdrag', [offset + 2, 1]))).toBe(false);
+    expect(input.handleEvent(pointerEvent('pointerup', [offset + 3, 2]))).toBe(false);
+    expect(received).toEqual([
+      expect.objectContaining({ type: 'move-start', anchor: expect.objectContaining({ index: 0, coordinate: [0, 0] }), coordinate: [0, 0] }),
+      expect.objectContaining({ type: 'move', anchor: expect.objectContaining({ index: 0, coordinate: [0, 0] }), coordinate: [2, 1] }),
+      expect.objectContaining({ type: 'move-end', anchor: expect.objectContaining({ index: 0, coordinate: [0, 0] }), coordinate: [3, 2] })
+    ]);
+
+    handle.destroy();
+    expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners);
+  });
+
+  it.each([
+    { world: 1, terminal: 'pointerup' },
+    { world: -1, terminal: 'pointercancel' },
+    { world: 50, terminal: 'pointerup' },
+    { world: -50, terminal: 'pointercancel' }
+  ] as const)('freezes world offset during an active edit and applies world $world after $terminal', ({ world, terminal }) => {
+    const { adapter, map } = setup({ wrapX: true });
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    handle.render(renderState());
+    const input = editInteraction(map);
+    input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+
+    const offset = world * 360;
+    const sourceBeforePan = temporaryLayer(map).getSource();
+    map.view.setCenter([offset, 0]);
+    expect(temporaryLayer(map).getSource()).toBe(sourceBeforePan);
+    const lineBeforeTerminal = sourceBeforePan
+      ?.getFeatures()
+      .map((feature) => feature.getGeometry())
+      .find((geometry): geometry is LineString => geometry instanceof LineString);
+    expect(lineBeforeTerminal?.getCoordinates()).toEqual([
+      [0, 0],
+      [8, 0]
+    ]);
+
+    input.handleEvent(pointerEvent('pointerdrag', [offset + 2, 1]));
+    input.handleEvent(pointerEvent(terminal, [offset + 3, 2], terminal === 'pointercancel' ? { button: -1 } : {}));
+
+    const repositionedSource = temporaryLayer(map).getSource();
+    const repositionedLine = repositionedSource
+      ?.getFeatures()
+      .map((feature) => feature.getGeometry())
+      .find((geometry): geometry is LineString => geometry instanceof LineString);
+    expect(repositionedLine?.getCoordinates()).toEqual([
+      [offset, 0],
+      [offset + 8, 0]
+    ]);
+    expect(received.slice(0, 2)).toEqual([
+      expect.objectContaining({ type: 'move-start', coordinate: [0, 0] }),
+      expect.objectContaining({ type: 'move', coordinate: [2, 1] })
+    ]);
+    expect(received.at(-1)).toEqual(
+      terminal === 'pointercancel'
+        ? expect.objectContaining({ type: 'move-cancel', anchor: expect.objectContaining({ coordinate: [0, 0] }) })
+        : expect.objectContaining({ type: 'move-end', coordinate: [3, 2] })
+    );
+    handle.destroy();
+  });
+
+  it('removes the wrapped-view listener when an edit listener destroys during a pending pointerup', () => {
+    const { adapter, map } = setup({ wrapX: true });
+    const initialCenterListeners = map.view.getListeners('change:center')?.length ?? 0;
+    const owner: { handle?: ReturnType<EditInteractionAdapter['open']> } = {};
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => {
+        if (event.type === 'move-end') owner.handle?.destroy();
+      }
+    );
+    owner.handle = handle;
+    handle.render(renderState());
+    const input = editInteraction(map);
+    input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+    map.view.setCenter([50 * 360, 0]);
+
+    expect(() => input.handleEvent(pointerEvent('pointerup', [50 * 360 + 2, 1]))).not.toThrow();
+    expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners);
+    expect(map.layers.getLength()).toBe(1);
+    expect(map.interactions.getLength()).toBe(0);
+  });
+
+  it('keeps a 20k-anchor pointerdown below 50 ms by querying only nearby RBush candidates', () => {
+    const { adapter, map } = setup({ wrapX: false });
+    const anchorCount = 20_000;
+    const anchors = Array.from({ length: anchorCount }, (_, index) => ({
+      kind: 'control' as const,
+      index,
+      coordinate: [index * 20, 0] as Coordinate,
+      removable: true
+    }));
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      vi.fn()
+    );
+    handle.render({
+      geometry: {
+        type: 'polyline',
+        coordinates: [
+          [0, 0],
+          [8, 0]
+        ]
+      },
+      style,
+      anchors
+    });
+    const target = anchors[12_345];
+    if (target === undefined) throw new Error('Missing latency target anchor');
+    const pixelLookup = vi.spyOn(map, 'getPixelFromCoordinate');
+
+    const startedAt = performance.now();
+    expect(editInteraction(map).handleEvent(pointerEvent('pointerdown', target.coordinate))).toBe(false);
+    const latency = performance.now() - startedAt;
+
+    expect(latency).toBeLessThanOrEqual(50);
+    expect(pixelLookup.mock.calls.length).toBeLessThanOrEqual(3);
+    handle.destroy();
+  });
+
+  it('isolates a retained cross-world render plan from mutable caller geometry and anchors', () => {
+    const { adapter, map } = setup({ wrapX: true });
+    const callerCoordinates: [number, number][] = [
+      [0, 0],
+      [8, 0]
+    ];
+    const callerAnchors = [
+      { kind: 'control' as const, index: 0, coordinate: callerCoordinates[0], removable: false },
+      { kind: 'control' as const, index: 1, coordinate: callerCoordinates[1], removable: true }
+    ];
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open({ elementId: 'editable', controlPoints: callerCoordinates, underlay: false }, (event) => received.push(event));
+    handle.render({ geometry: { type: 'polyline', coordinates: callerCoordinates }, style, anchors: callerAnchors });
+
+    callerCoordinates[0][0] = 999;
+    callerCoordinates[1][0] = 1_999;
+    map.view.setCenter([360, 0]);
+
+    const line = temporaryLayer(map)
+      .getSource()
+      ?.getFeatures()
+      .map((feature) => feature.getGeometry())
+      .find((geometry): geometry is LineString => geometry instanceof LineString);
+    expect(line?.getCoordinates()).toEqual([
+      [360, 0],
+      [368, 0]
+    ]);
+    editInteraction(map).handleEvent(pointerEvent('pointerdown', [360, 0]));
+    expect(received.at(-1)).toEqual(expect.objectContaining({ type: 'move-start', anchor: expect.objectContaining({ coordinate: [0, 0] }) }));
+    handle.destroy();
+  });
+
+  it('updates a large-world polygon preview without changing its canonical render state', () => {
+    const { adapter, map } = setup({ wrapX: true });
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0],
+          [8, 8]
+        ],
+        underlay: false
+      },
+      vi.fn()
+    );
+    const firstRing: readonly Coordinate[] = [
+      [0, 0],
+      [8, 0],
+      [8, 8],
+      [0, 0]
+    ];
+    handle.render({
+      geometry: { type: 'polygon', coordinates: [firstRing] },
+      style,
+      anchors: [{ kind: 'control', index: 0, coordinate: [0, 0], removable: false }]
+    });
+    map.view.setCenter([50 * 360, 0]);
+    const movedRing: readonly Coordinate[] = [
+      [0, 0],
+      [10, 1],
+      [8, 8],
+      [0, 0]
+    ];
+    handle.render({
+      geometry: { type: 'polygon', coordinates: [movedRing] },
+      style,
+      anchors: [{ kind: 'control', index: 1, coordinate: [10, 1], removable: true }]
+    });
+
+    const polygon = temporaryLayer(map)
+      .getSource()
+      ?.getFeatures()
+      .map((feature) => feature.getGeometry())
+      .find((geometry): geometry is Polygon => geometry instanceof Polygon);
+    expect(polygon?.getCoordinates()).toEqual([
+      [
+        [50 * 360, 0],
+        [50 * 360 + 10, 1],
+        [50 * 360 + 8, 8],
+        [50 * 360, 0]
+      ]
+    ]);
+    expect(movedRing).toEqual([
+      [0, 0],
+      [10, 1],
+      [8, 8],
+      [0, 0]
+    ]);
+    handle.destroy();
+  });
+
+  it('rolls back all native resources when wrapped-view listener installation fails', () => {
+    const { adapter, map, persistentFeature, persistentSource } = setup({ wrapX: true });
+    const initialCenterListeners = map.view.getListeners('change:center')?.length ?? 0;
+    vi.spyOn(map.view, 'addEventListener').mockImplementationOnce(() => {
+      throw new Error('center listener installation failed');
+    });
+
+    expect(() =>
+      adapter.open(
+        {
+          elementId: 'editable',
+          controlPoints: [
+            [0, 0],
+            [8, 0]
+          ],
+          underlay: false
+        },
+        vi.fn()
+      )
+    ).toThrowError('center listener installation failed');
+    expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners);
+    expect(map.layers.getLength()).toBe(1);
+    expect(map.interactions.getLength()).toBe(0);
+    expect(persistentSource.getFeatures()).toEqual([persistentFeature]);
+  });
+
+  it('retries a failed wrapped-view listener removal without leaking the listener', () => {
+    const { adapter, map, reports } = setup({ wrapX: true });
+    const initialCenterListeners = map.view.getListeners('change:center')?.length ?? 0;
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      vi.fn()
+    );
+    handle.render(renderState());
+    const nativeRemoveEventListener = map.view.removeEventListener.bind(map.view);
+    const removeEventListener = vi.spyOn(map.view, 'removeEventListener').mockImplementationOnce(() => {
+      throw new Error('center listener cleanup failed');
+    });
+    removeEventListener.mockImplementation((type, listener) => nativeRemoveEventListener(type, listener));
+
+    expect(() => handle.destroy()).toThrowError('center listener cleanup failed');
+    expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners + 1);
+    expect(reports.map((error) => (error as Error).message)).toContain('center listener cleanup failed');
+    expect(() => handle.destroy()).not.toThrow();
+    expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners);
+    expect(removeEventListener).toHaveBeenCalledTimes(2);
+  });
+
   it('omits the entry underlay when disabled and never publishes temporary features through FeatureBinding', () => {
     const { adapter, binding, map, persistentFeature, persistentSource, store } = setup({ wrapX: false });
     const handle = adapter.open(
@@ -320,7 +673,7 @@ describe('EditInteractionAdapter', () => {
         .map((feature) => feature.getGeometry())
         .filter((geometry) => geometry instanceof LineString)
     ).toHaveLength(1);
-    expect(source.getFeatures()).toHaveLength(4);
+    expect(source.getFeatures()).toHaveLength(3);
     for (const feature of source.getFeatures()) {
       expect(binding.elementIdFor(feature as never)).toBeUndefined();
       expect(binding.resolveFeature(feature as never)).toBeUndefined();
@@ -330,6 +683,66 @@ describe('EditInteractionAdapter', () => {
 
     handle.destroy();
     expect(persistentSource.getFeatures()).toEqual([persistentFeature]);
+  });
+
+  it('freezes the underlay from the first successful render after an initial source handoff failure', () => {
+    const { adapter, map } = setup();
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: true
+      },
+      vi.fn()
+    );
+    const layer = temporaryLayer(map);
+    const nativeSetSource = layer.setSource.bind(layer);
+    const setSource = vi.spyOn(layer, 'setSource').mockImplementationOnce((source) => {
+      nativeSetSource(source);
+      throw new Error('first handoff failed');
+    });
+    setSource.mockImplementation((source) => nativeSetSource(source));
+
+    expect(() =>
+      handle.render(
+        renderState(
+          [
+            [0, 0],
+            [10, 2]
+          ],
+          [5, 1]
+        )
+      )
+    ).toThrowError('first handoff failed');
+    handle.render(
+      renderState(
+        [
+          [20, 5],
+          [30, 7]
+        ],
+        [25, 6]
+      )
+    );
+
+    const lines = layer
+      .getSource()
+      ?.getFeatures()
+      .map((feature) => feature.getGeometry())
+      .filter((geometry): geometry is LineString => geometry instanceof LineString);
+    expect(lines?.map((line) => line.getCoordinates())).toEqual([
+      [
+        [20, 5],
+        [30, 7]
+      ],
+      [
+        [20, 5],
+        [30, 7]
+      ]
+    ]);
+    handle.destroy();
   });
 
   it('maps control drags, insertion clicks, and Alt-removal clicks to detached semantic events', () => {
@@ -373,10 +786,175 @@ describe('EditInteractionAdapter', () => {
     ]);
     expect(received.every(Object.isFrozen)).toBe(true);
     expect(reports.map((error) => (error as Error).message)).toEqual(['listener failed']);
-
     handle.destroy();
     input.handleEvent(pointerEvent('pointerdown', [0, 0]));
     expect(received).toHaveLength(8);
+  });
+
+  it('prioritizes the operation-specific anchor when control and insertion handles overlap', () => {
+    const { adapter, map } = setup();
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    handle.render({
+      ...renderState(),
+      anchors: [
+        { kind: 'control', index: 0, coordinate: [0, 0], role: 'start', removable: true },
+        { kind: 'insertion', index: 1, coordinate: [0, 0] }
+      ]
+    });
+    const input = editInteraction(map);
+
+    input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+    input.handleEvent(pointerEvent('pointercancel', [0, 0], { button: -1 }));
+    input.handleEvent(pointerEvent('click', [0, 0]));
+    input.handleEvent(pointerEvent('click', [0, 0], { altKey: true }));
+
+    expect(received.map(({ type }) => type)).toEqual(['move-start', 'move-cancel', 'insert', 'remove']);
+    expect(received[0]).toMatchObject({ type: 'move-start', anchor: { kind: 'control' } });
+    expect(received[2]).toMatchObject({ type: 'insert', anchor: { kind: 'insertion' } });
+    expect(received[3]).toMatchObject({ type: 'remove', anchor: { kind: 'control' } });
+    handle.destroy();
+  });
+
+  it('scales the batched anchor canvas renderers at DPR 2 and draws each batch with one path', () => {
+    const { adapter, map } = setup();
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      vi.fn()
+    );
+    try {
+      handle.render(renderState());
+      const source = temporaryLayer(map).getSource();
+      if (source === null) throw new Error('Missing temporary source');
+      const batchStyles = new Map<number, Style>();
+      for (const feature of source.getFeatures()) {
+        if (!(feature.getGeometry() instanceof MultiPoint)) continue;
+        const featureStyle = feature.getStyle();
+        if (!(featureStyle instanceof Style)) throw new Error('Missing batched anchor style');
+        batchStyles.set(featureStyle.getZIndex() ?? -1, featureStyle);
+      }
+      const controlRenderer = batchStyles.get(1)?.getRenderer();
+      const insertionRenderer = batchStyles.get(0)?.getRenderer();
+      if (controlRenderer === null || controlRenderer === undefined || insertionRenderer === null || insertionRenderer === undefined) {
+        throw new Error('Missing batched anchor renderer');
+      }
+
+      const controlContext = fakeCanvasContext();
+      controlRenderer(
+        [
+          [10, 20],
+          [30, 40]
+        ],
+        { context: controlContext as unknown as CanvasRenderingContext2D, pixelRatio: 2 } as never
+      );
+      expect(controlContext.beginPath).toHaveBeenCalledOnce();
+      expect(controlContext.arc).toHaveBeenCalledTimes(2);
+      expect(controlContext.arc).toHaveBeenNthCalledWith(1, 10, 20, 10, 0, 2 * Math.PI);
+      expect(controlContext.arc).toHaveBeenNthCalledWith(2, 30, 40, 10, 0, 2 * Math.PI);
+      expect(controlContext.lineWidth).toBe(4);
+      expect(controlContext.fill).toHaveBeenCalledOnce();
+      expect(controlContext.stroke).toHaveBeenCalledOnce();
+
+      const insertionContext = fakeCanvasContext();
+      insertionRenderer([[15, 25]], { context: insertionContext as unknown as CanvasRenderingContext2D, pixelRatio: 2 } as never);
+      expect(insertionContext.beginPath).toHaveBeenCalledOnce();
+      expect(insertionContext.setLineDash).toHaveBeenCalledWith([6, 4]);
+      expect(insertionContext.fill).toHaveBeenCalledOnce();
+      expect(insertionContext.stroke).toHaveBeenCalledOnce();
+    } finally {
+      handle.destroy();
+    }
+  });
+
+  it('coalesces browser pointerdrag events per animation frame and flushes or cancels pending moves', () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      const id = ++nextFrame;
+      frames.set(id, callback);
+      return id;
+    });
+    const cancelFrame = vi.fn((id: number) => {
+      frames.delete(id);
+    });
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+
+    const { adapter, map } = setup();
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    try {
+      handle.render(renderState());
+      const input = editInteraction(map);
+      input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+      for (let index = 1; index <= 100; index += 1) input.handleEvent(pointerEvent('pointerdrag', [index, 1], { button: -1 }));
+
+      expect(requestFrame).toHaveBeenCalledOnce();
+      expect(received.map(({ type }) => type)).toEqual(['move-start']);
+      const firstFrame = frames.get(1);
+      if (firstFrame === undefined) throw new Error('Missing coalesced animation frame');
+      frames.delete(1);
+      firstFrame(16);
+      expect(received.at(-1)).toEqual({
+        type: 'move',
+        anchor: { kind: 'control', index: 0, coordinate: [0, 0], role: 'start', removable: false },
+        coordinate: [100, 1]
+      });
+
+      input.handleEvent(pointerEvent('pointerdrag', [101, 1], { button: -1 }));
+      input.handleEvent(pointerEvent('pointerup', [102, 2], { button: -1 }));
+      expect(received.slice(-2).map(({ type }) => type)).toEqual(['move', 'move-end']);
+      expect((received.at(-2) as Extract<EditInteractionEvent, { type: 'move' }>).coordinate).toEqual([101, 1]);
+      expect((received.at(-1) as Extract<EditInteractionEvent, { type: 'move-end' }>).coordinate).toEqual([102, 2]);
+
+      input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+      input.handleEvent(pointerEvent('pointerdrag', [3, 3], { button: -1 }));
+      const cancelledFrame = frames.get(3);
+      if (cancelledFrame === undefined) throw new Error('Missing cancellation animation frame');
+      input.handleEvent(pointerEvent('pointercancel', [3, 3], { button: -1 }));
+      cancelledFrame(32);
+      expect(received.at(-1)?.type).toBe('move-cancel');
+
+      input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+      input.handleEvent(pointerEvent('pointerdrag', [4, 4], { button: -1 }));
+      const destroyedFrame = frames.get(4);
+      if (destroyedFrame === undefined) throw new Error('Missing destroy animation frame');
+      const beforeDestroy = received.length;
+      handle.destroy();
+      destroyedFrame(48);
+      expect(received).toHaveLength(beforeDestroy);
+      expect(cancelFrame).toHaveBeenCalledTimes(3);
+    } finally {
+      handle.destroy();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('maps an OL pointerup that wraps a native pointercancel to move-cancel', () => {
@@ -430,8 +1008,53 @@ describe('EditInteractionAdapter', () => {
     }
   });
 
-  it('retires superseded render resources immediately and retains only failed retirement for destroy retry', () => {
-    const { adapter, map, reports } = setup();
+  it('replays active cross-world drag coordinates through the OpenLayers user projection', () => {
+    setUserProjection('EPSG:4326');
+    try {
+      const { adapter, map } = setup({ center: [0, 0], projection: 'EPSG:3857', wrapX: true });
+      const received: EditInteractionEvent[] = [];
+      const handle = adapter.open(
+        {
+          elementId: 'editable',
+          controlPoints: [
+            [0, 0],
+            [8, 0]
+          ],
+          underlay: false
+        },
+        (event) => received.push(event)
+      );
+      handle.render(renderState());
+      const input = editInteraction(map);
+      input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+      const offset = 50 * 360;
+      map.view.setCenter([offset, 0]);
+      input.handleEvent(pointerEvent('pointerdrag', [offset + 2, 1]));
+      input.handleEvent(pointerEvent('pointerup', [offset + 3, 2]));
+
+      expect(received).toEqual([
+        expect.objectContaining({ type: 'move-start', coordinate: [0, 0] }),
+        expect.objectContaining({ type: 'move', coordinate: [2, 1] }),
+        expect.objectContaining({ type: 'move-end', coordinate: [3, 2] })
+      ]);
+      const line = temporaryLayer(map)
+        .getSource()
+        ?.getFeatures()
+        .map((feature) => feature.getGeometry())
+        .find((geometry): geometry is LineString => geometry instanceof LineString);
+      expect(line?.getCoordinates()).toEqual([
+        [offset, 0],
+        [offset + 8, 0]
+      ]);
+      handle.destroy();
+    } finally {
+      clearUserProjection();
+    }
+  });
+
+  it('reuses two render buffers and defers their native cleanup until destroy', () => {
+    const { adapter, map, styles } = setup();
+    const compile = vi.spyOn(styles, 'compile');
     const handle = adapter.open(
       {
         elementId: 'editable',
@@ -462,41 +1085,89 @@ describe('EditInteractionAdapter', () => {
       )
     );
 
-    expect(firstClear).toHaveBeenCalledOnce();
-    expect(firstSource.getFeatures()).toEqual([]);
-    expect(firstDispose).toHaveBeenCalledOnce();
-    expect(firstFeatures.every((feature) => feature.getGeometry() === undefined && feature.getStyle() === undefined)).toBe(true);
-    expect(firstFeatureDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
+    expect(firstClear).not.toHaveBeenCalled();
+    expect(firstSource.getFeatures()).toEqual(firstFeatures);
+    expect(firstDispose).not.toHaveBeenCalled();
+    expect(firstFeatures.every((feature) => feature.getGeometry() !== undefined && feature.getStyle() !== undefined)).toBe(true);
+    expect(firstFeatureDisposals.every((dispose) => dispose.mock.calls.length === 0)).toBe(true);
 
     const secondSource = layer.getSource();
     if (secondSource === null) throw new Error('Missing second render source');
-    const nativeSecondClear = secondSource.clear.bind(secondSource);
+    const secondFeatures = secondSource.getFeatures();
     const secondDispose = vi.spyOn(secondSource, 'dispose');
-    const secondClear = vi.spyOn(secondSource, 'clear').mockImplementationOnce(() => {
-      throw new Error('retirement clear failed');
-    });
-    secondClear.mockImplementation((fast) => nativeSecondClear(fast));
+    const secondClear = vi.spyOn(secondSource, 'clear');
+    const secondFeatureDisposals = secondFeatures.map((feature) => vi.spyOn(feature, 'dispose'));
+    const secondPreviewGeometry = secondFeatures.map((feature) => feature.getGeometry()).find((geometry) => geometry instanceof LineString);
+    const secondAnchorGeometries = secondFeatures
+      .map((feature) => feature.getGeometry())
+      .filter((geometry): geometry is MultiPoint => geometry instanceof MultiPoint);
+    if (secondPreviewGeometry === undefined) throw new Error('Missing second preview geometry');
+    const previewSetter = vi.spyOn(secondPreviewGeometry, 'setCoordinates');
+    const anchorSetters = secondAnchorGeometries.map((geometry) => vi.spyOn(geometry, 'setCoordinates'));
 
-    expect(() =>
+    handle.render(
+      renderState(
+        [
+          [0, 0],
+          [12, 4]
+        ],
+        [6, 2]
+      )
+    );
+    handle.render(
+      renderState(
+        [
+          [0, 0],
+          [10, 2]
+        ],
+        [5, 1]
+      )
+    );
+    expect(layer.getSource()).toBe(secondSource);
+    expect(previewSetter).not.toHaveBeenCalled();
+    expect(anchorSetters.every((setter) => setter.mock.calls.length === 0)).toBe(true);
+
+    const sources = new Set<VectorSource<FeatureLike>>([firstSource, secondSource]);
+    for (let step = 0; step < 100; step += 1) {
       handle.render(
         renderState(
           [
             [0, 0],
-            [12, 4]
+            [12 + step, 4]
           ],
-          [6, 2]
+          [6 + step / 2, 2]
         )
-      )
-    ).not.toThrow();
-    expect(secondClear).toHaveBeenCalledOnce();
-    expect(secondSource.getFeatures()).not.toEqual([]);
-    expect(reports.map((error) => (error as Error).message)).toContain('retirement clear failed');
+      );
+      const source = layer.getSource();
+      if (source === null) throw new Error('Missing reused render source');
+      sources.add(source);
+    }
+
+    expect(sources).toEqual(new Set([firstSource, secondSource]));
+    expect(new Set(firstSource.getFeatures())).toEqual(new Set(firstFeatures));
+    expect(new Set(secondSource.getFeatures())).toEqual(new Set(secondFeatures));
+    expect(firstClear).not.toHaveBeenCalled();
+    expect(secondClear).not.toHaveBeenCalled();
+    expect(firstDispose).not.toHaveBeenCalled();
+    expect(secondDispose).not.toHaveBeenCalled();
+    expect(compile).toHaveBeenCalledOnce();
+
+    const reduced = renderState();
+    const reducedState: EditInteractionRenderState = { ...reduced, anchors: reduced.anchors.slice(0, 1) };
+    handle.render(reducedState);
+    handle.render(reducedState);
+    expect(firstSource.getFeatures()).toHaveLength(2);
+    expect(secondSource.getFeatures()).toHaveLength(2);
 
     handle.destroy();
     expect(firstClear).toHaveBeenCalledOnce();
-    expect(secondClear).toHaveBeenCalledTimes(2);
+    expect(secondClear).toHaveBeenCalledOnce();
+    expect(firstSource.getFeatures()).toEqual([]);
     expect(secondSource.getFeatures()).toEqual([]);
+    expect(firstDispose).toHaveBeenCalledOnce();
     expect(secondDispose).toHaveBeenCalledOnce();
+    expect(firstFeatureDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
+    expect(secondFeatureDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
   });
 
   it('preserves the preceding render atomically and emits nothing from a failing source handoff', () => {
@@ -523,16 +1194,18 @@ describe('EditInteractionAdapter', () => {
     vi.spyOn(styles, 'compile').mockImplementationOnce(() => {
       throw new Error('compile failed');
     });
+    const failingStyle: ElementStyleState = { strokes: [{ color: '#ff0000', width: 2 }] };
     expect(() =>
-      handle.render(
-        renderState(
+      handle.render({
+        ...renderState(
           [
             [0, 0],
             [12, 4]
           ],
           [6, 2]
-        )
-      )
+        ),
+        style: failingStyle
+      })
     ).toThrowError('compile failed');
     expect(layer.getSource()).toBe(previousSource);
     expect(previousSource.getFeatures()).toEqual(previousFeatures);
@@ -601,7 +1274,7 @@ describe('EditInteractionAdapter', () => {
     expect(layer.getSource()).toBeNull();
   });
 
-  it('throws when retiring the preceding source synchronously destroys the handle', () => {
+  it('does not clear the preceding source during frame handoff', () => {
     const { adapter, map } = setup();
     const handle = adapter.open(
       {
@@ -618,7 +1291,8 @@ describe('EditInteractionAdapter', () => {
     const layer = temporaryLayer(map);
     const precedingSource = layer.getSource();
     if (precedingSource === null) throw new Error('Missing preceding source');
-    precedingSource.once('clear', () => handle.destroy());
+    const clearListener = vi.fn(() => handle.destroy());
+    precedingSource.once('clear', clearListener);
 
     expect(() =>
       handle.render(
@@ -630,10 +1304,13 @@ describe('EditInteractionAdapter', () => {
           [6, 2]
         )
       )
-    ).toThrowError('Edit interaction was destroyed during render');
-    expect(map.layers.getLength()).toBe(1);
-    expect(map.interactions.getLength()).toBe(0);
+    ).not.toThrow();
+    expect(clearListener).not.toHaveBeenCalled();
+    expect(map.layers.getLength()).toBe(2);
+    expect(map.interactions.getLength()).toBe(1);
     expect(() => handle.destroy()).not.toThrow();
+    expect(clearListener).toHaveBeenCalledOnce();
+    expect(precedingSource.getFeatures()).toEqual([]);
   });
 
   it('rolls back a failed open, including suppression, after partial OL layer and interaction attachment', () => {

@@ -1,6 +1,6 @@
 import type { AnimationChannel, AnimationSpec, AnimationStatus } from '../../core/animation/types.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
-import { cloneElementSnapshot } from '../../core/element/snapshot.js';
+import { cloneElementSnapshot, isElementSnapshot } from '../../core/element/snapshot.js';
 import type { ElementSelector, ElementState } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
 import type { AnimationControlPort, AnimationPreviewPort } from '../../core/ports/AnimationControlPort.js';
@@ -8,8 +8,9 @@ import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/Error
 import type { LayerRenderBatch, LayerRenderContribution, LayerRenderFrame, LayerRenderLoopHandle, LayerRenderPort } from '../../core/ports/LayerRenderPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
+import type { RenderGeometryState } from '../../core/shape/types.js';
 import { isNativeStyleRef } from '../../core/style/types.js';
-import type { ElementChangeSet } from '../../core/transaction/types.js';
+import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import { createBuiltinAnimationRegistry } from '../../builtins/animations/index.js';
 import { AnimationHandleImpl } from './AnimationHandle.js';
 import type { AnimationRegistry } from './AnimationRegistry.js';
@@ -41,6 +42,8 @@ interface HandleRecord {
 interface BaseRecord {
   /** 动画记录 ID。 */
   readonly id: string;
+  /** 保持跨图层迁移前后渲染顺序稳定的创建序号。 */
+  readonly order: number;
   /** 用于替换同目标动画的唯一键。 */
   readonly key: string;
   /** 所属动画句柄 ID。 */
@@ -92,6 +95,32 @@ type ManagedRecord = ElementRecord | TransientRecord;
 /** 动画记录的终止状态。 */
 type TerminalStatus = Extract<AnimationStatus, 'stopped' | 'finished'>;
 
+/** 单个图层的动画记录及其热路径计数。 */
+interface LayerRecordIndex {
+  /** 按记录创建顺序排列的图层动画记录。 */
+  records: Set<ManagedRecord>;
+  /** 当前需要参与渲染的记录数。 */
+  renderableCount: number;
+  /** 当前需要继续请求动画帧的记录数。 */
+  runningCount: number;
+  /** 该索引见过的最大创建序号，用于快速追加新记录。 */
+  lastOrder: number;
+}
+
+/** 已按仓库版本准备好的动画帧输入。 */
+interface PreparedElementState {
+  /** 深冻结的元素状态。 */
+  readonly state: Readonly<ElementState>;
+  /** 只在状态版本变化时生成一次的深冻结渲染几何。 */
+  readonly geometry: RenderGeometryState;
+  /** 元素实例生命周期令牌。 */
+  readonly generation: ElementGeneration;
+  /** 元素内容版本令牌。 */
+  readonly revision: ElementRevision;
+  /** 可安全按身份复用的预览输入。 */
+  readonly sourceIdentity?: Readonly<ElementState>;
+}
+
 /** 统一管理元素动画、临时动画、预览状态和图层渲染循环。 */
 export class AnimationManagerImpl implements AnimationManager, AnimationControlPort, AnimationPreviewPort, TransientAnimationPort {
   /** 元素状态仓库。 */
@@ -108,12 +137,20 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   readonly #handles = new Map<string, HandleRecord>();
   /** 当前活动动画记录。 */
   readonly #records = new Map<string, ManagedRecord>();
+  /** 图层到动画记录及热路径计数的索引。 */
+  readonly #recordsByLayer = new Map<string, LayerRecordIndex>();
+  /** 元素到结构化动画记录的索引。 */
+  readonly #recordsByElement = new Map<string, Set<ElementRecord>>();
+  /** 临时动画所有者到记录的索引。 */
+  readonly #transientRecordsByOwner = new Map<string, Set<TransientRecord>>();
   /** 唯一记录键到记录 ID 的映射。 */
   readonly #recordKeys = new Map<string, string>();
   /** 各图层的渲染循环。 */
   readonly #passes = new Map<string, LayerRenderLoopHandle>();
   /** Transform 等交互提供的元素预览状态。 */
-  readonly #previews = new Map<string, Readonly<ElementState>>();
+  readonly #previews = new Map<string, PreparedElementState>();
+  /** 当前有动画记录的元素所对应的已提交帧输入。 */
+  readonly #committedStates = new Map<string, PreparedElementState>();
   /** 元素仓库订阅释放函数。 */
   readonly #unsubscribeStore: () => void;
   /** 下一个动画句柄 ID。 */
@@ -159,22 +196,27 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     const definition = this.#registry.get(animationType(input));
     const spec = definition.normalize(input);
     const states = this.#store.query(safeSelector);
-    const prepared = states.map((state) => {
-      if (isNativeStyleRef(state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
-      const geometry = this.#shapes.get(state.type).toRenderGeometry(state.geometry as never);
-      definition.assertCompatible(state, geometry);
-      return state;
+    const prepared = states.map(({ id }) => {
+      const current = this.#resolvePreparedState(id);
+      if (isNativeStyleRef(current.state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
+      definition.assertCompatible(current.state, current.geometry);
+      return current;
     });
     const handle = this.#createHandle(prepared.length === 0 ? 'finished' : 'running');
     if (prepared.length === 0) return handle;
     const added: ManagedRecord[] = [];
     try {
-      for (const state of prepared) {
+      for (const committed of prepared) {
+        const preview = this.#previews.get(committed.state.id);
+        const state = (preview ?? committed).state;
         const channel = animationChannel(spec);
         this.#replaceRecord(elementKey(state.id, channel));
+        if (preview !== undefined) this.#previews.set(state.id, preview);
+        const order = ++this.#nextRecordId;
         const record: ElementRecord = {
           kind: 'element',
-          id: `animation-record-${++this.#nextRecordId}`,
+          id: `animation-record-${order}`,
+          order,
           key: elementKey(state.id, channel),
           handleId: handle.id,
           elementId: state.id,
@@ -189,7 +231,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
           hidden: !state.visible,
           retained: false
         };
-        this.#addRecord(record);
+        this.#addRecord(record, committed);
         added.push(record);
       }
       this.#syncPasses();
@@ -213,9 +255,11 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     const handle = this.#createHandle('running');
     const key = transientKey(safe.renderLayerId, safe.renderTargetId, safe.channel);
     this.#replaceRecord(key);
+    const order = ++this.#nextRecordId;
     const record: TransientRecord = {
       kind: 'transient',
-      id: `animation-record-${++this.#nextRecordId}`,
+      id: `animation-record-${order}`,
+      order,
       key,
       handleId: handle.id,
       ownerId: safe.ownerId,
@@ -248,12 +292,15 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#assertActive();
     const records = this.#matchingElementRecords(selector, channels);
     for (const record of records) {
-      record.selectorPauseDepth += 1;
-      record.lastFrameTime = undefined;
+      this.#updateRecordState(record, () => {
+        record.selectorPauseDepth += 1;
+        record.lastFrameTime = undefined;
+      });
     }
+    const layers = new Set(records.map(({ layerId }) => layerId));
     this.#refreshHandles(records);
-    this.#syncPasses();
-    this.#requestLayers(new Set(records.map(({ layerId }) => layerId)));
+    this.#syncPasses(layers);
+    this.#requestLayers(layers);
     return records.length;
   }
 
@@ -262,12 +309,15 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#assertActive();
     const records = this.#matchingElementRecords(selector, channels).filter(({ selectorPauseDepth }) => selectorPauseDepth > 0);
     for (const record of records) {
-      record.selectorPauseDepth -= 1;
-      record.lastFrameTime = undefined;
+      this.#updateRecordState(record, () => {
+        record.selectorPauseDepth -= 1;
+        record.lastFrameTime = undefined;
+      });
     }
+    const layers = new Set(records.map(({ layerId }) => layerId));
     this.#refreshHandles(records);
-    this.#syncPasses();
-    this.#requestLayers(new Set(records.map(({ layerId }) => layerId)));
+    this.#syncPasses(layers);
+    this.#requestLayers(layers);
     return records.length;
   }
 
@@ -277,7 +327,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     const records = this.#matchingElementRecords(selector, channels);
     const layers = new Set(records.map(({ layerId }) => layerId));
     for (const record of records) this.#removeRecord(record, 'stopped');
-    this.#syncPasses();
+    this.#syncPasses(layers);
     this.#requestLayers(layers);
     return records.length;
   }
@@ -286,10 +336,10 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   stopTransient(ownerId: string): number {
     this.#assertActive();
     const safeOwner = nonEmptyString(ownerId, 'Transient animation ownerId');
-    const records = [...this.#records.values()].filter((record): record is TransientRecord => record.kind === 'transient' && record.ownerId === safeOwner);
+    const records = [...(this.#transientRecordsByOwner.get(safeOwner) ?? [])];
     const layers = new Set(records.map(({ layerId }) => layerId));
     for (const record of records) this.#removeRecord(record, 'stopped');
-    this.#syncPasses();
+    this.#syncPasses(layers);
     this.#requestLayers(layers);
     return records.length;
   }
@@ -305,22 +355,35 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   setPreview(state: Readonly<ElementState>): void {
     this.#assertActive();
     if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Animation preview must be an Element state');
-    const current = this.#store.get(state.id);
-    if (current === undefined) throw new InvalidArgumentError(`Animation preview Element does not exist: ${String(state.id)}`);
-    if (current.type !== state.type) throw new InvalidArgumentError('Animation preview cannot change Element type');
-    const snapshot = cloneElementSnapshot(this.#shapes, state);
-    const records = this.#elementRecords(state.id);
+    const elementId = nonEmptyString(state.id, 'Animation preview Element id');
+    const records = this.#elementRecords(elementId);
+    if (records.length === 0) return;
+    const committed = this.#resolvePreparedState(elementId);
+    if (committed.state.type !== state.type) throw new InvalidArgumentError('Animation preview cannot change Element type');
+    const existing = this.#previews.get(elementId);
+    if (existing?.sourceIdentity === state && existing.generation === committed.generation && existing.revision === committed.revision) return;
+    const trusted = isElementSnapshot(state);
+    const snapshot = trusted ? state : cloneElementSnapshot(this.#shapes, state);
+    const preview: PreparedElementState = Object.freeze({
+      state: snapshot,
+      geometry: freezeRenderGeometry(this.#shapes.get(snapshot.type).toRenderGeometry(snapshot.geometry as never)),
+      generation: committed.generation,
+      revision: committed.revision,
+      ...(trusted ? { sourceIdentity: state } : {})
+    });
     const affectedLayers = new Set(records.map(({ layerId }) => layerId));
-    this.#previews.set(state.id, snapshot);
+    this.#previews.set(elementId, preview);
     for (const record of records) {
       const timingChanged = record.layerId !== snapshot.layerId || record.hidden === snapshot.visible;
-      record.layerId = snapshot.layerId;
-      record.hidden = !snapshot.visible;
-      if (timingChanged) record.lastFrameTime = undefined;
+      this.#updateRecordState(record, () => {
+        record.layerId = snapshot.layerId;
+        record.hidden = !snapshot.visible;
+        if (timingChanged) record.lastFrameTime = undefined;
+      });
       affectedLayers.add(record.layerId);
       this.#refreshHandle(record.handleId);
     }
-    this.#syncPasses();
+    this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
   }
 
@@ -329,20 +392,22 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#assertActive();
     const safeId = nonEmptyString(elementId, 'Animation preview Element id');
     if (!this.#previews.delete(safeId)) return;
-    const state = this.#store.get(safeId);
+    const state = this.#committedStates.get(safeId)?.state;
     const records = this.#elementRecords(safeId);
     const affectedLayers = new Set(records.map(({ layerId }) => layerId));
     if (state !== undefined) {
       for (const record of records) {
         const timingChanged = record.layerId !== state.layerId || record.hidden === state.visible;
-        record.layerId = state.layerId;
-        record.hidden = !state.visible;
-        if (timingChanged) record.lastFrameTime = undefined;
+        this.#updateRecordState(record, () => {
+          record.layerId = state.layerId;
+          record.hidden = !state.visible;
+          if (timingChanged) record.lastFrameTime = undefined;
+        });
         affectedLayers.add(record.layerId);
         this.#refreshHandle(record.handleId);
       }
     }
-    this.#syncPasses();
+    this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
   }
 
@@ -352,12 +417,15 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     if (group === undefined) return;
     const records = this.#recordsFor(group);
     for (const record of records) {
-      record.handlePaused = true;
-      record.lastFrameTime = undefined;
+      this.#updateRecordState(record, () => {
+        record.handlePaused = true;
+        record.lastFrameTime = undefined;
+      });
     }
+    const layers = new Set(records.map(({ layerId }) => layerId));
     this.#refreshHandle(id);
-    this.#syncPasses();
-    this.#requestLayers(new Set(records.map(({ layerId }) => layerId)));
+    this.#syncPasses(layers);
+    this.#requestLayers(layers);
   }
 
   /** 通过句柄 ID 恢复动画组。 */
@@ -366,12 +434,15 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     if (group === undefined) return;
     const records = this.#recordsFor(group);
     for (const record of records) {
-      record.handlePaused = false;
-      record.lastFrameTime = undefined;
+      this.#updateRecordState(record, () => {
+        record.handlePaused = false;
+        record.lastFrameTime = undefined;
+      });
     }
+    const layers = new Set(records.map(({ layerId }) => layerId));
     this.#refreshHandle(id);
-    this.#syncPasses();
-    this.#requestLayers(new Set(records.map(({ layerId }) => layerId)));
+    this.#syncPasses(layers);
+    this.#requestLayers(layers);
   }
 
   /** 通过句柄 ID 停止动画组。 */
@@ -382,7 +453,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     const layers = new Set(records.map(({ layerId }) => layerId));
     for (const record of records) this.#removeRecord(record, 'stopped');
     this.#terminateHandle(id, 'stopped');
-    this.#syncPasses();
+    this.#syncPasses(layers);
     this.#requestLayers(layers);
   }
 
@@ -399,6 +470,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
         this.#storeSubscribed = false;
       }
       this.#previews.clear();
+      this.#committedStates.clear();
       this.#handles.clear();
       this.#disposed = true;
     } finally {
@@ -423,12 +495,24 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   }
 
   /** 将动画记录加入句柄和索引。 */
-  #addRecord(record: ManagedRecord): void {
+  #addRecord(record: ManagedRecord, committed?: PreparedElementState): void {
     const group = this.#handles.get(record.handleId);
     if (group === undefined) throw new ObjectDisposedError(`Animation handle is unavailable: ${record.handleId}`);
     this.#records.set(record.id, record);
     this.#recordKeys.set(record.key, record.id);
     group.recordIds.add(record.id);
+    this.#indexLayerRecord(record);
+    if (record.kind === 'element') {
+      if (committed === undefined) throw new InvalidArgumentError('Element animation requires a prepared state');
+      this.#committedStates.set(record.elementId, committed);
+      const records = this.#recordsByElement.get(record.elementId) ?? new Set<ElementRecord>();
+      records.add(record);
+      this.#recordsByElement.set(record.elementId, records);
+    } else {
+      const records = this.#transientRecordsByOwner.get(record.ownerId) ?? new Set<TransientRecord>();
+      records.add(record);
+      this.#transientRecordsByOwner.set(record.ownerId, records);
+    }
   }
 
   /** 停止并替换使用相同唯一键的动画。 */
@@ -442,6 +526,20 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #removeRecord(record: ManagedRecord, status: TerminalStatus): void {
     if (!this.#records.delete(record.id)) return;
     if (this.#recordKeys.get(record.key) === record.id) this.#recordKeys.delete(record.key);
+    this.#unindexLayerRecord(record, record.layerId, this.#shouldRender(record), this.#isRunning(record));
+    if (record.kind === 'element') {
+      const records = this.#recordsByElement.get(record.elementId);
+      records?.delete(record);
+      if (records?.size === 0) {
+        this.#recordsByElement.delete(record.elementId);
+        this.#committedStates.delete(record.elementId);
+        this.#previews.delete(record.elementId);
+      }
+    } else {
+      const records = this.#transientRecordsByOwner.get(record.ownerId);
+      records?.delete(record);
+      if (records?.size === 0) this.#transientRecordsByOwner.delete(record.ownerId);
+    }
     const group = this.#handles.get(record.handleId);
     group?.recordIds.delete(record.id);
     record.lastFrameTime = undefined;
@@ -451,13 +549,63 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
 
   /** 完成动画记录，并按定义决定是否保留结果。 */
   #finishRecord(record: ManagedRecord, retain: boolean, status: TerminalStatus): void {
+    if (!this.#records.has(record.id)) return;
     if (retain) {
-      record.retained = true;
-      record.lastFrameTime = undefined;
+      this.#updateRecordState(record, () => {
+        record.retained = true;
+        record.lastFrameTime = undefined;
+      });
       this.#refreshHandle(record.handleId);
       return;
     }
     this.#removeRecord(record, status);
+  }
+
+  /** 把记录加入图层索引，并维护渲染与帧推进计数。 */
+  #indexLayerRecord(record: ManagedRecord): void {
+    const renderable = this.#shouldRender(record);
+    const running = this.#isRunning(record);
+    const current = this.#recordsByLayer.get(record.layerId);
+    if (current === undefined) {
+      this.#recordsByLayer.set(record.layerId, {
+        records: new Set([record]),
+        renderableCount: renderable ? 1 : 0,
+        runningCount: running ? 1 : 0,
+        lastOrder: record.order
+      });
+      return;
+    }
+    if (record.order > current.lastOrder) current.records.add(record);
+    else current.records = new Set([...current.records, record].sort((left, right) => left.order - right.order));
+    current.renderableCount += renderable ? 1 : 0;
+    current.runningCount += running ? 1 : 0;
+    current.lastOrder = Math.max(current.lastOrder, record.order);
+  }
+
+  /** 从图层索引移除记录，并维护调用方捕获的旧状态计数。 */
+  #unindexLayerRecord(record: ManagedRecord, layerId: string, renderable: boolean, running: boolean): void {
+    const current = this.#recordsByLayer.get(layerId);
+    if (current === undefined || !current.records.delete(record)) return;
+    current.renderableCount -= renderable ? 1 : 0;
+    current.runningCount -= running ? 1 : 0;
+    if (current.records.size === 0) this.#recordsByLayer.delete(layerId);
+  }
+
+  /** 原子更新会影响图层热路径索引的记录状态。 */
+  #updateRecordState(record: ManagedRecord, update: () => void): void {
+    const previousLayerId = record.layerId;
+    const wasRenderable = this.#shouldRender(record);
+    const wasRunning = this.#isRunning(record);
+    update();
+    if (record.layerId !== previousLayerId) {
+      this.#unindexLayerRecord(record, previousLayerId, wasRenderable, wasRunning);
+      this.#indexLayerRecord(record);
+      return;
+    }
+    const current = this.#recordsByLayer.get(record.layerId);
+    if (current === undefined) return;
+    current.renderableCount += Number(this.#shouldRender(record)) - Number(wasRenderable);
+    current.runningCount += Number(this.#isRunning(record)) - Number(wasRunning);
   }
 
   /** 将动画句柄置为终态并按需移除。 */
@@ -498,29 +646,31 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #matchingElementRecords(selector: ElementSelector, channels: readonly AnimationChannel[] | undefined): ElementRecord[] {
     const safeSelector = normalizeElementSelector(selector);
     const channelSet = normalizeChannels(channels);
-    const ids = new Set(this.#store.query(safeSelector).map(({ id }) => id));
-    return [...this.#records.values()].filter(
-      (record): record is ElementRecord =>
-        record.kind === 'element' && ids.has(record.elementId) && (channelSet === undefined || channelSet.has(record.channel))
-    );
+    const matches = new Set<ElementRecord>();
+    for (const { id } of this.#store.query(safeSelector)) {
+      for (const record of this.#recordsByElement.get(id) ?? []) {
+        if (channelSet === undefined || channelSet.has(record.channel)) matches.add(record);
+      }
+    }
+    return [...matches].sort((left, right) => left.order - right.order);
   }
 
   /** 查找指定元素的全部动画记录。 */
   #elementRecords(elementId: string): ElementRecord[] {
-    return [...this.#records.values()].filter((record): record is ElementRecord => record.kind === 'element' && record.elementId === elementId);
+    return [...(this.#recordsByElement.get(elementId) ?? [])];
   }
 
   /** 创建需要的图层渲染循环并清理空闲循环。 */
-  #syncPasses(): void {
-    const needed = new Set<string>();
-    for (const record of this.#records.values()) if (this.#shouldRender(record)) needed.add(record.layerId);
-    for (const [layerId, pass] of [...this.#passes]) {
-      if (needed.has(layerId)) continue;
+  #syncPasses(layerIds?: ReadonlySet<string>): void {
+    const targets = [...(layerIds ?? new Set([...this.#recordsByLayer.keys(), ...this.#passes.keys()]))];
+    for (const layerId of targets) {
+      const pass = this.#passes.get(layerId);
+      if (pass === undefined || (this.#recordsByLayer.get(layerId)?.renderableCount ?? 0) > 0) continue;
       pass.requestRender();
       if (this.#destroyPass(pass)) this.#passes.delete(layerId);
     }
-    for (const layerId of needed) {
-      if (this.#passes.has(layerId)) continue;
+    for (const layerId of targets) {
+      if (this.#passes.has(layerId) || (this.#recordsByLayer.get(layerId)?.renderableCount ?? 0) === 0) continue;
       const pass = this.#render.open(layerId, (frame) => this.#renderLayer(layerId, frame));
       this.#passes.set(layerId, pass);
     }
@@ -530,7 +680,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #renderLayer(layerId: string, frame: LayerRenderFrame): LayerRenderBatch {
     const contributions: LayerRenderContribution[] = [];
     const finished: Array<{ record: ManagedRecord; retain: boolean; status: TerminalStatus }> = [];
-    for (const record of [...this.#records.values()]) {
+    const records = [...(this.#recordsByLayer.get(layerId)?.records ?? [])];
+    for (const record of records) {
       if (record.layerId !== layerId || !this.#shouldRender(record)) continue;
       if (record.kind === 'transient') {
         if (!this.#render.hasTarget(record.layerId, record.targetId)) {
@@ -547,15 +698,16 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
         );
         continue;
       }
-      const state = this.#previews.get(record.elementId) ?? this.#store.get(record.elementId);
-      if (state === undefined || state.layerId !== record.layerId || !state.visible) continue;
+      const prepared = this.#previews.get(record.elementId) ?? this.#committedStates.get(record.elementId);
+      if (prepared === undefined || prepared.state.layerId !== record.layerId || !prepared.state.visible) continue;
       try {
-        const geometry = this.#shapes.get(state.type).toRenderGeometry(state.geometry as never);
+        const { geometry, state } = prepared;
         record.definition.assertCompatible(state, geometry);
         if (isNativeStyleRef(state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
         if (this.#isRunning(record)) this.#advance(record, frame.time);
         const result = record.definition.frame(
           {
+            instance: record,
             state,
             geometry,
             style: state.style,
@@ -574,10 +726,10 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       }
     }
     for (const item of finished) this.#finishRecord(item.record, item.retain, item.status);
-    if (finished.length > 0) this.#syncPasses();
+    if (finished.length > 0) this.#syncPasses(new Set([layerId]));
     return Object.freeze({
       contributions: Object.freeze(contributions),
-      requestNextFrame: [...this.#records.values()].some((record) => record.layerId === layerId && !record.retained && this.#isRunning(record))
+      requestNextFrame: (this.#recordsByLayer.get(layerId)?.runningCount ?? 0) > 0
     });
   }
 
@@ -603,25 +755,63 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     if (this.#disposed || this.#destroyRequested) return;
     const affectedLayers = new Set<string>();
     for (const change of changes.changes) {
-      if (change.kind === 'remove' || change.after === undefined) this.#previews.delete(change.id);
-      const records = [...this.#records.values()].filter((record): record is ElementRecord => record.kind === 'element' && record.elementId === change.id);
+      const records = this.#elementRecords(change.id);
+      if (change.kind === 'remove' || change.after === undefined) {
+        this.#previews.delete(change.id);
+        this.#committedStates.delete(change.id);
+      }
+      let committed: PreparedElementState | undefined;
+      if (change.kind !== 'remove' && change.after !== undefined && records.length > 0) {
+        try {
+          committed = this.#resolvePreparedState(change.id);
+          this.#committedStates.set(change.id, committed);
+        } catch (error) {
+          for (const record of records) {
+            affectedLayers.add(record.layerId);
+            this.#report(error, 'prepare-element', record.id);
+            this.#removeRecord(record, 'stopped');
+          }
+          continue;
+        }
+      }
       for (const record of records) {
         affectedLayers.add(record.layerId);
         if (change.kind === 'remove' || change.after === undefined) {
           this.#removeRecord(record, 'stopped');
           continue;
         }
-        const state = this.#previews.get(change.id) ?? change.after;
+        const state = (this.#previews.get(change.id) ?? committed)?.state;
+        if (state === undefined) continue;
         const timingChanged = record.layerId !== state.layerId || record.hidden === state.visible;
-        record.layerId = state.layerId;
-        record.hidden = !state.visible;
-        if (timingChanged) record.lastFrameTime = undefined;
+        this.#updateRecordState(record, () => {
+          record.layerId = state.layerId;
+          record.hidden = !state.visible;
+          if (timingChanged) record.lastFrameTime = undefined;
+        });
         affectedLayers.add(record.layerId);
         this.#refreshHandle(record.handleId);
       }
     }
-    this.#syncPasses();
+    this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
+  }
+
+  /** 解析当前仓库版本并复用或生成对应的动画帧输入。 */
+  #resolvePreparedState(elementId: string): PreparedElementState {
+    const state = this.#store.resolve(elementId);
+    const generation = this.#store.generationOf(elementId);
+    const revision = this.#store.revisionOf(elementId);
+    if (state === undefined || generation === undefined || revision === undefined) {
+      throw new InvalidArgumentError(`Animation Element does not exist: ${elementId}`);
+    }
+    const cached = this.#committedStates.get(elementId);
+    if (cached?.state === state && cached.generation === generation && cached.revision === revision) return cached;
+    return Object.freeze({
+      state,
+      geometry: freezeRenderGeometry(this.#shapes.get(state.type).toRenderGeometry(state.geometry as never)),
+      generation,
+      revision
+    });
   }
 
   /** 请求指定图层重新渲染。 */
@@ -658,6 +848,25 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #assertActive(): void {
     if (this.#disposed || this.#destroyRequested) throw new ObjectDisposedError('AnimationManager has been destroyed');
   }
+}
+
+/** 深冻结动画专用渲染几何，使按坐标身份建立的帧缓存可安全复用。 */
+function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryState {
+  if (geometry.type === 'point') {
+    Object.freeze(geometry.coordinates);
+  } else if (geometry.type === 'polyline') {
+    for (const coordinate of geometry.coordinates) Object.freeze(coordinate);
+    Object.freeze(geometry.coordinates);
+  } else if (geometry.type === 'polygon') {
+    for (const ring of geometry.coordinates) {
+      for (const coordinate of ring) Object.freeze(coordinate);
+      Object.freeze(ring);
+    }
+    Object.freeze(geometry.coordinates);
+  } else {
+    Object.freeze(geometry.center);
+  }
+  return Object.freeze(geometry);
 }
 
 /** 从未信任输入中读取动画类型。 */

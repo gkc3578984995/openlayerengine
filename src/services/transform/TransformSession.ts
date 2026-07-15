@@ -152,6 +152,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #mode: TransformMode = 'transform';
   /** 最近一次指针地图坐标。 */
   #lastPointerCoordinate: Coordinate | undefined;
+  /** 当前选中框右上角的地图坐标。 */
+  #toolbarAnchor: Coordinate | undefined;
   /** 当前元素动画是否已暂停。 */
   #animationsPaused = false;
   /** 是否正在显示复制预览。 */
@@ -235,6 +237,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       const unsubscribeInput = this.#input?.on('keydown', (event) => this.#handleKeydown(event));
       if (unsubscribeInput !== undefined && typeof unsubscribeInput !== 'function') throw new InvalidArgumentError('Transform input must return a disposer');
       this.#unsubscribeInput = unsubscribeInput;
+      this.#input?.focus?.();
       if (this.#status !== 'active') throw new ObjectDisposedError('Transform session was cancelled while opening');
     } finally {
       this.#opening = false;
@@ -515,6 +518,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       style: state.style,
       mode: this.#mode,
       controlPoints: Object.freeze(controlPoints),
+      ...(this.#options.handleCenter === undefined ? {} : { handleCenter: cloneCoordinate(this.#options.handleCenter) }),
       canTranslate: transforming && this.#options.translate !== 'none' && definition.capabilities.has('translate'),
       canRotate: transforming && this.#options.rotate && definition.capabilities.has('rotate'),
       canScale: transforming && this.#options.scale && definition.capabilities.has('scale'),
@@ -540,29 +544,26 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       } else if (event.type === 'pointer-move') {
         this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
         this.#tooltip?.update({ position: this.#lastPointerCoordinate });
+      } else if (event.type === 'bounds-change') {
+        this.#toolbarAnchor = cloneCoordinate(event.topRight);
+        this.#toolbar?.updateOptions({ position: this.#toolbarAnchor });
       } else if (event.type === 'enter-handle' || event.type === 'leave-handle') {
-        if (event.coordinate !== undefined) {
-          this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
-          this.#tooltip?.update({ position: this.#lastPointerCoordinate });
-        }
         const state = this.#requireWorking();
         const type = event.type === 'enter-handle' ? 'enterHandle' : 'leaveHandle';
-        this.#setTooltipLines(event.type === 'enter-handle' ? this.#handleTooltipLines(event.operation, event.axis) : this.#baseTooltipLines());
+        this.#updateTooltipFromEvent(event, event.type === 'enter-handle' ? this.#handleTooltipLines(event.operation, event.axis) : this.#baseTooltipLines());
         this.#emit(type, freeze({ type, state, key: event.key, ...(event.cursor === undefined ? {} : { cursor: event.cursor }) }) as never);
       } else if (event.type === 'operation-start') {
-        this.#updatePointerFromEvent(event);
         this.#assertOperationAllowed(event.operation);
         this.#operationOrigin = cloneElementSnapshot(this.#shapes, this.#requireWorking());
         this.#startOperationVisual(event.operation);
         this.#pauseAnimationsFor(event.operation);
-        this.#setTooltipLines(this.#operationTooltipLines(event.operation, event.delta));
+        this.#updateTooltipFromEvent(event, this.#operationTooltipLines(event.operation, event.delta));
         this.#emitOperation('start', event.operation, event.delta);
       } else if (event.type === 'operation-change') {
-        this.#updatePointerFromEvent(event);
-        this.#setTooltipLines(this.#operationTooltipLines(event.operation, event.delta));
+        this.#updateTooltipFromEvent(event, this.#operationTooltipLines(event.operation, event.delta));
         this.#applyOperation(event.operation, event.delta, false);
       } else if (event.type === 'operation-end') {
-        this.#updatePointerFromEvent(event);
+        this.#updateTooltipFromEvent(event, this.#operationTooltipLines(event.operation, event.delta));
         try {
           this.#applyOperation(event.operation, event.delta, true);
         } finally {
@@ -592,7 +593,6 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#working = transformSnapshot(this.#shapes, this.#styles, origin, delta);
     this.#requireHandle().setTarget(this.#presentation(this.#working));
     this.#animations.setPreview(this.#working);
-    this.#updateToolbarPosition();
     this.#emitOperation(end ? 'end' : 'change', operation, delta);
     if (operation === 'vertex') this.#emit('edit', freeze({ type: 'edit', state: this.#working, operation }));
     if (end) {
@@ -627,7 +627,6 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#working = cloneElementSnapshot(this.#shapes, snapshot);
       this.#requireHandle().setTarget(this.#presentation(this.#working));
       this.#animations.setPreview(this.#working);
-      this.#updateToolbarPosition();
     }
     this.#emit('edit', freeze({ type: 'edit', state: this.#requireWorking(), operation: 'vertex' }));
   }
@@ -672,8 +671,13 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   /** 处理会话快捷键。 */
   #handleKeydown(event: Readonly<{ key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; preventDefault(): void }>): void {
-    if (this.#status !== 'active' || event.altKey) return;
+    if (this.#status !== 'active') return;
     const key = event.key.toLowerCase();
+    if (key === 'alt') {
+      event.preventDefault();
+      return;
+    }
+    if (event.altKey) return;
     const command = event.ctrlKey || event.metaKey;
     if (command && key === 'z') {
       if (event.shiftKey) this.redo();
@@ -749,7 +753,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         )
       ),
       options: Object.freeze({
-        position: toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry, this.#options.handleCenter),
+        position: this.#toolbarAnchor ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry),
         offset: options.offset ?? ([15, 0] as const),
         ...(options.className === undefined ? {} : { className: options.className }),
         visible: options.visible ?? true
@@ -795,18 +799,11 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#setTooltipLines(this.#baseTooltipLines());
   }
 
-  /** 将工具栏移动到当前图形锚点。 */
-  #updateToolbarPosition(): void {
-    const working = this.#working;
-    if (working === undefined) return;
-    this.#toolbar?.updateOptions({ position: toolbarPosition(this.#shapes.get(working.type), working.geometry, this.#options.handleCenter) });
-  }
-
   /** 为当前会话创建鼠标提示。 */
   #createTooltip(): void {
     this.#destroyTooltip();
     if (this.#tooltipPort === undefined || this.#working === undefined) return;
-    const position = this.#lastPointerCoordinate ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry, this.#options.handleCenter);
+    const position = this.#lastPointerCoordinate ?? this.#toolbarAnchor ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry);
     this.#tooltip = this.#tooltipPort.open({
       ownerId: this.id,
       position,
@@ -860,11 +857,14 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return Object.freeze(['编辑中…']);
   }
 
-  /** 从交互事件更新最近指针坐标和提示位置。 */
-  #updatePointerFromEvent(event: { readonly coordinate?: Coordinate }): void {
-    if (event.coordinate === undefined) return;
+  /** 合并更新交互事件携带的提示位置和文字。 */
+  #updateTooltipFromEvent(event: { readonly coordinate?: Coordinate }, lines: readonly string[]): void {
+    if (event.coordinate === undefined) {
+      this.#tooltip?.update({ lines });
+      return;
+    }
     this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
-    this.#tooltip?.update({ position: this.#lastPointerCoordinate });
+    this.#tooltip?.update({ position: this.#lastPointerCoordinate, lines });
   }
 
   /** 清除当前元素选择及关联视图。 */
@@ -897,6 +897,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
     this.#selected = undefined;
     this.#working = undefined;
+    this.#toolbarAnchor = undefined;
     this.#mode = 'transform';
     this.#operationOrigin = undefined;
     this.#expectedGeneration = undefined;
@@ -1239,13 +1240,26 @@ function multiplyScale(value: IconSymbolSpec['scale'] | TextSpec['scale'] | unde
 }
 
 /** 计算工具栏默认锚点位置。 */
-function toolbarPosition(definition: ShapeDefinition, state: ShapeState, override: Coordinate | undefined): Coordinate {
-  if (override !== undefined) return cloneCoordinate(override);
+function toolbarPosition(definition: ShapeDefinition, state: ShapeState): Coordinate {
   const geometry = definition.toRenderGeometry(state as never);
   if (geometry.type === 'point') return cloneCoordinate(geometry.coordinates);
   if (geometry.type === 'circle') return [geometry.center[0] + geometry.radius, geometry.center[1] + geometry.radius];
-  const coordinates = geometry.type === 'polyline' ? geometry.coordinates : geometry.coordinates.flat();
-  return [Math.max(...coordinates.map((coordinate) => coordinate[0])), Math.max(...coordinates.map((coordinate) => coordinate[1]))];
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  if (geometry.type === 'polyline') {
+    for (const coordinate of geometry.coordinates) {
+      maxX = Math.max(maxX, coordinate[0]);
+      maxY = Math.max(maxY, coordinate[1]);
+    }
+  } else {
+    for (const ring of geometry.coordinates) {
+      for (const coordinate of ring) {
+        maxX = Math.max(maxX, coordinate[0]);
+        maxY = Math.max(maxY, coordinate[1]);
+      }
+    }
+  }
+  return [maxX, maxY];
 }
 
 /** 复制地图坐标。 */

@@ -15,6 +15,7 @@ export class ScenarioContext {
   readonly dispose = new DisposeBag();
   readonly #roots: ContextRoots;
   readonly #statuses = new Map<string, HTMLElement>();
+  readonly #initializedEarths = new WeakSet<Earth>();
   #mapSequence = 0;
 
   constructor(roots: ContextRoots) {
@@ -154,7 +155,8 @@ export class ScenarioContext {
       this.#roots.status.append(row);
       this.#statuses.set(label, output);
     }
-    output.textContent = formatValue(value);
+    const formatted = formatValue(value);
+    if (output.textContent !== formatted) output.textContent = formatted;
   }
 
   log(message: string, level: LogLevel = '信息', data?: unknown): void {
@@ -167,6 +169,7 @@ export class ScenarioContext {
     text.textContent = data === undefined ? message : `${message}：${formatValue(data)}`;
     row.append(time, text);
     this.#roots.log.prepend(row);
+    while (this.#roots.log.childElementCount > maxLogEntries) this.#roots.log.lastElementChild?.remove();
   }
 
   check(label: string, passed: boolean, details?: unknown): void {
@@ -191,8 +194,11 @@ export class ScenarioContext {
 
   render(earth: Earth): void {
     if (this.isDisposed) return;
-    earth.map.updateSize();
-    earth.map.renderSync();
+    if (!this.#initializedEarths.has(earth)) {
+      earth.map.updateSize();
+      this.#initializedEarths.add(earth);
+    }
+    earth.map.render();
     this.status('Earth 生命周期', earth.lifecycle);
     this.status('元素数量', earth.elements.query().length);
     this.status('图层数量', earth.layers.query().length);
@@ -217,6 +223,8 @@ export class ScenarioContext {
     parent.append(wrapper);
   }
 }
+
+const maxLogEntries = 200;
 
 function formatValue(value: unknown): string {
   if (typeof value === 'string') return value;

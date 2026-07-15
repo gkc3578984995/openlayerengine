@@ -148,7 +148,7 @@ export class DrawService implements InternalDrawService {
     this.#assertActive();
     const elementId = nonEmptyString(elementIdInput, 'Edit element id');
     const options = this.#normalizeEditOptions(input);
-    const state = this.#store.get<T>(elementId);
+    const state = this.#store.resolve<T>(elementId);
     if (state === undefined) throw new InvalidArgumentError(`Element does not exist: ${elementId}`);
     const expectedGeneration = this.#store.generationOf(elementId);
     if (expectedGeneration === undefined) throw new InvalidArgumentError(`Element does not exist: ${elementId}`);

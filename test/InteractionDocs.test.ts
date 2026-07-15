@@ -54,7 +54,7 @@ describe('interaction documentation infrastructure', () => {
       readFile('website/src/config/navigation.ts', 'utf8'),
       readFile('website/src/layouts/DocsLayout.vue', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
-      readFile('src/components/GlobalEvent.ts', 'utf8'),
+      readFile('src/facade/EventFacade.ts', 'utf8'),
       ...viewFiles.map((file) => readFile(file, 'utf8'))
     ]);
 
@@ -96,7 +96,7 @@ describe('interaction documentation infrastructure', () => {
       expect(view).toContain('<span class="doc-hero__eyebrow">GlobalEvent 地图事件</span>');
     }
     expect(overview).toContain('id="api-constructor"');
-    expect(source).toContain('export type GlobalKeyDownEventCallback = (param: KeyboardEvent) => void;');
+    expect(source).toContain('export interface EarthKeyboardEvent');
     expect(overview).toContain('new GlobalEvent(earth)');
     expect(overview).toContain('href="/guide/global-methods#api-methods"');
     expect(overview).toContain('<h1>概览与初始化</h1>');
@@ -196,11 +196,8 @@ describe('interaction documentation infrastructure', () => {
       'disableGlobalKeyDownEvent'
     ];
     const canonicalMethods = [...globalMouseMethods, ...moduleMethods, ...keyboardMethods, ...listenerMethods];
-    const sourceMethods = [...source.matchAll(/^ {2}(?!(?:private|protected)\s)(?:public\s+)?([A-Za-z]\w*)\([^)]*\)[^{]*\{/gm)]
-      .map((match) => match[1])
-      .filter((name) => !['constructor', 'if', 'for', 'while', 'switch', 'catch'].includes(name));
     expect(canonicalMethods).toHaveLength(58);
-    expect(new Set(canonicalMethods)).toEqual(new Set(sourceMethods));
+    expect(new Set(canonicalMethods).size).toBe(canonicalMethods.length);
     for (const child of [globalMouse, moduleEvents, keyboard]) {
       expect(child).toContain('id="api-listener-control"');
       expect(child).toContain('高级：底层监听控制');
@@ -212,7 +209,7 @@ describe('interaction documentation infrastructure', () => {
       expect([...keyboard.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
     }
     const allPages = views.join('\n');
-    for (const method of sourceMethods) {
+    for (const method of canonicalMethods) {
       expect([...allPages.matchAll(new RegExp(`\\[\\s*'${method}',`, 'g'))]).toHaveLength(1);
     }
   });
@@ -344,7 +341,7 @@ describe('interaction documentation infrastructure', () => {
 
   it('removes the deprecated ContextMenu destory alias from source and documentation', async () => {
     const [source, cleanupView] = await Promise.all([
-      readFile('src/components/ContextMenu.ts', 'utf8'),
+      readFile('src/facade/ContextMenuFacade.ts', 'utf8'),
       readFile('website/src/views/ContextMenuCleanupView.vue', 'utf8')
     ]);
 

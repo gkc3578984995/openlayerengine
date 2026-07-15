@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { animationTypes, createBuiltinAnimationRegistry } from '../src/builtins/animations/index.js';
 import { dashFlowAnimationDefinition } from '../src/builtins/animations/dashFlow.js';
@@ -131,6 +132,116 @@ describe('内置动画定义', () => {
     ).toBe(true);
   });
 
+  it('path-travel 单次建立累计长度并在几何未变化时复用路径缓存', () => {
+    const state = polylineElement('cached-flight');
+    const geometry = polylineGeometry();
+    const spec = pathTravelAnimationDefinition.normalize({
+      type: 'path-travel',
+      durationMs: 1_000,
+      curvature: 0.5,
+      smoothness: 32,
+      trailLength: 0.75,
+      showStart: false,
+      showEnd: false
+    });
+    const hypot = vi.spyOn(Math, 'hypot');
+
+    try {
+      pathTravelAnimationDefinition.frame(frameContext(state, geometry, state.style as StyleSpec, 250), spec);
+      expect(hypot).toHaveBeenCalledTimes(32);
+
+      pathTravelAnimationDefinition.frame(frameContext(state, geometry, state.style as StyleSpec, 500), spec);
+      expect(hypot).toHaveBeenCalledTimes(32);
+
+      pathTravelAnimationDefinition.frame(frameContext(state, polylineGeometry(), state.style as StyleSpec, 600), spec);
+      expect(hypot).toHaveBeenCalledTimes(64);
+
+      pathTravelAnimationDefinition.frame(
+        frameContext(
+          state,
+          {
+            type: 'polyline',
+            coordinates: [
+              [0, 0],
+              [200, 0]
+            ]
+          },
+          state.style as StyleSpec,
+          750
+        ),
+        spec
+      );
+      expect(hypot).toHaveBeenCalledTimes(96);
+    } finally {
+      hypot.mockRestore();
+    }
+  });
+
+  it('path-travel 仅在同一动画记录实例内复用缓存，不与同 ID 的替换记录共享', () => {
+    const state = polylineElement('cache-record');
+    const geometry = polylineGeometry();
+    const spec = pathTravelAnimationDefinition.normalize({
+      type: 'path-travel',
+      durationMs: 1_000,
+      curvature: 0.5,
+      smoothness: 8,
+      showStart: false,
+      showEnd: false
+    });
+    const firstInstance = {};
+    const replacementInstance = {};
+    const hypot = vi.spyOn(Math, 'hypot');
+
+    try {
+      pathTravelAnimationDefinition.frame(frameContext(state, geometry, state.style as StyleSpec, 100, firstInstance), spec);
+      pathTravelAnimationDefinition.frame(frameContext(state, geometry, state.style as StyleSpec, 200, firstInstance), spec);
+      expect(hypot).toHaveBeenCalledTimes(8);
+
+      pathTravelAnimationDefinition.frame(frameContext(state, geometry, state.style as StyleSpec, 200, replacementInstance), spec);
+      expect(hypot).toHaveBeenCalledTimes(16);
+    } finally {
+      hypot.mockRestore();
+    }
+  });
+
+  it('path-travel 为一万条并行动画保留独立弱缓存，连续帧不因固定容量发生重算', () => {
+    const geometry = polylineGeometry();
+    const spec = pathTravelAnimationDefinition.normalize({
+      type: 'path-travel',
+      durationMs: 1_000,
+      curvature: 0,
+      smoothness: 2,
+      arrow: false,
+      showStart: false,
+      showEnd: false
+    });
+    const records = Array.from({ length: 10_000 }, (_, index) => ({ instance: {}, state: polylineElement(`cached-${index}`) }));
+    const hypot = vi.spyOn(Math, 'hypot');
+
+    try {
+      for (const record of records) {
+        pathTravelAnimationDefinition.frame(frameContext(record.state, geometry, record.state.style as StyleSpec, 100, record.instance), spec);
+      }
+      expect(hypot).toHaveBeenCalledTimes(10_000);
+
+      for (const record of records) {
+        pathTravelAnimationDefinition.frame(frameContext(record.state, geometry, record.state.style as StyleSpec, 200, record.instance), spec);
+      }
+      expect(hypot).toHaveBeenCalledTimes(10_000);
+    } finally {
+      hypot.mockRestore();
+    }
+  });
+
+  it('path-travel 记录缓存保持 WeakMap GC 语义且不复制整条源坐标', () => {
+    const source = readFileSync(new URL('../src/builtins/animations/pathTravel.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain('const travelPathCache = new WeakMap<object, TravelPathMetrics>()');
+    expect(source).toContain('sourceCoordinates: coordinates');
+    expect(source).not.toContain('sourceCoordinates: coordinates.map');
+    expect(source).not.toMatch(/const travelPathCache\s*=\s*new Map/);
+  });
+
   it('path-travel 分别实现 remove 与 retain 结束行为和纯色结束锚线', () => {
     const state = polylineElement('flight');
     const geometry = polylineGeometry();
@@ -218,9 +329,10 @@ function frameContext(
   state: ReturnType<typeof pointElement> | ReturnType<typeof polylineElement>,
   geometry: RenderGeometryState,
   style: StyleSpec,
-  elapsedMs: number
+  elapsedMs: number,
+  instance: object = state
 ): AnimationFrameContext {
-  return { state, geometry, style, elapsedMs, resolution: 1 };
+  return { instance, state, geometry, style, elapsedMs, resolution: 1 };
 }
 
 function polylineGeometry(): RenderGeometryState {

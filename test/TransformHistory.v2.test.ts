@@ -49,6 +49,19 @@ describe('TransformHistory v2', () => {
     expect(session.selectedId).toBeUndefined();
   });
 
+  it('在活动会话中阻止裸 Alt 的浏览器默认抢焦点行为', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'point-a', 'point', [[2, 3]]);
+    const session = harness.service.select('point-a');
+
+    expect(harness.input.focus).toHaveBeenCalledOnce();
+    const preventDefault = harness.input.key('Alt', { altKey: true });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(session.status).toBe('active');
+    session.cancel();
+  });
+
   it('replaces selection and optionally retains cross-selection history', () => {
     const harness = createTransformHarness();
     addElement(harness, 'first', 'point', [[0, 0]]);

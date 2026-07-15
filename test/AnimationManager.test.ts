@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { cloneElementSnapshot } from '../src/core/element/snapshot.js';
 import { InvalidArgumentError, UnsupportedOperationError } from '../src/core/errors.js';
 import { createNativeStyleRef } from '../src/core/style/types.js';
 import type { AnimationManager } from '../src/services/animation/types.js';
@@ -144,5 +145,92 @@ describe('AnimationManager', () => {
 
     expect(() => manager.pause({ id: 'point' }, channels)).toThrowError(InvalidArgumentError);
     expect(getter).not.toHaveBeenCalled();
+  });
+
+  it('五万点元素没有动画记录时 setPreview 不读取仓库也不复制或转换几何', () => {
+    const preview = polylineElement('large-preview', {
+      geometry: {
+        type: 'polyline',
+        controlPoints: Array.from({ length: 50_000 }, (_, index) => [index, index % 17])
+      }
+    });
+    const { manager, shapes, store } = createAnimationHarness([preview]);
+    const get = vi.spyOn(store, 'get');
+    const resolve = vi.spyOn(store, 'resolve');
+    const getShape = vi.spyOn(shapes, 'get');
+
+    manager.setPreview(preview);
+
+    expect(manager.activeCount).toBe(0);
+    expect(get).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(getShape).not.toHaveBeenCalled();
+  });
+
+  it('动画预览仅按引擎快照 identity 复用，并在 Store revision 变化后安全失效', () => {
+    const { manager, render, shapes, store } = createAnimationHarness([polylineElement('preview-cache')]);
+    manager.play({ id: 'preview-cache' }, { type: 'dash-flow' });
+    const committed = store.get('preview-cache');
+    if (committed === undefined) throw new Error('测试元素不存在');
+    const preview = cloneElementSnapshot(shapes, {
+      ...committed,
+      geometry: {
+        type: 'polyline' as const,
+        controlPoints: [
+          [0, 0],
+          [200, 0]
+        ]
+      }
+    });
+    const get = vi.spyOn(store, 'get');
+    const getShape = vi.spyOn(shapes, 'get');
+
+    manager.setPreview(preview);
+    expect(getShape).toHaveBeenCalledTimes(1);
+
+    manager.play({ id: 'preview-cache' }, { type: 'dash-flow' });
+    expect(render.frame('default', 0).contributions[0]?.value.primitives?.[0]?.geometry).toEqual({
+      type: 'polyline',
+      coordinates: [
+        [0, 0],
+        [200, 0]
+      ]
+    });
+
+    get.mockClear();
+    getShape.mockClear();
+    manager.setPreview(preview);
+    expect(get).not.toHaveBeenCalled();
+    expect(getShape).not.toHaveBeenCalled();
+
+    store.update({ id: 'preview-cache' }, { data: { revision: 2 } });
+    get.mockClear();
+    getShape.mockClear();
+    manager.setPreview(preview);
+    expect(get).not.toHaveBeenCalled();
+    expect(getShape).toHaveBeenCalledTimes(1);
+  });
+
+  it('拒绝把具有可变内部槽或函数的冻结预览当作可信 identity', () => {
+    class MutableBox {
+      #value = 0;
+
+      increment(): void {
+        this.#value += 1;
+      }
+    }
+
+    const { manager, store } = createAnimationHarness([polylineElement('unsafe-preview')]);
+    manager.play({ id: 'unsafe-preview' }, { type: 'dash-flow' });
+    const committed = store.get('unsafe-preview');
+    if (committed === undefined) throw new Error('测试元素不存在');
+    const mutableBox = Object.freeze(new MutableBox());
+    mutableBox.increment();
+    const invalidData = [Object.freeze(new Map([['value', 1]])), Object.freeze(new Date(0)), mutableBox, Object.freeze({ callback: () => undefined })];
+
+    for (const data of invalidData) {
+      const preview = Object.freeze({ ...committed, data });
+      expect(() => manager.setPreview(preview as never)).toThrowError(InvalidArgumentError);
+    }
   });
 });

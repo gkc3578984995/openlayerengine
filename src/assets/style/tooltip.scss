@@ -21,4 +21,6 @@
 
 .ol-transform-tooltip-overlay {
   pointer-events: none !important;
+  transition: none !important;
+  will-change: transform;
 }

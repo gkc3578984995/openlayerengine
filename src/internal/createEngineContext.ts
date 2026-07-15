@@ -2,7 +2,6 @@ import Map from 'ol/Map.js';
 import View from 'ol/View.js';
 import { defaults as defaultControls } from 'ol/control/defaults.js';
 import { defaults as defaultInteractions } from 'ol/interaction/defaults.js';
-import MouseWheelZoom from 'ol/interaction/MouseWheelZoom.js';
 import { fromLonLat } from 'ol/proj.js';
 import { ContextMenuViewAdapter } from '../adapters/dom/ContextMenuViewAdapter.js';
 import { TransformToolbarAdapter } from '../adapters/dom/TransformToolbarAdapter.js';
@@ -64,15 +63,7 @@ const lineShapes = new Set(['polyline', 'lune-polyline', 'curve-polyline']);
 export function createEngineContext(options: EarthOptions = {}): EngineContext {
   const target = options.target ?? 'olContainer';
   const olView = new View({ center: [...homeCenter], zoom: 4, ...options.view });
-  const interactions = defaultInteractions({ doubleClickZoom: false, mouseWheelZoom: false });
-  interactions.push(
-    new MouseWheelZoom({
-      duration: 0,
-      timeout: 0,
-      useAnchor: true,
-      constrainResolution: false
-    })
-  );
+  const interactions = defaultInteractions({ doubleClickZoom: false });
   const controls = defaultControls({ zoom: false, rotate: false, attribution: false, ...options.controls });
   const map = new Map({ target, view: olView, controls, interactions });
   const rollback: Array<() => void> = [() => cleanupMap(map)];
@@ -112,7 +103,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const hitTest = new HitTestAdapter(map, store, layerManager, layerAdapter, binding);
     const elements = new ElementServiceImpl(store, layerManager, binding, layers, nativeRefs, hitTest);
 
-    const render = new LayerRenderPass(layerAdapter, binding, styleCompiler);
+    const render = new LayerRenderPass(map, layerAdapter, binding, styleCompiler);
     rollback.push(() => render.destroy());
     const animations = new AnimationManagerImpl({ store, shapes, render, registry: createBuiltinAnimationRegistry() });
     rollback.push(() => animations.destroy());
@@ -122,6 +113,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const input = new InputRouter(inputAdapter);
     rollback.push(() => input.destroy());
     const transformInput = {
+      focus: (): void => input.focus(),
       on: (
         type: 'keydown',
         listener: (event: Readonly<{ key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; preventDefault(): void }>) => void
@@ -199,7 +191,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const measure = new MeasureFacade(internalMeasure);
     rollback.push(() => measure.destroy());
 
-    const transformHitTest = new TransformHitTest(map, store, layerManager, layerAdapter, binding);
+    const transformHitTest = new TransformHitTest(map, layerManager, layerAdapter, binding);
     const transformInteraction = new TransformInteractionAdapter(map, transformHitTest, binding, styleCompiler, render);
     const transformToolbar = new TransformToolbarAdapter(map);
     const transformTooltip = new TransformTooltipAdapter(map);

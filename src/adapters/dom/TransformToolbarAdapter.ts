@@ -1,7 +1,5 @@
 import type OlMap from 'ol/Map.js';
 import Overlay from 'ol/Overlay.js';
-import { unByKey } from 'ol/Observable.js';
-import type { EventsKey } from 'ol/events.js';
 import { runFinalizers } from '../../core/common/dispose.js';
 import { InvalidArgumentError } from '../../core/errors.js';
 import type {
@@ -52,8 +50,6 @@ class ToolbarView implements TransformToolbarViewHandle {
   readonly #root: HTMLDivElement | undefined;
   /** 用于地图定位的 OpenLayers Overlay。 */
   readonly #overlay: Overlay | undefined;
-  /** 地图和视图事件的取消键。 */
-  readonly #keys: EventsKey[] = [];
   /** 当前工具栏视图配置。 */
   #options: TransformToolbarViewOptions;
   /** 工具栏是否已经销毁。 */
@@ -84,12 +80,10 @@ class ToolbarView implements TransformToolbarViewHandle {
     root.addEventListener('mouseout', this.#onMouseOut);
     this.#root = root;
     this.#render();
-    const overlay = new Overlay({ element: root, positioning: 'bottom-left', stopEvent: true, insertFirst: false, offset: [...this.#options.offset] });
+    const overlay = new Overlay({ element: root, positioning: 'top-left', stopEvent: true, insertFirst: false, offset: [...this.#options.offset] });
     overlay.setPosition([...this.#options.position]);
     this.#overlay = overlay;
     map.addOverlay(overlay);
-    const view = map.getView();
-    this.#keys.push(map.on('moveend', this.#sync), view.on('change:resolution', this.#sync), view.on('change:rotation', this.#sync));
     this.#applyVisibility();
   }
 
@@ -112,11 +106,13 @@ class ToolbarView implements TransformToolbarViewHandle {
   /** 更新工具栏位置、样式和可见性。 */
   updateOptions(patch: Partial<TransformToolbarViewOptions>): void {
     if (this.#destroyed) return;
-    this.#options = copyOptions({ ...this.#options, ...patch });
-    this.#overlay?.setPosition([...this.#options.position]);
-    this.#overlay?.setOffset([...this.#options.offset]);
-    if (this.#root !== undefined) this.#root.className = this.#className();
-    this.#applyVisibility();
+    const previous = this.#options;
+    const next = copyOptions({ ...previous, ...patch });
+    this.#options = next;
+    if (!numbersEqual(previous.position, next.position)) this.#overlay?.setPosition([...next.position]);
+    if (!numbersEqual(previous.offset, next.offset)) this.#overlay?.setOffset([...next.offset]);
+    if (previous.className !== next.className && this.#root !== undefined) this.#root.className = this.#className();
+    if (previous.visible !== next.visible) this.#applyVisibility();
   }
 
   /** 显示工具栏。 */
@@ -135,11 +131,6 @@ class ToolbarView implements TransformToolbarViewHandle {
     this.#destroying = true;
     try {
       runFinalizers([
-        () => {
-          if (this.#keys.length === 0) return;
-          unByKey(this.#keys);
-          this.#keys.length = 0;
-        },
         () => this.#root?.removeEventListener('click', this.#onClick),
         () => this.#root?.removeEventListener('mouseover', this.#onMouseOver),
         () => this.#root?.removeEventListener('mouseout', this.#onMouseOut),
@@ -183,11 +174,6 @@ class ToolbarView implements TransformToolbarViewHandle {
     const related = event.relatedTarget;
     if (related instanceof Node && target.element.contains(related)) return;
     this.#listener(Object.freeze({ type: 'leave', key: target.key }));
-  };
-
-  /** 地图状态变化后重新同步 Overlay 位置。 */
-  readonly #sync = (): void => {
-    if (!this.#destroyed) this.#overlay?.setPosition([...this.#options.position]);
   };
 
   /** 按当前项目状态重建工具栏按钮。 */
@@ -252,6 +238,11 @@ function copyOptions(options: TransformToolbarViewOptions): TransformToolbarView
     position: Object.freeze([...options.position]) as TransformToolbarViewOptions['position'],
     offset: Object.freeze([...options.offset]) as readonly [number, number]
   });
+}
+
+/** 判断两个数字数组是否逐项相同。 */
+function numbersEqual(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 /** 在浏览器环境中提供默认元素创建函数。 */

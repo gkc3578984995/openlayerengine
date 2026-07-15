@@ -3,8 +3,10 @@ import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import PointerInteraction from 'ol/interaction/Pointer.js';
 import { unByKey } from 'ol/Observable.js';
 import type { EventsKey } from 'ol/events.js';
+import { getUserProjection } from 'ol/proj.js';
 import type { Coordinate, Pixel } from '../../../core/common/types.js';
 import { runFinalizers } from '../../../core/common/dispose.js';
+import { horizontalWorldFromExtent, type HorizontalWorld } from '../../../core/common/worldWrap.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
 import type { LayerRenderPort } from '../../../core/ports/LayerRenderPort.js';
@@ -21,7 +23,7 @@ import type {
 import type { FeatureBinding } from '../FeatureBinding.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 import { HandleLayer, type TransformHandleHit } from '../transform/HandleLayer.js';
-import { extentCenter } from '../transform/PreviewTransform.js';
+import { extentCenter, renderExtent, translateRenderGeometry } from '../transform/PreviewTransform.js';
 import type { TransformHitTest } from '../transform/HitTest.js';
 
 /** Transform 交互适配器的可选配置。 */
@@ -95,8 +97,21 @@ interface DragState {
   readonly start: Coordinate;
   /** 缩放和旋转使用的中心。 */
   readonly center: Coordinate;
+  /** 拖拽开始时视图相对规范目标所在的整数世界偏移。 */
+  readonly viewWorldOffset: number;
+  /** 当前环绕坐标系；未启用 wrapX 时不存在。 */
+  readonly world?: HorizontalWorld;
+  /** 计算视图整数世界偏移时使用的固定规范坐标。 */
+  readonly worldReferenceX: number;
   /** 最近一次计算出的变换增量。 */
   delta: TransformDelta;
+}
+
+/** 浏览器一帧内最后一次待处理的拖拽采样。 */
+interface PendingDragSample {
+  readonly coordinate: Coordinate;
+  readonly pixel: Pixel;
+  readonly keepAspectRatio: boolean;
 }
 
 /** Transform 交互处理的地图浏览器事件。 */
@@ -108,6 +123,8 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   readonly #map: Map;
   /** 查询可选择的业务元素。 */
   readonly #hitTest: TransformHitTest;
+  /** 查询目标图层的环绕语义。 */
+  readonly #binding: FeatureBinding;
   /** 已校验的 Transform 配置。 */
   readonly #options: TransformInteractionOptions;
   /** 接收语义 Transform 事件。 */
@@ -118,7 +135,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   readonly #handles: HandleLayer;
   /** 接收指针拖拽事件的 OpenLayers 交互。 */
   readonly #interaction: PointerInteraction;
-  /** 地图事件的取消键。 */
+  /** 地图和视图事件的取消键。 */
   readonly #keys: EventsKey[] = [];
   /** click 事件去重监听器。 */
   #clickListener: ((event: PointerMapEvent) => void) | undefined;
@@ -128,8 +145,20 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   #interactionInstallAttempted = false;
   /** 当前操作目标。 */
   #target: TransformInteractionTarget | undefined;
+  /** 当前 Core 规范世界中的操作目标。 */
+  #canonicalTarget: TransformInteractionTarget | undefined;
+  /** 当前目标从规范世界移到展示世界的水平偏移。 */
+  #worldOffset = 0;
+  /** 拖拽期间是否收到了需在结束后补做的跨世界定位。 */
+  #worldRepositionPending = false;
+  /** 当前选择请求使用的一次性世界参考坐标。 */
+  #selectionReferenceX: number | undefined;
   /** 当前手柄拖拽状态。 */
   #drag: DragState | undefined;
+  /** 等待在下一绘制帧处理的最后一次拖拽采样。 */
+  #pendingDrag: PendingDragSample | undefined;
+  /** 已登记的拖拽绘制帧。 */
+  #dragFrame: number | undefined;
   /** 鼠标当前悬停的手柄。 */
   #hover: TransformHandleHit | undefined;
   /** 最近一次有效指针坐标。 */
@@ -161,10 +190,15 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   ) {
     this.#map = map;
     this.#hitTest = hitTest;
+    this.#binding = binding;
     this.#options = validateOptions(options);
     this.#listener = listener;
     this.#errorReporter = errorReporter;
-    this.#handles = new HandleLayer(map, binding, styles, render, { sessionId, interaction: this.#options });
+    this.#handles = new HandleLayer(map, binding, styles, render, {
+      sessionId,
+      interaction: this.#options,
+      onExtentChange: (topRight) => this.#emit({ type: 'bounds-change', topRight })
+    });
     this.#interaction = new PointerInteraction({
       handleDownEvent: (event) => this.#down(event),
       handleDragEvent: (event) => this.#dragEvent(event),
@@ -199,6 +233,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     };
     this.#singleClickListener = singleClickListener;
     this.#keys.push(this.#map.on('singleclick', singleClickListener));
+    this.#keys.push(this.#map.getView().on('change:center', this.#onViewCenterChange));
     this.#map.getViewport().addEventListener('contextmenu', this.#onContextMenu, true);
     this.#opened = true;
   }
@@ -206,10 +241,22 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   /** 设置当前 Transform 目标并刷新控制图层。 */
   setTarget(target: TransformInteractionTarget): void {
     this.#assertOpen();
-    const preserveDrag = this.#drag !== undefined && this.#target?.elementId === target.elementId;
-    this.#target = snapshotTarget(target);
-    if (!preserveDrag) this.#drag = undefined;
+    const canonicalTarget = snapshotTarget(target);
+    const preserveDrag = this.#drag !== undefined && this.#canonicalTarget?.elementId === canonicalTarget.elementId;
+    const targetChanged = this.#canonicalTarget?.elementId !== canonicalTarget.elementId;
+    const previousOffset = this.#worldOffset;
+    if (!preserveDrag) {
+      this.#worldOffset = worldOffsetFor(this.#map, this.#binding, canonicalTarget, targetChanged ? this.#selectionReferenceX : undefined);
+      this.#worldRepositionPending = false;
+    }
+    this.#canonicalTarget = canonicalTarget;
+    this.#target = presentationTarget(canonicalTarget, this.#worldOffset);
+    if (!preserveDrag) {
+      this.#cancelPendingDrag();
+      this.#drag = undefined;
+    }
     this.#handles.setTarget(this.#target);
+    if (!targetChanged) this.#shiftPresentationWorld(this.#worldOffset - previousOffset);
   }
 
   /** 清除目标、拖拽、悬停和复制预览状态。 */
@@ -217,8 +264,12 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (this.#destroyed) return;
     this.cancelCopyPreview();
     this.#leaveHover();
+    this.#cancelPendingDrag();
     this.#drag = undefined;
     this.#target = undefined;
+    this.#canonicalTarget = undefined;
+    this.#worldOffset = 0;
+    this.#worldRepositionPending = false;
     this.#handles.clearTarget();
   }
 
@@ -234,7 +285,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#copyAnchor = this.#lastCoordinate ?? extentCenter(this.#handles.extent ?? [0, 0, 0, 0]);
     this.#copyDelta = Object.freeze({ x: 0, y: 0 });
     this.#copyActive = true;
-    this.#handles.setCopyPreview(preview.geometry, preview.style);
+    this.#handles.setCopyPreview(translateRenderGeometry(preview.geometry, this.#worldOffset, 0), preview.style);
   }
 
   /** 取消复制预览并清除位移状态。 */
@@ -251,6 +302,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (this.#destroyed || this.#destroying) return;
     this.#destroying = true;
     try {
+      this.#cancelPendingDrag();
       runFinalizers([
         () => this.#map.getViewport().removeEventListener('contextmenu', this.#onContextMenu, true),
         () => {
@@ -281,7 +333,9 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
         () => this.#interaction.dispose()
       ]);
       this.#target = undefined;
+      this.#canonicalTarget = undefined;
       this.#drag = undefined;
+      this.#worldRepositionPending = false;
       this.#hover = undefined;
       this.#destroyed = true;
     } finally {
@@ -304,10 +358,14 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (!isPrimary(event) || this.#target === undefined) return false;
     const hit = this.#handles.hit(currentPixel, this.#options.hitTolerance);
     if (hit === undefined || !operationAllowed(this.#target, hit.operation)) return false;
-    const center = this.#options.handleCenter ?? extentCenter(this.#handles.extent ?? [0, 0, 0, 0]);
+    const center = this.#target.handleCenter ?? extentCenter(this.#handles.extent ?? [0, 0, 0, 0]);
     const start = currentCoordinate;
-    const delta = initialDelta(hit, start, center);
-    this.#drag = { hit, start, center, delta };
+    const delta = canonicalDelta(initialDelta(hit, start, center), this.#worldOffset);
+    const world = transformWorldFor(this.#map, this.#binding, this.#canonicalTarget);
+    const worldReferenceX = this.#canonicalTarget === undefined ? start[0] - this.#worldOffset : targetReferenceX(this.#canonicalTarget);
+    const viewWorldOffset = viewWorldOffsetFor(this.#map, world, worldReferenceX);
+    this.#cancelPendingDrag();
+    this.#drag = { hit, start, center, delta, viewWorldOffset, ...(world === undefined ? {} : { world }), worldReferenceX };
     this.#emit({ type: 'operation-start', operation: hit.operation, delta, pixel: currentPixel, coordinate: currentCoordinate });
     return true;
   }
@@ -316,22 +374,66 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   #dragEvent(event: PointerMapEvent): void {
     const drag = this.#drag;
     if (drag === undefined) return;
-    this.#lastCoordinate = coordinate(event.coordinate);
-    const currentPixel = pixel(event.pixel);
-    drag.delta = this.#deltaFor(drag, this.#lastCoordinate, event.originalEvent.shiftKey === true);
-    this.#emit({ type: 'operation-change', operation: drag.hit.operation, delta: drag.delta, pixel: currentPixel, coordinate: this.#lastCoordinate });
+    this.#pendingDrag = {
+      coordinate: this.#coordinateInDragWorld(drag, coordinate(event.coordinate)),
+      pixel: pixel(event.pixel),
+      keepAspectRatio: event.originalEvent.shiftKey === true
+    };
+    const requestFrame = globalThis.requestAnimationFrame;
+    if (typeof requestFrame !== 'function') {
+      this.#flushPendingDrag();
+      return;
+    }
+    if (this.#dragFrame !== undefined) return;
+    this.#dragFrame = requestFrame(() => {
+      this.#dragFrame = undefined;
+      this.#flushPendingDrag();
+    });
   }
 
   /** 处理指针抬起并结束当前拖拽。 */
   #up(event: PointerMapEvent): boolean {
+    if (this.#drag === undefined) return false;
+    this.#cancelDragFrame();
+    this.#flushPendingDrag();
     const drag = this.#drag;
-    if (drag === undefined) return false;
-    this.#lastCoordinate = coordinate(event.coordinate);
+    if (drag === undefined) return true;
+    this.#lastCoordinate = this.#coordinateInDragWorld(drag, coordinate(event.coordinate));
     const currentPixel = pixel(event.pixel);
     drag.delta = this.#deltaFor(drag, this.#lastCoordinate, event.originalEvent.shiftKey === true);
-    this.#drag = undefined;
-    this.#emit({ type: 'operation-end', operation: drag.hit.operation, delta: drag.delta, pixel: currentPixel, coordinate: this.#lastCoordinate });
+    try {
+      this.#emit({ type: 'operation-end', operation: drag.hit.operation, delta: drag.delta, pixel: currentPixel, coordinate: this.#lastCoordinate });
+    } finally {
+      if (this.#drag === drag) this.#drag = undefined;
+      if (this.#worldRepositionPending) this.#repositionForView();
+    }
     return true;
+  }
+
+  /** 处理浏览器一帧内最后一次拖拽采样，避免高频输入重复刷新整条预览链路。 */
+  #flushPendingDrag(): void {
+    const sample = this.#pendingDrag;
+    this.#pendingDrag = undefined;
+    const drag = this.#drag;
+    if (sample === undefined || drag === undefined) return;
+    this.#lastCoordinate = sample.coordinate;
+    drag.delta = this.#deltaFor(drag, sample.coordinate, sample.keepAspectRatio);
+    this.#emit({ type: 'operation-change', operation: drag.hit.operation, delta: drag.delta, pixel: sample.pixel, coordinate: sample.coordinate });
+  }
+
+  /** 取消尚未执行的浏览器绘制帧，但保留最后一次采样供 pointerup 同步处理。 */
+  #cancelDragFrame(): void {
+    const frame = this.#dragFrame;
+    this.#dragFrame = undefined;
+    if (frame === undefined) return;
+    const cancelFrame = globalThis.cancelAnimationFrame;
+    if (typeof cancelFrame === 'function') cancelFrame(frame);
+  }
+
+  /** 丢弃当前拖拽的全部延迟输入。 */
+  #cancelPendingDrag(): void {
+    this.#cancelDragFrame();
+    this.#pendingDrag = undefined;
   }
 
   /** 处理指针移动、手柄悬停和复制预览。 */
@@ -367,12 +469,18 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (this.#destroyed || this.#copyActive || this.#drag !== undefined) return;
     const selectedPixel = pixel(rawPixel);
     const candidates = this.#hitTest.atPixel(selectedPixel, this.#options.hitTolerance).map(({ elementId }) => elementId);
-    this.#emit({
-      type: 'select-request',
-      pixel: selectedPixel,
-      ...(rawCoordinate === undefined ? {} : { coordinate: coordinate(rawCoordinate) }),
-      candidateIds: Object.freeze(candidates)
-    });
+    const selectedCoordinate = rawCoordinate === undefined ? undefined : coordinate(rawCoordinate);
+    this.#selectionReferenceX = selectedCoordinate?.[0];
+    try {
+      this.#emit({
+        type: 'select-request',
+        pixel: selectedPixel,
+        ...(selectedCoordinate === undefined ? {} : { coordinate: selectedCoordinate }),
+        candidateIds: Object.freeze(candidates)
+      });
+    } finally {
+      this.#selectionReferenceX = undefined;
+    }
   }
 
   /** 根据当前指针计算平移、旋转、缩放或拉伸增量。 */
@@ -380,12 +488,12 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (drag.hit.operation === 'translate') return Object.freeze({ type: 'translate', x: current[0] - drag.start[0], y: current[1] - drag.start[1] });
     if (drag.hit.operation === 'vertex') {
       if (drag.hit.index === undefined) throw new InvalidArgumentError('Transform vertex handle has no index');
-      return Object.freeze({ type: 'vertex', index: drag.hit.index, coordinate: current });
+      return canonicalDelta(Object.freeze({ type: 'vertex', index: drag.hit.index, coordinate: current }), this.#worldOffset);
     }
     if (drag.hit.operation === 'rotate') {
       const startAngle = Math.atan2(drag.start[1] - drag.center[1], drag.start[0] - drag.center[0]);
       const currentAngle = Math.atan2(current[1] - drag.center[1], current[0] - drag.center[0]);
-      return Object.freeze({ type: 'rotate', angle: currentAngle - startAngle, center: drag.center });
+      return canonicalDelta(Object.freeze({ type: 'rotate', angle: currentAngle - startAngle, center: drag.center }), this.#worldOffset);
     }
     const x = ratio(current[0] - drag.center[0], drag.start[0] - drag.center[0]);
     const y = ratio(current[1] - drag.center[1], drag.start[1] - drag.center[1]);
@@ -404,7 +512,16 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       scaleX = Math.sign(scaleX || 1) * magnitude;
       scaleY = Math.sign(scaleY || 1) * magnitude;
     }
-    return Object.freeze({ type: drag.hit.operation, scaleX, scaleY, center: drag.center });
+    return canonicalDelta(Object.freeze({ type: drag.hit.operation, scaleX, scaleY, center: drag.center }), this.#worldOffset);
+  }
+
+  /** 把视图切换到其他整数世界后产生的事件坐标放回拖拽开始时冻结的展示世界。 */
+  #coordinateInDragWorld(drag: DragState, current: Coordinate): Coordinate {
+    const world = drag.world;
+    if (world === undefined) return current;
+    const currentViewOffset = viewWorldOffsetFor(this.#map, world, drag.worldReferenceX);
+    const offset = drag.viewWorldOffset - currentViewOffset;
+    return offset === 0 ? current : shiftCoordinate(current, offset);
   }
 
   /** 离开当前悬停手柄并发布对应事件。 */
@@ -433,20 +550,76 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#emit({ type: 'copy-preview-cancel' });
   };
 
+  /** 视图跨越世界边界时把选中目标移到离当前中心最近的副本。 */
+  readonly #onViewCenterChange = (): void => {
+    if (this.#destroyed || this.#destroying || this.#canonicalTarget === undefined) return;
+    try {
+      this.#repositionForView();
+    } catch (error) {
+      this.#report(error, 'view-center');
+    }
+  };
+
+  /** 在非拖拽阶段重算展示世界；拖拽期间只记录待处理状态。 */
+  #repositionForView(): void {
+    const canonicalTarget = this.#canonicalTarget;
+    if (canonicalTarget === undefined) {
+      this.#worldRepositionPending = false;
+      return;
+    }
+    if (this.#drag !== undefined) {
+      this.#worldRepositionPending = true;
+      return;
+    }
+    const previousOffset = this.#worldOffset;
+    const nextOffset = worldOffsetFor(this.#map, this.#binding, canonicalTarget);
+    if (nextOffset === previousOffset) {
+      this.#worldRepositionPending = false;
+      return;
+    }
+    const previousTarget = this.#target;
+    const presentedTarget = presentationTarget(canonicalTarget, nextOffset);
+    this.#worldOffset = nextOffset;
+    this.#target = presentedTarget;
+    try {
+      this.#handles.setTarget(presentedTarget);
+    } catch (error) {
+      this.#worldOffset = previousOffset;
+      this.#target = previousTarget;
+      this.#worldRepositionPending = true;
+      throw error;
+    }
+    this.#shiftPresentationWorld(nextOffset - previousOffset);
+    this.#worldRepositionPending = false;
+  }
+
+  /** 同步复制预览和指针基准等展示世界临时状态。 */
+  #shiftPresentationWorld(offset: number): void {
+    if (offset === 0) return;
+    this.#handles.shiftCopyPreview(offset, 0);
+    if (this.#copyAnchor !== undefined) this.#copyAnchor = shiftCoordinate(this.#copyAnchor, offset);
+    if (this.#lastCoordinate !== undefined) this.#lastCoordinate = shiftCoordinate(this.#lastCoordinate, offset);
+  }
+
   /** 冻结并安全发布语义 Transform 事件。 */
   #emit(event: TransformInteractionEvent): void {
     try {
       this.#listener(Object.freeze(event));
     } catch (error) {
-      try {
-        const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
-          source: 'TransformInteractionAdapter',
-          operation: `listener:${event.type}`
-        });
-        void Promise.resolve(result).catch(() => undefined);
-      } catch {
-        return;
-      }
+      this.#report(error, `listener:${event.type}`);
+    }
+  }
+
+  /** 报告适配器内部错误且不让报告失败中断地图交互。 */
+  #report(error: unknown, operation: string): void {
+    try {
+      const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
+        source: 'TransformInteractionAdapter',
+        operation
+      });
+      void Promise.resolve(result).catch(() => undefined);
+    } catch {
+      return;
     }
   }
 
@@ -476,8 +649,66 @@ function snapshotTarget(target: TransformInteractionTarget): TransformInteractio
   return Object.freeze({
     ...target,
     controlPoints: Object.freeze(target.controlPoints.map(coordinate)),
+    ...(target.handleCenter === undefined ? {} : { handleCenter: coordinate(target.handleCenter) }),
     ...(target.style === undefined ? {} : { style: target.style })
   });
+}
+
+/** 把规范世界目标整体移入本次交互选择的可见世界。 */
+function presentationTarget(target: TransformInteractionTarget, offset: number): TransformInteractionTarget {
+  if (offset === 0) return target;
+  return Object.freeze({
+    ...target,
+    geometry: translateRenderGeometry(target.geometry, offset, 0),
+    controlPoints: Object.freeze(target.controlPoints.map((value) => shiftCoordinate(value, offset))),
+    ...(target.handleCenter === undefined ? {} : { handleCenter: shiftCoordinate(target.handleCenter, offset) })
+  });
+}
+
+/** 根据点击位置、视图中心和业务源 wrapX 选择唯一展示世界。 */
+function worldOffsetFor(map: Map, binding: FeatureBinding, target: TransformInteractionTarget, requestedX?: number): number {
+  const world = transformWorldFor(map, binding, target);
+  if (world === undefined) return 0;
+  const targetX = targetReferenceX(target);
+  const center = map.getView().getCenter();
+  const referenceX = requestedX ?? (center !== undefined && Number.isFinite(center[0]) ? center[0] : targetX);
+  const offset = Math.round((referenceX - targetX) / world.width) * world.width;
+  return Number.isFinite(offset) ? offset : 0;
+}
+
+/** 按用户投影优先级取得与 MapBrowserEvent.coordinate 一致的水平环绕坐标系。 */
+function transformWorldFor(map: Map, binding: FeatureBinding, target: TransformInteractionTarget | undefined): HorizontalWorld | undefined {
+  if (target === undefined) return undefined;
+  const wrapsX = (binding as FeatureBinding & { wrapsX?: (elementId: string) => boolean }).wrapsX;
+  if (typeof wrapsX !== 'function' || !wrapsX.call(binding, target.elementId)) return undefined;
+  const projection = getUserProjection() ?? map.getView().getProjection();
+  return horizontalWorldFromExtent(projection.getExtent(), projection.canWrapX());
+}
+
+/** 返回目标在 Core 规范世界中的稳定水平参考位置。 */
+function targetReferenceX(target: TransformInteractionTarget): number {
+  return target.controlPoints[0]?.[0] ?? extentCenter(renderExtent(target.geometry))[0];
+}
+
+/** 计算视图中心相对固定规范坐标所在的整数世界偏移。 */
+function viewWorldOffsetFor(map: Map, world: HorizontalWorld | undefined, referenceX: number): number {
+  if (world === undefined) return 0;
+  const center = map.getView().getCenter();
+  if (center === undefined || !Number.isFinite(center[0])) return 0;
+  const offset = Math.round((center[0] - referenceX) / world.width) * world.width;
+  return Number.isFinite(offset) ? offset : 0;
+}
+
+/** 将展示世界中的中心或顶点坐标恢复为 Core 的规范世界坐标。 */
+function canonicalDelta(delta: TransformDelta, worldOffset: number): TransformDelta {
+  if (worldOffset === 0 || delta.type === 'translate') return delta;
+  if (delta.type === 'vertex') return Object.freeze({ ...delta, coordinate: shiftCoordinate(delta.coordinate, -worldOffset) });
+  return Object.freeze({ ...delta, center: shiftCoordinate(delta.center, -worldOffset) });
+}
+
+/** 平移坐标并保留可选高度值。 */
+function shiftCoordinate(value: Coordinate, x: number): Coordinate {
+  return Object.freeze(value.length === 3 ? [value[0] + x, value[1], value[2]] : [value[0] + x, value[1]]) as Coordinate;
 }
 
 /** 判断目标是否允许指定手柄操作。 */

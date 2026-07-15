@@ -295,7 +295,9 @@ describe('DrawFacade', () => {
     const replacement = local.elements.add(point('shared-id', [3, 4]));
     expect(() => local.draw.edit(localElement)).toThrow(ObjectDisposedError);
 
+    const publicSnapshotRead = vi.spyOn(local.store, 'get');
     const session = local.draw.edit(replacement);
+    expect(publicSnapshotRead).not.toHaveBeenCalled();
     expect(session.element).toBe(replacement);
     expect(local.editPort.spec?.elementId).toBe('shared-id');
     session.cancel();

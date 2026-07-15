@@ -115,6 +115,9 @@ export const transformScenario: ScenarioDefinition = {
     let errorEventCount = 0;
     let copyPreviewConfirmCount = 0;
     let copyPreviewCancelCount = 0;
+    const continuousEventCounts = { translating: 0, rotating: 0, scaling: 0, edit: 0 };
+    let latestContinuousEvent: keyof typeof continuousEventCounts | undefined;
+    let refreshFrame: number | undefined;
 
     const optionsSection = context.section('变换参数（TransformOptions）', '修改字段后需重新启动会话；selector、predicate 与 layerIds 会同时参与选择过滤。');
     const translate = context.select(optionsSection, '平移模式（translate）', translateOptions, 'feature');
@@ -157,10 +160,25 @@ export const transformScenario: ScenarioDefinition = {
       context.status('最近 copy()', lastCopy?.id ?? '无');
       context.status('copyPreviewConfirm 事件数', copyPreviewConfirmCount);
       context.status('copyPreviewCancel 事件数', copyPreviewCancelCount);
+      context.status('最近连续 Transform 事件', latestContinuousEvent ?? '无');
+      context.status('连续 Transform 事件计数', continuousEventCounts);
       context.status('主元素几何', earth.elements.get(primary.id)?.state.geometry ?? '已移除');
       context.status('替换元素几何', earth.elements.get(replacement.id)?.state.geometry ?? '已移除');
       context.render(earth);
     };
+
+    const scheduleRefresh = (): void => {
+      if (refreshFrame !== undefined) return;
+      refreshFrame = requestAnimationFrame(() => {
+        refreshFrame = undefined;
+        context.status('最近连续 Transform 事件', latestContinuousEvent ?? '无');
+        context.status('连续 Transform 事件计数', continuousEventCounts);
+      });
+    };
+    context.track(() => {
+      if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame);
+      refreshFrame = undefined;
+    });
 
     const closeActive = (): void => {
       if (session?.status === 'active') session.cancel();
@@ -233,6 +251,12 @@ export const transformScenario: ScenarioDefinition = {
             if (eventName === 'error') errorEventCount += 1;
             if (eventName === 'copyPreviewConfirm') copyPreviewConfirmCount += 1;
             if (eventName === 'copyPreviewCancel') copyPreviewCancelCount += 1;
+            if (eventName === 'translating' || eventName === 'rotating' || eventName === 'scaling' || eventName === 'edit') {
+              latestContinuousEvent = eventName;
+              continuousEventCounts[eventName] += 1;
+              scheduleRefresh();
+              return;
+            }
             context.log(`Transform ${eventName} 事件`, eventName === 'error' ? '错误' : '信息', serializeEvent(event));
             refresh();
           })

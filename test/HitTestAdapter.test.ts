@@ -378,7 +378,7 @@ describe('HitTestAdapter', () => {
     const second = setup();
     const element = first.elements.add({ id: 'first', geometry: { type: 'point', controlPoints: [[0, 0]] } });
     first.hitTest.atPixel = vi.fn(() => ({ elementId: 'first', layerId: 'default' }));
-    first.hitTest.getScreenExtent = vi.fn(() => [1, 2, 3, 4]);
+    first.hitTest.getScreenExtent = vi.fn(() => [1, 2, 3, 4] as const);
 
     expect(first.elements.atPixel([0, 0])).toMatchObject({ element: { id: 'first' }, layer: { id: 'default' } });
     expect(first.elements.getScreenExtent(element)).toEqual([1, 2, 3, 4]);

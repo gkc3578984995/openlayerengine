@@ -9,6 +9,14 @@ import type { ElementState } from './types.js';
 /** 元素快照。保存经过校验和冻结的元素状态。 */
 export type ElementSnapshot<T = unknown> = Readonly<ElementState<T>>;
 
+/** 由快照工厂创建且可由内部热路径按身份信任的元素状态。 */
+const elementSnapshots = new WeakSet<object>();
+
+/** 判断状态是否由本模块创建并已经递归深冻结。 @internal */
+export function isElementSnapshot(value: unknown): value is ElementSnapshot {
+  return value !== null && typeof value === 'object' && elementSnapshots.has(value);
+}
+
 /** 校验状态并创建一个新的元素快照。 */
 export function createElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: ElementState<T>): ElementSnapshot<T> {
   const cloned = cloneCoreState(state);
@@ -54,7 +62,9 @@ function freezeElementState<T>(state: Readonly<ElementState<T>>, geometry: Shape
     layerId: state.layerId,
     visible: state.visible
   };
-  return deepFreeze(cloneCoreState(projected));
+  const snapshot = deepFreeze(cloneCoreState(projected));
+  elementSnapshots.add(snapshot);
+  return snapshot;
 }
 
 /** 元素状态允许出现的字段。 */

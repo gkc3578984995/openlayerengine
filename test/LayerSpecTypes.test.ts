@@ -24,6 +24,7 @@ describe('public layer specifications', () => {
         process.execPath,
         [
           tsc,
+          '--ignoreConfig',
           '--noEmit',
           '--pretty',
           'false',

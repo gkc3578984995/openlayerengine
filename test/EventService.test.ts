@@ -138,6 +138,39 @@ describe('internal EventService', () => {
     expect(received[6]).toMatchObject({ key: 'Enter', ctrlKey: true, shiftKey: true });
   });
 
+  it('preserves all three dimensions when an InputPort provides a mutable coordinate', () => {
+    const { events, port } = setup();
+    const received: RoutedEventMap['click'][] = [];
+    const coordinate: [number, number, number] = [10, 20, 30];
+    const pixel: [number, number] = [40, 50];
+    events.on('click', (event) => received.push(event));
+
+    port.emit('click', { type: 'click', coordinate, pixel, nativeEventRef: eventRef });
+
+    expect(received[0].coordinate).toEqual([10, 20, 30]);
+    expect(received[0].coordinate).not.toBe(coordinate);
+    expect(Object.isFrozen(received[0].coordinate)).toBe(true);
+    expect(received[0].pixel).toEqual([40, 50]);
+    expect(received[0].pixel).not.toBe(pixel);
+  });
+
+  it('reuses the hit element snapshot until its Store revision changes', () => {
+    const { events, pointer, store } = setup();
+    const get = vi.spyOn(store, 'get');
+    const received: RoutedEventMap['pointermove'][] = [];
+    events.on('pointermove', (event) => received.push(event));
+
+    pointer('pointermove', 'a');
+    pointer('pointermove', 'a');
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(received[0].element).toBe(received[1].element);
+
+    store.update({ id: 'a' }, { visible: false });
+    pointer('pointermove', 'a');
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(received[2].element).not.toBe(received[1].element);
+  });
+
   it('matches every selector field and module shorthand without Store scans', () => {
     const { events, pointer, store } = setup();
     const query = vi.spyOn(store, 'query');

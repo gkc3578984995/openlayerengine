@@ -15,12 +15,12 @@ const anchors: AnchorItem[] = [
   { id: 'next-step', label: '下一步' }
 ];
 
-const installationCode = `npm install @vrsim/earth-engine-ol ol@^7`;
+const installationCode = `npm install @vrsim/earth-engine-ol ol@10.9.0`;
 
 const depsCode = `{
   "dependencies": {
     "@vrsim/earth-engine-ol": "^2.0.0",
-    "ol": "^7.5.2"
+    "ol": "10.9.0"
   }
 }`;
 

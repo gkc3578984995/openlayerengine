@@ -12,6 +12,7 @@ import { ElementStore } from '../src/core/element/ElementStore.js';
 import { InteractionConflictError, InvalidArgumentError } from '../src/core/errors.js';
 import type { InputEventMap } from '../src/core/ports/InputPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import type { ShapeDefinition } from '../src/core/shape/types.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
@@ -74,8 +75,8 @@ class FakeKeyboardInput {
   }
 }
 
-function setup(input?: FakeKeyboardInput) {
-  const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
+function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[] = [...basicShapeDefinitions, ...plotShapeDefinitions]) {
+  const shapes = new ShapeRegistry(definitions);
   const store = new ElementStore(shapes);
   const port = new FakeDrawPort();
   const coordinator = new InteractionCoordinator();
@@ -462,6 +463,146 @@ describe('DrawSession', () => {
       ]
     });
     expect(session.status).toBe('finished');
+  });
+
+  it('preserves custom freehand append semantics for every coordinate in a batched frame', () => {
+    const builtin = basicShapeDefinitions.find((definition) => definition.type === 'polyline');
+    if (builtin === undefined || builtin.freehand === undefined) throw new Error('Missing built-in polyline freehand policy');
+    const appendSample = vi.fn((samples: readonly (readonly [number, number])[], coordinate: readonly [number, number]) =>
+      coordinate[0] === 2 ? samples : [...samples, coordinate]
+    );
+    const custom = {
+      ...builtin,
+      freehand: {
+        appendSample,
+        normalizeSamples: builtin.freehand.normalizeSamples
+      }
+    } as ShapeDefinition;
+    const definitions = basicShapeDefinitions.map((definition) => (definition.type === 'polyline' ? custom : definition));
+    const { port, service, store } = setup(undefined, [...definitions, ...plotShapeDefinitions]);
+    service.start({ type: 'polyline', layerId: 'draw-layer', style, limit: 1 });
+
+    port.emit({ type: 'freehand-start', coordinate: [0, 0] });
+    port.emit({
+      type: 'freehand-samples',
+      coordinates: [
+        [1, 1],
+        [2, 2],
+        [3, 3]
+      ]
+    });
+    port.emit({ type: 'freehand-complete', coordinate: [4, 4] });
+
+    expect(appendSample.mock.calls.map(([samples]) => samples.length)).toEqual([0, 1, 2, 2, 3]);
+    expect(appendSample.mock.calls.map(([, coordinate]) => coordinate)).toEqual([
+      [0, 0],
+      [1, 1],
+      [2, 2],
+      [3, 3],
+      [4, 4]
+    ]);
+    expect(store.query()[0].geometry).toEqual({
+      type: 'polyline',
+      controlPoints: [
+        [0, 0],
+        [1, 1],
+        [3, 3],
+        [4, 4]
+      ]
+    });
+  });
+
+  it('keeps built-in 1k/5k freehand batches near-linear, renders once per batch, and retains every sample', () => {
+    const run = (sampleCount: number) => {
+      const { port, service } = setup();
+      const session = service.start({ type: 'polyline', layerId: 'draw-layer', style });
+      port.emit({ type: 'freehand-start', coordinate: [0, 0] });
+      const samples = Array.from({ length: sampleCount }, (_, index) => [index + 1, (index + 1) % 19] as const);
+      const renderCount = port.render.mock.calls.length;
+      const started = performance.now();
+      port.emit({ type: 'freehand-samples', coordinates: samples });
+      const elapsedMs = performance.now() - started;
+      const geometry = port.previews.at(-1)?.geometry;
+      if (geometry?.type !== 'polyline') throw new Error('Missing freehand preview');
+      expect(port.render.mock.calls.length - renderCount).toBe(1);
+      expect(geometry.coordinates).toHaveLength(sampleCount + 1);
+      expect(geometry.coordinates[1]).toEqual([1, 1]);
+      expect(geometry.coordinates[Math.floor(sampleCount / 2)]).toEqual([Math.floor(sampleCount / 2), Math.floor(sampleCount / 2) % 19]);
+      expect(geometry.coordinates[sampleCount]).toEqual([sampleCount, sampleCount % 19]);
+      session.cancel();
+      return elapsedMs;
+    };
+
+    const oneThousandMs = run(1_000);
+    const fiveThousandMs = run(5_000);
+    expect(fiveThousandMs).toBeLessThan(1_500);
+    expect(fiveThousandMs).toBeLessThan(oneThousandMs * 10 + 250);
+  });
+
+  it('keeps 1k/5k ordinary vertex history incremental through click, undo, and redo', () => {
+    const builtin = basicShapeDefinitions.find((definition) => definition.type === 'polyline');
+    if (builtin === undefined) throw new Error('Missing built-in polyline definition');
+    const constantDraftDefinition = {
+      ...builtin,
+      createDraft: (points: readonly (readonly [number, number])[]) => {
+        const coordinate = points.at(-1);
+        return coordinate === undefined ? undefined : { type: 'polyline' as const, controlPoints: [coordinate, coordinate] };
+      }
+    } as ShapeDefinition;
+    const run = (pointCount: number) => {
+      const { port, service } = setup(undefined, [constantDraftDefinition]);
+      const session = service.start({ type: 'polyline', layerId: 'draw-layer', style });
+      const started = performance.now();
+      for (let index = 0; index < pointCount; index += 1) port.emit({ type: 'click', coordinate: [index, index % 23] });
+      for (let index = 0; index < pointCount; index += 1) expect(session.undo()).toBe(true);
+      expect(session.undo()).toBe(false);
+      for (let index = 0; index < pointCount; index += 1) expect(session.redo()).toBe(true);
+      expect(session.redo()).toBe(false);
+      const elapsedMs = performance.now() - started;
+      session.cancel();
+      return elapsedMs;
+    };
+
+    const oneThousandMs = run(1_000);
+    const fiveThousandMs = run(5_000);
+    expect(fiveThousandMs).toBeLessThan(1_500);
+    expect(fiveThousandMs).toBeLessThan(oneThousandMs * 10 + 250);
+  });
+
+  it('continues and completes or cancels after a programmatic view jump of plus or minus 50 worlds', () => {
+    const completed = setup();
+    completed.port.world = { minX: -180, width: 360 };
+    const completedSession = completed.service.start({ type: 'polyline', layerId: 'draw-layer', style, limit: 1 });
+    completed.port.emit({ type: 'freehand-start', coordinate: [170, 1] });
+    completed.port.emit({ type: 'freehand-samples', coordinates: [[-170 + 50 * 360, 2]] });
+    completed.port.emit({ type: 'freehand-complete', coordinate: [-160 + 50 * 360, 3] });
+
+    expect(completedSession.status).toBe('finished');
+    expect(completed.store.query()[0].geometry).toEqual({
+      type: 'polyline',
+      controlPoints: [
+        [170, 1],
+        [190, 2],
+        [200, 3]
+      ]
+    });
+
+    const cancelled = setup();
+    cancelled.port.world = { minX: -180, width: 360 };
+    const cancelledSession = cancelled.service.start({ type: 'polyline', layerId: 'draw-layer', style });
+    cancelled.port.emit({ type: 'click', coordinate: [170, 1] });
+    cancelled.port.emit({ type: 'click', coordinate: [-170 - 50 * 360, 2] });
+    cancelledSession.cancel();
+
+    expect(cancelledSession.status).toBe('cancelled');
+    expect(cancelled.store.query()).toEqual([]);
+    expect(cancelled.port.previews.at(-1)?.geometry).toEqual({
+      type: 'polyline',
+      coordinates: [
+        [170, 1],
+        [190, 2]
+      ]
+    });
   });
 
   it('moves an ordinary sketch as one group back into the canonical world', () => {

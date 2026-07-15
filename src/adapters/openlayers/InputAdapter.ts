@@ -16,6 +16,8 @@ interface OpenLayersInputEvent {
   readonly pixel: readonly number[];
   /** 浏览器原始事件。 */
   readonly originalEvent: Event;
+  /** OpenLayers 正在平移地图。 */
+  readonly dragging?: boolean;
 }
 
 /** 输入适配器使用的地图事件能力。 */
@@ -75,6 +77,12 @@ export class InputAdapter implements InputPort {
       this.#nativeDisposers.delete(type);
       dispose?.();
     };
+  }
+
+  /** 将键盘焦点交给当前地图容器。 */
+  focus(): void {
+    this.#assertActive();
+    focusWithoutScrolling(this.#map.getTargetElement() ?? this.#map.getViewport());
   }
 
   /** 移除全部原生事件和业务监听器。 */
@@ -138,8 +146,14 @@ export class InputAdapter implements InputPort {
       if (keyboard.repeat === true) return;
       this.#routeKeyboard(keyboard);
     };
-    keyboardTarget.addEventListener('keydown', listener);
-    return () => keyboardTarget.removeEventListener('keydown', listener);
+    const releaseKeyboardScope = prepareKeyboardScope(keyboardTarget, viewport);
+    try {
+      keyboardTarget.addEventListener('keydown', listener);
+    } catch (error) {
+      releaseKeyboardScope();
+      throw error;
+    }
+    return () => runFinalizers([() => keyboardTarget.removeEventListener('keydown', listener), releaseKeyboardScope]);
   }
 
   /** 转换由 OpenLayers 提供坐标和像素的指针事件。 */
@@ -148,7 +162,7 @@ export class InputAdapter implements InputPort {
       const coordinate = safeCoordinate(() => event.coordinate);
       const pixel = safePixel(() => event.pixel);
       if (coordinate === undefined || pixel === undefined) return;
-      const hit = this.#hitTest.atPixel(pixel);
+      const hit = type === 'pointermove' && event.dragging === true ? undefined : this.#hitTest.atPixel(pixel);
       this.#listeners.get(type)?.(Object.freeze({ type, coordinate, pixel, ...(hit === undefined ? {} : { elementId: hit.elementId }), nativeEventRef }));
     });
   }
@@ -197,6 +211,64 @@ export class InputAdapter implements InputPort {
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('InputAdapter has been destroyed');
   }
+}
+
+/** 让地图在键盘订阅期间可聚焦，并在用户点击地图后进入当前 Earth 的键盘作用域。 */
+function prepareKeyboardScope(keyboardTarget: HTMLElement, viewport: HTMLElement): () => void {
+  const restoreTabIndex = installTemporaryTabIndex(keyboardTarget);
+  const captureOptions = Object.freeze({ capture: true });
+  const focusOnPointerDown = (event: Event): void => {
+    const button = (event as PointerEvent).button;
+    if ((typeof button === 'number' && button !== 0) || isEditableTarget(event.target)) return;
+    focusWithoutScrolling(keyboardTarget);
+  };
+  try {
+    viewport.addEventListener('pointerdown', focusOnPointerDown, captureOptions);
+  } catch (error) {
+    restoreTabIndex();
+    throw error;
+  }
+  return () => runFinalizers([() => viewport.removeEventListener('pointerdown', focusOnPointerDown, captureOptions), restoreTabIndex]);
+}
+
+/** 缺少显式 tabindex 时临时补上，并在订阅结束时恢复原状态。 */
+function installTemporaryTabIndex(target: HTMLElement): () => void {
+  const candidate = target as unknown as Record<string, unknown>;
+  if (
+    typeof candidate.hasAttribute !== 'function' ||
+    typeof candidate.getAttribute !== 'function' ||
+    typeof candidate.setAttribute !== 'function' ||
+    typeof candidate.removeAttribute !== 'function'
+  ) {
+    return () => undefined;
+  }
+  const hasAttribute = (candidate.hasAttribute as (name: string) => boolean).bind(target);
+  const getAttribute = (candidate.getAttribute as (name: string) => string | null).bind(target);
+  const setAttribute = (candidate.setAttribute as (name: string, value: string) => void).bind(target);
+  const removeAttribute = (candidate.removeAttribute as (name: string) => void).bind(target);
+  if (hasAttribute('tabindex')) return () => undefined;
+  setAttribute('tabindex', '0');
+  return () => {
+    if (getAttribute('tabindex') === '0') removeAttribute('tabindex');
+  };
+}
+
+/** 聚焦地图容器，同时避免页面因聚焦发生滚动。 */
+function focusWithoutScrolling(target: HTMLElement): void {
+  const focus = (target as unknown as { focus?: (options?: FocusOptions) => void }).focus;
+  if (typeof focus !== 'function') return;
+  try {
+    focus.call(target, { preventScroll: true });
+  } catch {
+    focus.call(target);
+  }
+}
+
+/** 点击表单控件或可编辑内容时保留控件自己的焦点。 */
+function isEditableTarget(target: EventTarget | null): boolean {
+  const ElementConstructor = globalThis.Element;
+  if (typeof ElementConstructor !== 'function' || !(target instanceof ElementConstructor)) return false;
+  return target.closest('input, textarea, select, button, [contenteditable="true"]') !== null;
 }
 
 /** 确认输入类型受当前适配器支持。 */

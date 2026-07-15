@@ -22,20 +22,42 @@ export interface StyleCompilerOptions {
   readonly createCanvasContext?: PatternCanvasFactory;
 }
 
+/** 结构化样式实际依赖的渲染上下文。 */
+interface StyleDependencies {
+  /** 样式是否读取要素几何。 */
+  readonly geometry: boolean;
+  /** 样式是否随地图分辨率变化。 */
+  readonly resolution: boolean;
+  /** 样式是否随视图旋转变化。 */
+  readonly viewRotation: boolean;
+}
+
 /** 单个要素最近一次样式编译缓存。 */
 interface CacheEntry {
-  /** 与几何、分辨率和视图旋转有关的签名。 */
-  readonly signature: string;
+  /** 参与编译的几何对象。 */
+  readonly geometry: object | undefined;
+  /** 参与编译的几何修订号。 */
+  readonly geometryRevision: number | undefined;
+  /** 参与编译的地图分辨率。 */
+  readonly resolution: number;
+  /** 参与编译的视图旋转角度。 */
+  readonly viewRotation: number;
   /** 已编译的 OpenLayers 样式。 */
   readonly styles: Style[];
 }
 
 /** 本次样式编译使用的缓存上下文。 */
 interface CompilationCacheContext {
-  /** 可安全缓存时使用的签名。 */
-  readonly signature: string | undefined;
+  /** 当前结果是否可以安全缓存。 */
+  readonly cacheable: boolean;
   /** 样式装饰可能读取的几何对象。 */
   readonly geometry: object | undefined;
+  /** 几何发生变化时使用的修订号。 */
+  readonly geometryRevision: number | undefined;
+  /** 归一化后的地图分辨率。 */
+  readonly resolution: number;
+  /** 归一化后的视图旋转角度。 */
+  readonly viewRotation: number;
 }
 
 /** 样式计算使用的二维坐标。 */
@@ -74,17 +96,28 @@ export class StyleCompiler {
     const needsFitPaths =
       spec.strokes?.some((stroke) => stroke.fitPatternOnce === true && stroke.lineDash !== undefined && stroke.lineDash.length > 0) ?? false;
     const needsDecorations = (spec.decorations?.length ?? 0) > 0;
-    const needsGeometry = needsFitPaths || needsDecorations;
+    const dependencies = styleDependencies(spec, needsFitPaths, needsDecorations);
     const cache = new WeakMap<object, CacheEntry>();
+    let sharedCache: CacheEntry | undefined;
     const compiled: StyleFunction = (feature, resolution) => {
-      const viewRotation = finiteOr(this.#getViewRotation(), 0);
-      const context = compilationCacheContext(feature, resolution, viewRotation, needsGeometry);
+      const viewRotation = dependencies.viewRotation ? finiteOr(this.#getViewRotation(), 0) : 0;
+      const context = compilationCacheContext(feature, resolution, viewRotation, dependencies);
       const key = feature as object;
-      const previous = context.signature === undefined ? undefined : cache.get(key);
-      if (previous !== undefined && previous.signature === context.signature) return previous.styles;
+      const previous = context.cacheable ? (dependencies.geometry ? cache.get(key) : sharedCache) : undefined;
+      if (previous !== undefined && cacheMatches(previous, context, dependencies)) return previous.styles;
 
-      const styles = this.#compileStructured(spec, context.geometry, resolution, viewRotation, needsFitPaths, needsDecorations);
-      if (context.signature !== undefined) cache.set(key, { signature: context.signature, styles });
+      const styles = this.#compileStructured(spec, context.geometry, context.resolution, context.viewRotation, needsFitPaths, needsDecorations);
+      if (context.cacheable) {
+        const entry: CacheEntry = {
+          geometry: context.geometry,
+          geometryRevision: context.geometryRevision,
+          resolution: context.resolution,
+          viewRotation: context.viewRotation,
+          styles
+        };
+        if (dependencies.geometry) cache.set(key, entry);
+        else sharedCache = entry;
+      }
       return styles;
     };
     return compiled;
@@ -443,18 +476,57 @@ function featureGeometry(feature: FeatureLike): object | undefined {
   return geometry !== null && typeof geometry === 'object' ? geometry : undefined;
 }
 
-/** 生成样式函数本次调用的缓存签名和几何上下文。 */
-function compilationCacheContext(feature: FeatureLike, resolution: number, viewRotation: number, needsGeometry: boolean): CompilationCacheContext {
-  const featureRevision = callNumber(feature, 'getRevision');
-  if (!needsGeometry) {
-    return { signature: `${featureRevision ?? 'none'}|${resolution}|${viewRotation}`, geometry: undefined };
+/** 分析样式编译真正需要监听的渲染上下文。 */
+function styleDependencies(spec: StyleSpec, needsFitPaths: boolean, needsDecorations: boolean): StyleDependencies {
+  const resolution = needsFitPaths || (spec.decorations?.some((decoration) => decoration.placement === 'repeat') ?? false);
+  const viewRotation =
+    iconOffsetDependsOnView(spec.symbol) ||
+    textOffsetDependsOnView(spec.text) ||
+    (spec.decorations?.some(
+      (decoration) => decoration.symbol !== undefined && decoration.symbol.rotateWithView !== false && hasOffset(decoration.symbol.displacement)
+    ) ??
+      false);
+  return { geometry: needsFitPaths || needsDecorations, resolution, viewRotation };
+}
+
+/** 判断图片的屏幕偏移是否需要跟随视图旋转重新计算。 */
+function iconOffsetDependsOnView(symbol: StyleSpec['symbol']): boolean {
+  return symbol?.type === 'icon' && symbol.rotateWithView === true && hasOffset(symbol.displacement);
+}
+
+/** 判断文字的屏幕偏移是否需要跟随视图旋转重新计算。 */
+function textOffsetDependsOnView(text: TextSpec | undefined): boolean {
+  return text?.rotateWithView === true && ((text.offsetX ?? 0) !== 0 || (text.offsetY ?? 0) !== 0);
+}
+
+/** 判断二维偏移是否会改变最终绘制位置。 */
+function hasOffset(offset: readonly [number, number] | undefined): boolean {
+  return offset !== undefined && (offset[0] !== 0 || offset[1] !== 0);
+}
+
+/** 生成样式函数本次调用的缓存上下文。 */
+function compilationCacheContext(feature: FeatureLike, resolution: number, viewRotation: number, dependencies: StyleDependencies): CompilationCacheContext {
+  const normalizedResolution = dependencies.resolution ? safeResolution(resolution) : 1;
+  if (!dependencies.geometry) {
+    return { cacheable: true, geometry: undefined, geometryRevision: undefined, resolution: normalizedResolution, viewRotation };
   }
 
   const geometry = featureGeometry(feature);
   const geometryRevision = geometry === undefined ? undefined : callNumber(geometry, 'getRevision');
-  const signature =
-    featureRevision === undefined || geometryRevision === undefined ? undefined : `${featureRevision}|${geometryRevision}|${resolution}|${viewRotation}`;
-  return { signature, geometry };
+  return {
+    cacheable: geometryRevision !== undefined,
+    geometry,
+    geometryRevision,
+    resolution: normalizedResolution,
+    viewRotation
+  };
+}
+
+/** 判断最近一次编译结果是否仍适用于当前渲染上下文。 */
+function cacheMatches(entry: CacheEntry, context: CompilationCacheContext, dependencies: StyleDependencies): boolean {
+  if (dependencies.geometry && (entry.geometry !== context.geometry || entry.geometryRevision !== context.geometryRevision)) return false;
+  if (dependencies.resolution && entry.resolution !== context.resolution) return false;
+  return !dependencies.viewRotation || entry.viewRotation === context.viewRotation;
 }
 
 /** 安全调用对象上的无参方法。 */
@@ -512,4 +584,9 @@ function degreesToRadians(degrees: number): number {
 /** 非有限数值改用指定默认值。 */
 function finiteOr(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
+}
+
+/** 把无效分辨率归一化为样式计算使用的安全值。 */
+function safeResolution(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 1;
 }
