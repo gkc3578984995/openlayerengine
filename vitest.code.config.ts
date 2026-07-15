@@ -5,13 +5,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      exclude: [
-        'test/*Docs.test.ts',
-        'test/Website*.test.ts',
-        'test/ApiDocGenerator.test.ts',
-        'test/DemoRegistry.test.ts',
-        'test/LayerCommonDemoCoverage.test.ts'
-      ]
+      exclude: ['test/*Docs.test.ts', 'test/Website*.test.ts', 'test/ApiDocGenerator.test.ts', 'test/LayerCommonDemoCoverage.test.ts']
     }
   })
 );

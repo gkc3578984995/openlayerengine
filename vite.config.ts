@@ -1,22 +1,29 @@
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
-import path from 'path';
 
-export default defineConfig({
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src')
+const repositoryRoot = fileURLToPath(new URL('.', import.meta.url));
+
+export default defineConfig(({ mode }) => {
+  const useBuiltPackage = mode === 'acceptance-dist';
+  return {
+    define: {
+      __ACCEPTANCE_SOURCE__: JSON.stringify(useBuiltPackage ? '构建产物 dist' : '源码公共入口')
+    },
+    resolve: {
+      alias: [
+        {
+          find: '@vrsim/earth-engine-ol/style.css',
+          replacement: resolve(repositoryRoot, useBuiltPackage ? 'dist/style.css' : 'src/assets/style/public.scss')
+        },
+        {
+          find: '@vrsim/earth-engine-ol',
+          replacement: resolve(repositoryRoot, useBuiltPackage ? 'dist/esm/index.mjs' : 'src/index.ts')
+        }
+      ]
+    },
+    server: {
+      open: true
     }
-  },
-  server: {
-    // port: 3000,
-    // proxy: {
-    //   '/static-resource': {
-    //     // target: 'http://192.168.50.200:8080',
-    //     // target: 'http://127.0.0.1:8800',
-    //     rewrite: (path) => {
-    //       return path.replace(/^\/static-resource/, '/static-resource');
-    //     }
-    //   }
-    // }
-  }
+  };
 });

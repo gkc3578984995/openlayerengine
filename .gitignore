@@ -3,6 +3,9 @@ earth-engine/
 node_modules
 .DS_Store
 dist
+.test-output
+.test-output-dist
+/test-results/
 dist-ssr
 *.local
 *.log

@@ -4,7 +4,8 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src')
+      '@': path.resolve(__dirname, 'src'),
+      '@vrsim/earth-engine-ol': path.resolve(__dirname, 'src/index.ts')
     }
   },
   test: {
