@@ -80,6 +80,7 @@ export type {
 export type { StyleInput, StyleService } from './facade/styleTypes.js';
 export type {
   TransformEventMap,
+  TransformMode,
   TransformOptions,
   TransformReplaceOptions,
   TransformService,

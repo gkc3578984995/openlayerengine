@@ -13,7 +13,18 @@ import type {
   TransformInteractionPort,
   TransformInteractionTarget
 } from '../../src/core/ports/TransformInteractionPort.js';
-import type { TransformToolbarPort, TransformToolbarViewHandle, TransformToolbarViewSpec } from '../../src/core/ports/TransformToolbarPort.js';
+import type {
+  TransformToolbarPort,
+  TransformToolbarViewEvent,
+  TransformToolbarViewHandle,
+  TransformToolbarViewSpec
+} from '../../src/core/ports/TransformToolbarPort.js';
+import type {
+  TransformTooltipPort,
+  TransformTooltipViewHandle,
+  TransformTooltipViewSpec,
+  TransformTooltipViewState
+} from '../../src/core/ports/TransformTooltipPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../src/core/ports/TransientAnimationPort.js';
 import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import type { ShapeState, ShapeType } from '../../src/core/shape/types.js';
@@ -52,6 +63,7 @@ export class FakeTransformHandle implements TransformInteractionHandle {
   readonly #fallbackRenderLayerId: string;
   target: TransformInteractionTarget | undefined;
   copyPreview: TransformCopyPreview | undefined;
+  operationActive = false;
   destroyed = false;
 
   constructor(sessionId: string, log: string[]) {
@@ -72,6 +84,11 @@ export class FakeTransformHandle implements TransformInteractionHandle {
   clearTarget(): void {
     this.target = undefined;
     this.log.push('target:clear');
+  }
+
+  setOperationActive(active: boolean): void {
+    this.operationActive = active;
+    this.log.push(`interaction:operation-active:${String(active)}`);
   }
 
   startCopyPreview(preview: TransformCopyPreview): void {
@@ -156,8 +173,8 @@ export class FakeToolbarPort implements TransformToolbarPort {
   readonly views: FakeToolbarHandle[] = [];
   command: ((key: string) => void) | undefined;
 
-  open(spec: TransformToolbarViewSpec, command: (key: string) => void): TransformToolbarViewHandle {
-    this.command = command;
+  open(spec: TransformToolbarViewSpec, listener: (event: TransformToolbarViewEvent) => void): TransformToolbarViewHandle {
+    this.command = (key) => listener({ type: 'command', key });
     const view = new FakeToolbarHandle(spec);
     this.views.push(view);
     return view;
@@ -175,6 +192,41 @@ export class FakeToolbarHandle implements TransformToolbarViewHandle {
 
   constructor(spec: TransformToolbarViewSpec) {
     this.spec = spec;
+  }
+}
+
+export class FakeTooltipPort implements TransformTooltipPort {
+  readonly views: FakeTooltipHandle[] = [];
+
+  open(spec: TransformTooltipViewSpec): TransformTooltipViewHandle {
+    const view = new FakeTooltipHandle(spec);
+    this.views.push(view);
+    return view;
+  }
+}
+
+export class FakeTooltipHandle implements TransformTooltipViewHandle {
+  state: TransformTooltipViewState;
+  destroyed = false;
+
+  constructor(spec: TransformTooltipViewSpec) {
+    this.state = { ...spec };
+  }
+
+  update(patch: Partial<TransformTooltipViewState>): void {
+    if (!this.destroyed) this.state = { ...this.state, ...patch };
+  }
+
+  show(): void {
+    this.update({ visible: true });
+  }
+
+  hide(): void {
+    this.update({ visible: false });
+  }
+
+  destroy(): void {
+    this.destroyed = true;
   }
 }
 
@@ -220,6 +272,7 @@ export function createTransformHarness(
   const coordinator = new InteractionCoordinator();
   const interaction = new FakeTransformPort(log);
   const toolbarPort = new FakeToolbarPort();
+  const tooltipPort = new FakeTooltipPort();
   const input = new FakeTransformInput();
   const animationPorts = createAnimationPorts?.({ store, shapes }) ?? {
     animations: new FakeAnimations(log),
@@ -235,11 +288,12 @@ export function createTransformHarness(
     animations: animationPorts.animations,
     transients: animationPorts.transients,
     toolbar: toolbarPort,
+    tooltip: tooltipPort,
     input,
     createId: () => `copy-${++id}`,
     errorReporter: () => undefined
   });
-  return { coordinator, input, interaction, log, service, shapes, store, styles, toolbar, toolbarPort };
+  return { coordinator, input, interaction, log, service, shapes, store, styles, toolbar, toolbarPort, tooltipPort };
 }
 
 export function addElement<T = unknown>(

@@ -20,6 +20,7 @@ interface ResourceSnapshot {
     readonly contextMenus: number;
     readonly toolbars: number;
     readonly measureTooltips: number;
+    readonly transformTooltips: number;
   };
   readonly animationHandles: number;
   readonly elementCount: number;
@@ -287,10 +288,12 @@ test('Transform 通过 singleclick 选择并分别执行 translate、scale、rot
   expect(selected.toolbar).toBe(false);
   expect(selected.resources.map.layers).toBe(baseline.map.layers + 1);
   expect(selected.resources.map.interactions).toBe(baseline.map.interactions + 1);
-  expect(selected.resources.map.overlays).toBe(baseline.map.overlays);
+  expect(selected.resources.map.overlays).toBe(baseline.map.overlays + 1);
   expect(selected.resources.listeners.contextmenu).toBe(baseline.listeners.contextmenu + 1);
-  expect(selected.resources.map.renderPasses).toBeGreaterThan(baseline.map.renderPasses);
+  expect(selected.resources.map.renderPasses).toBe(baseline.map.renderPasses);
   expect(selected.resources.dom.toolbars).toBe(0);
+  expect(selected.resources.dom.transformTooltips).toBe(baseline.dom.transformTooltips + 1);
+  await expect(page.locator('#map-a .ol-transform-tooltip')).toBeVisible();
 
   let pixels = await transformHandlePixels(page);
   expect(pixels.probe).toBe('native');
@@ -331,6 +334,7 @@ test('Transform 通过 singleclick 选择并分别执行 translate、scale、rot
   expect(afterFinish.resources.map.interactions).toBe(baseline.map.interactions);
   expect(afterFinish.resources.map.overlays).toBe(baseline.map.overlays);
   expect(afterFinish.resources.map.renderPasses).toBe(baseline.map.renderPasses);
+  expect(afterFinish.resources.dom.transformTooltips).toBe(baseline.dom.transformTooltips);
 
   await page.evaluate(() => window.__OL_ENGINE_TEST__.startTransformDirect());
   const direct = await transformSummary(page);
@@ -339,14 +343,17 @@ test('Transform 通过 singleclick 选择并分别执行 translate、scale、rot
   expect(direct.toolbar).toBe(true);
   expect(direct.resources.map.layers).toBe(baseline.map.layers + 1);
   expect(direct.resources.map.interactions).toBe(baseline.map.interactions + 1);
-  expect(direct.resources.map.renderPasses).toBeGreaterThan(baseline.map.renderPasses);
+  expect(direct.resources.map.overlays).toBe(baseline.map.overlays + 2);
+  expect(direct.resources.map.renderPasses).toBe(baseline.map.renderPasses);
   expect(direct.resources.dom.toolbars).toBe(baseline.dom.toolbars + 1);
+  expect(direct.resources.dom.transformTooltips).toBe(baseline.dom.transformTooltips + 1);
 
   const committed = await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId);
   await page.evaluate(() => window.__OL_ENGINE_TEST__.hideTransformToolbar());
   pixels = await transformHandlePixels(page);
   await beginDragMap(map, pixels.translate, [pixels.translate[0] + 28, pixels.translate[1] - 20]);
   await expect.poll(() => transformSummary(page).then((summary) => eventTypes(summary.events))).toContain('translating');
+  await expect.poll(() => transformSummary(page).then((summary) => summary.resources.map.renderPasses)).toBeGreaterThan(baseline.map.renderPasses);
   expect(await page.evaluate((id) => window.__OL_ENGINE_TEST__.elementState(id), elementId)).toEqual(committed);
   await page.evaluate(() => window.__OL_ENGINE_TEST__.cancelTransform());
   await page.mouse.up();
@@ -357,6 +364,7 @@ test('Transform 通过 singleclick 选择并分别执行 translate、scale、rot
   expect(directCancelled.resources.map.interactions).toBe(baseline.map.interactions);
   expect(directCancelled.resources.map.overlays).toBe(baseline.map.overlays);
   expect(directCancelled.resources.map.renderPasses).toBe(baseline.map.renderPasses);
+  expect(directCancelled.resources.dom.transformTooltips).toBe(baseline.dom.transformTooltips);
 });
 
 async function snapshot(page: Page, name: 'a' | 'b'): Promise<ResourceSnapshot> {

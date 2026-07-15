@@ -1,11 +1,26 @@
 .ol-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
   .ol-toolbar-item {
+    appearance: none;
+    box-sizing: border-box;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
     width: 25px;
     height: 25px;
+    padding: 0;
     background: #ebebeb;
     border: 1px solid #000;
     border-radius: 5px;
     margin-bottom: 5px;
+    color: inherit;
+    font: inherit;
+    line-height: 1;
+
     svg {
       scale: 0.8;
       width: 25px;
@@ -39,11 +54,15 @@
   .is-active {
     background: #f9a629;
   }
-  .is-disabled {
+  .is-disabled,
+  .ol-toolbar-item:disabled {
     cursor: not-allowed;
     background: #ccc !important;
+    opacity: 1;
+
     &:hover {
       cursor: not-allowed;
+      background: #ccc;
     }
   }
 }

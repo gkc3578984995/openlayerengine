@@ -6,6 +6,7 @@ import type { TransformAnimationPort } from '../../core/ports/AnimationControlPo
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { TransformInteractionPort } from '../../core/ports/TransformInteractionPort.js';
 import type { TransformToolbarPort } from '../../core/ports/TransformToolbarPort.js';
+import type { TransformTooltipPort } from '../../core/ports/TransformTooltipPort.js';
 import type { TransientAnimationPort } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { StyleSpec } from '../../core/style/types.js';
@@ -37,6 +38,7 @@ export interface TransformServiceDependencies {
   readonly animations: TransformAnimationPort;
   readonly transients: TransientAnimationPort;
   readonly toolbar?: TransformToolbarPort;
+  readonly tooltip?: TransformTooltipPort;
   readonly input?: TransformKeyboardInput;
   readonly createId?: () => string;
   readonly errorReporter?: ErrorReporter;
@@ -51,6 +53,7 @@ export class TransformService implements InternalTransformService {
   readonly #animations: TransformAnimationPort;
   readonly #transients: TransientAnimationPort;
   readonly #toolbar: TransformToolbarPort | undefined;
+  readonly #tooltip: TransformTooltipPort | undefined;
   readonly #input: TransformKeyboardInput | undefined;
   readonly #providedCreateId: (() => string) | undefined;
   readonly #errorReporter: ErrorReporter;
@@ -74,6 +77,7 @@ export class TransformService implements InternalTransformService {
     this.#animations = dependencies.animations;
     this.#transients = dependencies.transients;
     this.#toolbar = dependencies.toolbar;
+    this.#tooltip = dependencies.tooltip;
     this.#input = dependencies.input;
     this.#providedCreateId = dependencies.createId;
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
@@ -98,7 +102,7 @@ export class TransformService implements InternalTransformService {
   #start<T>(input?: InternalTransformOptions, elementId?: string): TransformSession<T> {
     this.#assertActive();
     const options = this.#normalizeOptions(input);
-    const session = new TransformSession<T>({
+    const session: TransformSession<T> = new TransformSession<T>({
       id: `transform-${++this.#nextSessionId}`,
       store: this.#store,
       shapes: this.#shapes,
@@ -108,6 +112,7 @@ export class TransformService implements InternalTransformService {
       animations: this.#animations,
       transients: this.#transients,
       ...(this.#toolbar === undefined ? {} : { toolbarPort: this.#toolbar }),
+      ...(this.#tooltip === undefined ? {} : { tooltipPort: this.#tooltip }),
       ...(this.#input === undefined ? {} : { input: this.#input }),
       options,
       createId: () => this.#createId(),
@@ -242,8 +247,9 @@ function nonEmptyString(value: unknown, label: string): string {
 
 function optionalBoolean(record: Record<string, unknown>, key: string, fallback: boolean, label: string): boolean {
   if (!hasOwn(record, key) || record[key] === undefined) return fallback;
-  if (typeof record[key] !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
-  return record[key];
+  const value = record[key];
+  if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);
+  return value;
 }
 
 function optionalNonNegative(record: Record<string, unknown>, key: string, fallback: number, label: string): number {

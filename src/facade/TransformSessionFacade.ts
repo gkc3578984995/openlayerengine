@@ -2,7 +2,7 @@ import type { ElementService } from './types.js';
 import type { InternalTransformEventMap, InternalTransformSession } from '../services/transform/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../core/errors.js';
 import type { Element } from './Element.js';
-import type { TransformEventMap, TransformReplaceOptions, TransformSession, TransformToolbarHandle } from './transformTypes.js';
+import type { TransformEventMap, TransformMode, TransformReplaceOptions, TransformSession, TransformToolbarHandle } from './transformTypes.js';
 import { TransformToolbarHandleImpl } from './TransformToolbarHandle.js';
 import type { ElementCopyOptions } from '../core/element/types.js';
 
@@ -40,6 +40,10 @@ export class TransformSessionFacade<T = unknown> implements TransformSession<T> 
     return this.#session.status;
   }
 
+  get mode(): TransformMode {
+    return this.#session.mode;
+  }
+
   get toolbar(): TransformToolbarHandle | undefined {
     const source = this.#session.toolbar;
     if (source === undefined) {
@@ -59,6 +63,10 @@ export class TransformSessionFacade<T = unknown> implements TransformSession<T> 
     this.#selected = element;
     this.#knownElements.set(element.id, element);
     this.#session.select(element.id);
+  }
+
+  setMode(mode: TransformMode): void {
+    this.#session.setMode(mode);
   }
 
   finish(): void {

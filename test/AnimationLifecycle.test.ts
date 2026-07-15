@@ -230,14 +230,15 @@ describe('动画生命周期', () => {
     const session = harness.service.select('line');
 
     expect(render.openCalls.get('vector')).toBe(1);
+    expect(render.frame('vector', 0).contributions.map(({ targetId }) => targetId)).toEqual(['line']);
+
+    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
     expect(
       render
         .frame('vector', 0)
         .contributions.map(({ targetId }) => targetId)
         .sort()
     ).toEqual(['line', 'target:transform-1']);
-
-    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: { type: 'translate', x: 0, y: 0 } });
     harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: { type: 'translate', x: 10, y: 3 } });
     const preview = render.frame('vector', 100).contributions.find(({ targetId }) => targetId === 'line');
     expect(preview?.value.primitives?.[0]?.geometry).toMatchObject({

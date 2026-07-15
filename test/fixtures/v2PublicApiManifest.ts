@@ -125,6 +125,7 @@ export const publicApiManifest = {
     'TileLayerSpec',
     'TileUrlFunction',
     'TransformEventMap',
+    'TransformMode',
     'TransformOptions',
     'TransformReplaceOptions',
     'TransformService',

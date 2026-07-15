@@ -28,6 +28,7 @@ describe('Transform shape capabilities', () => {
     const session = harness.service.select('arrow');
     const edits: unknown[] = [];
     session.on('edit', (event) => edits.push(event));
+    session.setMode('edit');
 
     harness.interaction.emit({ type: 'operation-start', operation: 'vertex', delta: { type: 'vertex', index: 2, coordinate: [3, 3] } });
     harness.interaction.emit({ type: 'operation-end', operation: 'vertex', delta: { type: 'vertex', index: 2, coordinate: [6, 7] } });
@@ -41,8 +42,23 @@ describe('Transform shape capabilities', () => {
   it('exposes only the capabilities declared by each ShapeDefinition', () => {
     const harness = createTransformHarness();
     addElement(harness, 'circle', 'circle', representativePoints.circle);
-    harness.service.select('circle');
+    const session = harness.service.select('circle');
 
-    expect(harness.interaction.handle?.target).toMatchObject({ canTranslate: true, canScale: true, canRotate: false, canEditVertices: true });
+    expect(harness.interaction.handle?.target).toMatchObject({
+      mode: 'transform',
+      canTranslate: true,
+      canScale: true,
+      canRotate: false,
+      canEditVertices: false
+    });
+
+    session.setMode('edit');
+    expect(harness.interaction.handle?.target).toMatchObject({
+      mode: 'edit',
+      canTranslate: false,
+      canScale: false,
+      canRotate: false,
+      canEditVertices: true
+    });
   });
 });

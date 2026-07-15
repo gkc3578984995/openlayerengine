@@ -1,10 +1,11 @@
 import type { Coordinate } from '../../core/common/types.js';
 import type { ElementCopyOptions, ElementSelector, ElementState } from '../../core/element/types.js';
-import type { TransformDelta, TransformInteractionOptions, TransformOperation } from '../../core/ports/TransformInteractionPort.js';
+import type { TransformDelta, TransformInteractionMode, TransformInteractionOptions, TransformOperation } from '../../core/ports/TransformInteractionPort.js';
 import type { TransformToolbarViewHandle } from '../../core/ports/TransformToolbarPort.js';
 import type { InteractionCancelReason, InteractionPolicy, InteractionStatus } from '../events/types.js';
 
 export type TransformTranslateMode = 'none' | 'center' | 'feature';
+export type TransformMode = TransformInteractionMode;
 
 export interface InternalTransformOptions {
   readonly selector?: ElementSelector;
@@ -88,8 +89,10 @@ export interface InternalTransformSession<T = unknown> {
   readonly id: string;
   readonly selectedId: string | undefined;
   readonly status: InteractionStatus;
+  readonly mode: TransformMode;
   readonly toolbar: TransformToolbarViewHandle | undefined;
   select(elementId: string): void;
+  setMode(mode: TransformMode): void;
   finish(): void;
   cancel(reason?: InteractionCancelReason): void;
   destroy(): void;

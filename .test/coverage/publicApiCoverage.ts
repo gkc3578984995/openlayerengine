@@ -99,6 +99,7 @@ const typeGroups = {
   measure: ['MeasureOptions', 'MeasureResult', 'MeasureService', 'MeasureSession', 'MeasureSessionEventMap', 'MeasureType'],
   transform: [
     'TransformEventMap',
+    'TransformMode',
     'TransformOptions',
     'TransformReplaceOptions',
     'TransformService',
@@ -432,8 +433,10 @@ const memberCoverage: CoverageItem[] = [
   ...members('transform', 'TransformSession', [
     'selected',
     'status',
+    'mode',
     'toolbar',
     'select',
+    'setMode',
     'finish',
     'cancel',
     'undo',

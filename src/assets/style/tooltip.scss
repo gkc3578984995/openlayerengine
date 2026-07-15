@@ -10,3 +10,15 @@
   cursor: default;
   user-select: none;
 }
+
+.ol-transform-tooltip {
+  pointer-events: none;
+
+  .ol-transform-tooltip-line + .ol-transform-tooltip-line {
+    margin-top: 2px;
+  }
+}
+
+.ol-transform-tooltip-overlay {
+  pointer-events: none !important;
+}

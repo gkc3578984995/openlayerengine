@@ -1,9 +1,14 @@
 import Collection from 'ol/Collection.js';
+import Feature from 'ol/Feature.js';
+import Geometry from 'ol/geom/Geometry.js';
 import type Interaction from 'ol/interaction/Interaction.js';
 import type BaseLayer from 'ol/layer/Base.js';
+import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
 import Observable from 'ol/Observable.js';
 import BaseEvent from 'ol/events/Event.js';
+import VectorSource from 'ol/source/Vector.js';
+import Style from 'ol/style/Style.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
@@ -11,13 +16,16 @@ import { TransformInteractionAdapter } from '../src/adapters/openlayers/interact
 import type { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import type { TransformHitTest } from '../src/adapters/openlayers/transform/HitTest.js';
 import type { LayerRenderPort } from '../src/core/ports/LayerRenderPort.js';
-import type { TransformInteractionOptions } from '../src/core/ports/TransformInteractionPort.js';
+import type { TransformInteractionOptions, TransformInteractionTarget } from '../src/core/ports/TransformInteractionPort.js';
+
+const handleMetadata = 'ol-engine-transform-handle';
 
 class MapHarness extends Observable {
   readonly layers = new Collection<BaseLayer>();
   readonly interactions = new Collection<Interaction>();
   readonly viewport = new EventTarget();
   readonly view = new View({ projection: 'EPSG:4326', center: [0, 0], zoom: 2 });
+  hitHandleKey: string | undefined;
 
   addLayer(layer: BaseLayer): void {
     this.layers.push(layer);
@@ -44,6 +52,24 @@ class MapHarness extends Observable {
 
   getView(): View {
     return this.view;
+  }
+
+  forEachFeatureAtPixel<T>(
+    _pixel: readonly number[],
+    callback: (feature: Feature<Geometry>, layer: BaseLayer) => T,
+    options: Readonly<{ layerFilter?: (layer: BaseLayer) => boolean }> = {}
+  ): T | undefined {
+    for (const layer of this.layers.getArray()) {
+      if (options.layerFilter?.(layer) === false || !(layer instanceof VectorLayer)) continue;
+      const source = (layer as VectorLayer<VectorSource<Feature<Geometry>>>).getSource();
+      if (source === null) continue;
+      for (const feature of source.getFeatures()) {
+        const metadata = feature.get(handleMetadata) as Readonly<{ key?: unknown }> | undefined;
+        if (metadata?.key !== this.hitHandleKey) continue;
+        return callback(feature, layer);
+      }
+    }
+    return undefined;
   }
 }
 
@@ -140,8 +166,65 @@ describe('TransformInteractionAdapter', () => {
     expect(removeViewport).toHaveBeenCalledWith('contextmenu', expect.any(Function), true);
     expect(map.layers.getLength()).toBe(0);
   });
+
+  it('keeps corner scaling proportional while Shift is pressed', () => {
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-shift-scale', { ...options, keepRectangle: false }, (event) => received.push(event));
+    handle.setTarget(polygonTarget());
+    map.hitHandleKey = 'scale-ne';
+    const input = map.interactions.item(0);
+    if (input === null) throw new Error('Transform interaction was not installed.');
+
+    input.handleEvent(pointerGestureEvent('pointerdown', [2, 1]));
+    input.handleEvent(pointerGestureEvent('pointerdrag', [4, 3], true));
+    input.handleEvent(pointerGestureEvent('pointerup', [4, 3], true));
+
+    expect(received).toEqual([
+      expect.objectContaining({ type: 'operation-start', operation: 'scale' }),
+      expect.objectContaining({ type: 'operation-change', operation: 'scale', delta: { type: 'scale', scaleX: 2, scaleY: 2, center: [0, 0] } }),
+      expect.objectContaining({ type: 'operation-end', operation: 'scale', delta: { type: 'scale', scaleX: 2, scaleY: 2, center: [0, 0] } })
+    ]);
+    handle.destroy();
+  });
 });
 
 function mapPointerEvent(type: 'click' | 'singleclick', pixel: readonly [number, number], originalEvent: Event): BaseEvent {
   return Object.assign(new BaseEvent(type), { pixel, originalEvent });
+}
+
+function pointerGestureEvent(type: 'pointerdown' | 'pointerdrag' | 'pointerup', coordinate: readonly [number, number], shiftKey = false): BaseEvent {
+  return Object.assign(new BaseEvent(type), {
+    coordinate,
+    pixel: coordinate,
+    originalEvent: { type, button: 0, isPrimary: true, shiftKey, preventDefault: vi.fn() }
+  });
+}
+
+function polygonTarget(): TransformInteractionTarget {
+  const ring = [
+    [-10, -5],
+    [-10, 5],
+    [10, 5],
+    [10, -5],
+    [-10, -5]
+  ] as const;
+  return {
+    elementId: 'polygon',
+    type: 'polygon',
+    layerId: 'default',
+    geometry: { type: 'polygon', coordinates: [ring] },
+    style: {},
+    mode: 'transform',
+    controlPoints: ring,
+    canTranslate: true,
+    canRotate: true,
+    canScale: true,
+    canStretch: true,
+    canEditVertices: false
+  };
 }

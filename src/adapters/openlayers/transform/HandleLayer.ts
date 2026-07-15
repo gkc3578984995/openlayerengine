@@ -7,18 +7,22 @@ import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
+import { unByKey } from 'ol/Observable.js';
+import type { EventsKey } from 'ol/events.js';
 import CircleStyle from 'ol/style/Circle.js';
 import Fill from 'ol/style/Fill.js';
+import Icon from 'ol/style/Icon.js';
 import Stroke from 'ol/style/Stroke.js';
 import Style from 'ol/style/Style.js';
 import type { Coordinate, Pixel } from '../../../core/common/types.js';
 import { runFinalizers } from '../../../core/common/dispose.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import type { LayerRenderPort, LayerRenderTargetHandle } from '../../../core/ports/LayerRenderPort.js';
-import type { TransformInteractionOptions, TransformInteractionTarget } from '../../../core/ports/TransformInteractionPort.js';
+import type { TransformInteractionOptions, TransformInteractionTarget, TransformOperation } from '../../../core/ports/TransformInteractionPort.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { ProjectionSuppressionLease, FeatureBinding } from '../FeatureBinding.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
+import { centerImage, rotateImage, scaleImage, stretchHorizontalImage, stretchVerticalImage, translateImage } from './handleImages.js';
 import { extentCenter, renderExtent, translateRenderGeometry, type TransformExtent } from './PreviewTransform.js';
 
 export interface TransformHandleHit {
@@ -46,13 +50,17 @@ export class HandleLayer {
   readonly #options: TransformInteractionOptions;
   readonly #source: VectorSource<Feature<Geometry>>;
   readonly #layer: VectorLayer<VectorSource<Feature<Geometry>>>;
+  readonly #viewKeys: EventsKey[] = [];
   #target: TransformInteractionTarget | undefined;
+  #extent: TransformExtent | undefined;
   #suppression: ProjectionSuppressionLease | undefined;
   #bbox: Feature<Geometry> | undefined;
   #copy: Feature<Geometry> | undefined;
   #copyGeometry: RenderGeometryState | undefined;
   #renderTarget: LayerRenderTargetHandle | undefined;
   #renderTargetLayerId: string | undefined;
+  #operationActive = false;
+  #activeOperation: TransformOperation | undefined;
   #blinkVisible = true;
   #destroyed = false;
   #destroying = false;
@@ -68,6 +76,8 @@ export class HandleLayer {
     this.#source = new VectorSource({ wrapX: true });
     this.#layer = new VectorLayer({ source: this.#source, zIndex: 2_147_483_647, updateWhileAnimating: true, updateWhileInteracting: true });
     this.#map.addLayer(this.#layer);
+    const view = this.#map.getView();
+    this.#viewKeys.push(view.on('change:resolution', this.#refreshForView), view.on('change:rotation', this.#refreshForView));
   }
 
   get target(): TransformInteractionTarget | undefined {
@@ -79,11 +89,12 @@ export class HandleLayer {
   }
 
   get extent(): TransformExtent | undefined {
-    return this.#target === undefined ? undefined : bufferedExtent(this.#map, this.#target.geometry, this.#options);
+    return this.#extent;
   }
 
   setTarget(target: TransformInteractionTarget): void {
     this.#assertActive();
+    const targetChanged = this.#target?.elementId !== target.elementId;
     const features = this.#featuresFor(target);
     let suppression: ProjectionSuppressionLease | undefined;
     let registration: LayerRenderTargetHandle | undefined;
@@ -94,10 +105,15 @@ export class HandleLayer {
       suppression = this.#binding.suppressProjection(target.elementId);
       this.#source.clear(true);
       this.#source.addFeatures(features);
-      this.#bbox?.setStyle(this.#blinkVisible ? bboxStyle : hiddenStyle);
       const previous = this.#suppression;
       const previousRegistration = this.#renderTarget;
+      if (targetChanged) {
+        this.#operationActive = false;
+        this.#activeOperation = undefined;
+        this.#blinkVisible = true;
+      }
       this.#target = target;
+      this.#applyBBoxStyle();
       this.#suppression = suppression;
       suppression = undefined;
       if (registration !== undefined) {
@@ -120,9 +136,12 @@ export class HandleLayer {
     this.#releaseRenderTarget();
     this.#source.clear(true);
     this.#target = undefined;
+    this.#extent = undefined;
     this.#bbox = undefined;
     this.#copy = undefined;
     this.#copyGeometry = undefined;
+    this.#operationActive = false;
+    this.#activeOperation = undefined;
     this.#blinkVisible = true;
     const suppression = this.#suppression;
     this.#suppression = undefined;
@@ -170,10 +189,20 @@ export class HandleLayer {
   }
 
   setBlink(visible: boolean): void {
+    if (!this.#operationActive) return;
     if (this.#blinkVisible === visible) return;
     this.#blinkVisible = visible;
-    if (this.#bbox === undefined) return;
-    this.#bbox.setStyle(visible ? bboxStyle : hiddenStyle);
+    this.#applyBBoxStyle();
+  }
+
+  setOperationActive(active: boolean, operation?: TransformOperation): void {
+    this.#assertActive();
+    if (active && operation === undefined) throw new InvalidArgumentError('Transform active operation is required');
+    if (this.#operationActive === active && this.#activeOperation === operation) return;
+    this.#operationActive = active;
+    this.#activeOperation = active ? operation : undefined;
+    this.#blinkVisible = true;
+    this.#refreshForView();
   }
 
   destroy(): void {
@@ -181,6 +210,11 @@ export class HandleLayer {
     this.#destroying = true;
     try {
       runFinalizers([
+        () => {
+          if (this.#viewKeys.length === 0) return;
+          unByKey(this.#viewKeys);
+          this.#viewKeys.length = 0;
+        },
         () => this.#releaseRenderTarget(),
         () => this.clearCopyPreview(),
         () => this.#source.clear(true),
@@ -195,7 +229,10 @@ export class HandleLayer {
         () => this.#layer.dispose()
       ]);
       this.#target = undefined;
+      this.#extent = undefined;
       this.#bbox = undefined;
+      this.#operationActive = false;
+      this.#activeOperation = undefined;
       this.#destroyed = true;
     } finally {
       this.#destroying = false;
@@ -209,7 +246,13 @@ export class HandleLayer {
       preview.set(handleMetadata, freezeHit({ key: 'feature', operation: 'translate', coordinate: geometryCenter(target.geometry) }), true);
     }
 
-    const extent = bufferedExtent(this.#map, target.geometry, this.#options);
+    const extent = bufferedExtent(
+      this.#map,
+      target.geometry,
+      this.#options,
+      target.geometry.type === 'point' ? pointVisualPadding(preview, this.#map) : undefined
+    );
+    this.#extent = extent;
     const [minX, minY, maxX, maxY] = extent;
     const center = this.#options.handleCenter ?? extentCenter(extent);
     const bbox = new Feature<Geometry>(
@@ -223,7 +266,7 @@ export class HandleLayer {
         ]
       ])
     );
-    bbox.setStyle(bboxStyle);
+    bbox.setStyle(bboxIdleStyle);
     if (target.canTranslate && this.#options.translateBBox)
       bbox.set(handleMetadata, freezeHit({ key: 'bbox', operation: 'translate', coordinate: center }), true);
     this.#bbox = bbox;
@@ -246,8 +289,12 @@ export class HandleLayer {
       );
     }
     if (target.canRotate) {
-      const offset = Math.max(this.#options.buffer, 12) * resolution(this.#map);
-      handles.push(this.#handle('rotate', 'rotate', [center[0], maxY + offset], 'xy'));
+      if (this.#activeOperation === 'rotate') {
+        const rotationCenter = new Feature<Geometry>(new Point([...center]));
+        rotationCenter.setStyle(centerHandleStyle);
+        handles.push(rotationCenter);
+      }
+      handles.push(this.#handle('rotate', 'rotate', [center[0], maxY], 'xy'));
     }
     if (target.canTranslate && this.#options.translate === 'center') handles.push(this.#handle('translate-center', 'translate', center, 'xy'));
     if (target.canEditVertices) {
@@ -277,6 +324,26 @@ export class HandleLayer {
     }
   }
 
+  readonly #refreshForView = (): void => {
+    if (this.#destroyed || this.#destroying || this.#target === undefined) return;
+    const copy = this.#copy;
+    const features = this.#featuresFor(this.#target);
+    this.#source.clear(true);
+    this.#source.addFeatures(features);
+    if (copy !== undefined) this.#source.addFeature(copy);
+    this.#applyBBoxStyle();
+  };
+
+  #applyBBoxStyle(): void {
+    const bbox = this.#bbox;
+    if (bbox === undefined) return;
+    if (!this.#operationActive) {
+      bbox.setStyle(bboxIdleStyle);
+      return;
+    }
+    bbox.setStyle(this.#blinkVisible ? bboxActiveStyle : bboxActiveHiddenStyle);
+  }
+
   #handle(
     key: string,
     operation: TransformHandleHit['operation'],
@@ -285,7 +352,7 @@ export class HandleLayer {
     index?: number
   ): Feature<Geometry> {
     const feature = new Feature<Geometry>(new Point([...coordinate]));
-    feature.setStyle(this.#options.handleStyle === undefined ? styleFor(operation) : this.#styles.compile(this.#options.handleStyle));
+    feature.setStyle(this.#options.handleStyle === undefined ? styleFor(operation, axis) : this.#styles.compile(this.#options.handleStyle));
     feature.set(handleMetadata, freezeHit({ key, operation, coordinate, axis, ...(index === undefined ? {} : { index }) }), true);
     return feature;
   }
@@ -295,25 +362,29 @@ export class HandleLayer {
   }
 }
 
-const bboxStyle = new Style({ stroke: new Stroke({ color: 'rgba(0,153,255,0.95)', width: 2, lineDash: [7, 5] }) });
-const hiddenStyle = new Style({ stroke: new Stroke({ color: 'rgba(0,153,255,0)', width: 2 }) });
-const scaleHandleStyle = new Style({
-  image: new CircleStyle({ radius: 6, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#0099ff', width: 2 }) })
-});
-const rotateHandleStyle = new Style({
-  image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#ffb000' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) })
-});
+const bboxFill = new Fill({ color: [204, 204, 204, 0.3] });
+const bboxIdleStyle = new Style({ stroke: new Stroke({ color: [80, 80, 80], width: 1 }), fill: bboxFill });
+const bboxActiveStyle = new Style({ stroke: new Stroke({ color: [80, 80, 80], width: 1, lineDash: [6, 4] }), fill: bboxFill });
+const bboxActiveHiddenStyle = new Style({ stroke: new Stroke({ color: [80, 80, 80, 0.2], width: 1, lineDash: [6, 4] }), fill: bboxFill });
+const scaleHandleStyle = iconStyle(scaleImage);
+const rotateHandleStyle = iconStyle(rotateImage, [0, 30]);
+const stretchHorizontalHandleStyle = iconStyle(stretchHorizontalImage);
+const stretchVerticalHandleStyle = iconStyle(stretchVerticalImage);
+const translateHandleStyle = iconStyle(translateImage);
+const centerHandleStyle = iconStyle(centerImage);
 const vertexHandleStyle = new Style({
   image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#27ae60', width: 2 }) })
 });
-const translateHandleStyle = new Style({
-  image: new CircleStyle({ radius: 6, fill: new Fill({ color: '#0099ff' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) })
-});
 
-function styleFor(operation: TransformHandleHit['operation']): Style {
+function iconStyle(src: string, displacement?: readonly [number, number]): Style {
+  return new Style({ image: new Icon({ src, color: [80, 80, 80, 1], ...(displacement === undefined ? {} : { displacement: [...displacement] }) }) });
+}
+
+function styleFor(operation: TransformHandleHit['operation'], axis: TransformHandleHit['axis']): Style {
   if (operation === 'rotate') return rotateHandleStyle;
   if (operation === 'vertex') return vertexHandleStyle;
   if (operation === 'translate') return translateHandleStyle;
+  if (operation === 'stretch') return axis === 'x' ? stretchHorizontalHandleStyle : stretchVerticalHandleStyle;
   return scaleHandleStyle;
 }
 
@@ -328,16 +399,66 @@ function geometryCenter(geometry: RenderGeometryState): Coordinate {
   return extentCenter(renderExtent(geometry));
 }
 
-function bufferedExtent(map: Map, geometry: RenderGeometryState, options: TransformInteractionOptions): TransformExtent {
+function bufferedExtent(
+  map: Map,
+  geometry: RenderGeometryState,
+  options: TransformInteractionOptions,
+  visualPadding?: readonly [number, number]
+): TransformExtent {
   const extent = renderExtent(geometry);
   const mapResolution = resolution(map);
-  const padding = geometry.type === 'point' ? Math.max(options.pointRadius, options.buffer) * mapResolution : options.buffer * mapResolution;
-  return Object.freeze([extent[0] - padding, extent[1] - padding, extent[2] + padding, extent[3] + padding]);
+  const fallback = geometry.type === 'point' ? Math.max(options.pointRadius, options.buffer) : options.buffer;
+  const paddingX = Math.max(fallback, visualPadding?.[0] ?? 0) * mapResolution;
+  const paddingY = Math.max(fallback, visualPadding?.[1] ?? 0) * mapResolution;
+  return Object.freeze([extent[0] - paddingX, extent[1] - paddingY, extent[2] + paddingX, extent[3] + paddingY]);
+}
+
+function pointVisualPadding(feature: Feature<Geometry>, map: Map): readonly [number, number] | undefined {
+  const styleFunction = feature.getStyleFunction();
+  if (styleFunction === undefined) return undefined;
+  let styles: Style[];
+  try {
+    const value = styleFunction(feature, resolution(map));
+    if (value === undefined) return undefined;
+    styles = value instanceof Style ? [value] : value.filter((style): style is Style => style instanceof Style);
+  } catch {
+    return undefined;
+  }
+  let paddingX = 0;
+  let paddingY = 0;
+  for (const style of styles) {
+    const image = style.getImage();
+    if (image === null) continue;
+    try {
+      const size = image.getSize();
+      const anchor = image.getAnchor();
+      const scale = image.getScaleArray();
+      if (size === null || anchor === null || size.length < 2 || anchor.length < 2 || scale.length < 2) continue;
+      const values = [size[0], size[1], anchor[0], anchor[1], scale[0], scale[1], image.getRotation()];
+      if (values.some((value) => !Number.isFinite(value)) || size[0] <= 0 || size[1] <= 0 || scale[0] === 0 || scale[1] === 0) continue;
+      const rotation = image.getRotation() - (image.getRotateWithView() ? 0 : rotationOf(map));
+      const cosine = Math.cos(rotation);
+      const sine = Math.sin(rotation);
+      const xs = [-anchor[0] * scale[0], (size[0] - anchor[0]) * scale[0]];
+      const ys = [-anchor[1] * scale[1], (size[1] - anchor[1]) * scale[1]];
+      const corners = xs.flatMap((x) => ys.map((y) => [x * cosine - y * sine, x * sine + y * cosine] as const));
+      paddingX = Math.max(paddingX, ...corners.map(([x]) => Math.abs(x)));
+      paddingY = Math.max(paddingY, ...corners.map(([, y]) => Math.abs(y)));
+    } catch {
+      continue;
+    }
+  }
+  return paddingX > 0 && paddingY > 0 ? Object.freeze([paddingX, paddingY]) : undefined;
 }
 
 function resolution(map: Map): number {
   const value = map.getView().getResolution();
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function rotationOf(map: Map): number {
+  const value = map.getView().getRotation();
+  return Number.isFinite(value) ? value : 0;
 }
 
 function freezeHit(hit: TransformHandleHit): TransformHandleHit {

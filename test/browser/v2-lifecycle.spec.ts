@@ -26,6 +26,7 @@ interface RuntimeSnapshot {
     readonly contextMenus: number;
     readonly toolbars: number;
     readonly measureTooltips: number;
+    readonly transformTooltips: number;
   };
   readonly animationHandles: number;
   readonly elementCount: number;
@@ -40,6 +41,7 @@ interface GlobalSnapshot {
   readonly mapAContextMenus: number;
   readonly mapAToolbars: number;
   readonly mapAMeasureTooltips: number;
+  readonly mapATransformTooltips: number;
 }
 
 interface MeasureSummary {
@@ -174,7 +176,8 @@ test('连续创建和销毁同名 Earth 时完整释放资源且不影响其他�
         selected: true,
         toolbarCreated: true,
         contextMenuCreated: true,
-        tooltipCreated: true,
+        measureTooltipCreated: true,
+        transformTooltipCreated: true,
         layerAdded: true,
         interactionAdded: true,
         overlayAdded: true,
@@ -218,6 +221,7 @@ test('连续创建和销毁同名 Earth 时完整释放资源且不影响其他�
         contextMenus: 0,
         toolbars: 0,
         measureTooltips: 0,
+        transformTooltips: 0,
         animationHandles: 0,
         elementCount: 0
       });
@@ -230,7 +234,8 @@ test('连续创建和销毁同名 Earth 时完整释放资源且不影响其他�
         mapBChildrenUnchanged: true,
         mapAContextMenus: 0,
         mapAToolbars: 0,
-        mapAMeasureTooltips: 0
+        mapAMeasureTooltips: 0,
+        mapATransformTooltips: 0
       });
     await expect.poll(async () => stableRuntimeState(await readSnapshot(page, 'b'))).toEqual(bBaseline);
     await expect.poll(() => mapBIdentityState(page)).toEqual({ sameEarth: true, sameViewport: true });
@@ -296,7 +301,8 @@ function activeResourceState(summary: CycleSummary, baseline: RuntimeSnapshot) {
     selected: transform.selectedId === 'transform-rectangle',
     toolbarCreated: transform.toolbar && snapshot.dom.toolbars > baseline.dom.toolbars,
     contextMenuCreated: snapshot.dom.contextMenus > baseline.dom.contextMenus,
-    tooltipCreated: snapshot.dom.measureTooltips > baseline.dom.measureTooltips,
+    measureTooltipCreated: snapshot.dom.measureTooltips > baseline.dom.measureTooltips,
+    transformTooltipCreated: snapshot.dom.transformTooltips > baseline.dom.transformTooltips,
     layerAdded: snapshot.map.layers > baseline.map.layers,
     interactionAdded: snapshot.map.interactions > baseline.map.interactions,
     overlayAdded: snapshot.map.overlays > baseline.map.overlays,
@@ -325,6 +331,7 @@ function destroyedRuntimeState(snapshot: RuntimeSnapshot) {
     contextMenus: snapshot.dom.contextMenus,
     toolbars: snapshot.dom.toolbars,
     measureTooltips: snapshot.dom.measureTooltips,
+    transformTooltips: snapshot.dom.transformTooltips,
     animationHandles: snapshot.animationHandles,
     elementCount: snapshot.elementCount
   };
@@ -338,7 +345,8 @@ function destroyedGlobalState(snapshot: GlobalSnapshot, baseline: GlobalSnapshot
     mapBChildrenUnchanged: snapshot.mapBChildren === baseline.mapBChildren,
     mapAContextMenus: snapshot.mapAContextMenus,
     mapAToolbars: snapshot.mapAToolbars,
-    mapAMeasureTooltips: snapshot.mapAMeasureTooltips
+    mapAMeasureTooltips: snapshot.mapAMeasureTooltips,
+    mapATransformTooltips: snapshot.mapATransformTooltips
   };
 }
 

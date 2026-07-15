@@ -17,11 +17,17 @@ import type {
   TransformInteractionTarget,
   TransformOperation
 } from '../../core/ports/TransformInteractionPort.js';
-import type { TransformToolbarPort, TransformToolbarViewHandle, TransformToolbarViewSpec } from '../../core/ports/TransformToolbarPort.js';
+import type {
+  TransformToolbarPort,
+  TransformToolbarViewEvent,
+  TransformToolbarViewHandle,
+  TransformToolbarViewSpec
+} from '../../core/ports/TransformToolbarPort.js';
+import type { TransformTooltipPort, TransformTooltipViewHandle } from '../../core/ports/TransformTooltipPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
-import { isNativeStyleRef, type IconSymbolSpec, type StrokeSpec, type StyleSpec, type TextSpec } from '../../core/style/types.js';
+import { isNativeStyleRef, type IconSymbolSpec, type StyleSpec, type TextSpec } from '../../core/style/types.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
 import type { ContextMenuDecision, InteractionCancelReason, InteractionStatus, RoutedPointerEvent } from '../events/types.js';
@@ -33,6 +39,7 @@ import type {
   InternalTransformReplaceOptions,
   InternalTransformSession,
   InternalTransformToolbarItemSpec,
+  TransformMode,
   NormalizedTransformOptions
 } from './types.js';
 
@@ -46,6 +53,7 @@ export interface TransformSessionDependencies {
   readonly animations: TransformAnimationPort;
   readonly transients: TransientAnimationPort;
   readonly toolbarPort?: TransformToolbarPort;
+  readonly tooltipPort?: TransformTooltipPort;
   readonly input?: TransformKeyboardInput;
   readonly options: NormalizedTransformOptions;
   readonly createId: () => string;
@@ -67,6 +75,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #animations: TransformAnimationPort;
   readonly #transients: TransientAnimationPort;
   readonly #toolbarPort: TransformToolbarPort | undefined;
+  readonly #tooltipPort: TransformTooltipPort | undefined;
   readonly #input: TransformKeyboardInput | undefined;
   readonly #options: NormalizedTransformOptions;
   readonly #createId: () => string;
@@ -81,12 +90,15 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #status: InteractionStatus = 'active';
   #handle: TransformInteractionHandle | undefined;
   #toolbar: TransformToolbarViewHandle | undefined;
+  #tooltip: TransformTooltipViewHandle | undefined;
   #selected: ElementSnapshot<T> | undefined;
   #working: ElementSnapshot<T> | undefined;
   #operationOrigin: ElementSnapshot<T> | undefined;
   #expectedGeneration: ElementGeneration | undefined;
   #expectedRevision: ElementRevision | undefined;
   #transient: TransientAnimationHandle | undefined;
+  #mode: TransformMode = 'transform';
+  #lastPointerCoordinate: Coordinate | undefined;
   #animationsPaused = false;
   #copyPreview = false;
   #unsubscribeStore: (() => void) | undefined;
@@ -111,6 +123,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#animations = dependencies.animations;
     this.#transients = dependencies.transients;
     this.#toolbarPort = dependencies.toolbarPort;
+    this.#tooltipPort = dependencies.tooltipPort;
     this.#input = dependencies.input;
     this.#options = dependencies.options;
     this.#createId = dependencies.createId;
@@ -130,6 +143,10 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   get status(): InteractionStatus {
     return this.#status;
+  }
+
+  get mode(): TransformMode {
+    return this.#mode;
   }
 
   get toolbar(): TransformToolbarViewHandle | undefined {
@@ -163,6 +180,25 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#assertMutable();
     const state = this.#requireSelectable(elementId);
     this.#activateSnapshot(state, true, true);
+  }
+
+  setMode(mode: TransformMode): void {
+    this.#assertMutable();
+    if (mode !== 'transform' && mode !== 'edit') throw new InvalidArgumentError('Transform mode must be transform or edit');
+    const working = this.#requireWorking();
+    if (this.#operationOrigin !== undefined) throw new InvalidArgumentError('Transform mode cannot change while an operation is active');
+    if (mode === 'edit') {
+      const definition = this.#shapes.get(working.type);
+      if (!definition.capabilities.has('vertexEdit') || definition.editTopology === undefined) {
+        throw new CapabilityError(`Shape does not support vertex editing: ${working.type}`);
+      }
+    }
+    if (this.#mode === mode) return;
+    this.#stopTransient();
+    this.#mode = mode;
+    this.#requireHandle().setTarget(this.#presentation(working));
+    this.#toolbar?.setActive(mode === 'edit' ? 'edit' : '');
+    this.#setTooltipLines(this.#baseTooltipLines());
   }
 
   finish(): void {
@@ -288,6 +324,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#copyPreview) {
       this.#handle?.cancelCopyPreview();
       this.#copyPreview = false;
+      this.#setTooltipLines(this.#baseTooltipLines());
       this.#emit('copyPreviewCancel', freeze({ type: 'copyPreviewCancel' }));
     } else {
       this.finish();
@@ -335,6 +372,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#selected !== undefined) this.#clearSelection(true, true);
     this.#selected = cloneElementSnapshot(this.#shapes, snapshot);
     this.#working = cloneElementSnapshot(this.#shapes, snapshot);
+    this.#mode = 'transform';
     this.#expectedGeneration = generation;
     this.#expectedRevision = revision;
     this.#operationOrigin = undefined;
@@ -342,17 +380,12 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     try {
       handle.setTarget(this.#presentation(this.#working));
       this.#animations.setPreview(this.#working);
-      this.#transient = this.#transients.playTransient({
-        ownerId: this.id,
-        renderLayerId: handle.renderLayerId,
-        renderTargetId: handle.renderTargetId,
-        channel: 'transform-bbox',
-        animation: { type: 'blink', periodMs: 420 }
-      });
       if (resetHistory) this.#history.reset(this.#working);
       this.#createToolbar();
+      this.#createTooltip();
       if (emitSelect) this.#emit('select', freeze({ type: 'select', state: this.#working }));
     } catch (error) {
+      this.#destroyTooltip();
       this.#destroyToolbar();
       this.#stopTransient();
       try {
@@ -382,19 +415,22 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #presentation(state: ElementSnapshot<T>): TransformInteractionTarget {
     const definition = this.#shapes.get(state.type);
     const topology = definition.editTopology;
-    const controlPoints = topology === undefined ? [] : topology.describe(state.geometry as never).handles.map(({ coordinate }) => cloneCoordinate(coordinate));
+    const editing = this.#mode === 'edit' && definition.capabilities.has('vertexEdit') && topology !== undefined;
+    const controlPoints = editing ? topology.describe(state.geometry as never).handles.map(({ coordinate }) => cloneCoordinate(coordinate)) : [];
+    const transforming = this.#mode === 'transform';
     return Object.freeze({
       elementId: state.id,
       type: state.type,
       layerId: state.layerId,
       geometry: definition.toRenderGeometry(state.geometry as never),
       style: state.style,
+      mode: this.#mode,
       controlPoints: Object.freeze(controlPoints),
-      canTranslate: this.#options.translate !== 'none' && definition.capabilities.has('translate'),
-      canRotate: this.#options.rotate && definition.capabilities.has('rotate'),
-      canScale: this.#options.scale && definition.capabilities.has('scale'),
-      canStretch: this.#options.stretch && definition.capabilities.has('scale'),
-      canEditVertices: definition.capabilities.has('vertexEdit') && topology !== undefined
+      canTranslate: transforming && this.#options.translate !== 'none' && definition.capabilities.has('translate'),
+      canRotate: transforming && this.#options.rotate && definition.capabilities.has('rotate'),
+      canScale: transforming && this.#options.scale && definition.capabilities.has('scale'),
+      canStretch: transforming && this.#options.stretch && definition.capabilities.has('scale'),
+      canEditVertices: editing
     });
   }
 
@@ -402,6 +438,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#status !== 'active' || this.#finishing) return;
     try {
       if (event.type === 'select-request') {
+        if (event.coordinate !== undefined) this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
         for (const candidateId of event.candidateIds) {
           try {
             this.select(candidateId);
@@ -410,22 +447,43 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
             if (!(error instanceof CapabilityError)) throw error;
           }
         }
+      } else if (event.type === 'pointer-move') {
+        this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
+        this.#tooltip?.update({ position: this.#lastPointerCoordinate });
       } else if (event.type === 'enter-handle' || event.type === 'leave-handle') {
+        if (event.coordinate !== undefined) {
+          this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
+          this.#tooltip?.update({ position: this.#lastPointerCoordinate });
+        }
         const state = this.#requireWorking();
         const type = event.type === 'enter-handle' ? 'enterHandle' : 'leaveHandle';
+        this.#setTooltipLines(event.type === 'enter-handle' ? this.#handleTooltipLines(event.operation, event.axis) : this.#baseTooltipLines());
         this.#emit(type, freeze({ type, state, key: event.key, ...(event.cursor === undefined ? {} : { cursor: event.cursor }) }) as never);
       } else if (event.type === 'operation-start') {
+        this.#updatePointerFromEvent(event);
+        this.#assertOperationAllowed(event.operation);
         this.#operationOrigin = cloneElementSnapshot(this.#shapes, this.#requireWorking());
+        this.#startOperationVisual(event.operation);
         this.#pauseAnimationsFor(event.operation);
+        this.#setTooltipLines(this.#operationTooltipLines(event.operation, event.delta));
         this.#emitOperation('start', event.operation, event.delta);
       } else if (event.type === 'operation-change') {
+        this.#updatePointerFromEvent(event);
+        this.#setTooltipLines(this.#operationTooltipLines(event.operation, event.delta));
         this.#applyOperation(event.operation, event.delta, false);
       } else if (event.type === 'operation-end') {
-        this.#applyOperation(event.operation, event.delta, true);
+        this.#updatePointerFromEvent(event);
+        try {
+          this.#applyOperation(event.operation, event.delta, true);
+        } finally {
+          this.#stopOperationVisual();
+          this.#setTooltipLines(this.#handleTooltipLines(event.operation, undefined));
+        }
       } else if (event.type === 'copy-preview-confirm') {
         this.#confirmCopyPreview(event.delta);
       } else {
         this.#copyPreview = false;
+        this.#setTooltipLines(this.#baseTooltipLines());
         this.#emit('copyPreviewCancel', freeze({ type: 'copyPreviewCancel' }));
       }
     } catch (error) {
@@ -503,6 +561,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       style: clipboard.style
     });
     this.#copyPreview = true;
+    this.#setTooltipLines(['点击地图完成复制，右键地图退出复制']);
   }
 
   #confirmCopyPreview(delta: Readonly<{ x: number; y: number }>): void {
@@ -543,6 +602,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       if (this.#copyPreview) {
         this.#handle?.cancelCopyPreview();
         this.#copyPreview = false;
+        this.#setTooltipLines(this.#baseTooltipLines());
         this.#emit('copyPreviewCancel', freeze({ type: 'copyPreviewCancel' }));
       } else this.cancel();
       event.preventDefault();
@@ -572,6 +632,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#options.toolbar === false || this.#toolbarPort === undefined || this.#working === undefined) return;
     const options = this.#options.toolbar;
     const items = options.items ?? defaultToolbarItems;
+    const defaultItems = options.items === undefined;
     const spec: TransformToolbarViewSpec = Object.freeze({
       ownerId: this.id,
       items: Object.freeze(
@@ -581,7 +642,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
             title: item.title,
             ...(item.icon === undefined ? {} : { icon: item.icon }),
             ...(item.iconClass === undefined ? {} : { iconClass: item.iconClass }),
-            visible: item.visible ?? true,
+            visible: item.visible ?? !(defaultItems && item.key === 'edit' && (this.#working?.type === 'point' || this.#working?.type === 'circle')),
             disabled: item.disabled ?? false,
             active: item.active ?? false
           })
@@ -589,13 +650,28 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       ),
       options: Object.freeze({
         position: toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry, this.#options.handleCenter),
-        offset: options.offset ?? ([15, -10] as const),
+        offset: options.offset ?? ([15, 0] as const),
         ...(options.className === undefined ? {} : { className: options.className }),
         visible: options.visible ?? true
       })
     });
-    this.#toolbar = this.#toolbarPort.open(spec, (key) => this.#toolbarCommand(key));
+    this.#toolbar = this.#toolbarPort.open(spec, (event) => this.#handleToolbarEvent(event));
     this.#syncToolbarState();
+  }
+
+  #handleToolbarEvent(event: TransformToolbarViewEvent): void {
+    if (event.type === 'command') {
+      this.#toolbarCommand(event.key);
+      return;
+    }
+    if (event.type === 'leave') {
+      this.#setTooltipLines(this.#baseTooltipLines());
+      return;
+    }
+    const item =
+      (this.#options.toolbar === false ? undefined : this.#options.toolbar.items)?.find(({ key }) => key === event.key) ??
+      defaultToolbarItems.find(({ key }) => key === event.key);
+    if (item !== undefined) this.#setTooltipLines([item.title]);
   }
 
   #toolbarCommand(key: string): void {
@@ -607,18 +683,77 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#writeClipboard(cloneElementSnapshot(this.#shapes, working));
       this.#beginCopyPreview();
     } else if (key === 'remove') this.remove();
-    else if (key === 'edit') this.#toolbar?.setActive('edit');
+    else if (key === 'edit') this.setMode(this.#mode === 'edit' ? 'transform' : 'edit');
   }
 
   #syncToolbarState(): void {
     this.#toolbar?.updateItem('undo', { disabled: !this.#history.canUndo });
     this.#toolbar?.updateItem('redo', { disabled: !this.#history.canRedo });
+    this.#setTooltipLines(this.#baseTooltipLines());
   }
 
   #updateToolbarPosition(): void {
     const working = this.#working;
     if (working === undefined) return;
     this.#toolbar?.updateOptions({ position: toolbarPosition(this.#shapes.get(working.type), working.geometry, this.#options.handleCenter) });
+  }
+
+  #createTooltip(): void {
+    this.#destroyTooltip();
+    if (this.#tooltipPort === undefined || this.#working === undefined) return;
+    const position = this.#lastPointerCoordinate ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry, this.#options.handleCenter);
+    this.#tooltip = this.#tooltipPort.open({
+      ownerId: this.id,
+      position,
+      lines: this.#baseTooltipLines(),
+      offset: [15, -11],
+      visible: true
+    });
+  }
+
+  #destroyTooltip(): void {
+    const tooltip = this.#tooltip;
+    this.#tooltip = undefined;
+    if (tooltip === undefined) return;
+    try {
+      tooltip.destroy();
+    } catch (error) {
+      this.#report(error, 'destroy-tooltip');
+    }
+  }
+
+  #setTooltipLines(lines: readonly string[]): void {
+    this.#tooltip?.update({ lines });
+  }
+
+  #baseTooltipLines(): readonly string[] {
+    if (this.#mode === 'edit') return Object.freeze(['拖拽控制点编辑图形', '右键完成 | Esc 退出']);
+    const history: string[] = [];
+    if (this.#history.undoCount > 0) history.push(`Ctrl+Z 撤销 (${this.#history.undoCount})`);
+    if (this.#history.redoCount > 0) history.push(`Ctrl+Y 重做 (${this.#history.redoCount})`);
+    return Object.freeze(['选择控制点进行变换操作', 'Ctrl+C 复制 | Ctrl+V 粘贴 | Ctrl+X 剪切 | Delete 删除 | Esc 退出', ...history]);
+  }
+
+  #handleTooltipLines(operation: TransformOperation | undefined, axis: 'x' | 'y' | 'xy' | undefined): readonly string[] {
+    if (operation === 'translate') return Object.freeze(['鼠标左键按下平移']);
+    if (operation === 'rotate') return Object.freeze(['鼠标左键按下旋转']);
+    if (operation === 'stretch') return Object.freeze([axis === 'x' ? '鼠标左键按下水平拉伸' : axis === 'y' ? '鼠标左键按下垂直拉伸' : '鼠标左键按下拉伸']);
+    if (operation === 'scale') return Object.freeze(['鼠标左键按下缩放，Shift 键保持比例缩放']);
+    if (operation === 'vertex') return Object.freeze(['拖拽控制点编辑图形']);
+    return this.#baseTooltipLines();
+  }
+
+  #operationTooltipLines(operation: TransformOperation, delta: TransformDelta): readonly string[] {
+    if (operation === 'translate') return Object.freeze(['平移中…']);
+    if (operation === 'rotate' && delta.type === 'rotate') return Object.freeze([`旋转中…当前：${Math.round((-delta.angle * 180) / Math.PI)}°`]);
+    if (operation === 'scale' || operation === 'stretch') return Object.freeze([operation === 'stretch' ? '拉伸中…' : '缩放中…']);
+    return Object.freeze(['编辑中…']);
+  }
+
+  #updatePointerFromEvent(event: { readonly coordinate?: Coordinate }): void {
+    if (event.coordinate === undefined) return;
+    this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
+    this.#tooltip?.update({ position: this.#lastPointerCoordinate });
   }
 
   #clearSelection(resumeAnimations: boolean, emitSelectEnd: boolean): void {
@@ -641,6 +776,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       }
     }
     this.#animationsPaused = false;
+    this.#destroyTooltip();
     this.#destroyToolbar();
     try {
       this.#handle?.clearTarget();
@@ -649,6 +785,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
     this.#selected = undefined;
     this.#working = undefined;
+    this.#mode = 'transform';
     this.#operationOrigin = undefined;
     this.#expectedGeneration = undefined;
     this.#expectedRevision = undefined;
@@ -661,6 +798,52 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const working = this.#requireWorking();
     if (this.#shapes.get(working.type).toRenderGeometry(working.geometry as never).type !== 'point') return;
     this.#animationsPaused = this.#animations.pause({ id: working.id }) > 0;
+  }
+
+  #assertOperationAllowed(operation: TransformOperation): void {
+    const working = this.#requireWorking();
+    const definition = this.#shapes.get(working.type);
+    if (operation === 'vertex') {
+      if (this.#mode !== 'edit' || !definition.capabilities.has('vertexEdit') || definition.editTopology === undefined) {
+        throw new InvalidArgumentError('Transform vertex operation requires edit mode');
+      }
+      return;
+    }
+    if (this.#mode !== 'transform') throw new InvalidArgumentError('Transform geometry operation requires transform mode');
+    if (operation === 'translate' && (this.#options.translate === 'none' || !definition.capabilities.has('translate'))) {
+      throw new CapabilityError(`Shape does not support enabled translation: ${working.type}`);
+    }
+    if (operation === 'rotate' && (!this.#options.rotate || !definition.capabilities.has('rotate'))) {
+      throw new CapabilityError(`Shape does not support enabled rotation: ${working.type}`);
+    }
+    if (operation === 'scale' && (!this.#options.scale || !definition.capabilities.has('scale'))) {
+      throw new CapabilityError(`Shape does not support enabled scaling: ${working.type}`);
+    }
+    if (operation === 'stretch' && (!this.#options.stretch || !definition.capabilities.has('scale'))) {
+      throw new CapabilityError(`Shape does not support enabled stretching: ${working.type}`);
+    }
+  }
+
+  #startOperationVisual(operation: TransformOperation): void {
+    if (operation === 'vertex') return;
+    const handle = this.#requireHandle();
+    handle.setOperationActive(true, operation);
+    try {
+      this.#transient = this.#transients.playTransient({
+        ownerId: this.id,
+        renderLayerId: handle.renderLayerId,
+        renderTargetId: handle.renderTargetId,
+        channel: 'transform-bbox',
+        animation: { type: 'blink', periodMs: 420 }
+      });
+    } catch (error) {
+      handle.setOperationActive(false);
+      throw error;
+    }
+  }
+
+  #stopOperationVisual(): void {
+    this.#stopTransient();
   }
 
   #resumePausedAnimations(): void {
@@ -684,6 +867,11 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#transients.stopTransient(this.id);
     } catch (error) {
       this.#report(error, 'stop-transient-owner');
+    }
+    try {
+      this.#handle?.setOperationActive(false);
+    } catch (error) {
+      this.#report(error, 'reset-operation-visual');
     }
   }
 
@@ -716,6 +904,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       if (this.#selected !== undefined) this.#clearSelection(this.#status !== 'cancelled' || this.#store.get(this.#selected.id) !== undefined, true);
       else {
         this.#stopTransient();
+        this.#destroyTooltip();
         this.#destroyToolbar();
       }
       const handle = this.#handle;
@@ -856,8 +1045,9 @@ const defaultToolbarItems: readonly InternalTransformToolbarItemSpec[] = Object.
 
 function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snapshot: Readonly<ElementState<T>>, delta: TransformDelta): ElementSnapshot<T> {
   const definition = shapes.get(snapshot.type);
-  const geometry = transformShape(definition, snapshot.geometry, delta);
-  const style = delta.type === 'translate' || delta.type === 'vertex' ? styles.clone(snapshot.style) : transformStyle(styles, snapshot.style, delta);
+  const pointVisualTransform = snapshot.geometry.type === 'point' && delta.type !== 'translate' && delta.type !== 'vertex';
+  const geometry = pointVisualTransform ? definition.clone(snapshot.geometry as never) : transformShape(definition, snapshot.geometry, delta);
+  const style = pointVisualTransform ? transformPointStyle(styles, snapshot.style, delta) : styles.clone(snapshot.style);
   return createElementSnapshot(shapes, { ...snapshot, geometry, style });
 }
 
@@ -892,97 +1082,27 @@ function transformShape(definition: ShapeDefinition, state: ShapeState, delta: T
   } as ShapeState;
 }
 
-function transformStyle(
+function transformPointStyle(
   styles: StyleService,
   input: Readonly<ElementState>['style'],
   delta: Exclude<TransformDelta, { type: 'translate' | 'vertex' }>
 ): StyleSpec {
   if (isNativeStyleRef(input)) throw new UnsupportedOperationError('Native styles cannot be structurally transformed');
-  const style = styles.serialize(input);
-  if (delta.type === 'rotate') return rotateStyle(style, delta.angle);
-  const x = Math.abs(delta.scaleX);
-  const y = Math.abs(delta.scaleY);
-  return scaleStyle(style, x, y);
-}
-
-function rotateStyle(style: StyleSpec, angle: number): StyleSpec {
-  const result = cloneCoreState(style);
-  if (result.symbol?.type === 'icon') {
-    result.symbol.rotation = (result.symbol.rotation ?? 0) + angle;
-    if (result.symbol.displacement !== undefined) result.symbol.displacement = rotatePair(result.symbol.displacement, angle);
+  const result = styles.serialize(input);
+  if (result.symbol === undefined) return result;
+  if (delta.type === 'rotate') {
+    if (result.symbol.type === 'icon') result.symbol.rotation = (result.symbol.rotation ?? 0) + delta.angle;
+    return result;
   }
-  if (result.text !== undefined) {
-    result.text.rotation = (result.text.rotation ?? 0) + angle;
-    const offset = rotatePair([result.text.offsetX ?? 0, result.text.offsetY ?? 0], angle);
-    result.text.offsetX = offset[0];
-    result.text.offsetY = offset[1];
-  }
-  if (result.decorations !== undefined) {
-    for (const decoration of result.decorations) {
-      if (decoration.symbol !== undefined) decoration.symbol.rotation = (decoration.symbol.rotation ?? 0) + angle;
-    }
-  }
+  if (result.symbol.type === 'icon') result.symbol.scale = multiplyScale(result.symbol.scale, delta.scaleX, delta.scaleY);
+  else result.symbol.radius *= (Math.abs(delta.scaleX) + Math.abs(delta.scaleY)) / 2;
   return result;
-}
-
-function scaleStyle(style: StyleSpec, scaleX: number, scaleY: number): StyleSpec {
-  const result = cloneCoreState(style);
-  const average = (scaleX + scaleY) / 2;
-  if (result.symbol?.type === 'icon') {
-    result.symbol.scale = multiplyScale(result.symbol.scale, scaleX, scaleY);
-    if (result.symbol.displacement !== undefined) result.symbol.displacement = [result.symbol.displacement[0] * scaleX, result.symbol.displacement[1] * scaleY];
-  } else if (result.symbol?.type === 'circle') {
-    result.symbol.radius *= average;
-    scaleStroke(result.symbol.stroke, average);
-  }
-  result.strokes?.forEach((stroke) => scaleStroke(stroke, average));
-  scalePattern(result.fill, average);
-  if (result.text !== undefined) scaleText(result.text, scaleX, scaleY, average);
-  for (const decoration of result.decorations ?? []) {
-    if (decoration.symbol !== undefined) decoration.symbol.scale = multiplyScale(decoration.symbol.scale, scaleX, scaleY);
-    if (decoration.offset !== undefined) decoration.offset *= average;
-    if (decoration.spacing !== undefined) decoration.spacing *= average;
-  }
-  return result;
-}
-
-function scaleText(text: TextSpec, scaleX: number, scaleY: number, average: number): void {
-  text.scale = multiplyScale(text.scale, scaleX, scaleY);
-  text.offsetX = (text.offsetX ?? 0) * scaleX;
-  text.offsetY = (text.offsetY ?? 0) * scaleY;
-  if (typeof text.fontSize === 'number') text.fontSize *= average;
-  else if (typeof text.fontSize === 'string') text.fontSize = scaleFontSize(text.fontSize, average);
-  scaleStroke(text.stroke, average);
-  scaleStroke(text.backgroundStroke, average);
-  scalePattern(text.fill, average);
-  scalePattern(text.backgroundFill, average);
-  if (text.padding !== undefined) text.padding = text.padding.map((value) => value * average);
-}
-
-function scaleStroke(stroke: StrokeSpec | undefined, scale: number): void {
-  if (stroke === undefined) return;
-  if (stroke.width !== undefined) stroke.width *= scale;
-  if (stroke.lineDash !== undefined) stroke.lineDash = stroke.lineDash.map((value) => value * scale);
-  if (stroke.lineDashOffset !== undefined) stroke.lineDashOffset *= scale;
-}
-
-function scalePattern(fill: StyleSpec['fill'] | TextSpec['fill'] | undefined, scale: number): void {
-  if (fill?.type !== 'pattern') return;
-  if (fill.size !== undefined) fill.size *= scale;
-  if (fill.lineWidth !== undefined) fill.lineWidth *= scale;
-  if (fill.dotRadius !== undefined) fill.dotRadius *= scale;
 }
 
 function multiplyScale(value: IconSymbolSpec['scale'] | TextSpec['scale'] | undefined, x: number, y: number): number | [number, number] {
   if (Array.isArray(value)) return [value[0] * x, value[1] * y];
   const scalar = value ?? 1;
   return x === y ? scalar * x : [scalar * x, scalar * y];
-}
-
-function scaleFontSize(value: string, scale: number): string {
-  const match = value.match(/^\s*(-?\d+(?:\.\d+)?)(.*)$/u);
-  if (match === null) return value;
-  return `${Number(match[1]) * scale}${match[2]}`;
 }
 
 function toolbarPosition(definition: ShapeDefinition, state: ShapeState, override: Coordinate | undefined): Coordinate {
@@ -1014,12 +1134,6 @@ function rotateCoordinate(coordinate: Coordinate, center: Coordinate, angle: num
 function scaleCoordinate(coordinate: Coordinate, center: Coordinate, x: number, y: number): Coordinate {
   const scaled: Coordinate = [center[0] + (coordinate[0] - center[0]) * x, center[1] + (coordinate[1] - center[1]) * y];
   return coordinate.length === 3 ? [scaled[0], scaled[1], coordinate[2]] : scaled;
-}
-
-function rotatePair(value: readonly [number, number], angle: number): [number, number] {
-  const cosine = Math.cos(angle);
-  const sine = Math.sin(angle);
-  return [value[0] * cosine - value[1] * sine, value[0] * sine + value[1] * cosine];
 }
 
 function freeze<T>(value: T): T {

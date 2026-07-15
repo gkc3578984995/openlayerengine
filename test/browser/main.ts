@@ -50,6 +50,15 @@ interface Runtime {
 
 interface NativeFeatureProbe {
   get(key: string): unknown;
+  getStyle?(): unknown;
+}
+
+interface NativeStyleProbe {
+  getImage(): unknown;
+}
+
+interface NativeImageProbe {
+  getDisplacement(): readonly number[];
 }
 
 interface NativeSourceProbe {
@@ -443,7 +452,8 @@ function runtimeSnapshot(current: Runtime): unknown {
       canvas: target.querySelectorAll('canvas').length,
       contextMenus: target.querySelectorAll('.ol-context-menu').length,
       toolbars: target.querySelectorAll('.ol-toolbar').length,
-      measureTooltips: target.querySelectorAll('.ol-engine-measure-tooltip').length
+      measureTooltips: target.querySelectorAll('.ol-engine-measure-tooltip').length,
+      transformTooltips: target.querySelectorAll('.ol-transform-tooltip').length
     }),
     animationHandles: [...current.animationHandles].filter((handle) => handle.status === 'running' || handle.status === 'paused').length,
     elementCount: earth.isDestroyed ? 0 : earth.elements.query().length
@@ -459,7 +469,8 @@ function globalSnapshot(): unknown {
     mapBChildren: mapBTarget.childElementCount,
     mapAContextMenus: mapATarget.querySelectorAll('.ol-context-menu').length,
     mapAToolbars: mapATarget.querySelectorAll('.ol-toolbar').length,
-    mapAMeasureTooltips: mapATarget.querySelectorAll('.ol-engine-measure-tooltip').length
+    mapAMeasureTooltips: mapATarget.querySelectorAll('.ol-engine-measure-tooltip').length,
+    mapATransformTooltips: mapATarget.querySelectorAll('.ol-transform-tooltip').length
   });
 }
 
@@ -556,27 +567,85 @@ function subscribeTransform(current: Runtime, session: TransformSession): void {
 
 function transformPixels(current: Runtime): unknown {
   current.earth.map.renderSync();
-  const coordinates = new Map<string, Coordinate>();
+  const handles = new Map<string, Readonly<{ coordinate: Coordinate; feature: NativeFeatureProbe }>>();
   for (const layer of current.earth.map.getLayers().getArray()) {
     const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
     if (!isNativeSourceProbe(source)) continue;
     for (const feature of source.getFeatures()) {
       const metadata = feature.get('ol-engine-transform-handle');
       if (!isTransformHandleMetadata(metadata)) continue;
-      coordinates.set(metadata.key, metadata.coordinate);
+      handles.set(metadata.key, { coordinate: metadata.coordinate, feature });
     }
   }
-  const translate = coordinates.get('feature');
-  const scale = coordinates.get('scale-ne');
-  const rotate = coordinates.get('rotate');
-  if (translate === undefined || scale === undefined || rotate === undefined) return fallbackTransformPixels(current, [...coordinates.keys()]);
+  const translate = handles.get('feature');
+  const scale = handles.get('scale-ne');
+  const rotate = handles.get('rotate');
+  if (translate === undefined || scale === undefined || rotate === undefined) return fallbackTransformPixels(current, [...handles.keys()]);
   return Object.freeze({
     probe: 'native',
-    keys: Object.freeze([...coordinates.keys()]),
-    translate: pixelOf(current, translate),
-    scale: pixelOf(current, scale),
-    rotate: pixelOf(current, rotate)
+    keys: Object.freeze([...handles.keys()]),
+    translate: hittableHandlePixel(current, 'feature', translate),
+    scale: hittableHandlePixel(current, 'scale-ne', scale),
+    rotate: hittableHandlePixel(current, 'rotate', rotate)
   });
+}
+
+function hittableHandlePixel(
+  current: Runtime,
+  key: string,
+  handle: Readonly<{ coordinate: Coordinate; feature: NativeFeatureProbe }>
+): readonly [number, number] {
+  const pixel = pixelOf(current, handle.coordinate);
+  const displacement = handleDisplacement(handle.feature);
+  const center = [Math.round(pixel[0] + displacement[0]), Math.round(pixel[1] - displacement[1])] as const;
+  for (let radius = 0; radius <= 24; radius += 1) {
+    if (radius === 0 && handleHitAtPixel(current, key, center)) return center;
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      const top = [center[0] + offset, center[1] - radius] as const;
+      const bottom = [center[0] + offset, center[1] + radius] as const;
+      if (handleHitAtPixel(current, key, top)) return top;
+      if (handleHitAtPixel(current, key, bottom)) return bottom;
+    }
+    for (let offset = -radius + 1; offset < radius; offset += 1) {
+      const left = [center[0] - radius, center[1] + offset] as const;
+      const right = [center[0] + radius, center[1] + offset] as const;
+      if (handleHitAtPixel(current, key, left)) return left;
+      if (handleHitAtPixel(current, key, right)) return right;
+    }
+  }
+  throw new Error(`Transform handle is not hittable: ${key}`);
+}
+
+function handleDisplacement(feature: NativeFeatureProbe): readonly [number, number] {
+  const styleValue = feature.getStyle?.();
+  const style = Array.isArray(styleValue) ? styleValue[0] : styleValue;
+  if (!isNativeStyleProbe(style)) return [0, 0];
+  const image = style.getImage();
+  if (!isNativeImageProbe(image)) return [0, 0];
+  const displacement = image.getDisplacement();
+  if (displacement.length < 2 || !Number.isFinite(displacement[0]) || !Number.isFinite(displacement[1])) return [0, 0];
+  return [displacement[0], displacement[1]];
+}
+
+function handleHitAtPixel(current: Runtime, key: string, pixel: readonly [number, number]): boolean {
+  return (
+    current.earth.map.forEachFeatureAtPixel(
+      [...pixel],
+      (feature) => {
+        const metadata = (feature as unknown as NativeFeatureProbe).get('ol-engine-transform-handle');
+        return isTransformHandleMetadata(metadata) && metadata.key === key ? true : undefined;
+      },
+      { hitTolerance: 1, checkWrapped: true }
+    ) === true
+  );
+}
+
+function isNativeStyleProbe(value: unknown): value is NativeStyleProbe {
+  return value !== null && typeof value === 'object' && typeof (value as Partial<NativeStyleProbe>).getImage === 'function';
+}
+
+function isNativeImageProbe(value: unknown): value is NativeImageProbe {
+  return value !== null && typeof value === 'object' && typeof (value as Partial<NativeImageProbe>).getDisplacement === 'function';
 }
 
 function fallbackTransformPixels(current: Runtime, keys: readonly string[] = []): unknown {

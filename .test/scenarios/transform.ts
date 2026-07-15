@@ -5,6 +5,7 @@ import {
   type Element,
   type InteractionPolicy,
   type TransformEventMap,
+  type TransformMode,
   type TransformOptions,
   type TransformSession,
   type TransformToolbarHandle,
@@ -124,14 +125,15 @@ export const transformScenario: ScenarioDefinition = {
     const noFlip = context.checkbox(optionsSection, '禁止翻转（noFlip）', true);
     const keepRectangle = context.checkbox(optionsSection, '保持矩形（keepRectangle）', true);
     const hitTolerance = context.number(optionsSection, '命中容差（hitTolerance）', 5, { min: 0, step: 1 });
-    const buffer = context.number(optionsSection, '手柄缓冲（buffer）', 18, { min: 0, step: 1 });
+    const buffer = context.number(optionsSection, '手柄缓冲（buffer）', 16, { min: 0, step: 1 });
     const pointRadius = context.number(optionsSection, '点手柄半径（pointRadius）', 8, { min: 1, step: 1 });
     const historyLimit = context.number(optionsSection, '历史上限（historyLimit）', 12, { min: 1, step: 1 });
     const includeSelector = context.checkbox(optionsSection, '启用选择器（selector）', true);
     const includePredicate = context.checkbox(optionsSection, '启用谓词（predicate）', true);
     const includeLayerIds = context.checkbox(optionsSection, '限制图层（layerIds）', true);
+    const includeHandleStyle = context.checkbox(optionsSection, '使用自定义控制柄（handleStyle）', false);
     const includeHandleCenter = context.checkbox(optionsSection, '指定手柄中心（handleCenter）', false);
-    const toolbarMode = context.select(optionsSection, '工具栏模式（toolbar）', toolbarOptions, 'options');
+    const toolbarMode = context.select(optionsSection, '工具栏模式（toolbar）', toolbarOptions, 'true');
     const toolbarVisible = context.checkbox(optionsSection, '工具栏可见（toolbar.visible）', true);
     const policy = context.select(optionsSection, '冲突策略（policy）', policyOptions, 'replace');
     const startActions = context.actions(optionsSection);
@@ -150,6 +152,7 @@ export const transformScenario: ScenarioDefinition = {
     const refresh = (): void => {
       context.status('TransformSession.status', session?.status ?? '未创建');
       context.status('TransformSession.selected', session?.selected?.id ?? '未选择');
+      context.status('TransformSession.mode', session?.mode ?? '未选择');
       context.status('TransformSession.toolbar', session?.toolbar === undefined ? '无' : '已创建');
       context.status('最近 copy()', lastCopy?.id ?? '无');
       context.status('copyPreviewConfirm 事件数', copyPreviewConfirmCount);
@@ -178,16 +181,20 @@ export const transformScenario: ScenarioDefinition = {
       keepRectangle: keepRectangle.checked,
       buffer: Math.max(0, buffer.valueAsNumber || 0),
       pointRadius: Math.max(1, pointRadius.valueAsNumber || 1),
-      handleStyle: {
-        symbol: {
-          type: 'circle',
-          radius: 7,
-          fill: { type: 'solid', color: '#ffffff' },
-          stroke: { color: '#dc2626', width: 2 }
-        },
-        text: { text: '', fontSize: 11, fill: { type: 'solid', color: '#111827' } },
-        zIndex: 1_000
-      },
+      ...(includeHandleStyle.checked
+        ? {
+            handleStyle: {
+              symbol: {
+                type: 'circle' as const,
+                radius: 7,
+                fill: { type: 'solid' as const, color: '#ffffff' },
+                stroke: { color: '#dc2626', width: 2 }
+              },
+              text: { text: '', fontSize: 11, fill: { type: 'solid' as const, color: '#111827' } },
+              zIndex: 1_000
+            }
+          }
+        : {}),
       ...(includeHandleCenter.checked ? { handleCenter: [0, 2_000_000] as Coordinate } : {}),
       historyLimit: Math.max(1, Math.trunc(historyLimit.valueAsNumber || 1)),
       toolbar:
@@ -272,6 +279,14 @@ export const transformScenario: ScenarioDefinition = {
     });
     context.button(sessionActions, '选择替换元素 select()', () => {
       session?.select(requireElement(earth.elements.get(replacement.id), replacement.id));
+      refresh();
+    });
+    context.button(sessionActions, '进入变换模式 setMode("transform")', () => {
+      session?.setMode('transform' satisfies TransformMode);
+      refresh();
+    });
+    context.button(sessionActions, '进入顶点编辑 setMode("edit")', () => {
+      session?.setMode('edit' satisfies TransformMode);
       refresh();
     });
     context.button(sessionActions, '完成变换 finish()', () => {

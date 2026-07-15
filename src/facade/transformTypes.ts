@@ -5,6 +5,7 @@ import type { InteractionPolicy, InteractionStatus } from '../services/events/ty
 import type { Element } from './Element.js';
 
 export type TransformTranslateMode = 'none' | 'center' | 'feature';
+export type TransformMode = 'transform' | 'edit';
 
 export interface TransformToolbarItemSpec {
   key: string;
@@ -97,8 +98,10 @@ export interface TransformToolbarHandle {
 export interface TransformSession<T = unknown> {
   readonly selected: Element<T> | undefined;
   readonly status: InteractionStatus;
+  readonly mode: TransformMode;
   readonly toolbar: TransformToolbarHandle | undefined;
   select(element: Element<T>): void;
+  setMode(mode: TransformMode): void;
   finish(): void;
   cancel(): void;
   undo(): boolean;

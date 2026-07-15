@@ -15,7 +15,8 @@ import type {
   TransformInteractionHandle,
   TransformInteractionOptions,
   TransformInteractionPort,
-  TransformInteractionTarget
+  TransformInteractionTarget,
+  TransformOperation
 } from '../../../core/ports/TransformInteractionPort.js';
 import type { FeatureBinding } from '../FeatureBinding.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
@@ -151,7 +152,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#clickListener = clickListener;
     this.#keys.push(this.#map.on('click', clickListener));
     const singleClickListener = (event: PointerMapEvent) => {
-      if (observedClicks.delete(event.originalEvent)) this.#selectAt(event.pixel);
+      if (observedClicks.delete(event.originalEvent)) this.#selectAt(event.pixel, event.coordinate);
     };
     this.#singleClickListener = singleClickListener;
     this.#keys.push(this.#map.on('singleclick', singleClickListener));
@@ -174,6 +175,11 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#drag = undefined;
     this.#target = undefined;
     this.#handles.clearTarget();
+  }
+
+  setOperationActive(active: boolean, operation?: TransformOperation): void {
+    if (this.#destroyed) return;
+    this.#handles.setOperationActive(active, operation);
   }
 
   startCopyPreview(preview: TransformCopyPreview): void {
@@ -235,7 +241,9 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   }
 
   #down(event: PointerMapEvent): boolean {
-    this.#lastCoordinate = coordinate(event.coordinate);
+    const currentCoordinate = coordinate(event.coordinate);
+    const currentPixel = pixel(event.pixel);
+    this.#lastCoordinate = currentCoordinate;
     if (this.#copyActive) {
       if (!isPrimary(event)) return false;
       const delta = this.#copyDelta;
@@ -244,13 +252,13 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       return true;
     }
     if (!isPrimary(event) || this.#target === undefined) return false;
-    const hit = this.#handles.hit(pixel(event.pixel), this.#options.hitTolerance);
+    const hit = this.#handles.hit(currentPixel, this.#options.hitTolerance);
     if (hit === undefined || !operationAllowed(this.#target, hit.operation)) return false;
     const center = this.#options.handleCenter ?? extentCenter(this.#handles.extent ?? [0, 0, 0, 0]);
-    const start = coordinate(event.coordinate);
+    const start = currentCoordinate;
     const delta = initialDelta(hit, start, center);
     this.#drag = { hit, start, center, delta };
-    this.#emit({ type: 'operation-start', operation: hit.operation, delta });
+    this.#emit({ type: 'operation-start', operation: hit.operation, delta, pixel: currentPixel, coordinate: currentCoordinate });
     return true;
   }
 
@@ -258,45 +266,62 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     const drag = this.#drag;
     if (drag === undefined) return;
     this.#lastCoordinate = coordinate(event.coordinate);
-    drag.delta = this.#deltaFor(drag, this.#lastCoordinate);
-    this.#emit({ type: 'operation-change', operation: drag.hit.operation, delta: drag.delta });
+    const currentPixel = pixel(event.pixel);
+    drag.delta = this.#deltaFor(drag, this.#lastCoordinate, event.originalEvent.shiftKey === true);
+    this.#emit({ type: 'operation-change', operation: drag.hit.operation, delta: drag.delta, pixel: currentPixel, coordinate: this.#lastCoordinate });
   }
 
   #up(event: PointerMapEvent): boolean {
     const drag = this.#drag;
     if (drag === undefined) return false;
     this.#lastCoordinate = coordinate(event.coordinate);
-    drag.delta = this.#deltaFor(drag, this.#lastCoordinate);
+    const currentPixel = pixel(event.pixel);
+    drag.delta = this.#deltaFor(drag, this.#lastCoordinate, event.originalEvent.shiftKey === true);
     this.#drag = undefined;
-    this.#emit({ type: 'operation-end', operation: drag.hit.operation, delta: drag.delta });
+    this.#emit({ type: 'operation-end', operation: drag.hit.operation, delta: drag.delta, pixel: currentPixel, coordinate: this.#lastCoordinate });
     return true;
   }
 
   #move(event: PointerMapEvent): void {
     const current = coordinate(event.coordinate);
+    const currentPixel = pixel(event.pixel);
     this.#lastCoordinate = current;
+    this.#emit({ type: 'pointer-move', coordinate: current, pixel: currentPixel });
     if (this.#copyActive && this.#copyAnchor !== undefined) {
       this.#copyDelta = Object.freeze({ x: current[0] - this.#copyAnchor[0], y: current[1] - this.#copyAnchor[1] });
       this.#handles.updateCopyPreview(this.#copyDelta.x, this.#copyDelta.y);
       return;
     }
-    const hit = this.#handles.hit(pixel(event.pixel), this.#options.hitTolerance);
+    const hit = this.#handles.hit(currentPixel, this.#options.hitTolerance);
     if (sameHit(hit, this.#hover)) return;
-    this.#leaveHover();
+    this.#leaveHover(current, currentPixel);
     if (hit !== undefined) {
       this.#hover = hit;
-      this.#emit({ type: 'enter-handle', key: hit.key, cursor: cursorFor(hit.operation) });
+      this.#emit({
+        type: 'enter-handle',
+        key: hit.key,
+        operation: hit.operation,
+        ...(hit.axis === undefined ? {} : { axis: hit.axis }),
+        cursor: cursorFor(hit),
+        coordinate: current,
+        pixel: currentPixel
+      });
     }
   }
 
-  #selectAt(rawPixel: readonly number[]): void {
+  #selectAt(rawPixel: readonly number[], rawCoordinate?: readonly number[]): void {
     if (this.#destroyed || this.#copyActive || this.#drag !== undefined) return;
     const selectedPixel = pixel(rawPixel);
     const candidates = this.#hitTest.atPixel(selectedPixel, this.#options.hitTolerance).map(({ elementId }) => elementId);
-    this.#emit({ type: 'select-request', pixel: selectedPixel, candidateIds: Object.freeze(candidates) });
+    this.#emit({
+      type: 'select-request',
+      pixel: selectedPixel,
+      ...(rawCoordinate === undefined ? {} : { coordinate: coordinate(rawCoordinate) }),
+      candidateIds: Object.freeze(candidates)
+    });
   }
 
-  #deltaFor(drag: DragState, current: Coordinate): TransformDelta {
+  #deltaFor(drag: DragState, current: Coordinate, keepAspectRatio = false): TransformDelta {
     if (drag.hit.operation === 'translate') return Object.freeze({ type: 'translate', x: current[0] - drag.start[0], y: current[1] - drag.start[1] });
     if (drag.hit.operation === 'vertex') {
       if (drag.hit.index === undefined) throw new InvalidArgumentError('Transform vertex handle has no index');
@@ -315,7 +340,11 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       scaleX = Math.max(0.001, scaleX);
       scaleY = Math.max(0.001, scaleY);
     }
-    if (drag.hit.operation === 'scale' && this.#options.keepRectangle && this.#target?.type === 'rectangle') {
+    if (drag.hit.operation === 'scale' && keepAspectRatio) {
+      const scale = Math.min(scaleX, scaleY);
+      scaleX = scale;
+      scaleY = scale;
+    } else if (drag.hit.operation === 'scale' && this.#options.keepRectangle && this.#target?.type === 'rectangle') {
       const magnitude = Math.max(Math.abs(scaleX), Math.abs(scaleY));
       scaleX = Math.sign(scaleX || 1) * magnitude;
       scaleY = Math.sign(scaleY || 1) * magnitude;
@@ -323,10 +352,20 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     return Object.freeze({ type: drag.hit.operation, scaleX, scaleY, center: drag.center });
   }
 
-  #leaveHover(): void {
+  #leaveHover(current?: Coordinate, currentPixel?: Pixel): void {
     const hover = this.#hover;
     this.#hover = undefined;
-    if (hover !== undefined) this.#emit({ type: 'leave-handle', key: hover.key, cursor: cursorFor(hover.operation) });
+    if (hover !== undefined) {
+      this.#emit({
+        type: 'leave-handle',
+        key: hover.key,
+        operation: hover.operation,
+        ...(hover.axis === undefined ? {} : { axis: hover.axis }),
+        cursor: cursorFor(hover),
+        ...(current === undefined ? {} : { coordinate: current }),
+        ...(currentPixel === undefined ? {} : { pixel: currentPixel })
+      });
+    }
   }
 
   readonly #onContextMenu = (event: MouseEvent): void => {
@@ -380,11 +419,13 @@ function snapshotTarget(target: TransformInteractionTarget): TransformInteractio
 }
 
 function operationAllowed(target: TransformInteractionTarget, operation: TransformHandleHit['operation']): boolean {
+  if (operation === 'vertex') return target.mode === 'edit' && target.canEditVertices;
+  if (target.mode !== 'transform') return false;
   if (operation === 'translate') return target.canTranslate;
   if (operation === 'rotate') return target.canRotate;
   if (operation === 'scale') return target.canScale;
   if (operation === 'stretch') return target.canStretch;
-  return target.canEditVertices;
+  return false;
 }
 
 function initialDelta(hit: TransformHandleHit, start: Coordinate, center: Coordinate): TransformDelta {
@@ -424,8 +465,10 @@ function sameHit(left: TransformHandleHit | undefined, right: TransformHandleHit
   return left?.key === right?.key;
 }
 
-function cursorFor(operation: TransformHandleHit['operation']): string {
-  if (operation === 'translate' || operation === 'vertex') return 'move';
-  if (operation === 'rotate') return 'crosshair';
+function cursorFor(hit: TransformHandleHit): string {
+  if (hit.operation === 'translate' || hit.operation === 'vertex') return 'move';
+  if (hit.operation === 'rotate') return 'grab';
+  if (hit.operation === 'stretch') return hit.axis === 'x' ? 'ew-resize' : 'ns-resize';
+  if (hit.key === 'scale-sw' || hit.key === 'scale-ne') return 'nesw-resize';
   return 'nwse-resize';
 }

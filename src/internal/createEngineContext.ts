@@ -6,6 +6,7 @@ import MouseWheelZoom from 'ol/interaction/MouseWheelZoom.js';
 import { fromLonLat } from 'ol/proj.js';
 import { ContextMenuViewAdapter } from '../adapters/dom/ContextMenuViewAdapter.js';
 import { TransformToolbarAdapter } from '../adapters/dom/TransformToolbarAdapter.js';
+import { TransformTooltipAdapter } from '../adapters/dom/TransformTooltipAdapter.js';
 import { FeatureBinding } from '../adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../adapters/openlayers/GeometryCodec.js';
 import { HitTestAdapter } from '../adapters/openlayers/HitTestAdapter.js';
@@ -198,6 +199,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const transformHitTest = new TransformHitTest(map, store, layerManager, layerAdapter, binding);
     const transformInteraction = new TransformInteractionAdapter(map, transformHitTest, binding, styleCompiler, render);
     const transformToolbar = new TransformToolbarAdapter(map);
+    const transformTooltip = new TransformTooltipAdapter(map);
     const internalTransform = new TransformService({
       store,
       shapes,
@@ -207,6 +209,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       animations,
       transients: animations,
       toolbar: transformToolbar,
+      tooltip: transformTooltip,
       input: transformInput
     });
     const transform = new TransformFacade(internalTransform, elements);

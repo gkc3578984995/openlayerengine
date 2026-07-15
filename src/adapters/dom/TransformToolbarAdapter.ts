@@ -7,6 +7,7 @@ import { InvalidArgumentError } from '../../core/errors.js';
 import type {
   TransformToolbarItemState,
   TransformToolbarPort,
+  TransformToolbarViewEvent,
   TransformToolbarViewHandle,
   TransformToolbarViewOptions,
   TransformToolbarViewSpec
@@ -26,15 +27,15 @@ export class TransformToolbarAdapter implements TransformToolbarPort {
     this.#createElement = options.createElement ?? defaultElementFactory();
   }
 
-  open(spec: TransformToolbarViewSpec, command: (key: string) => void): TransformToolbarViewHandle {
-    if (typeof command !== 'function') throw new InvalidArgumentError('Transform toolbar command listener must be a function');
-    return new ToolbarView(this.#map, this.#createElement, spec, command);
+  open(spec: TransformToolbarViewSpec, listener: (event: TransformToolbarViewEvent) => void): TransformToolbarViewHandle {
+    if (typeof listener !== 'function') throw new InvalidArgumentError('Transform toolbar listener must be a function');
+    return new ToolbarView(this.#map, this.#createElement, spec, listener);
   }
 }
 
 class ToolbarView implements TransformToolbarViewHandle {
   readonly #map: OlMap;
-  readonly #command: (key: string) => void;
+  readonly #listener: (event: TransformToolbarViewEvent) => void;
   readonly #items = new Map<string, TransformToolbarItemState>();
   readonly #root: HTMLDivElement | undefined;
   readonly #overlay: Overlay | undefined;
@@ -43,9 +44,14 @@ class ToolbarView implements TransformToolbarViewHandle {
   #destroyed = false;
   #destroying = false;
 
-  constructor(map: OlMap, createElement: (() => HTMLDivElement) | undefined, spec: TransformToolbarViewSpec, command: (key: string) => void) {
+  constructor(
+    map: OlMap,
+    createElement: (() => HTMLDivElement) | undefined,
+    spec: TransformToolbarViewSpec,
+    listener: (event: TransformToolbarViewEvent) => void
+  ) {
     this.#map = map;
-    this.#command = command;
+    this.#listener = listener;
     this.#options = copyOptions(spec.options);
     for (const item of spec.items) {
       if (this.#items.has(item.key)) throw new InvalidArgumentError(`Duplicate Transform toolbar key: ${item.key}`);
@@ -56,6 +62,8 @@ class ToolbarView implements TransformToolbarViewHandle {
     root.className = this.#className();
     root.dataset.ownerId = spec.ownerId;
     root.addEventListener('click', this.#onClick);
+    root.addEventListener('mouseover', this.#onMouseOver);
+    root.addEventListener('mouseout', this.#onMouseOut);
     this.#root = root;
     this.#render();
     const overlay = new Overlay({ element: root, positioning: 'bottom-left', stopEvent: true, insertFirst: false, offset: [...this.#options.offset] });
@@ -109,6 +117,8 @@ class ToolbarView implements TransformToolbarViewHandle {
           this.#keys.length = 0;
         },
         () => this.#root?.removeEventListener('click', this.#onClick),
+        () => this.#root?.removeEventListener('mouseover', this.#onMouseOver),
+        () => this.#root?.removeEventListener('mouseout', this.#onMouseOut),
         () => {
           if (this.#overlay !== undefined) this.#map.removeOverlay(this.#overlay);
         },
@@ -129,7 +139,23 @@ class ToolbarView implements TransformToolbarViewHandle {
     const key = target?.dataset.transformCommand;
     const item = key === undefined ? undefined : this.#items.get(key);
     if (key === undefined || item === undefined || item.disabled || !item.visible) return;
-    this.#command(key);
+    this.#listener(Object.freeze({ type: 'command', key }));
+  };
+
+  readonly #onMouseOver = (event: MouseEvent): void => {
+    const target = this.#itemFromEvent(event);
+    if (target === undefined) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && target.element.contains(related)) return;
+    this.#listener(Object.freeze({ type: 'enter', key: target.key }));
+  };
+
+  readonly #onMouseOut = (event: MouseEvent): void => {
+    const target = this.#itemFromEvent(event);
+    if (target === undefined) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && target.element.contains(related)) return;
+    this.#listener(Object.freeze({ type: 'leave', key: target.key }));
   };
 
   readonly #sync = (): void => {
@@ -144,7 +170,7 @@ class ToolbarView implements TransformToolbarViewHandle {
       if (!item.visible) continue;
       const button = root.ownerDocument.createElement('button');
       button.type = 'button';
-      button.className = ['ol-toolbar-item', item.iconClass, item.active ? 'is-active' : ''].filter(Boolean).join(' ');
+      button.className = ['ol-toolbar-item', item.iconClass, item.active ? 'is-active' : '', item.disabled ? 'is-disabled' : ''].filter(Boolean).join(' ');
       button.dataset.transformCommand = item.key;
       button.title = item.title;
       button.disabled = item.disabled;
@@ -160,6 +186,13 @@ class ToolbarView implements TransformToolbarViewHandle {
 
   #applyVisibility(): void {
     if (this.#root !== undefined) this.#root.hidden = !this.#options.visible;
+  }
+
+  #itemFromEvent(event: MouseEvent): { readonly key: string; readonly element: HTMLElement } | undefined {
+    if (this.#destroyed || this.#destroying || !(event.target instanceof Element)) return undefined;
+    const element = event.target.closest<HTMLElement>('[data-transform-command]');
+    const key = element?.dataset.transformCommand;
+    return element === null || element === undefined || key === undefined || !this.#items.has(key) ? undefined : { key, element };
   }
 }
 

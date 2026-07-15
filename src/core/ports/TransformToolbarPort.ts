@@ -23,6 +23,9 @@ export interface TransformToolbarViewSpec {
   readonly options: TransformToolbarViewOptions;
 }
 
+export type TransformToolbarViewEvent =
+  Readonly<{ type: 'command'; key: string }> | Readonly<{ type: 'enter'; key: string }> | Readonly<{ type: 'leave'; key: string }>;
+
 export interface TransformToolbarViewHandle {
   setActive(key: string): void;
   updateItem(key: string, patch: Partial<Omit<TransformToolbarItemState, 'key'>>): void;
@@ -33,5 +36,5 @@ export interface TransformToolbarViewHandle {
 }
 
 export interface TransformToolbarPort {
-  open(spec: TransformToolbarViewSpec, command: (key: string) => void): TransformToolbarViewHandle;
+  open(spec: TransformToolbarViewSpec, listener: (event: TransformToolbarViewEvent) => void): TransformToolbarViewHandle;
 }
