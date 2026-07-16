@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import type OlMap from 'ol/Map.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import type { AnimationSpec, AnimationStatus } from '../src/core/animation/types.js';
@@ -291,7 +292,7 @@ describe('Descriptor lifecycle', () => {
     const shapes = new ShapeRegistry(basicShapeDefinitions);
     const store = new ElementStore(shapes);
     const render = new FakeLayerRenderPort();
-    const manager = new AnimationManagerImpl({ store, shapes, render });
+    const manager = new AnimationManagerImpl({ store, shapes, render, shapeProjection: identityShapeProjection });
     const service = new OverlayService(port, store, manager, { descriptorLayerId: 'default' });
 
     const descriptor = service.createDescriptor(descriptorSpec('real-animation'));

@@ -10,6 +10,7 @@ import type { CursorPort, CursorViewHandle } from '../../core/ports/CursorPort.j
 import type { DrawInteractionEvent, DrawInteractionHandle, DrawInteractionPort, DrawInteractionRenderState } from '../../core/ports/DrawInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
+import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
 import { shapeFreehandAccumulatorFor, type ShapeFreehandAccumulator } from '../../core/shape/freehandAccumulator.js';
 import type { ElementStyleState } from '../../core/style/types.js';
@@ -37,6 +38,8 @@ export interface DrawSessionDependencies<T> {
   readonly coordinator: InteractionCoordinator;
   /** 底层绘制交互端口。 */
   readonly port: DrawInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly shapeProjection: ShapeProjectionPort;
   /** 规范化后的绘制配置。 */
   readonly options: Readonly<Required<Pick<InternalDrawOptions<T>, 'type' | 'layerId' | 'limit' | 'keepGraphics'>> & InternalDrawOptions<T>>;
   /** 可选的键盘输入。 */
@@ -77,6 +80,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   readonly #coordinator: InteractionCoordinator;
   /** 底层绘制交互端口。 */
   readonly #port: DrawInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly #shapeProjection: ShapeProjectionPort;
   /** 规范化后的绘制配置。 */
   readonly #options: DrawSessionDependencies<T>['options'];
   /** 可选的键盘输入。 */
@@ -158,6 +163,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#styles = dependencies.styles;
     this.#coordinator = dependencies.coordinator;
     this.#port = dependencies.port;
+    this.#shapeProjection = dependencies.shapeProjection;
     this.#options = dependencies.options;
     this.#input = dependencies.input;
     this.#tooltipPort = dependencies.tooltipPort;
@@ -494,12 +500,13 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       let generation: ElementGeneration;
       try {
         const style = this.#styleFor(completed);
+        const elementGeometry = this.#shapeProjection.toElementState(completed);
         const id = requireId(this.#createId());
         const committed = this.#store.transaction((transaction) =>
           transaction.add<T>({
             id,
-            type: completed.type,
-            geometry: completed,
+            type: elementGeometry.type,
+            geometry: elementGeometry,
             style,
             ...(this.#options.data === undefined ? {} : { data: this.#options.data }),
             ...(this.#options.module === undefined ? {} : { module: this.#options.module }),
@@ -578,7 +585,10 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     const renderGeometry = this.#definition.toRenderGeometry(geometry as never);
     this.#setPreview(Object.freeze({ geometry: deepFreeze(cloneCoreState(renderGeometry)), style: this.#styleFor(geometry) }));
     if ((this.#listeners.get('change')?.size ?? 0) > 0) {
-      this.#emit('change', freeze({ type: 'change', geometry, ...(coordinate === undefined ? {} : { coordinate }) }));
+      this.#emit(
+        'change',
+        freeze({ type: 'change', geometry: this.#shapeProjection.toElementState(geometry), ...(coordinate === undefined ? {} : { coordinate }) })
+      );
     }
   }
 

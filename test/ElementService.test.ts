@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -49,7 +50,7 @@ function setup(createIds: string[] = []) {
   const adapter = new LayerAdapter(createTestMap(), refs);
   const manager = new LayerManager(store, adapter);
   const layers = new LayerServiceImpl(manager, adapter, refs);
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes), new StyleCompiler(refs));
+  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs));
   const hitTest = new FakeHitTest();
   const elements = new ElementServiceImpl(store, manager, binding, layers, refs, hitTest, { createId });
   return { adapter, binding, elements, hitTest, layers, manager, refs, store };

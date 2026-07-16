@@ -133,6 +133,8 @@ describe('useEarth documentation', () => {
       'Utils 和旧枚举',
       '多环和洞',
       'toLonLat',
+      'earth.view.toProjectedCoordinates()',
+      'earth.view.toGeographicCoordinates()',
       'setLayerOpacity',
       'throttle()'
     ]) {
@@ -145,18 +147,42 @@ describe('useEarth documentation', () => {
     expect(migration).toContain('2.0.0 的内置 `polygon` 只接受一维 `controlPoints`，当前只生成单环');
     expect(migration).toContain('V1 `setLayerOpacity()` 使用 `0` 到 `100` 的百分比');
     expect(migration).toContain('V2 的 `coordinate` 是当前 View 投影下的地图坐标');
+    expect(migration).toContain("`ShapeInput<'circle'>.radius`");
+    expect(migration).toContain('`Element.state.geometry.radius`');
+    expect(migration).toContain('`element.olFeature` 中原生 OL Circle 的半径仍是 View 投影单位');
     expect(migration).toContain('V2 根导出的 `throttle()` 默认是 `0ms`');
   });
 
-  // 文档阶段开始后，应删除这条旧版基线，并把 website/README 同步为 V2 的销毁语义。
-  it('保留本阶段暂不处理的网站旧版 destroyEarth 文档基线', async () => {
+  it('记录实例级坐标转换和米制圆半径', async () => {
+    const [methods, migration, example] = await Promise.all([
+      readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
+      readFile('website/src/views/MigrationV2View.vue', 'utf8'),
+      readFile('website/src/examples/ElementCoordinateStorageDemo.vue', 'utf8')
+    ]);
+
+    for (const method of ['toProjectedCoordinates', 'toGeographicCoordinates']) {
+      expect(methods).toContain(`name: '${method}'`);
+      expect(methods).toContain(`>earth.view.${method}</a>`);
+      expect(migration).toContain(`earth.view.${method}()`);
+      expect(example).toContain(`earth.view.${method}(`);
+    }
+    expect(methods).toContain('id="demo-coordinate-conversion"');
+    expect(methods).toContain('空数组不可用');
+    expect(migration).toContain('圆半径固定使用米');
+    expect(migration).toContain('style.symbol.radius');
+    expect(migration).toContain('仍然表示 CSS 像素');
+    expect(example).toContain('label="圆半径（米）"');
+  });
+
+  // README 与 Earth 创建页仍保留既有基线；迁移页必须只展示 V2 的实例销毁方式。
+  it('在迁移页删除 destroyEarth 用法，同时记录尚未迁移的旧页面基线', async () => {
     const [readme, earthCreate, migration] = await Promise.all([
       readFile('README.md', 'utf8'),
       readFile('website/src/views/EarthCreateView.vue', 'utf8'),
       readFile('website/src/views/MigrationV2View.vue', 'utf8')
     ]);
 
-    for (const source of [readme, earthCreate, migration]) {
+    for (const source of [readme, earthCreate]) {
       expect(source).toContain('destroyEarth()');
       expect(source).toContain('destroyEarth(id)');
       expect(source).toContain('不存在对应实例时不会抛错');
@@ -168,9 +194,11 @@ describe('useEarth documentation', () => {
     expect(earthCreate).toContain('<code>destroyEarth(): void</code>');
     expect(earthCreate).toContain('<code>destroyEarth(id: string): void</code>');
     expect(earthCreate).toMatch(/<code class="code-fn"><a href="#api-destroy-earth">destroyEarth(?:\(\)|\(id\))?<\/a><\/code\s*>/);
-    expect(migration).toContain("import { destroyEarth, useEarth } from '@vrsim/earth-engine-ol';");
-    expect(migration).toContain("destroyEarth('overview');");
-    expect(migration).toContain('destroyEarth();');
+    expect(migration).not.toContain("import { destroyEarth, useEarth } from '@vrsim/earth-engine-ol';");
+    expect(migration).not.toContain("destroyEarth('overview');");
+    expect(migration).toContain('1.x 的 <code>destroyEarth()</code> 和 <code>destroyEarth(id)</code> 已删除');
+    expect(migration).toContain('overview.destroy();');
+    expect(migration).toContain('defaultEarth.destroy();');
   });
 
   it('documents the version 1 two-argument signature migration and canonical API links', async () => {
@@ -195,10 +223,12 @@ describe('useEarth documentation', () => {
 
     expect(migration).toContain("{ id: 'signature', label: '调用签名' }");
     expect(migration).toContain('id="signature"');
-    for (const anchor of ['api-use-earth', 'api-destroy-earth', 'api-constructor', 'api-type-use-earth-options', 'api-methods']) {
+    for (const anchor of ['api-use-earth', 'api-constructor', 'api-type-use-earth-options', 'api-methods']) {
       expect(earthCreate).toContain(`id="${anchor}"`);
       expect(migration).toContain(`href="/guide/earth-create#${anchor}"`);
     }
+    expect(earthCreate).toContain('id="api-destroy-earth"');
+    expect(migration).not.toContain('href="/guide/earth-create#api-destroy-earth"');
   });
 
   it('documents dependencies removed in version 2 without promising transitive installation', async () => {

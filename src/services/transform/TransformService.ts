@@ -5,6 +5,7 @@ import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js'
 import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
 import type { CursorPort } from '../../core/ports/CursorPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TransformInteractionPort } from '../../core/ports/TransformInteractionPort.js';
 import type { TransformToolbarPort } from '../../core/ports/TransformToolbarPort.js';
 import type { TransformTooltipPort } from '../../core/ports/TransformTooltipPort.js';
@@ -46,6 +47,8 @@ export interface TransformServiceDependencies {
   readonly coordinator: InteractionCoordinator;
   /** 底层变换交互端口。 */
   readonly interaction: TransformInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly animations: TransformAnimationPort;
   /** 临时动画端口。 */
@@ -76,6 +79,8 @@ export class TransformService implements InternalTransformService {
   readonly #coordinator: InteractionCoordinator;
   /** 底层变换交互端口。 */
   readonly #interaction: TransformInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly #shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly #animations: TransformAnimationPort;
   /** 临时动画端口。 */
@@ -115,6 +120,7 @@ export class TransformService implements InternalTransformService {
     this.#styles = dependencies.styles;
     this.#coordinator = dependencies.coordinator;
     this.#interaction = dependencies.interaction;
+    this.#shapeProjection = dependencies.shapeProjection;
     this.#animations = dependencies.animations;
     this.#transients = dependencies.transients;
     this.#toolbar = dependencies.toolbar;
@@ -155,6 +161,7 @@ export class TransformService implements InternalTransformService {
       styles: this.#styles,
       coordinator: this.#coordinator,
       interaction: this.#interaction,
+      shapeProjection: this.#shapeProjection,
       animations: this.#animations,
       transients: this.#transients,
       ...(this.#toolbar === undefined ? {} : { toolbarPort: this.#toolbar }),

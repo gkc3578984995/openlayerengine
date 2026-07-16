@@ -15,6 +15,7 @@ import { LayerAdapter } from '../adapters/openlayers/LayerAdapter.js';
 import { MeasurementAdapter } from '../adapters/openlayers/MeasurementAdapter.js';
 import { NativeRefRegistry } from '../adapters/openlayers/NativeRefRegistry.js';
 import { OverlayAdapter } from '../adapters/openlayers/OverlayAdapter.js';
+import { ShapeProjectionAdapter } from '../adapters/openlayers/ShapeProjectionAdapter.js';
 import { DrawInteractionAdapter } from '../adapters/openlayers/interactions/DrawInteractionAdapter.js';
 import { EditInteractionAdapter } from '../adapters/openlayers/interactions/EditInteractionAdapter.js';
 import { TransformInteractionAdapter } from '../adapters/openlayers/interactions/TransformInteractionAdapter.js';
@@ -72,6 +73,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
   try {
     const viewport = map.getViewport();
     const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
+    const shapeProjection = new ShapeProjectionAdapter(olView.getProjection());
     const nativeRefs = new NativeRefRegistry();
     rollback.push(() => nativeRefs.destroy());
 
@@ -95,7 +97,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     rollback.push(() => layerManager.destroy());
     const layers = new LayerServiceImpl(layerManager, layerAdapter, nativeRefs);
 
-    const geometry = new GeometryCodec(shapes);
+    const geometry = new GeometryCodec(shapes, shapeProjection);
     const styleCompiler = new StyleCompiler(nativeRefs, { getViewRotation: () => olView.getRotation() });
     const internalStyles = new StyleService(store);
     const styles = new StyleFacade(internalStyles, nativeRefs);
@@ -106,7 +108,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
 
     const render = new LayerRenderPass(map, layerAdapter, binding, styleCompiler);
     rollback.push(() => render.destroy());
-    const animations = new AnimationManagerImpl({ store, shapes, render, registry: createBuiltinAnimationRegistry() });
+    const animations = new AnimationManagerImpl({ store, shapes, render, shapeProjection, registry: createBuiltinAnimationRegistry() });
     rollback.push(() => animations.destroy());
 
     const inputAdapter = new InputAdapter(map, hitTest, nativeRefs);
@@ -175,6 +177,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       coordinator,
       drawPort: drawAdapter,
       editPort: editAdapter,
+      shapeProjection,
       input,
       tooltipPort: interactionTooltip,
       cursorPort: interactionCursor,
@@ -205,6 +208,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       styles: internalStyles,
       coordinator,
       interaction: transformInteraction,
+      shapeProjection,
       animations,
       transients: animations,
       toolbar: transformToolbar,

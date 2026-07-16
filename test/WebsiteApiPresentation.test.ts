@@ -111,6 +111,8 @@ describe('website API presentation', () => {
       'flyTo',
       'animateFlyTo',
       'flyHome',
+      'toProjectedCoordinates',
+      'toGeographicCoordinates',
       'enableGraticule',
       'disableGraticule',
       'enableScaleLine',
@@ -139,6 +141,11 @@ describe('website API presentation', () => {
     expect(earthCreate).toContain('所有并存地图都应绑定不同的 DOM 容器');
     expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">flyHome</a></code>');
     expect(globalMethods).toContain('<code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code>');
+    expect(globalMethods).toContain('<code class="code-fn"><a href="#api-view-methods">earth.view.toProjectedCoordinates</a></code>');
+    expect(globalMethods).toContain('<code class="code-fn"><a href="#api-view-methods">earth.view.toGeographicCoordinates</a></code>');
+    expect(globalMethods).toContain('<h3 id="api-view-methods" class="doc-h3">ViewService（earth.view）</h3>');
+    expect(globalMethods).toContain("{ id: 'demo-coordinate-conversion', label: '坐标转换与圆半径' }");
+    expect(globalMethods).toContain('id="demo-coordinate-conversion"');
   });
 
   it('labels the Earth instance-method page consistently without changing its route', async () => {

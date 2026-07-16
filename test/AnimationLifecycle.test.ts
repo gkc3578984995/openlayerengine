@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { ObjectDisposedError } from '../src/core/errors.js';
 import type { LayerRenderValue } from '../src/core/ports/LayerRenderPort.js';
 import { AnimationManagerImpl } from '../src/services/animation/AnimationManager.js';
@@ -315,7 +316,7 @@ describe('动画生命周期', () => {
     let render!: FakeLayerRenderPort;
     const harness = createTransformHarness(false, ({ store, shapes }) => {
       render = new FakeLayerRenderPort();
-      manager = new AnimationManagerImpl({ store, shapes, render });
+      manager = new AnimationManagerImpl({ store, shapes, render, shapeProjection: identityShapeProjection });
       return { animations: manager, transients: manager };
     });
     addElement(harness, 'line', 'polyline', [

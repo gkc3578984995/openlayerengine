@@ -1,6 +1,8 @@
 import type Map from 'ol/Map.js';
 import type View from 'ol/View.js';
 import DragPan from 'ol/interaction/DragPan.js';
+import { transform } from 'ol/proj.js';
+import type { ProjectionLike } from 'ol/proj.js';
 import type { Coordinate, Pixel } from '../core/common/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../core/errors.js';
 import {
@@ -121,6 +123,84 @@ export interface ViewService {
    * ```
    */
   flyTo(center: Coordinate, zoom?: number): void;
+  /**
+   * 将单个二维经纬度坐标转换为当前 View 的投影坐标。
+   *
+   * @param coordinates 坐标。使用 EPSG:4326，经度在前，纬度在后。
+   * @returns 转换后的新坐标。使用当前 View 投影。
+   *
+   * @example
+   * ```ts
+   * const center = earth.view.toProjectedCoordinates([120, 0]);
+   * earth.elements.add({ geometry: { type: 'circle', center, radius: 1_000 } });
+   * ```
+   */
+  toProjectedCoordinates(coordinates: readonly [number, number]): readonly [number, number];
+  /**
+   * 将经纬度坐标转换为当前 View 的投影坐标。
+   *
+   * @param coordinates 坐标。使用 EPSG:4326，扁平数组每两个数字表示一组经纬度，嵌套数组中的每项可以是二维或三维坐标。
+   * @returns 转换后的新坐标。使用当前 View 投影，返回结构与输入一致，三维坐标的第三项保持不变。
+   *
+   * @example
+   * ```ts
+   * const projected = earth.view.toProjectedCoordinates([120, 0, 110, 0]);
+   * const projectedWithHeight = earth.view.toProjectedCoordinates([[120, 0, 500]]);
+   * ```
+   */
+  toProjectedCoordinates(coordinates: readonly number[]): readonly number[];
+  /**
+   * 将嵌套经纬度坐标转换为当前 View 的投影坐标。
+   *
+   * @param coordinates 坐标。使用 EPSG:4326，每项可以是二维或三维坐标。
+   * @returns 转换后的新坐标。使用当前 View 投影，三维坐标的第三项保持不变。
+   *
+   * @example
+   * ```ts
+   * const projected = earth.view.toProjectedCoordinates([
+   *   [120, 0],
+   *   [110, 0, 500]
+   * ]);
+   * ```
+   */
+  toProjectedCoordinates(coordinates: readonly (readonly number[])[]): readonly Coordinate[];
+  /**
+   * 将单个二维投影坐标转换为经纬度坐标。
+   *
+   * @param coordinates 坐标。使用当前 View 投影。
+   * @returns 转换后的新坐标。使用 EPSG:4326，经度在前，纬度在后。
+   *
+   * @example
+   * ```ts
+   * const center = earth.view.toGeographicCoordinates(element.state.geometry.center);
+   * ```
+   */
+  toGeographicCoordinates(coordinates: readonly [number, number]): readonly [number, number];
+  /**
+   * 将当前 View 的投影坐标转换为经纬度坐标。
+   *
+   * @param coordinates 坐标。使用当前 View 投影，扁平数组每两个数字表示一组投影坐标，嵌套数组中的每项可以是二维或三维坐标。
+   * @returns 转换后的新坐标。使用 EPSG:4326，返回结构与输入一致，三维坐标的第三项保持不变。
+   *
+   * @example
+   * ```ts
+   * const geographic = earth.view.toGeographicCoordinates(projected);
+   * const geographicWithHeight = earth.view.toGeographicCoordinates(projectedWithHeight);
+   * ```
+   */
+  toGeographicCoordinates(coordinates: readonly number[]): readonly number[];
+  /**
+   * 将嵌套投影坐标转换为经纬度坐标。
+   *
+   * @param coordinates 坐标。使用当前 View 投影，每项可以是二维或三维坐标。
+   * @returns 转换后的新坐标。使用 EPSG:4326，三维坐标的第三项保持不变。
+   *
+   * @example
+   * ```ts
+   * const geographic = earth.view.toGeographicCoordinates(projected);
+   * ```
+   */
+  toGeographicCoordinates(coordinates: readonly (readonly number[])[]): readonly Coordinate[];
   /**
    * 设置地图光标。
    *
@@ -438,6 +518,36 @@ export class ViewServiceImpl implements ViewService {
     if (zoom !== undefined) this.olView.setZoom(requireFinite(zoom, 'Fly-to zoom'));
   }
 
+  /** 将经纬度坐标转换为当前 View 的投影坐标。 */
+  toProjectedCoordinates(coordinates: readonly [number, number]): readonly [number, number];
+  toProjectedCoordinates(coordinates: readonly number[]): readonly number[];
+  toProjectedCoordinates(coordinates: readonly (readonly number[])[]): CoordinateLine;
+  /** 统一处理扁平和嵌套坐标。 */
+  toProjectedCoordinates(coordinates: readonly number[] | readonly (readonly number[])[]): readonly number[] | CoordinateLine {
+    this.#assertActive();
+    const projection = this.olView.getProjection();
+    return transformCoordinateStructure(
+      coordinates,
+      (coordinate) => transformCoordinate(coordinate, 'EPSG:4326', projection, 'Geographic coordinates'),
+      'Geographic coordinates'
+    );
+  }
+
+  /** 将当前 View 的投影坐标转换为经纬度坐标。 */
+  toGeographicCoordinates(coordinates: readonly [number, number]): readonly [number, number];
+  toGeographicCoordinates(coordinates: readonly number[]): readonly number[];
+  toGeographicCoordinates(coordinates: readonly (readonly number[])[]): CoordinateLine;
+  /** 统一处理扁平和嵌套坐标。 */
+  toGeographicCoordinates(coordinates: readonly number[] | readonly (readonly number[])[]): readonly number[] | CoordinateLine {
+    this.#assertActive();
+    const projection = this.olView.getProjection();
+    return transformCoordinateStructure(
+      coordinates,
+      (coordinate) => transformCoordinate(coordinate, projection, 'EPSG:4326', 'Projected coordinates'),
+      'Projected coordinates'
+    );
+  }
+
   /** 设置地图光标。 */
   setCursor(cursor: string): void {
     this.#assertActive();
@@ -583,6 +693,84 @@ function copyCoordinate(value: unknown, label: string): Coordinate {
     numbers.push(requireFinite(descriptor.value, label));
   }
   return Object.freeze(numbers) as Coordinate;
+}
+
+/** 转换扁平或一层嵌套坐标，并保持输入结构。 */
+function transformCoordinateStructure(
+  value: unknown,
+  transformCoordinate: (coordinate: Coordinate) => readonly number[],
+  label: string
+): readonly number[] | CoordinateLine {
+  const items = inspectArrayItems(value, label);
+  if (items.length === 0) throw new InvalidArgumentError(`${label} cannot be empty`);
+
+  if (isArrayValue(items[0], `${label}[0]`)) {
+    const coordinates = items.map((item, index) => {
+      const coordinate = inspectCoordinate(item, `${label}[${index}]`);
+      return copyCoordinate(transformCoordinate(coordinate), `${label}[${index}] result`);
+    });
+    return Object.freeze(coordinates);
+  }
+
+  if (items.length % 2 !== 0) throw new InvalidArgumentError(`${label} flat array must contain coordinate pairs`);
+  const transformed: number[] = [];
+  for (let index = 0; index < items.length; index += 2) {
+    const coordinate = Object.freeze([
+      requireFinite(items[index], `${label}[${index}]`),
+      requireFinite(items[index + 1], `${label}[${index + 1}]`)
+    ]) as Coordinate;
+    const result = copyCoordinate(transformCoordinate(coordinate), `${label}[${index / 2}] result`);
+    transformed.push(result[0], result[1]);
+  }
+  return Object.freeze(transformed);
+}
+
+/** 转换单个坐标，并把底层投影错误统一为公共参数错误。 */
+function transformCoordinate(coordinate: Coordinate, source: ProjectionLike, destination: ProjectionLike, label: string): readonly number[] {
+  try {
+    return transform([...coordinate], source, destination);
+  } catch {
+    throw new InvalidArgumentError(`${label} cannot be transformed with the current View projection`);
+  }
+}
+
+/** 判断值是否为数组，并统一处理无法读取的代理对象。 */
+function isArrayValue(value: unknown, label: string): boolean {
+  try {
+    return Array.isArray(value);
+  } catch {
+    throw new InvalidArgumentError(`${label} must be inspectable`);
+  }
+}
+
+/** 检查二维或三维坐标。 */
+function inspectCoordinate(value: unknown, label: string): Coordinate {
+  const items = inspectArrayItems(value, label);
+  if (items.length !== 2 && items.length !== 3) throw new InvalidArgumentError(`${label} must contain two or three finite numbers`);
+  return Object.freeze(items.map((item, index) => requireFinite(item, `${label}[${index}]`))) as Coordinate;
+}
+
+/** 安全读取普通数组中的数据项。 */
+function inspectArrayItems(value: unknown, label: string): readonly unknown[] {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new InvalidArgumentError(`${label} must be an array`);
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+    if (lengthDescriptor === undefined || !('value' in lengthDescriptor)) throw new InvalidArgumentError(`${label} must have a data length`);
+    const length = lengthDescriptor.value as number;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== length + 1) throw new InvalidArgumentError(`${label} cannot contain extra properties`);
+
+    const items: unknown[] = [];
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !('value' in descriptor)) throw new InvalidArgumentError(`${label} cannot contain holes or accessor properties`);
+      items.push(descriptor.value);
+    }
+    return items;
+  } catch (error) {
+    if (error instanceof InvalidArgumentError) throw error;
+    throw new InvalidArgumentError(`${label} must be inspectable`);
+  }
 }
 
 /** 读取大于或等于零的有限数字。 */

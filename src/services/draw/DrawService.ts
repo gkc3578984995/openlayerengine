@@ -7,6 +7,7 @@ import type { DrawInteractionPort } from '../../core/ports/DrawInteractionPort.j
 import type { CursorPort } from '../../core/ports/CursorPort.js';
 import type { EditInteractionPort } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TooltipPort } from '../../core/ports/TooltipPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { ShapeState, ShapeType } from '../../core/shape/types.js';
@@ -37,6 +38,8 @@ export interface DrawServiceDependencies {
   readonly drawPort: DrawInteractionPort;
   /** 底层编辑交互端口。 */
   readonly editPort: EditInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly shapeProjection: ShapeProjectionPort;
   /** 可选的键盘输入。 */
   readonly input?: SessionKeyboardInput;
   /** 可选的跟随鼠标交互提示端口。 */
@@ -69,6 +72,8 @@ export class DrawService implements InternalDrawService {
   readonly #drawPort: DrawInteractionPort;
   /** 底层编辑交互端口。 */
   readonly #editPort: EditInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly #shapeProjection: ShapeProjectionPort;
   /** 可选的键盘输入。 */
   readonly #input: SessionKeyboardInput | undefined;
   /** 可选的跟随鼠标交互提示端口。 */
@@ -114,6 +119,7 @@ export class DrawService implements InternalDrawService {
     this.#coordinator = dependencies.coordinator;
     this.#drawPort = dependencies.drawPort;
     this.#editPort = dependencies.editPort;
+    this.#shapeProjection = dependencies.shapeProjection;
     this.#input = dependencies.input;
     this.#tooltipPort = dependencies.tooltipPort;
     this.#cursorPort = dependencies.cursorPort;
@@ -136,6 +142,7 @@ export class DrawService implements InternalDrawService {
       styles: this.#styles,
       coordinator: this.#coordinator,
       port: this.#drawPort,
+      shapeProjection: this.#shapeProjection,
       options,
       ...(this.#input === undefined ? {} : { input: this.#input }),
       ...(this.#tooltipPort === undefined ? {} : { tooltipPort: this.#tooltipPort }),
@@ -176,6 +183,7 @@ export class DrawService implements InternalDrawService {
       definition,
       coordinator: this.#coordinator,
       port: this.#editPort,
+      shapeProjection: this.#shapeProjection,
       elementId,
       expectedGeneration,
       options,

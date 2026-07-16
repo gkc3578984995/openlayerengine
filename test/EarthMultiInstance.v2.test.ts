@@ -1,4 +1,6 @@
 import Style from 'ol/style/Style.js';
+import Circle from 'ol/geom/Circle.js';
+import { fromLonLat } from 'ol/proj.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeHtmlElement, FakeMap } from './helpers/EarthMapHarness.js';
 
@@ -88,6 +90,37 @@ describe('Earth v2 多实例真实装配隔离', () => {
     first.controls.disableGraticule();
   });
 
+  it('为不同 View 投影的 Earth 实例隔离 Circle Feature 半径换算', () => {
+    const projected = fromLonLat([120, 60]);
+    const mercatorCenter: [number, number] = [projected[0], projected[1]];
+    const geographicCenter: [number, number] = [120, 60];
+    const mercator = useEarth({ id: 'mercator-circle', target: 'map-a', view: { projection: 'EPSG:3857', center: mercatorCenter } });
+    const geographic = useEarth({ id: 'geographic-circle', target: 'map-b', view: { projection: 'EPSG:4326', center: geographicCenter } });
+
+    try {
+      const mercatorElement = mercator.elements.add({ id: 'shared-circle', geometry: { type: 'circle', center: mercatorCenter, radius: 1_000 } });
+      const geographicElement = geographic.elements.add({ id: 'shared-circle', geometry: { type: 'circle', center: geographicCenter, radius: 1_000 } });
+      const mercatorGeometry = mercatorElement.olFeature.getGeometry();
+      const geographicGeometry = geographicElement.olFeature.getGeometry();
+      if (!(mercatorGeometry instanceof Circle) || !(geographicGeometry instanceof Circle)) throw new Error('测试需要原生 Circle Feature');
+      const geographicRadius = geographicGeometry.getRadius();
+
+      expect(mercatorElement.state.geometry).toEqual({ type: 'circle', center: mercatorCenter, radius: 1_000 });
+      expect(geographicElement.state.geometry).toEqual({ type: 'circle', center: geographicCenter, radius: 1_000 });
+      expect(mercatorGeometry.getRadius()).toBeGreaterThan(1_900);
+      expect(geographicRadius).toBeGreaterThan(0.01);
+      expect(geographicRadius).toBeLessThan(0.02);
+
+      mercatorElement.update({ geometry: { type: 'circle', center: [0, 0], radius: 1_000 } });
+      expect(mercatorGeometry.getRadius()).toBeCloseTo(1_000, 6);
+      expect(geographicGeometry.getRadius()).toBe(geographicRadius);
+      expect(geographicElement.state.geometry).toEqual({ type: 'circle', center: geographicCenter, radius: 1_000 });
+    } finally {
+      mercator.destroy();
+      geographic.destroy();
+    }
+  });
+
   it('隔离 NativeRef、事件、菜单、Overlay、交互和动画状态', () => {
     const first = useEarth('map-a');
     const second = useEarth('map-b');
@@ -156,7 +189,9 @@ describe('Earth v2 多实例真实装配隔离', () => {
     expect(firstMap.disposeCount).toBe(1);
     expect(firstMap.getLayers().getArray()).toEqual([]);
     expect(() => firstElement.state).toThrow(ObjectDisposedError);
-    expect(secondElement.state.geometry.controlPoints).toEqual([[1, 1]]);
+    const secondGeometry = secondElement.state.geometry;
+    if (secondGeometry.type !== 'point') throw new Error('测试需要点元素状态');
+    expect(secondGeometry.controlPoints).toEqual([[1, 1]]);
     expect(secondAnimation.status).toBe('running');
     expect(useEarth('map-b')).toBe(second);
     expect(useEarth('map-a')).not.toBe(first);

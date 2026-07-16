@@ -10,6 +10,7 @@ import type { TransformAnimationPort } from '../../core/ports/AnimationControlPo
 import type { CursorPort, CursorViewHandle } from '../../core/ports/CursorPort.js';
 import type { EditControlAnchor, EditInteractionAnchor } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type {
   TransformDelta,
   TransformEditOperation,
@@ -68,6 +69,8 @@ export interface TransformSessionDependencies {
   readonly coordinator: InteractionCoordinator;
   /** 底层变换交互端口。 */
   readonly interaction: TransformInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly animations: TransformAnimationPort;
   /** 临时动画端口。 */
@@ -117,6 +120,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #coordinator: InteractionCoordinator;
   /** 底层变换交互端口。 */
   readonly #interaction: TransformInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly #shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly #animations: TransformAnimationPort;
   /** 临时动画端口。 */
@@ -226,6 +231,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#styles = dependencies.styles;
     this.#coordinator = dependencies.coordinator;
     this.#interaction = dependencies.interaction;
+    this.#shapeProjection = dependencies.shapeProjection;
     this.#animations = dependencies.animations;
     this.#transients = dependencies.transients;
     this.#toolbarPort = dependencies.toolbarPort;
@@ -557,20 +563,21 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #presentation(state: ElementSnapshot<T>, activeEditAnchor?: EditControlAnchor): TransformInteractionTarget {
     const definition = this.#shapes.get(state.type);
     const topology = definition.editTopology;
+    const viewGeometry = this.#shapeProjection.toViewState(state.geometry);
     const editing = this.#mode === 'edit' && definition.capabilities.has('vertexEdit') && topology !== undefined;
     let controlPoints = emptyControlPoints;
     let editAnchors = emptyEditAnchors;
     if (editing && activeEditAnchor !== undefined) {
-      const trustedCoordinate = trustedShapeControlPointAt(definition, state.geometry as never, activeEditAnchor.index);
+      const trustedCoordinate = trustedShapeControlPointAt(definition, viewGeometry as never, activeEditAnchor.index);
       const describedHandle =
-        trustedCoordinate === undefined ? topology.describe(state.geometry as never).handles.find(({ index }) => index === activeEditAnchor.index) : undefined;
+        trustedCoordinate === undefined ? topology.describe(viewGeometry as never).handles.find(({ index }) => index === activeEditAnchor.index) : undefined;
       const coordinate = trustedCoordinate ?? describedHandle?.coordinate;
       if (coordinate === undefined) throw new InvalidArgumentError(`Transform active edit anchor is unavailable: ${activeEditAnchor.index}`);
       const frozenAnchor = freezeEditControlAnchor(activeEditAnchor, coordinate);
       controlPoints = Object.freeze([frozenAnchor.coordinate]);
       editAnchors = Object.freeze([frozenAnchor]);
     } else if (editing) {
-      const description = topology.describe(state.geometry as never);
+      const description = topology.describe(viewGeometry as never);
       editAnchors = freezeEditAnchors(description.handles, description.insertions);
       controlPoints = Object.freeze(description.handles.map((_, index) => editAnchors[index]!.coordinate));
     }
@@ -579,7 +586,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       elementId: state.id,
       type: state.type,
       layerId: state.layerId,
-      geometry: renderTrustedShapeState(definition, state.geometry as never),
+      geometry: renderTrustedShapeState(definition, viewGeometry as never),
       style: state.style,
       mode: this.#mode,
       controlPoints,
@@ -692,7 +699,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (delta.type !== operation && !(operation === 'stretch' && delta.type === 'stretch')) {
       throw new InvalidArgumentError('Transform operation and delta do not match');
     }
-    this.#working = transformSnapshot(this.#shapes, this.#styles, origin, delta);
+    this.#working = transformSnapshot(this.#shapes, this.#styles, this.#shapeProjection, origin, delta);
     const activeAnchor = operation === 'vertex' && !end && delta.type === 'vertex' && anchor?.index === delta.index ? anchor : undefined;
     const presentation = this.#presentation(this.#working, activeAnchor);
     this.#requireHandle().setTarget(presentation);
@@ -733,7 +740,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (topology === undefined || !definition.capabilities.has('vertexEdit')) {
       throw new CapabilityError(`Shape does not support vertex editing: ${origin.type}`);
     }
-    const description = topology.describe(origin.geometry as never);
+    const viewGeometry = this.#shapeProjection.toViewState(origin.geometry);
+    const description = topology.describe(viewGeometry as never);
     let geometry: ShapeState;
     if (operation === 'insert') {
       if (anchor.kind !== 'insertion') throw new InvalidArgumentError('Transform insert event requires an insertion anchor');
@@ -744,7 +752,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       if (current === undefined || !coordinatesEqual(current.coordinate, anchor.coordinate)) {
         throw new InvalidArgumentError(`Transform insertion anchor is stale or unavailable: ${anchor.index}`);
       }
-      geometry = topology.insert(origin.geometry as never, current.index, cloneCoordinate(current.coordinate)) as ShapeState;
+      geometry = this.#shapeProjection.toElementState(topology.insert(viewGeometry as never, current.index, cloneCoordinate(current.coordinate)) as ShapeState);
     } else {
       if (anchor.kind !== 'control') throw new InvalidArgumentError('Transform remove event requires a control anchor');
       if (!definition.capabilities.has('controlPointRemove') || topology.remove === undefined) {
@@ -754,7 +762,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       if (current === undefined || !current.removable || !anchor.removable || !coordinatesEqual(current.coordinate, anchor.coordinate)) {
         throw new InvalidArgumentError(`Transform control anchor cannot be removed: ${anchor.index}`);
       }
-      geometry = topology.remove(origin.geometry as never, current.index) as ShapeState;
+      geometry = this.#shapeProjection.toElementState(topology.remove(viewGeometry as never, current.index) as ShapeState);
     }
     this.#working = createElementSnapshot(this.#shapes, { ...origin, geometry });
     const presentation = this.#presentation(this.#working);
@@ -815,7 +823,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (clipboard === undefined) return;
     const definition = this.#shapes.get(clipboard.type);
     this.#requireHandle().startCopyPreview({
-      geometry: definition.toRenderGeometry(clipboard.geometry as never),
+      geometry: definition.toRenderGeometry(this.#shapeProjection.toViewState(clipboard.geometry) as never),
       style: clipboard.style
     });
     this.#copyPreview = true;
@@ -827,7 +835,11 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const clipboard = this.#readClipboard();
     if (!this.#copyPreview || clipboard === undefined) return;
     this.#copyPreview = false;
-    const translated = transformSnapshot(this.#shapes, this.#styles, clipboard, { type: 'translate', x: delta.x, y: delta.y });
+    const translated = transformSnapshot(this.#shapes, this.#styles, this.#shapeProjection, clipboard, {
+      type: 'translate',
+      x: delta.x,
+      y: delta.y
+    });
     const copied = this.#commitCopy(translated as ElementSnapshot<T>);
     this.#emit('copyPreviewConfirm', freeze({ type: 'copyPreviewConfirm', state: copied }));
     this.#activateSnapshot(copied, true, true);
@@ -918,7 +930,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         )
       ),
       options: Object.freeze({
-        position: this.#toolbarAnchor ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry),
+        position: this.#toolbarAnchor ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#shapeProjection.toViewState(this.#working.geometry)),
         offset: options.offset ?? ([15, 0] as const),
         ...(options.className === undefined ? {} : { className: options.className }),
         visible: options.visible ?? true
@@ -968,9 +980,12 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #createTooltip(): void {
     this.#destroyTooltip();
     if (this.#tooltipPort === undefined || this.#working === undefined) return;
-    const position = this.#lastPointerCoordinate ?? this.#toolbarAnchor ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry);
     const lines = this.#baseTooltipLines();
     this.#tooltipSourceLines = Object.freeze([...lines]);
+    const position =
+      this.#lastPointerCoordinate ??
+      this.#toolbarAnchor ??
+      toolbarPosition(this.#shapes.get(this.#working.type), this.#shapeProjection.toViewState(this.#working.geometry));
     this.#tooltip = this.#tooltipPort.open({
       ownerId: this.id,
       position,
@@ -1052,7 +1067,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#mode === 'edit') {
       const working = this.#working;
       const definition = working === undefined ? undefined : this.#shapes.get(working.type);
-      const description = definition?.editTopology?.describe(working?.geometry as never);
+      const viewGeometry = working === undefined ? undefined : this.#shapeProjection.toViewState(working.geometry);
+      const description = definition?.editTopology?.describe(viewGeometry as never);
       const canInsert = (description?.insertions.length ?? 0) > 0;
       const canRemove = description?.handles.some(({ removable }) => removable) ?? false;
       const lines = ['拖拽控制点编辑图形'];
@@ -1151,7 +1167,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #pauseAnimationsFor(operation: TransformOperation): void {
     if (this.#animationsPaused || (operation !== 'translate' && operation !== 'scale' && operation !== 'stretch')) return;
     const working = this.#requireWorking();
-    if (this.#shapes.get(working.type).toRenderGeometry(working.geometry as never).type !== 'point') return;
+    if (this.#shapes.get(working.type).toRenderGeometry(this.#shapeProjection.toViewState(working.geometry) as never).type !== 'point') return;
     this.#animationsPaused = this.#animations.pause({ id: working.id }) > 0;
   }
 
@@ -1429,12 +1445,18 @@ const defaultToolbarItems: readonly InternalTransformToolbarItemSpec[] = Object.
 ]);
 
 /** 将变换增量应用到完整元素快照。 */
-function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snapshot: Readonly<ElementState<T>>, delta: TransformDelta): ElementSnapshot<T> {
+function transformSnapshot<T>(
+  shapes: ShapeRegistry,
+  styles: StyleService,
+  shapeProjection: ShapeProjectionPort,
+  snapshot: Readonly<ElementState<T>>,
+  delta: TransformDelta
+): ElementSnapshot<T> {
   assertFiniteTransformDelta(delta);
   const source = isElementSnapshot(snapshot) ? (snapshot as ElementSnapshot<T>) : createElementSnapshot(shapes, snapshot as ElementState<T>);
   const definition = shapes.get(source.type);
   const pointVisualTransform = source.geometry.type === 'point' && delta.type !== 'translate' && delta.type !== 'vertex';
-  const geometry = pointVisualTransform ? source.geometry : transformShape(definition, source.geometry, delta);
+  const geometry = pointVisualTransform ? source.geometry : transformShape(definition, shapeProjection, source.geometry, delta);
   const style = pointVisualTransform ? transformPointStyle(styles, source.style, delta) : source.style;
   if ((delta.type === 'vertex' && !isTrustedShapeMoveDefinition(definition)) || (delta.type !== 'vertex' && !isTrustedTransformDefinition(definition))) {
     return createElementSnapshot(shapes, { ...source, geometry, style });
@@ -1443,12 +1465,14 @@ function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snaps
 }
 
 /** 将变换增量应用到图形状态。 */
-function transformShape(definition: ShapeDefinition, state: ShapeState, delta: TransformDelta): ShapeState {
+function transformShape(definition: ShapeDefinition, shapeProjection: ShapeProjectionPort, state: ShapeState, delta: TransformDelta): ShapeState {
   if (delta.type === 'vertex') {
     if (definition.editTopology === undefined || !definition.capabilities.has('vertexEdit')) {
       throw new CapabilityError(`Shape does not support vertex editing: ${state.type}`);
     }
-    return moveTrustedShapeState(definition, state as never, delta.index, cloneCoordinate(delta.coordinate)) as ShapeState;
+    const viewState = shapeProjection.toViewState(state);
+    const moved = moveTrustedShapeState(definition, viewState as never, delta.index, cloneCoordinate(delta.coordinate)) as ShapeState;
+    return shapeProjection.toElementState(moved, state);
   }
   if (delta.type === 'translate') {
     if (!definition.capabilities.has('translate')) throw new CapabilityError(`Shape does not support translation: ${state.type}`);

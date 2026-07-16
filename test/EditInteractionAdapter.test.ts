@@ -22,6 +22,7 @@ import Style, { type StyleFunction } from 'ol/style/Style.js';
 import RBush from 'ol/structs/RBush.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FeatureBinding, type ProjectionSuppressionLease } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import {
@@ -153,7 +154,7 @@ function setup(options: Readonly<{ wrapX?: boolean; center?: Coordinate; project
   const entry = options.state ?? element();
   store.add(entry);
   const styles = new StyleCompiler(refs);
-  const binding = new FeatureBinding(store, layers, new GeometryCodec(shapes), styles);
+  const binding = new FeatureBinding(store, layers, new GeometryCodec(shapes, identityShapeProjection), styles);
   const reports: unknown[] = [];
   const adapter = new EditInteractionAdapter(map as unknown as OlMap, layers, binding, styles, {
     errorReporter: (error) => reports.push(error)

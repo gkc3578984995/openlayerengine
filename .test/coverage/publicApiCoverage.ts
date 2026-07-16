@@ -203,6 +203,8 @@ const memberCoverage: CoverageItem[] = [
     'flyHome',
     'animateFlyTo',
     'flyTo',
+    'toProjectedCoordinates',
+    'toGeographicCoordinates',
     'setCursor',
     'useDefaultCursor',
     'useCrosshairCursor',

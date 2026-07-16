@@ -1,23 +1,43 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef, useId } from 'vue';
-import { Earth, toFlatCoordinates, type ShapeInput, type ShapeState } from '@vrsim/earth-engine-ol';
+import { Earth, toFlatCoordinates, type Coordinate, type ShapeState } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 
 const mapId = useId();
 const earthRef = shallowRef<Earth | null>(null);
-const input: ShapeInput<'polyline'> = { type: 'polyline', controlPoints: [-1_000_000, 0, 1_000_000, 0] };
+const input = [120, 0, 110, 0] as const;
+const projected = ref<readonly number[]>([]);
 const normalized = ref<ShapeState | null>(null);
+const geographic = ref<readonly Coordinate[]>([]);
 const saved = ref<number[]>([]);
+const circleRadius = ref<number>();
 
 const run = () => {
   const earth = earthRef.value;
   if (earth === null) return;
   earth.elements.clear();
-  const element = earth.elements.add({ geometry: input });
+
+  const projectedInput = earth.view.toProjectedCoordinates(input);
+  projected.value = projectedInput;
+  const element = earth.elements.add({ geometry: { type: 'polyline', controlPoints: projectedInput } });
+  const circle = earth.elements.add({
+    geometry: {
+      type: 'circle',
+      center: earth.view.toProjectedCoordinates([115, 2]),
+      radius: 500_000
+    }
+  });
   const geometry = earth.elements.get(element.id)?.state.geometry;
-  if (geometry === undefined) return;
+  const circleGeometry = earth.elements.get(circle.id)?.state.geometry;
+  if (geometry?.type !== 'polyline' || circleGeometry?.type !== 'circle') return;
+
   normalized.value = geometry;
-  saved.value = 'controlPoints' in geometry ? toFlatCoordinates(geometry.controlPoints) : [];
+  geographic.value = earth.view.toGeographicCoordinates(geometry.controlPoints);
+  saved.value = toFlatCoordinates(geographic.value);
+  circleRadius.value = circleGeometry.radius;
+  const demoCenter = earth.view.toProjectedCoordinates([115, 0]);
+  earth.view.setCenter(demoCenter);
+  earth.map.renderSync();
 };
 
 onMounted(() => {
@@ -34,13 +54,16 @@ onBeforeUnmount(() => {
 <template>
   <div class="example-demo">
     <div class="example-demo__toolbar">
-      <el-button type="primary" @click="run">重新写入并读取</el-button>
+      <el-button type="primary" @click="run">重新转换并读取</el-button>
     </div>
     <div :id="mapId" class="example-stage"></div>
     <el-descriptions :column="1" border>
-      <el-descriptions-item label="写入数组">{{ JSON.stringify(input.controlPoints) }}</el-descriptions-item>
-      <el-descriptions-item label="读取 geometry">{{ JSON.stringify(normalized) }}</el-descriptions-item>
-      <el-descriptions-item label="保存数组">{{ JSON.stringify(saved) }}</el-descriptions-item>
+      <el-descriptions-item label="业务经纬度输入">{{ JSON.stringify(input) }}</el-descriptions-item>
+      <el-descriptions-item label="View 投影坐标">{{ JSON.stringify(projected) }}</el-descriptions-item>
+      <el-descriptions-item label="Element.state geometry">{{ JSON.stringify(normalized) }}</el-descriptions-item>
+      <el-descriptions-item label="转回经纬度">{{ JSON.stringify(geographic) }}</el-descriptions-item>
+      <el-descriptions-item label="扁平保存数组">{{ JSON.stringify(saved) }}</el-descriptions-item>
+      <el-descriptions-item label="圆半径（米）">{{ circleRadius }}</el-descriptions-item>
     </el-descriptions>
   </div>
 </template>

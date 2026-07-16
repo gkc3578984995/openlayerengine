@@ -4,9 +4,11 @@ import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
 import CameraDemo from '../examples/CameraDemo.vue';
 import ControlsDemo from '../examples/ControlsDemo.vue';
+import ElementCoordinateStorageDemo from '../examples/ElementCoordinateStorageDemo.vue';
 import MouseDemo from '../examples/MouseDemo.vue';
 import cameraSource from '../examples/CameraDemo.vue?raw';
 import controlsSource from '../examples/ControlsDemo.vue?raw';
+import elementCoordinateStorageSource from '../examples/ElementCoordinateStorageDemo.vue?raw';
 import mouseSource from '../examples/MouseDemo.vue?raw';
 
 interface AnchorItem {
@@ -31,7 +33,8 @@ const anchors: AnchorItem[] = [
     children: [
       { id: 'demo-camera', label: '相机控制' },
       { id: 'demo-controls', label: '辅助控件' },
-      { id: 'demo-mouse', label: '鼠标与拖拽' }
+      { id: 'demo-mouse', label: '鼠标与拖拽' },
+      { id: 'demo-coordinate-conversion', label: '坐标转换与圆半径' }
     ]
   },
   {
@@ -39,7 +42,8 @@ const anchors: AnchorItem[] = [
     label: 'API',
     children: [
       { id: 'api-type-ifeatureatpixel', label: 'IFeatureAtPixel' },
-      { id: 'api-methods', label: '方法' }
+      { id: 'api-view-methods', label: 'ViewService' },
+      { id: 'api-methods', label: '其他方法' }
     ]
   },
   { id: 'tips', label: '注意事项' }
@@ -48,8 +52,8 @@ const anchors: AnchorItem[] = [
 const methodCols: ApiColumn[] = [
   { prop: 'name', label: '方法名', width: 280, presentation: 'method' },
   { prop: 'desc', label: '说明', width: 340 },
-  { prop: 'params', label: '参数', width: 200, monospace: true },
-  { prop: 'returns', label: '返回值', width: 160, monospace: true }
+  { prop: 'params', label: '参数', width: 320, monospace: true },
+  { prop: 'returns', label: '返回值', width: 240, monospace: true }
 ];
 
 const typeCols: ApiColumn[] = [
@@ -64,6 +68,21 @@ const featureAtPixelRows = [
   { name: 'module', desc: '命中要素所属模块', type: 'string?' },
   { name: 'feature', desc: '命中的 OpenLayers 要素', type: 'Feature&lt;Geometry&gt;?' },
   { name: 'layer', desc: '命中要素所在的 OpenLayers 图层', type: 'Layer&lt;Source, LayerRenderer&lt;any&gt;&gt;?' }
+];
+
+const viewMethodRows = [
+  {
+    name: 'toProjectedCoordinates',
+    desc: '通过 earth.view 调用，把 EPSG:4326 经纬度转成当前 Earth 的 View 投影坐标，并保持扁平或嵌套结构',
+    params: 'readonly number[] | readonly (readonly number[])[]',
+    returns: '与输入结构一致的新坐标'
+  },
+  {
+    name: 'toGeographicCoordinates',
+    desc: '通过 earth.view 调用，把当前 Earth 的 View 投影坐标转成 EPSG:4326 经纬度，并保持扁平或嵌套结构',
+    params: 'readonly number[] | readonly (readonly number[])[]',
+    returns: '与输入结构一致的新坐标'
+  }
 ];
 
 const methodRows = [
@@ -129,7 +148,7 @@ const methodRows = [
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">快速上手</span>
         <h1>Earth 实例方法</h1>
-        <p>Earth 实例上的公共方法：相机控制、辅助控件、鼠标样式、拖拽、事件与工具等。</p>
+        <p>Earth 实例上的公共方法：相机控制、坐标转换、辅助控件、鼠标样式、拖拽、事件与工具等。</p>
       </header>
 
       <section id="overview" class="doc-prose">
@@ -137,7 +156,7 @@ const methodRows = [
         <p>
           <code>Earth</code> 提供了丰富的实例方法来操控地图。除创建/销毁和图层管理（已在
           <RouterLink to="/guide/earth-create" class="doc-link">地图创建与销毁</RouterLink>
-          中介绍）外，还包括相机定位、网格线与比例尺、鼠标样式、拖拽控制、右键菜单、测量绘制等功能。
+          中介绍）外，还包括相机定位、经纬度与 View 投影坐标转换、网格线与比例尺、鼠标样式、拖拽控制、右键菜单、测量绘制等功能。
         </p>
       </section>
 
@@ -179,6 +198,18 @@ const methodRows = [
             </template>
           </ExampleBlock>
         </div>
+
+        <div id="demo-coordinate-conversion">
+          <ExampleBlock
+            title="坐标转换与圆半径"
+            :description="`<code class=&quot;code-fn&quot;><a href=&quot;#api-view-methods&quot;>earth.view.toProjectedCoordinates</a></code> 把业务经纬度转成 View 投影坐标，元素读取后再用 <code class=&quot;code-fn&quot;><a href=&quot;#api-view-methods&quot;>earth.view.toGeographicCoordinates</a></code> 转回经纬度。示例同时验证几何圆的 radius 固定使用米。`"
+            :source="elementCoordinateStorageSource"
+          >
+            <template #preview>
+              <ElementCoordinateStorageDemo />
+            </template>
+          </ExampleBlock>
+        </div>
       </section>
 
       <section id="api" class="doc-prose">
@@ -190,7 +221,11 @@ const methodRows = [
         </p>
         <ApiTable :columns="typeCols" :rows="featureAtPixelRows" />
 
-        <h3 id="api-methods" class="doc-h3">方法</h3>
+        <h3 id="api-view-methods" class="doc-h3">ViewService（earth.view）</h3>
+        <p class="doc-prose__hint">下列方法都通过当前实例的 <code>earth.view</code> 调用，不是 <code>Earth</code> 根对象的方法。</p>
+        <ApiTable :columns="methodCols" :rows="viewMethodRows" />
+
+        <h3 id="api-methods" class="doc-h3">其他方法</h3>
         <ApiTable :columns="methodCols" :rows="methodRows" />
       </section>
 
@@ -207,6 +242,11 @@ const methodRows = [
           <li>右键菜单、绘制工具、测量工具需单独调用对应方法初始化，首次调用后缓存实例。</li>
           <li>
             <code class="code-fn"><a href="#api-methods">getFeatureAtPixel</a></code> 接收的是屏幕像素坐标（相对于地图容器），非地理坐标。
+          </li>
+          <li>
+            <code class="code-fn"><a href="#api-view-methods">earth.view.toProjectedCoordinates</a></code> 和
+            <code class="code-fn"><a href="#api-view-methods">earth.view.toGeographicCoordinates</a></code>
+            使用当前 Earth 的 View 投影，不会修改输入数组。扁平数组必须按 XY 成对，空数组不可用。
           </li>
         </ul>
       </section>

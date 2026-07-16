@@ -40,7 +40,7 @@ export type ShapeInput<T extends ShapeType = ShapeType> = T extends 'circle'
       readonly type: 'circle';
       /** 圆心。接受 OpenLayers 返回的普通坐标数组。 */
       readonly center: readonly number[];
-      /** 半径。使用当前地图投影的坐标单位。 */
+      /** 半径。表示圆的现实距离，单位为米。 */
       readonly radius: number;
     }
   : {
@@ -61,7 +61,7 @@ export type ShapeState<T extends ShapeType = ShapeType> = T extends 'circle'
       readonly type: 'circle';
       /** 圆心。圆的中心坐标。 */
       readonly center: Coordinate;
-      /** 半径。圆在地图坐标中的半径。 */
+      /** 半径。表示圆的现实距离，单位为米。 */
       readonly radius: number;
     }
   : {
@@ -96,7 +96,7 @@ export type RenderGeometryState =
       readonly type: 'circle';
       /** 圆心。圆的中心坐标。 */
       readonly center: Coordinate;
-      /** 半径。圆在地图坐标中的半径。 */
+      /** 半径。圆在当前 View 投影中的渲染半径。 */
       readonly radius: number;
     };
 

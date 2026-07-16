@@ -26,6 +26,7 @@ import type {
   TransformTooltipViewState
 } from '../../src/core/ports/TransformTooltipPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../src/core/ports/TransientAnimationPort.js';
+import type { ShapeProjectionPort } from '../../src/core/ports/ShapeProjectionPort.js';
 import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import type { RenderGeometryState, ShapeState, ShapeType } from '../../src/core/shape/types.js';
 import type { ElementStyleState } from '../../src/core/style/types.js';
@@ -34,6 +35,7 @@ import { StyleService } from '../../src/services/style/StyleService.js';
 import { TransformService } from '../../src/services/transform/TransformService.js';
 import type { InternalTransformToolbarOptions } from '../../src/services/transform/types.js';
 import { FakeCursorPort } from './cursorHarness.js';
+import { identityShapeProjection } from './shapeProjection.js';
 
 export class FakeTransformPort implements TransformInteractionPort {
   readonly log: string[];
@@ -273,7 +275,8 @@ export interface TransformHarnessAnimationPorts {
 
 export function createTransformHarness(
   toolbar = false as false | InternalTransformToolbarOptions,
-  createAnimationPorts?: (context: Readonly<{ store: ElementStore; shapes: ShapeRegistry }>) => TransformHarnessAnimationPorts
+  createAnimationPorts?: (context: Readonly<{ store: ElementStore; shapes: ShapeRegistry }>) => TransformHarnessAnimationPorts,
+  shapeProjection: ShapeProjectionPort = identityShapeProjection
 ) {
   const log: string[] = [];
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
@@ -293,6 +296,7 @@ export function createTransformHarness(
   const service = new TransformService({
     store,
     shapes,
+    shapeProjection,
     styles,
     coordinator,
     interaction,

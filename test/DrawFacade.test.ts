@@ -2,6 +2,7 @@ import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -121,7 +122,7 @@ function setup() {
   const manager = new LayerManager(store, adapter);
   const layers = new LayerServiceImpl(manager, adapter, refs);
   layers.add({ kind: 'vector', id: 'draw-layer' });
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes), new StyleCompiler(refs));
+  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs));
   const elements = new ElementServiceImpl(store, manager, binding, layers, refs, new FakeHitTest());
   const drawPort = new FakeDrawPort();
   const editPort = new FakeEditPort();
@@ -129,6 +130,7 @@ function setup() {
   const internal = new DrawService({
     store,
     shapes,
+    shapeProjection: identityShapeProjection,
     styles: new StyleService(store),
     coordinator: new InteractionCoordinator(),
     drawPort,
