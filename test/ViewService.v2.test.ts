@@ -4,7 +4,11 @@ import View from 'ol/View.js';
 import DragPan from 'ol/interaction/DragPan.js';
 import Graticule from 'ol/layer/Graticule.js';
 import ScaleLine from 'ol/control/ScaleLine.js';
-import { ObjectDisposedError } from '../src/core/errors.js';
+import { addCoordinateTransforms, get as getProjection } from 'ol/proj.js';
+import Projection from 'ol/proj/Projection.js';
+import { remove as removeCoordinateTransform } from 'ol/proj/transforms.js';
+import { ShapeProjectionAdapter } from '../src/adapters/openlayers/ShapeProjectionAdapter.js';
+import { InvalidArgumentError, ObjectDisposedError } from '../src/core/errors.js';
 import { ControlServiceImpl } from '../src/facade/ControlService.js';
 import { ViewServiceImpl } from '../src/facade/ViewService.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
@@ -12,10 +16,10 @@ import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 const extent = [-20_037_508.342789244, -20_037_508.342789244, 20_037_508.342789244, 20_037_508.342789244] as const;
 const worldWidth = extent[2] - extent[0];
 
-function createViewHarness(options: { center?: number[]; zoom?: number; coordinateAtPixel?: number[] | null } = {}) {
+function createViewHarness(options: { center?: number[]; zoom?: number; coordinateAtPixel?: number[] | null; projection?: Projection } = {}) {
   const center = options.center ?? [0, 0];
   const zoom = options.zoom ?? 7;
-  const projection = { getExtent: vi.fn(() => [...extent]) };
+  const projection = options.projection ?? { getExtent: vi.fn(() => [...extent]) };
   let animationCallback: ((completed: boolean) => void) | undefined;
   const animate = vi.fn((...args: unknown[]) => {
     const callback = args.at(-1);
@@ -167,6 +171,130 @@ describe('ViewServiceImpl', () => {
 
     expect(service.coordinateAtPixel([1, 2])).toBeUndefined();
     expect(service.translateCoordinatesToPixel([1, 2], [3, 4])).toBeUndefined();
+  });
+
+  it('在扁平经纬度和当前 View 投影坐标之间往返转换', () => {
+    const projection = getProjection('EPSG:3857');
+    if (projection === null) throw new Error('EPSG:3857 projection is unavailable');
+    const { service } = createViewHarness({ projection });
+    const geographic = Object.freeze([120, 0, 110, 20]);
+
+    const projected = service.toProjectedCoordinates(geographic);
+    const restored = service.toGeographicCoordinates(projected);
+
+    expect(projected).not.toBe(geographic);
+    expect(projected[0]).toBeCloseTo(13_358_338.895, 3);
+    expect(projected[1]).toBeCloseTo(0, 8);
+    expect(projected[2]).toBeCloseTo(12_245_143.987, 3);
+    expect(projected[3]).toBeCloseTo(2_273_030.927, 3);
+    expect(restored).toHaveLength(geographic.length);
+    restored.forEach((value, index) => expect(value).toBeCloseTo(geographic[index]!, 10));
+    expect(geographic).toEqual([120, 0, 110, 20]);
+  });
+
+  it('保持嵌套坐标结构和三维高度，并且不修改输入', () => {
+    const projection = getProjection('EPSG:3857');
+    if (projection === null) throw new Error('EPSG:3857 projection is unavailable');
+    const { service } = createViewHarness({ projection });
+    const geographic = [
+      [120, 0],
+      [110, 20, 500]
+    ];
+
+    const projected = service.toProjectedCoordinates(geographic);
+    const restored = service.toGeographicCoordinates(projected);
+
+    expect(projected).not.toBe(geographic);
+    expect(projected[0]).not.toBe(geographic[0]);
+    expect(projected[1]).toHaveLength(3);
+    expect(projected[1]?.[2]).toBe(500);
+    expect(restored[0]?.[0]).toBeCloseTo(120, 10);
+    expect(restored[0]?.[1]).toBeCloseTo(0, 10);
+    expect(restored[1]?.[0]).toBeCloseTo(110, 10);
+    expect(restored[1]?.[1]).toBeCloseTo(20, 10);
+    expect(restored[1]?.[2]).toBe(500);
+    expect(geographic).toEqual([
+      [120, 0],
+      [110, 20, 500]
+    ]);
+  });
+
+  it('当前 View 使用 EPSG:4326 时仍返回独立且结构一致的坐标', () => {
+    const projection = getProjection('EPSG:4326');
+    if (projection === null) throw new Error('EPSG:4326 projection is unavailable');
+    const { service } = createViewHarness({ projection });
+    const flat = [120, 0, 110, 20] as const;
+    const nested = [[120, 0, 300]] as const;
+
+    const projectedFlat = service.toProjectedCoordinates(flat);
+    const geographicNested = service.toGeographicCoordinates(nested);
+
+    expect(projectedFlat).toEqual(flat);
+    expect(projectedFlat).not.toBe(flat);
+    expect(geographicNested).toEqual(nested);
+    expect(geographicNested).not.toBe(nested);
+    expect(geographicNested[0]).not.toBe(nested[0]);
+  });
+
+  it('支持已注册转换关系的自定义 View 投影，并提供有效米制圆半径比例', () => {
+    const geographicProjection = getProjection('EPSG:4326');
+    if (geographicProjection === null) throw new Error('EPSG:4326 projection is unavailable');
+    const customProjection = new Projection({
+      code: 'TEST:REGISTERED-METER-VIEW-20260716',
+      units: 'm',
+      extent: [-180_000, -90_000, 180_000, 90_000],
+      getPointResolution: (resolution) => resolution
+    });
+    addCoordinateTransforms(
+      geographicProjection,
+      customProjection,
+      (coordinate) => [coordinate[0] * 1_000, coordinate[1] * 1_000, ...coordinate.slice(2)],
+      (coordinate) => [coordinate[0] / 1_000, coordinate[1] / 1_000, ...coordinate.slice(2)]
+    );
+
+    try {
+      const { service } = createViewHarness({ projection: customProjection });
+      const geographic = [120, 30, -45, 10] as const;
+      const projected = service.toProjectedCoordinates(geographic);
+      const restored = service.toGeographicCoordinates(projected);
+
+      expect(projected).toEqual([120_000, 30_000, -45_000, 10_000]);
+      expect(restored).toEqual(geographic);
+
+      const shapeProjection = new ShapeProjectionAdapter(customProjection);
+      const viewed = shapeProjection.toViewState({ type: 'circle', center: [120_000, 30_000], radius: 750 });
+      expect(viewed).toEqual({ type: 'circle', center: [120_000, 30_000], radius: 750 });
+    } finally {
+      removeCoordinateTransform(geographicProjection, customProjection);
+      removeCoordinateTransform(customProjection, geographicProjection);
+    }
+  });
+
+  it('拒绝空数组、奇数扁平数组、非有限值和非法嵌套结构', () => {
+    const projection = getProjection('EPSG:3857');
+    if (projection === null) throw new Error('EPSG:3857 projection is unavailable');
+    const { service } = createViewHarness({ projection });
+    const sparse = [120, 0, 110, 20];
+    delete sparse[2];
+    const accessor = [120, 0];
+    Object.defineProperty(accessor, '0', { get: () => 120, configurable: true });
+
+    expect(() => service.toProjectedCoordinates([])).toThrow(InvalidArgumentError);
+    expect(() => service.toProjectedCoordinates([120, 0, 110])).toThrow(InvalidArgumentError);
+    expect(() => service.toProjectedCoordinates([120, Number.NaN])).toThrow(InvalidArgumentError);
+    expect(() => service.toProjectedCoordinates(sparse)).toThrow(InvalidArgumentError);
+    expect(() => service.toProjectedCoordinates(accessor)).toThrow(InvalidArgumentError);
+    expect(() => service.toProjectedCoordinates([[120]] as never)).toThrow(InvalidArgumentError);
+    expect(() => service.toProjectedCoordinates([[120, 0, 10, 20]] as never)).toThrow(InvalidArgumentError);
+    expect(() => service.toGeographicCoordinates([[120, 0], 110] as never)).toThrow(InvalidArgumentError);
+  });
+
+  it('当前 View 投影没有注册坐标转换时统一抛出参数错误', () => {
+    const projection = new Projection({ code: 'TEST:VIEW-NO-TRANSFORM', units: 'm' });
+    const { service } = createViewHarness({ projection });
+
+    expect(() => service.toProjectedCoordinates([120, 0])).toThrow(InvalidArgumentError);
+    expect(() => service.toGeographicCoordinates([120, 0])).toThrow(InvalidArgumentError);
   });
 
   it('销毁时取消 View 动画并以 false 完成回调', () => {

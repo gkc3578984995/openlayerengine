@@ -11,11 +11,12 @@ export const viewControlsScenario: ScenarioDefinition = {
   id: 'view-controls',
   group: '核心与实例',
   title: '视图、世界坐标与地图控件',
-  summary: '通过中文参数面板验证 ViewService 的定位、动画、光标、拖拽、跨世界和像素换算能力，以及经纬网和比例尺控件。',
+  summary: '通过中文参数面板验证 ViewService 的定位、动画、光标、拖拽、经纬度双向转换、跨世界和像素换算能力，以及经纬网和比例尺控件。',
   steps: [
     '修改中心、缩放级别和动画时长，依次执行即时定位、动画飞行与返回初始位置。',
     '切换光标和地图拖拽开关，直接在地图上确认交互结果。',
     '启用、禁用经纬网与比例尺，确认 controls.graticule 和 controls.scaleLine 状态同步变化。',
+    '执行扁平和嵌套坐标的经纬度双向转换，确认结构、Z 值与输入数组保持。',
     '执行世界坐标与像素换算，检查点、线、面三种重载均返回结果。'
   ],
   mount(context) {
@@ -253,8 +254,28 @@ export const viewControlsScenario: ScenarioDefinition = {
       context.check('比例尺已移除', earth.controls.scaleLine === undefined);
     });
 
-    const coordinates = context.section('世界坐标与像素换算', '同时调用点、折线和面环重载，便于人工检查跨世界恢复与像素锚定结果。');
+    const coordinates = context.section('坐标转换、世界坐标与像素换算', '双向转换 EPSG:4326 经纬度与当前 View 投影坐标，并检查跨世界恢复与像素锚定结果。');
     const coordinateActions = context.actions(coordinates);
+    context.button(coordinateActions, '经纬度与 View 投影双向转换', () => {
+      const flat = [120, 0, 110, 0] as const;
+      const nested = [
+        [120, 0, 500],
+        [110, 0]
+      ] as const;
+      const flatBefore = JSON.stringify(flat);
+      const nestedBefore = JSON.stringify(nested);
+      const projectedFlat = earth.view.toProjectedCoordinates(flat);
+      const projectedNested = earth.view.toProjectedCoordinates(nested);
+      const restoredFlat = earth.view.toGeographicCoordinates(projectedFlat);
+      const restoredNested = earth.view.toGeographicCoordinates(projectedNested);
+      context.status('扁平投影坐标', projectedFlat);
+      context.status('扁平往返结果', restoredFlat);
+      context.status('嵌套投影坐标', projectedNested);
+      context.status('嵌套往返结果', restoredNested);
+      context.check('扁平坐标保持结构并可往返', closeNumberArray(restoredFlat, flat));
+      context.check('嵌套坐标保留 Z 值', restoredNested[0]?.[2] === 500 && restoredNested[1] !== undefined && closeCoordinate(restoredNested[1], nested[1]));
+      context.check('坐标转换不修改输入', JSON.stringify(flat) === flatBefore && JSON.stringify(nested) === nestedBefore);
+    });
     context.button(coordinateActions, '检查 worldWidth() 与 worldIndex()', () => {
       const width = earth.view.worldWidth();
       const x = width === undefined ? 0 : width * 1.25;
@@ -325,6 +346,10 @@ earth.view.animateFlyTo([0, 0], {
   callback: (completed) => console.log(completed)
 });
 
+const projected = earth.view.toProjectedCoordinates([120, 0, 110, 0]);
+const geographic = earth.view.toGeographicCoordinates(projected);
+console.log(projected, geographic);
+
 const graticuleOptions: GraticuleOptions = {
   className: 'ol-layer business-graticule',
   opacity: 0.88,
@@ -383,6 +408,10 @@ function easeInOut(progress: number): number {
 
 function closeCoordinate(left: Coordinate, right: Coordinate): boolean {
   return Math.abs(left[0] - right[0]) < 1e-6 && Math.abs(left[1] - right[1]) < 1e-6;
+}
+
+function closeNumberArray(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => Math.abs(value - (right[index] ?? Number.NaN)) < 1e-6);
 }
 
 function refreshViewStatus(context: Parameters<ScenarioDefinition['mount']>[0], earth: Earth): void {

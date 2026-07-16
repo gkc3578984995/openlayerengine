@@ -3,6 +3,7 @@ import Geometry from 'ol/geom/Geometry.js';
 import Point from 'ol/geom/Point.js';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -50,7 +51,7 @@ function setup(seed: ElementState[] = []) {
   manager.add({ kind: 'vector', id: 'second', visible: true, opacity: 1, wrapX: true, declutter: false });
   for (const state of seed) store.add(state);
   const subscribe = vi.spyOn(store, 'subscribe');
-  const codec = new GeometryCodec(shapes);
+  const codec = new GeometryCodec(shapes, identityShapeProjection);
   const errorReporter = vi.fn();
   const binding = new FeatureBinding(store, adapter, codec, new StyleCompiler(refs), { errorReporter });
   return { adapter, binding, codec, errorReporter, manager, refs, store, subscribe };
@@ -102,7 +103,7 @@ describe('FeatureBinding', () => {
       return unsubscribe;
     });
 
-    const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes), new StyleCompiler(refs));
+    const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs));
     expect(subscribe).toHaveBeenCalledTimes(1);
     expect(binding.requireFeature('during-subscribe').getId()).toBe('during-subscribe');
     expect(adapter.requireVectorSource('default').getFeatures()).toHaveLength(1);

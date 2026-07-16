@@ -6,6 +6,7 @@ import { InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } 
 import type { AnimationControlPort, AnimationPreviewPort } from '../../core/ports/AnimationControlPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { LayerRenderBatch, LayerRenderContribution, LayerRenderFrame, LayerRenderLoopHandle, LayerRenderPort } from '../../core/ports/LayerRenderPort.js';
+import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { RenderGeometryState } from '../../core/shape/types.js';
@@ -24,6 +25,8 @@ export interface AnimationManagerDependencies {
   readonly shapes: ShapeRegistry;
   /** 图层渲染端口。 */
   readonly render: LayerRenderPort;
+  /** 将元素规范状态转换为 View 工作状态。 */
+  readonly shapeProjection: ShapeProjectionPort;
   /** 可选的动画定义注册表。 */
   readonly registry?: AnimationRegistry;
   /** 可选的错误报告器。 */
@@ -129,6 +132,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   readonly #shapes: ShapeRegistry;
   /** 图层渲染端口。 */
   readonly #render: LayerRenderPort;
+  /** 将元素规范状态转换为 View 工作状态。 */
+  readonly #shapeProjection: ShapeProjectionPort;
   /** 动画定义注册表。 */
   readonly #registry: AnimationRegistry;
   /** 动画错误报告器。 */
@@ -174,6 +179,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#store = dependencies.store;
     this.#shapes = dependencies.shapes;
     this.#render = dependencies.render;
+    this.#shapeProjection = dependencies.shapeProjection;
     this.#registry = dependencies.registry ?? createBuiltinAnimationRegistry();
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
     this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
@@ -808,7 +814,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     if (cached?.state === state && cached.generation === generation && cached.revision === revision) return cached;
     return Object.freeze({
       state,
-      geometry: freezeRenderGeometry(this.#shapes.get(state.type).toRenderGeometry(state.geometry as never)),
+      geometry: freezeRenderGeometry(this.#shapes.get(state.type).toRenderGeometry(this.#shapeProjection.toViewState(state.geometry) as never)),
       generation,
       revision
     });

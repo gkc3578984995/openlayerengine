@@ -5,6 +5,7 @@ import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import type { Coordinate } from '../../core/common/types.js';
+import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { RenderGeometryState, ShapeInput, ShapeState } from '../../core/shape/types.js';
 
@@ -15,10 +16,13 @@ export type RenderGeometryKind = RenderGeometryState['type'];
 export class GeometryCodec {
   /** 提供各图形的渲染规则。 */
   readonly #shapes: ShapeRegistry;
+  /** 将元素规范状态转换为 View 工作状态。 */
+  readonly #projection: ShapeProjectionPort;
 
-  /** 保存图形定义注册表。 */
-  constructor(shapes: ShapeRegistry) {
+  /** 保存图形定义注册表和实例级投影转换端口。 */
+  constructor(shapes: ShapeRegistry, projection: ShapeProjectionPort) {
     this.#shapes = shapes;
+    this.#projection = projection;
   }
 
   /** 把图形状态投影到要素现有或新建的 Geometry。 */
@@ -58,13 +62,13 @@ export class GeometryCodec {
   renderKind(input: ShapeInput): RenderGeometryKind {
     const definition = this.#shapes.get(input.type);
     const state = definition.normalize(input);
-    return definition.toRenderGeometry(state as never).type;
+    return definition.toRenderGeometry(this.#projection.toViewState(state) as never).type;
   }
 
   /** 调用图形定义生成渲染状态。 */
   #render(state: ShapeState): RenderGeometryState {
     const definition = this.#shapes.get(state.type);
-    return definition.toRenderGeometry(state as never);
+    return definition.toRenderGeometry(this.#projection.toViewState(state) as never);
   }
 }
 

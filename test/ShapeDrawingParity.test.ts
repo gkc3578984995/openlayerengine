@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import type { Coordinate } from '../src/core/common/types.js';
@@ -166,6 +167,7 @@ describe('Shape drawing parity', () => {
     const service = new DrawService({
       store,
       shapes,
+      shapeProjection: identityShapeProjection,
       styles: new StyleService(store),
       coordinator: new InteractionCoordinator(),
       drawPort: port,

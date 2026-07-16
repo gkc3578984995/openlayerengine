@@ -8,6 +8,7 @@ import NativeStyle from 'ol/style/Style.js';
 import type Icon from 'ol/style/Icon.js';
 import type Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { HitTestAdapter } from '../src/adapters/openlayers/HitTestAdapter.js';
@@ -42,7 +43,7 @@ function setup() {
   const layers = new LayerServiceImpl(manager, adapter, refs);
   layers.add({ kind: 'vector', id: 'second' });
   const compiler = new StyleCompiler(refs, { getViewRotation: () => 0.25 });
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes), compiler);
+  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), compiler);
   const hitTest = new HitTestAdapter(map, store, manager, adapter, binding, { hitTolerance: 7 });
   const elements = new ElementServiceImpl(store, manager, binding, layers, refs, hitTest);
   return { adapter, binding, elements, hitTest, layers, manager, map, store };

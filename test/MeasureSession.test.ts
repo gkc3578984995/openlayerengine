@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { MeasurementAdapter } from '../src/adapters/openlayers/MeasurementAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
@@ -151,6 +152,7 @@ function setup() {
   const draw = new DrawService({
     store,
     shapes,
+    shapeProjection: identityShapeProjection,
     styles,
     coordinator,
     drawPort,

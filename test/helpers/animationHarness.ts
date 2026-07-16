@@ -12,6 +12,7 @@ import type {
 } from '../../src/core/ports/LayerRenderPort.js';
 import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import { AnimationManagerImpl } from '../../src/services/animation/AnimationManager.js';
+import { identityShapeProjection } from './shapeProjection.js';
 
 interface FakeLoop {
   readonly layerId: string;
@@ -153,7 +154,7 @@ export function createAnimationHarness(seed: readonly ElementState[] = []): Anim
   for (const state of seed) store.add(state);
   const render = new FakeLayerRenderPort();
   for (const state of seed) render.addElementTarget(state.layerId, state.id);
-  const manager = new AnimationManagerImpl({ store, shapes, render });
+  const manager = new AnimationManagerImpl({ store, shapes, render, shapeProjection: identityShapeProjection });
   return { shapes, store, render, manager };
 }
 

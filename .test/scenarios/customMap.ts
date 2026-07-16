@@ -8,7 +8,7 @@ export const customMap: ScenarioDefinition = {
   summary: '直接展示自定义地图。',
   steps: ['测试创建一个自定义地图，并展示所有工具函数的结果。'],
   mount(context) {
-    const target = context.createMapTarget('1');
+    const target = context.createMapTarget('自定义地图');
     target.id = 'olContainer';
     setTimeout(() => {
       const earth = context.trackEarth(useEarth({ view: { center: [0, 0], zoom: 2 } }));

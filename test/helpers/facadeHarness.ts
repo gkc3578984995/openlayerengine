@@ -6,6 +6,7 @@ import { StyleCompiler } from '../../src/adapters/openlayers/style/StyleCompiler
 import { basicShapeDefinitions } from '../../src/builtins/shapes/basic.js';
 import { ElementStore } from '../../src/core/element/ElementStore.js';
 import type { HitTestPort } from '../../src/core/ports/HitTestPort.js';
+import type { ShapeProjectionPort } from '../../src/core/ports/ShapeProjectionPort.js';
 import { LayerManager } from '../../src/core/layer/LayerManager.js';
 import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../../src/core/style/types.js';
@@ -13,6 +14,7 @@ import { ElementServiceImpl } from '../../src/facade/ElementService.js';
 import { LayerServiceImpl } from '../../src/facade/LayerService.js';
 import { assertStructuredStyleSpec } from '../../src/services/style/StyleService.js';
 import { createTestMap } from '../fixtures/Task8Map.js';
+import { identityShapeProjection } from './shapeProjection.js';
 
 class EmptyHitTest implements HitTestPort {
   atPixel(): undefined {
@@ -24,7 +26,7 @@ class EmptyHitTest implements HitTestPort {
   }
 }
 
-export function createFacadeHarness() {
+export function createFacadeHarness(shapeProjection: ShapeProjectionPort = identityShapeProjection) {
   const map = createTestMap();
   const refs = new NativeRefRegistry();
   const shapes = new ShapeRegistry(basicShapeDefinitions);
@@ -42,7 +44,7 @@ export function createFacadeHarness() {
   const manager = new LayerManager(store, adapter);
   context.manager = manager;
   const layers = new LayerServiceImpl(manager, adapter, refs);
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes), new StyleCompiler(refs));
+  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, shapeProjection), new StyleCompiler(refs));
   const elements = new ElementServiceImpl(store, manager, binding, layers, refs, new EmptyHitTest());
 
   const destroy = () => {

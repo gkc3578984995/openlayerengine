@@ -7,6 +7,7 @@
 - 目标版本：@vrsim/earth-engine-ol 2.0.0
 - OpenLayers 基线：10.9.0
 - 取代：2026-07-13-v2-public-api-design.md
+- 补充：2026-07-16-v2-coordinate-conversion-and-circle-radius-design.md
 
 本文是 2.0 架构、公共能力和实施边界的唯一设计依据。被取代的旧规格中关于兼容旧构造器、公开功能子路径、独立 Plot 入口以及继续打包 ol-wind 的内容不再有效。
 
@@ -195,6 +196,14 @@ ElementStore 提供 add、get、query、update、remove、hide、show、copy 和
 - Transform 和 Edit 的撤销、重做与回滚。
 
 复制和历史记录使用 ElementSnapshot，不克隆 OL Feature，不携带运行中的动画或会话。
+
+### 5.5 坐标与距离单位
+
+Element 坐标继续使用当前 View 投影。`ViewService.toProjectedCoordinates()` 负责把 EPSG:4326 经纬度转换为当前 View 投影，`ViewService.toGeographicCoordinates()` 负责反向转换；两者支持扁平二维数组和一层嵌套二维或三维坐标，不修改输入，并保持输入结构。
+
+几何圆的 `ShapeInput.radius`、`ShapeState.radius`、快照、复制以及 Draw、Edit、Transform 的持久结果固定使用米。`style.symbol.radius` 仍使用 CSS 像素，`Element.olFeature` 中 OL Circle 的半径仍使用 View 投影单位。
+
+圆的米制状态通过实例级 ShapeProjectionPort 显式投影到渲染和交互工作状态。Core 不导入 OpenLayers；GeometryCodec、Draw、Edit、Transform 和 AnimationManager 复用同一转换端口。平移圆不改变米制半径，缩放按既有比例修改米制半径，改变纬度后按新圆心重新计算展示半径。具体错误、局部比例和迁移规则以补充设计为准。
 
 ## 6. LayerManager
 

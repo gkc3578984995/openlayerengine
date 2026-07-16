@@ -23,6 +23,7 @@ import type { LineMeasurement, MeasurementPort, MeasurementSegment, SurfaceMeasu
 import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import type { ElementStyleState } from '../../src/core/style/types.js';
 import { DrawService } from '../../src/services/draw/DrawService.js';
+import { identityShapeProjection } from './shapeProjection.js';
 import type { SessionKeyboardInput } from '../../src/services/draw/types.js';
 import { InteractionCoordinator } from '../../src/services/events/InteractionCoordinator.js';
 import type { RoutedPointerEvent } from '../../src/services/events/types.js';
@@ -211,6 +212,7 @@ export function createDrawLifecycleHarness(style: ElementStyleState = defaultSty
   const draw = new DrawService({
     store,
     shapes,
+    shapeProjection: identityShapeProjection,
     styles,
     coordinator,
     drawPort,

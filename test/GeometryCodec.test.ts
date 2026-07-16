@@ -11,6 +11,7 @@ import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { shapeTypes, type ShapeState, type ShapeType } from '../src/core/shape/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 
 const inputs: Record<ShapeType, ShapeState> = {
   point: { type: 'point', controlPoints: [[1, 2]] },
@@ -160,7 +161,7 @@ const inputs: Record<ShapeType, ShapeState> = {
 };
 
 function createCodec(): GeometryCodec {
-  return new GeometryCodec(new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]));
+  return new GeometryCodec(new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]), identityShapeProjection);
 }
 
 describe('GeometryCodec', () => {

@@ -16,6 +16,7 @@ import type {
   EditInteractionRenderState
 } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
 import type { ControlPointTopology, RenderGeometryState, ShapeDefinition, ShapeEditTopology, ShapeState } from '../../core/shape/types.js';
 import { moveTrustedShapeState, renderTrustedShapeState } from '../../core/shape/trustedRender.js';
@@ -38,6 +39,8 @@ export interface EditSessionDependencies {
   readonly coordinator: InteractionCoordinator;
   /** 底层编辑交互端口。 */
   readonly port: EditInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly shapeProjection: ShapeProjectionPort;
   /** 目标元素 ID。 */
   readonly elementId: string;
   /** 目标元素预期代次。 */
@@ -71,6 +74,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   readonly #coordinator: InteractionCoordinator;
   /** 底层编辑交互端口。 */
   readonly #port: EditInteractionPort;
+  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  readonly #shapeProjection: ShapeProjectionPort;
   /** 目标元素预期代次。 */
   readonly #expectedGeneration: ElementGeneration;
   /** 编辑会话配置。 */
@@ -113,15 +118,17 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #entryRevision: ElementRevision | undefined;
   /** 当前编辑中的图形状态。 */
   #workingState: ShapeState | undefined;
+  /** 当前编辑中的元素规范状态。 */
+  #workingElementState: ShapeState | undefined;
   /** 最近一次成功渲染对应的控制点拓扑。 */
   #renderedTopology: ControlPointTopology | undefined;
-  /** 拖动开始时的图形状态。 */
+  /** 拖动开始时的元素规范状态。 */
   #dragOrigin: ShapeState | undefined;
   /** 当前拖动控制点索引。 */
   #dragIndex: number | undefined;
   /** 当前拖拽控制点最近一次完成世界放置的坐标。 */
   #dragCoordinate: Coordinate | undefined;
-  /** 编辑历史快照。 */
+  /** 元素规范状态的编辑历史快照。 */
   #history: ShapeState[] = [];
   /** 当前历史索引。 */
   #historyIndex = 0;
@@ -149,6 +156,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#definition = dependencies.definition;
     this.#coordinator = dependencies.coordinator;
     this.#port = dependencies.port;
+    this.#shapeProjection = dependencies.shapeProjection;
     this.elementId = requireElementId(dependencies.elementId);
     const expectedGeneration = dependencies.expectedGeneration ?? dependencies.store.generationOf(this.elementId);
     if (expectedGeneration === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
@@ -185,7 +193,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     if (entry === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
     if (entry.type !== this.#definition.type) throw new InvalidArgumentError('Edit shape definition does not match the target element');
     const topology = this.#topology();
-    const controlPoints = topology.describe(entry.geometry as never).handles.map(({ coordinate }) => cloneCoordinate(coordinate));
+    const viewGeometry = this.#shapeProjection.toViewState(entry.geometry);
+    const controlPoints = topology.describe(viewGeometry as never).handles.map(({ coordinate }) => cloneCoordinate(coordinate));
     this.#entryState = entry;
     this.#entryRevision = entryRevision;
     this.#opening = true;
@@ -202,8 +211,10 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       this.#handle = handle;
       this.#cursor = this.#cursorPort?.open();
       if (this.#status !== 'active') throw new ObjectDisposedError('Edit session was cancelled while opening');
-      this.#workingState = freezeShapeState(this.#stateFromControlPoints(handle.placement.controlPoints));
-      this.#history = [this.#workingState];
+      const placedState = this.#stateFromControlPoints(handle.placement.controlPoints);
+      this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(placedState, entry.geometry));
+      this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(this.#workingElementState));
+      this.#history = [this.#workingElementState];
       this.#historyIndex = 0;
       this.#render();
       if (this.#status !== 'active') throw new ObjectDisposedError('Edit session was cancelled while opening');
@@ -238,6 +249,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       const working = this.#requireWorkingState();
       const canonicalControlPoints = canonicalizeWorldEdit(this.#controlPoints(working), this.#requireHandle().placement.handoff);
       const completed = this.#stateFromControlPoints(canonicalControlPoints);
+      const elementGeometry = this.#shapeProjection.toElementState(completed, this.#requireWorkingElementState());
       const entryRevision = this.#entryRevision;
       if (entryRevision === undefined) throw new ObjectDisposedError('Edit interaction is not open');
       if (!this.#store.isGenerationCurrent(this.elementId, this.#expectedGeneration) || !this.#store.isRevisionCurrent(this.elementId, entryRevision)) {
@@ -250,7 +262,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
         const current = transaction.get<T>(this.elementId);
         if (current === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
         if (current.type !== this.#definition.type) throw new InvalidArgumentError('Edit target type changed during the session');
-        const updated = transaction.update<T>({ id: this.elementId }, { geometry: completed });
+        const updated = transaction.update<T>({ id: this.elementId }, { geometry: elementGeometry });
         const result = updated[0];
         if (result === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
         return result;
@@ -288,24 +300,27 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   undo(): boolean {
     if (this.#status !== 'active' || this.#historyIndex === 0) return false;
     const nextIndex = this.#historyIndex - 1;
-    const nextState = this.#history[nextIndex];
+    const nextElementState = this.#history[nextIndex];
     const previousIndex = this.#historyIndex;
     const previousState = this.#workingState;
+    const previousElementState = this.#workingElementState;
     const previousDragOrigin = this.#dragOrigin;
     const previousDragIndex = this.#dragIndex;
     this.#historyIndex = nextIndex;
-    this.#workingState = nextState;
+    this.#workingElementState = nextElementState;
+    this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(nextElementState));
     this.#clearDrag();
     try {
       this.#render();
     } catch (error) {
       this.#historyIndex = previousIndex;
       this.#workingState = previousState;
+      this.#workingElementState = previousElementState;
       this.#dragOrigin = previousDragOrigin;
       this.#dragIndex = previousDragIndex;
       throw error;
     }
-    this.#emit('modifying', modifyingEvent(this.#workingState, 'undo'));
+    this.#emit('modifying', modifyingEvent(this.#requireWorkingElementState(), 'undo'));
     this.#clearHover();
     return true;
   }
@@ -314,24 +329,27 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   redo(): boolean {
     if (this.#status !== 'active' || this.#historyIndex >= this.#history.length - 1) return false;
     const nextIndex = this.#historyIndex + 1;
-    const nextState = this.#history[nextIndex];
+    const nextElementState = this.#history[nextIndex];
     const previousIndex = this.#historyIndex;
     const previousState = this.#workingState;
+    const previousElementState = this.#workingElementState;
     const previousDragOrigin = this.#dragOrigin;
     const previousDragIndex = this.#dragIndex;
     this.#historyIndex = nextIndex;
-    this.#workingState = nextState;
+    this.#workingElementState = nextElementState;
+    this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(nextElementState));
     this.#clearDrag();
     try {
       this.#render();
     } catch (error) {
       this.#historyIndex = previousIndex;
       this.#workingState = previousState;
+      this.#workingElementState = previousElementState;
       this.#dragOrigin = previousDragOrigin;
       this.#dragIndex = previousDragIndex;
       throw error;
     }
-    this.#emit('modifying', modifyingEvent(this.#workingState, 'redo'));
+    this.#emit('modifying', modifyingEvent(this.#requireWorkingElementState(), 'redo'));
     this.#clearHover();
     return true;
   }
@@ -433,8 +451,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
 
   /** 保存控制点拖动的起始状态。 */
   #startMove(anchor: EditControlAnchor): void {
-    const working = this.#requireWorkingState();
-    this.#dragOrigin = working;
+    this.#dragOrigin = this.#requireWorkingElementState();
     this.#dragIndex = anchor.index;
     this.#dragCoordinate = anchor.coordinate;
   }
@@ -444,20 +461,24 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     if (this.#dragOrigin === undefined || this.#dragIndex !== anchor.index) throw new InvalidArgumentError('Edit move sequence is not active');
     const state = this.#requireWorkingState();
     const coordinate = this.#placeCoordinate(input, anchor.index);
-    this.#workingState = freezeShapeState(moveTrustedShapeState(this.#definition, state as never, anchor.index, coordinate) as ShapeState);
+    const referenceState = this.#requireWorkingElementState();
+    const moved = moveTrustedShapeState(this.#definition, state as never, anchor.index, coordinate) as ShapeState;
+    this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(moved, referenceState));
+    this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(this.#workingElementState));
     this.#dragCoordinate = coordinate;
     this.#render(end ? undefined : { anchor, coordinate });
     if (end) {
       this.#recordHistory();
       this.#clearDrag();
     }
-    this.#emit('modifying', modifyingEvent(this.#workingState, 'move', coordinate));
+    this.#emit('modifying', modifyingEvent(this.#requireWorkingElementState(), 'move', coordinate));
   }
 
   /** 放弃当前未完成的拖动。 */
   #cancelMove(): void {
     if (this.#dragOrigin === undefined) return;
-    this.#workingState = this.#dragOrigin;
+    this.#workingElementState = this.#dragOrigin;
+    this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(this.#dragOrigin));
     this.#dragOrigin = undefined;
     this.#dragIndex = undefined;
     this.#dragCoordinate = undefined;
@@ -469,20 +490,24 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     const topology = this.#topology();
     if (topology.insert === undefined) throw new InvalidArgumentError(`Shape does not support control-point insertion: ${this.#definition.type}`);
     const coordinate = this.#placeCoordinate(input, Math.max(0, index - 1));
-    this.#workingState = freezeShapeState(topology.insert(this.#requireWorkingState() as never, index, coordinate) as ShapeState);
+    const inserted = topology.insert(this.#requireWorkingState() as never, index, coordinate) as ShapeState;
+    this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(inserted, this.#requireWorkingElementState()));
+    this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(this.#workingElementState));
     this.#recordHistory();
     this.#render();
-    this.#emit('modifying', modifyingEvent(this.#workingState, 'insert', coordinate));
+    this.#emit('modifying', modifyingEvent(this.#requireWorkingElementState(), 'insert', coordinate));
   }
 
   /** 移除指定控制点。 */
   #remove(anchor: EditControlAnchor): void {
     const topology = this.#topology();
     if (!anchor.removable || topology.remove === undefined) throw new InvalidArgumentError(`Shape does not support removing control point ${anchor.index}`);
-    this.#workingState = freezeShapeState(topology.remove(this.#requireWorkingState() as never, anchor.index) as ShapeState);
+    const removed = topology.remove(this.#requireWorkingState() as never, anchor.index) as ShapeState;
+    this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(removed, this.#requireWorkingElementState()));
+    this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(this.#workingElementState));
     this.#recordHistory();
     this.#render();
-    this.#emit('modifying', modifyingEvent(this.#workingState, 'remove', cloneCoordinate(anchor.coordinate)));
+    this.#emit('modifying', modifyingEvent(this.#requireWorkingElementState(), 'remove', cloneCoordinate(anchor.coordinate)));
   }
 
   /** 将当前编辑状态发送到底层端口。 */
@@ -532,7 +557,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   /** 将当前图形状态写入编辑历史。 */
   #recordHistory(): void {
     this.#history.splice(this.#historyIndex + 1);
-    this.#history.push(this.#requireWorkingState());
+    this.#history.push(this.#requireWorkingElementState());
     this.#historyIndex = this.#history.length - 1;
   }
 
@@ -605,6 +630,12 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #requireWorkingState(): ShapeState {
     if (this.#workingState === undefined) throw new ObjectDisposedError('Edit interaction is not open');
     return this.#workingState;
+  }
+
+  /** 获取当前编辑中的元素规范状态。 */
+  #requireWorkingElementState(): ShapeState {
+    if (this.#workingElementState === undefined) throw new ObjectDisposedError('Edit interaction is not open');
+    return this.#workingElementState;
   }
 
   /** 获取当前底层编辑句柄。 */

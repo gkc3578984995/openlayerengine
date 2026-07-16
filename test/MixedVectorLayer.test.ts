@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -177,7 +178,7 @@ describe('mixed vector layer', () => {
     const adapter = new LayerAdapter(createTestMap(), refs);
     const manager = new LayerManager(store, adapter);
     manager.ensureDefaultVector();
-    const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes), new StyleCompiler(refs));
+    const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs));
 
     store.transaction((transaction) => {
       for (const [index, type] of shapeTypes.entries()) {

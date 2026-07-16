@@ -9,6 +9,7 @@ import { getWidth } from 'ol/extent.js';
 import { get as getProjection } from 'ol/proj.js';
 import Style from 'ol/style/Style.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { LayerRenderPass } from '../src/adapters/openlayers/render/LayerRenderPass.js';
 import type { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import type { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -51,7 +52,7 @@ describe('LayerRenderPass', () => {
     const on = vi.spyOn(harness.layer, 'on');
     const changed = vi.spyOn(harness.layer, 'changed');
     const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
-    const manager = new AnimationManagerImpl({ store, shapes, render: pass });
+    const manager = new AnimationManagerImpl({ store, shapes, render: pass, shapeProjection: identityShapeProjection });
     const applied: Array<{ value: LayerRenderValue; time: number }> = [];
     const cleared: string[] = [];
     const transientTarget = pass.registerTarget({
@@ -212,7 +213,7 @@ describe('LayerRenderPass', () => {
     store.add(state);
     const harness = createPassHarness([state], false);
     const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
-    const manager = new AnimationManagerImpl({ store, shapes, render: pass });
+    const manager = new AnimationManagerImpl({ store, shapes, render: pass, shapeProjection: identityShapeProjection });
     manager.play({ id: 'point' }, { type: 'pulse' });
     const projection = getProjection('EPSG:3857');
     if (projection === null) throw new Error('测试需要 EPSG:3857 投影');
@@ -231,7 +232,7 @@ describe('LayerRenderPass', () => {
     store.add(state);
     const harness = createPassHarness([state]);
     const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
-    const manager = new AnimationManagerImpl({ store, shapes, render: pass });
+    const manager = new AnimationManagerImpl({ store, shapes, render: pass, shapeProjection: identityShapeProjection });
     manager.play({ id: 'point' }, { type: 'pulse' });
     const projection = getProjection('EPSG:3857');
     if (projection === null) throw new Error('测试需要 EPSG:3857 投影');
@@ -256,7 +257,7 @@ describe('LayerRenderPass', () => {
     });
     harness.styles.compile.mockReturnValue(resolveStyle);
     const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
-    const manager = new AnimationManagerImpl({ store, shapes, render: pass });
+    const manager = new AnimationManagerImpl({ store, shapes, render: pass, shapeProjection: identityShapeProjection });
     manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, arrow: true, repeat: true, showStart: false, showEnd: false });
     const projection = getProjection('EPSG:3857');
     if (projection === null) throw new Error('测试需要 EPSG:3857 投影');
@@ -285,7 +286,7 @@ describe('LayerRenderPass', () => {
     for (const state of states) store.add(state);
     const harness = createPassHarness(states);
     const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
-    const manager = new AnimationManagerImpl({ store, shapes, render: pass });
+    const manager = new AnimationManagerImpl({ store, shapes, render: pass, shapeProjection: identityShapeProjection });
     const point = manager.play({ id: 'point' }, { type: 'pulse', periodMs: 1_000 });
     const dash = manager.play({ id: 'dash' }, { type: 'dash-flow', speed: 24 });
     const flight = manager.play(

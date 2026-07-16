@@ -19,10 +19,15 @@ type TransformModeContract = Assert<Equal<TransformSession['mode'], 'transform' 
 type TransformSetModeContract = Assert<Equal<Parameters<TransformSession['setMode']>[0], 'transform' | 'edit'>>;
 
 declare const transformSession: TransformSession;
+declare const view: ViewService;
 transformSession.setMode('transform');
 transformSession.setMode('edit');
 // @ts-expect-error Transform 仅支持变换和顶点编辑两种会话模式。
 transformSession.setMode('copy-preview');
+
+const projectedPoint: readonly [number, number] = view.toProjectedCoordinates([120, 0]);
+const geographicPoint: readonly [number, number] = view.toGeographicCoordinates(projectedPoint);
+void geographicPoint;
 
 export type V2PublicApiTypeContracts =
   | EarthMapContract

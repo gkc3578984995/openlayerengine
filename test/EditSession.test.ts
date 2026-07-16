@@ -7,6 +7,7 @@ import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { ObjectDisposedError } from '../src/core/errors.js';
 import type { InputEventMap } from '../src/core/ports/InputPort.js';
+import type { ShapeProjectionPort } from '../src/core/ports/ShapeProjectionPort.js';
 import type {
   EditInteractionEvent,
   EditInteractionHandle,
@@ -22,6 +23,7 @@ import { InteractionCoordinator } from '../src/services/events/InteractionCoordi
 import type { RoutedPointerEvent } from '../src/services/events/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { FakeCursorPort } from './helpers/cursorHarness.js';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
@@ -100,7 +102,8 @@ function setup(
   placement?: PreparedWorldEdit,
   beforeSession?: (store: ElementStore) => void,
   configure?: (context: Readonly<{ keyboard: FakeKeyboardInput; port: FakeEditPort; store: ElementStore }>) => void,
-  sessionDefinition?: ShapeDefinition
+  sessionDefinition?: ShapeDefinition,
+  shapeProjection: ShapeProjectionPort = identityShapeProjection
 ) {
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   const store = new ElementStore(shapes);
@@ -122,6 +125,7 @@ function setup(
     definition,
     coordinator,
     port,
+    shapeProjection,
     elementId: state.id,
     options: { underlay },
     input: keyboard,

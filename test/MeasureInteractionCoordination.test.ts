@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import { InteractionConflictError, ObjectDisposedError } from '../src/core/errors.js';
@@ -46,6 +47,7 @@ function setup() {
   const draw = new DrawService({
     store,
     shapes,
+    shapeProjection: identityShapeProjection,
     styles,
     coordinator,
     drawPort: port,

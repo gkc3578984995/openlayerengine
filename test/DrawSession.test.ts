@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { identityShapeProjection } from './helpers/shapeProjection.js';
 import type {
   DrawInteractionEvent,
   DrawInteractionHandle,
@@ -89,6 +90,7 @@ function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[
   const service = new DrawService({
     store,
     shapes,
+    shapeProjection: identityShapeProjection,
     styles: new StyleService(store),
     coordinator,
     drawPort: port,
