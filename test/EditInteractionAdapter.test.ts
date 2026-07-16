@@ -217,7 +217,10 @@ function fakeCanvasContext() {
     setLineDash: vi.fn(),
     fillStyle: '',
     strokeStyle: '',
-    lineWidth: 0
+    lineWidth: 0,
+    lineCap: 'butt' as CanvasLineCap,
+    lineJoin: 'miter' as CanvasLineJoin,
+    miterLimit: 10
   };
 }
 
@@ -333,6 +336,35 @@ describe('EditAnchorVisuals', () => {
     expect(composed(feature, 1)).toBe(empty);
     result = undefined;
     expect(composed(feature, 1)).toBeUndefined();
+  });
+
+  it('uses rounded joins for acute edit preview vertices instead of producing miter spikes', () => {
+    const coordinates = [
+      [
+        [0, 0],
+        [100, 1],
+        [0, 2],
+        [0, 0]
+      ]
+    ];
+    const geometry = new Polygon(coordinates);
+
+    for (const style of [editPreviewHaloStyle, editPreviewAccentStyle]) {
+      const context = fakeCanvasContext();
+      style.getRenderer()?.(coordinates, {
+        context: context as unknown as CanvasRenderingContext2D,
+        geometry,
+        pixelRatio: 1
+      } as never);
+
+      expect(context.lineCap).toBe('round');
+      expect(context.lineJoin).toBe('round');
+      expect(context.miterLimit).toBe(2);
+      expect(context.stroke).toHaveBeenCalledOnce();
+      expect(style.getStroke()?.getLineCap()).toBe('round');
+      expect(style.getStroke()?.getLineJoin()).toBe('round');
+      expect(style.getStroke()?.getMiterLimit()).toBe(2);
+    }
   });
 });
 
