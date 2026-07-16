@@ -6,6 +6,7 @@ import { CapabilityError, InvalidArgumentError, ObjectDisposedError } from '../.
 import type { DrawInteractionPort } from '../../core/ports/DrawInteractionPort.js';
 import type { EditInteractionPort } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { TooltipPort } from '../../core/ports/TooltipPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { ShapeState, ShapeType } from '../../core/shape/types.js';
 import type { ElementStyleState } from '../../core/style/types.js';
@@ -37,6 +38,8 @@ export interface DrawServiceDependencies {
   readonly editPort: EditInteractionPort;
   /** 可选的键盘输入。 */
   readonly input?: SessionKeyboardInput;
+  /** 可选的跟随鼠标交互提示端口。 */
+  readonly tooltipPort?: TooltipPort;
   /** 按图形状态解析默认样式的函数。 */
   readonly defaultStyle: (state: ShapeState) => ElementStyleState;
   /** 可选的元素 ID 生成器。 */
@@ -65,6 +68,8 @@ export class DrawService implements InternalDrawService {
   readonly #editPort: EditInteractionPort;
   /** 可选的键盘输入。 */
   readonly #input: SessionKeyboardInput | undefined;
+  /** 可选的跟随鼠标交互提示端口。 */
+  readonly #tooltipPort: TooltipPort | undefined;
   /** 默认样式解析函数。 */
   readonly #defaultStyle: DrawServiceDependencies['defaultStyle'];
   /** 可选的元素 ID 生成器。 */
@@ -105,6 +110,7 @@ export class DrawService implements InternalDrawService {
     this.#drawPort = dependencies.drawPort;
     this.#editPort = dependencies.editPort;
     this.#input = dependencies.input;
+    this.#tooltipPort = dependencies.tooltipPort;
     this.#defaultStyle = dependencies.defaultStyle;
     this.#providedCreateId = dependencies.createId;
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
@@ -126,6 +132,7 @@ export class DrawService implements InternalDrawService {
       port: this.#drawPort,
       options,
       ...(this.#input === undefined ? {} : { input: this.#input }),
+      ...(this.#tooltipPort === undefined ? {} : { tooltipPort: this.#tooltipPort }),
       defaultStyle: this.#defaultStyle,
       createId: () => this.#createId(),
       errorReporter: this.#errorReporter,
@@ -166,6 +173,7 @@ export class DrawService implements InternalDrawService {
       expectedGeneration,
       options,
       ...(this.#input === undefined ? {} : { input: this.#input }),
+      ...(this.#tooltipPort === undefined ? {} : { tooltipPort: this.#tooltipPort }),
       errorReporter: this.#errorReporter,
       onTerminal: () => this.#sessions.delete(session as EditSession)
     });

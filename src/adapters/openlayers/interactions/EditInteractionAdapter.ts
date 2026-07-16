@@ -448,6 +448,14 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
         return false;
       }
 
+      if (type === 'pointermove') {
+        const coordinate = safeCoordinate(event.coordinate);
+        if (coordinate === undefined) return true;
+        const anchor = this.#anchorAt(event);
+        this.#emit({ type: 'pointer-move', coordinate, ...(anchor === undefined ? {} : { anchor }) });
+        return true;
+      }
+
       if (type === 'pointerdown') {
         if (!isPrimary(event, true)) return true;
         const anchor = this.#anchorAt(event, 'control');
@@ -485,12 +493,13 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       }
 
       if (type !== 'click' || !isPrimary(event, true)) return true;
-      const anchor = this.#anchorAt(event, isAlt(event) ? 'control' : 'insertion');
-      if (anchor?.kind === 'insertion' && !isAlt(event)) {
+      const alt = isAlt(event);
+      const anchor = this.#anchorAt(event);
+      if (anchor?.kind === 'insertion' && alt) {
         this.#emit({ type: 'insert', anchor });
         return false;
       }
-      if (anchor?.kind === 'control' && anchor.removable && isAlt(event)) {
+      if (anchor?.kind === 'control' && anchor.removable && alt) {
         this.#emit({ type: 'remove', anchor });
         return false;
       }
@@ -853,8 +862,8 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
-  /** 在完整语义锚点上按像素距离查询最近命中，并优先返回当前操作需要的类型。 */
-  #anchorAt(event: MapBrowserEvent, preferredKind: EditInteractionAnchor['kind']): EditInteractionAnchor | undefined {
+  /** 在完整语义锚点上按像素距离查询最近命中，并可优先返回当前操作需要的类型。 */
+  #anchorAt(event: MapBrowserEvent, preferredKind?: EditInteractionAnchor['kind']): EditInteractionAnchor | undefined {
     const pixel = safePixel(event.pixel);
     if (pixel === undefined) return undefined;
     const bundle = this.#requireBundle();
@@ -890,16 +899,23 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       const radius = anchor.kind === 'control' ? CONTROL_ANCHOR_HIT_RADIUS : INSERTION_ANCHOR_HIT_RADIUS;
       const tolerance = radius + this.#hitTolerance;
       if (distance > tolerance * tolerance) continue;
-      if (anchor.kind === preferredKind) {
+      if (preferredKind !== undefined && anchor.kind === preferredKind) {
         if (distance < preferredDistance || (distance === preferredDistance && indexed.order > preferredOrder)) {
           preferred = anchor;
           preferredDistance = distance;
           preferredOrder = indexed.order;
         }
-      } else if (distance < fallbackDistance || (distance === fallbackDistance && indexed.order > fallbackOrder)) {
-        fallback = anchor;
-        fallbackDistance = distance;
-        fallbackOrder = indexed.order;
+      } else {
+        const winsEqualDistance =
+          distance === fallbackDistance &&
+          (fallback === undefined ||
+            (anchor.kind === 'control' && fallback.kind === 'insertion') ||
+            (anchor.kind === fallback.kind && indexed.order > fallbackOrder));
+        if (distance < fallbackDistance || winsEqualDistance) {
+          fallback = anchor;
+          fallbackDistance = distance;
+          fallbackOrder = indexed.order;
+        }
       }
     }
     return preferred ?? fallback;
@@ -1572,6 +1588,11 @@ function snapshotAnchor(anchor: EditInteractionAnchor): EditInteractionAnchor {
 
 /** 复制并冻结语义编辑事件。 */
 function freezeEvent(event: EditInteractionEvent): EditInteractionEvent {
+  if (event.type === 'pointer-move') {
+    const coordinate = Object.freeze(copyCoordinate(event.coordinate));
+    const anchor = event.anchor === undefined ? undefined : snapshotAnchor(event.anchor);
+    return Object.freeze({ type: event.type, coordinate, ...(anchor === undefined ? {} : { anchor }) });
+  }
   const anchor = snapshotAnchor(event.anchor);
   if (event.type === 'insert') return Object.freeze({ type: event.type, anchor: anchor as EditInsertionAnchor });
   if (event.type === 'remove' || event.type === 'move-cancel') {

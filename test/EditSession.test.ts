@@ -20,6 +20,7 @@ import { EditSession } from '../src/services/draw/EditSession.js';
 import { InteractionCoordinator } from '../src/services/events/InteractionCoordinator.js';
 import type { RoutedPointerEvent } from '../src/services/events/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
 
@@ -107,6 +108,7 @@ function setup(
   const coordinator = new InteractionCoordinator();
   const port = new FakeEditPort();
   const keyboard = new FakeKeyboardInput();
+  const tooltip = new FakeTooltipPort();
   port.placement = placement;
   const reports: unknown[] = [];
   const onTerminal = vi.fn();
@@ -120,12 +122,13 @@ function setup(
     elementId: state.id,
     options: { underlay },
     input: keyboard,
+    tooltipPort: tooltip,
     errorReporter: (error) => reports.push(error),
     onTerminal
   });
   coordinator.activate(session);
   session.open();
-  return { coordinator, keyboard, onTerminal, port, reports, session, store };
+  return { coordinator, keyboard, onTerminal, port, reports, session, store, tooltip };
 }
 
 function controlCoordinates(port: FakeEditPort): readonly (readonly number[])[] {
@@ -153,6 +156,43 @@ describe('EditSession', () => {
     'edit-session-world-wrap',
     'edit-session-events'
   );
+
+  it('shows base, midpoint, control-point, and drag guidance while keeping history and cleanup in sync', () => {
+    const { port, session, tooltip } = setup(
+      element('polyline', [
+        [0, 0],
+        [4, 0],
+        [8, 0]
+      ])
+    );
+    const anchors = port.renders[0]?.anchors ?? [];
+    const insertion = anchors.find((anchor) => anchor.kind === 'insertion');
+    const control = anchors.find((anchor) => anchor.kind === 'control' && anchor.removable);
+    if (insertion?.kind !== 'insertion' || control?.kind !== 'control') throw new Error('Missing editable anchors');
+
+    port.emit({ type: 'pointer-move', coordinate: [10, 10] });
+    const view = tooltip.views[0];
+    expect(view?.spec).toMatchObject({ ownerId: 'edit:edit-polyline', variant: 'edit', offset: [15, -11] });
+    expect(view?.state.lines).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点删除点', '右击退出编辑']);
+
+    port.emit({ type: 'pointer-move', coordinate: insertion.coordinate, anchor: insertion });
+    expect(view?.state).toMatchObject({ position: insertion.coordinate, lines: ['按住 Alt 单击添加点'] });
+
+    port.emit({ type: 'pointer-move', coordinate: control.coordinate, anchor: control });
+    expect(view?.state.lines).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
+    port.emit({ type: 'move-start', anchor: control, coordinate: control.coordinate });
+    expect(view?.state.lines).toEqual(['拖拽中…']);
+    port.emit({ type: 'move-cancel', anchor: control });
+    expect(view?.state.lines).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
+
+    port.emit({ type: 'insert', anchor: insertion });
+    expect(view?.state.lines).toContain('Ctrl+Z 撤销 (1)');
+    expect(session.undo()).toBe(true);
+    expect(view?.state.lines).toContain('Ctrl+Y 重做 (1)');
+
+    session.cancel();
+    expect(view?.destroyed).toBe(true);
+  });
 
   it('does not subscribe keyboard input after the initial render synchronously cancels the session', () => {
     const entry = element('polyline', [

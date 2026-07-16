@@ -206,11 +206,18 @@ export class FakeTooltipPort implements TransformTooltipPort {
 }
 
 export class FakeTooltipHandle implements TransformTooltipViewHandle {
+  readonly spec: TransformTooltipViewSpec;
   state: TransformTooltipViewState;
   destroyed = false;
 
   constructor(spec: TransformTooltipViewSpec) {
-    this.state = { ...spec };
+    this.spec = spec;
+    this.state = {
+      position: spec.position,
+      lines: spec.lines,
+      offset: spec.offset,
+      visible: spec.visible
+    };
   }
 
   update(patch: Partial<TransformTooltipViewState>): void {

@@ -8,6 +8,7 @@ import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js'
 import type { InputEventMap } from '../../core/ports/InputPort.js';
 import type { DrawInteractionEvent, DrawInteractionHandle, DrawInteractionPort, DrawInteractionRenderState } from '../../core/ports/DrawInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
 import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
 import { shapeFreehandAccumulatorFor, type ShapeFreehandAccumulator } from '../../core/shape/freehandAccumulator.js';
 import type { ElementStyleState } from '../../core/style/types.js';
@@ -38,6 +39,8 @@ export interface DrawSessionDependencies<T> {
   readonly options: Readonly<Required<Pick<InternalDrawOptions<T>, 'type' | 'layerId' | 'limit' | 'keepGraphics'>> & InternalDrawOptions<T>>;
   /** 可选的键盘输入。 */
   readonly input?: SessionKeyboardInput;
+  /** 可选的跟随鼠标交互提示端口。 */
+  readonly tooltipPort?: TooltipPort;
   /** 默认样式解析函数。 */
   readonly defaultStyle: (state: ShapeState) => ElementStyleState;
   /** 元素 ID 生成器。 */
@@ -74,6 +77,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   readonly #options: DrawSessionDependencies<T>['options'];
   /** 可选的键盘输入。 */
   readonly #input: SessionKeyboardInput | undefined;
+  /** 可选的跟随鼠标交互提示端口。 */
+  readonly #tooltipPort: TooltipPort | undefined;
   /** 默认样式解析函数。 */
   readonly #defaultStyle: DrawSessionDependencies<T>['defaultStyle'];
   /** 元素 ID 生成器。 */
@@ -100,6 +105,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #handle: DrawInteractionHandle | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
+  /** 当前绘制提示框句柄。 */
+  #tooltip: TooltipViewHandle | undefined;
   /** 当前草稿控制点。 */
   #controlPoints: Coordinate[] = [];
   /** 当前指针坐标。 */
@@ -145,6 +152,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#port = dependencies.port;
     this.#options = dependencies.options;
     this.#input = dependencies.input;
+    this.#tooltipPort = dependencies.tooltipPort;
     this.#defaultStyle = dependencies.defaultStyle;
     this.#createId = dependencies.createId;
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
@@ -255,6 +263,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       this.#pointer = previousPointer;
       throw error;
     }
+    this.#refreshTooltip();
     return true;
   }
 
@@ -273,6 +282,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       this.#pointer = previousPointer;
       throw error;
     }
+    this.#refreshTooltip();
     return true;
   }
 
@@ -308,6 +318,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #handlePortEvent(event: Readonly<DrawInteractionEvent>): void {
     if (this.#status !== 'active' || this.#completionActive) return;
     try {
+      const tooltipPosition = 'coordinate' in event ? event.coordinate : event.type === 'freehand-samples' ? event.coordinates.at(-1) : undefined;
+      if (tooltipPosition !== undefined) this.#updateTooltipPosition(tooltipPosition);
       if (event.type === 'move') this.#movePointer(event.coordinate);
       else if (event.type === 'click') this.#addControlPoint(event.coordinate);
       else if (event.type === 'freehand-start') this.#startFreehand(event.coordinate);
@@ -597,6 +609,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   /** 记录当前控制点历史。 */
   #recordHistory(): void {
     this.#redoControlPoints = [];
+    this.#refreshTooltip();
   }
 
   /** 清空当前草稿并重置预览。 */
@@ -607,6 +620,39 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#freehandActive = false;
     this.#freehandAccumulator = undefined;
     this.#setPreview(undefined);
+    this.#refreshTooltip();
+  }
+
+  /** 创建或移动绘制提示框。 */
+  #updateTooltipPosition(input: Coordinate): void {
+    const position = cloneCoordinate(input);
+    if (this.#tooltip === undefined) {
+      if (this.#tooltipPort === undefined) return;
+      this.#tooltip = this.#tooltipPort.open({
+        ownerId: `draw:${this.#options.layerId}`,
+        variant: 'draw',
+        position,
+        lines: this.#tooltipLines(),
+        offset: [15, -11],
+        visible: true
+      });
+      return;
+    }
+    this.#tooltip.update({ position });
+  }
+
+  /** 根据绘制方式和历史状态生成提示文字。 */
+  #tooltipLines(): readonly string[] {
+    const lines = ['左击开始绘制，右击退出绘制'];
+    if (this.#definition.freehand !== undefined) lines.push('按住 Shift 拖动可自由绘制');
+    if (this.#controlPoints.length > 0) lines.push(`Ctrl+Z 撤销 (${this.#controlPoints.length})`);
+    if (this.#redoControlPoints.length > 0) lines.push(`Ctrl+Y 重做 (${this.#redoControlPoints.length})`);
+    return Object.freeze(lines);
+  }
+
+  /** 刷新当前绘制提示文字。 */
+  #refreshTooltip(): void {
+    this.#tooltip?.update({ lines: this.#tooltipLines() });
   }
 
   /** 将会话置为终态并发出取消事件。 */
@@ -627,6 +673,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     try {
       const handle = this.#handle;
       const unsubscribeInput = this.#unsubscribeInput;
+      const tooltip = this.#tooltip;
       try {
         runFinalizers([
           ...(handle === undefined
@@ -645,6 +692,14 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
                   if (this.#unsubscribeInput === unsubscribeInput) this.#unsubscribeInput = undefined;
                 }
               ]),
+          ...(tooltip === undefined
+            ? []
+            : [
+                () => {
+                  tooltip.destroy();
+                  if (this.#tooltip === tooltip) this.#tooltip = undefined;
+                }
+              ]),
           ...(!this.#coordinatorReleased
             ? [
                 () => {
@@ -657,7 +712,14 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       } catch (error) {
         this.#report(error, 'cleanup');
       }
-      if (!this.#opening && this.#handle === undefined && this.#unsubscribeInput === undefined && this.#coordinatorReleased && !this.#terminalNotified) {
+      if (
+        !this.#opening &&
+        this.#handle === undefined &&
+        this.#unsubscribeInput === undefined &&
+        this.#tooltip === undefined &&
+        this.#coordinatorReleased &&
+        !this.#terminalNotified
+      ) {
         try {
           this.#onTerminal();
           this.#terminalNotified = true;

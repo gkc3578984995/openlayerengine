@@ -93,6 +93,7 @@ describe('interaction port contracts', () => {
     } satisfies EditControlAnchor;
     const insertion = { kind: 'insertion', index: 1, coordinate: [361, 0] } satisfies EditInsertionAnchor;
 
+    port.listener?.({ type: 'pointer-move', coordinate: [361, 0], anchor: insertion });
     port.listener?.({ type: 'move-start', anchor: control, coordinate: [360, 0] });
     port.listener?.({ type: 'move', anchor: control, coordinate: [362, 1] });
     port.listener?.({ type: 'move-end', anchor: control, coordinate: [362, 1] });
@@ -100,7 +101,7 @@ describe('interaction port contracts', () => {
     port.listener?.({ type: 'remove', anchor: control });
 
     expect(handle.placement).toBe(placement);
-    expect(events.map(({ type }) => type)).toEqual(['move-start', 'move', 'move-end', 'insert', 'remove']);
+    expect(events.map(({ type }) => type)).toEqual(['pointer-move', 'move-start', 'move', 'move-end', 'insert', 'remove']);
     expect(events.at(-2)).toEqual({ type: 'insert', anchor: insertion });
   });
 });

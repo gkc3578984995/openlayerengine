@@ -15,6 +15,7 @@ import type {
   EditInteractionRenderState
 } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
 import type { ControlPointTopology, RenderGeometryState, ShapeDefinition, ShapeEditTopology, ShapeState } from '../../core/shape/types.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
@@ -43,6 +44,8 @@ export interface EditSessionDependencies {
   readonly options: Readonly<InternalEditOptions>;
   /** 可选的键盘输入。 */
   readonly input?: SessionKeyboardInput;
+  /** 可选的跟随鼠标交互提示端口。 */
+  readonly tooltipPort?: TooltipPort;
   /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
   /** 会话进入终态后的回调。 */
@@ -70,6 +73,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   readonly #options: Readonly<InternalEditOptions>;
   /** 可选的键盘输入。 */
   readonly #input: SessionKeyboardInput | undefined;
+  /** 可选的跟随鼠标交互提示端口。 */
+  readonly #tooltipPort: TooltipPort | undefined;
   /** 会话错误报告器。 */
   readonly #errorReporter: ErrorReporter;
   /** 会话终止回调。 */
@@ -90,6 +95,10 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #unsubscribeStore: (() => void) | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
+  /** 当前编辑提示框句柄。 */
+  #tooltip: TooltipViewHandle | undefined;
+  /** 最近一次命中的编辑锚点。 */
+  #hoverAnchor: EditInteractionAnchor | undefined;
   /** 会话开始时的元素状态。 */
   #entryState: Readonly<ElementState<T>> | undefined;
   /** 会话开始时的元素修订号。 */
@@ -138,6 +147,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#expectedGeneration = expectedGeneration;
     this.#options = dependencies.options;
     this.#input = dependencies.input;
+    this.#tooltipPort = dependencies.tooltipPort;
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
     this.#onTerminal = dependencies.onTerminal;
     this.finished = new Promise((resolve) => {
@@ -286,6 +296,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       throw error;
     }
     this.#emit('modifying', modifyingEvent(this.#workingState, 'undo'));
+    this.#clearHover();
     return true;
   }
 
@@ -311,6 +322,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       throw error;
     }
     this.#emit('modifying', modifyingEvent(this.#workingState, 'redo'));
+    this.#clearHover();
     return true;
   }
 
@@ -346,12 +358,30 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #handlePortEvent(event: Readonly<EditInteractionEvent>): void {
     if (this.#status !== 'active') return;
     try {
-      if (event.type === 'move-start') this.#startMove(event.anchor);
-      else if (event.type === 'move') this.#move(event.anchor, event.coordinate, false);
-      else if (event.type === 'move-end') this.#move(event.anchor, event.coordinate, true);
-      else if (event.type === 'move-cancel') this.#cancelMove();
-      else if (event.type === 'insert') this.#insert(event.anchor.index, event.anchor.coordinate);
-      else this.#remove(event.anchor);
+      if (event.type === 'pointer-move') {
+        this.#hoverAnchor = event.anchor;
+        this.#updateTooltip(event.coordinate, this.#tooltipLines(event.anchor));
+      } else if (event.type === 'move-start') {
+        this.#startMove(event.anchor);
+        this.#hoverAnchor = event.anchor;
+        this.#updateTooltip(event.coordinate, ['拖拽中…']);
+      } else if (event.type === 'move') {
+        this.#move(event.anchor, event.coordinate, false);
+        this.#updateTooltip(event.coordinate, ['拖拽中…']);
+      } else if (event.type === 'move-end') {
+        this.#move(event.anchor, event.coordinate, true);
+        this.#hoverAnchor = event.anchor;
+        this.#updateTooltip(event.coordinate, this.#tooltipLines(event.anchor));
+      } else if (event.type === 'move-cancel') {
+        this.#cancelMove();
+        this.#refreshTooltip();
+      } else if (event.type === 'insert') {
+        this.#insert(event.anchor.index, event.anchor.coordinate);
+        this.#clearHover();
+      } else if (event.type === 'remove') {
+        this.#remove(event.anchor);
+        this.#clearHover();
+      }
     } catch (error) {
       this.#report(error, 'port-event');
       if (this.#status === 'active') this.#terminate('cancelled', 'error');
@@ -492,6 +522,56 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#historyIndex = this.#history.length - 1;
   }
 
+  /** 创建或更新编辑提示框，并让它跟随当前指针。 */
+  #updateTooltip(input: Coordinate, lines: readonly string[]): void {
+    const position = cloneCoordinate(input);
+    if (this.#tooltip === undefined) {
+      if (this.#tooltipPort === undefined) return;
+      this.#tooltip = this.#tooltipPort.open({
+        ownerId: `edit:${this.elementId}`,
+        variant: 'edit',
+        position,
+        lines,
+        offset: [15, -11],
+        visible: true
+      });
+      return;
+    }
+    this.#tooltip.update({ position, lines });
+  }
+
+  /** 生成基础、悬停控制点和悬停中点对应的提示文字。 */
+  #tooltipLines(anchor: EditInteractionAnchor | undefined = this.#hoverAnchor): readonly string[] {
+    if (anchor?.kind === 'insertion') return Object.freeze(['按住 Alt 单击添加点']);
+    if (anchor?.kind === 'control') {
+      return anchor.removable ? Object.freeze(['拖拽控制点编辑图形', '按住 Alt 单击删除点']) : Object.freeze(['拖拽控制点编辑图形']);
+    }
+
+    const topology = this.#renderedTopology;
+    const canInsert = (topology?.insertions.length ?? 0) > 0;
+    const canRemove = topology?.handles.some(({ removable }) => removable) ?? false;
+    const lines = ['拖拽控制点进行编辑'];
+    if (canInsert && canRemove) lines.push('按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点删除点');
+    else if (canInsert) lines.push('按住 Alt 单击中点添加点');
+    else if (canRemove) lines.push('按住 Alt 单击可删除控制点删除点');
+    lines.push('右击退出编辑');
+    if (this.#historyIndex > 0) lines.push(`Ctrl+Z 撤销 (${this.#historyIndex})`);
+    const redoCount = this.#history.length - this.#historyIndex - 1;
+    if (redoCount > 0) lines.push(`Ctrl+Y 重做 (${redoCount})`);
+    return Object.freeze(lines);
+  }
+
+  /** 刷新当前编辑提示文字。 */
+  #refreshTooltip(): void {
+    this.#tooltip?.update({ lines: this.#tooltipLines() });
+  }
+
+  /** 清除可能已经失效的悬停锚点并恢复基础提示。 */
+  #clearHover(): void {
+    this.#hoverAnchor = undefined;
+    this.#refreshTooltip();
+  }
+
   /** 清除当前拖动状态。 */
   #clearDrag(): void {
     this.#dragOrigin = undefined;
@@ -536,6 +616,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       const handle = this.#handle;
       const unsubscribeStore = this.#unsubscribeStore;
       const unsubscribeInput = this.#unsubscribeInput;
+      const tooltip = this.#tooltip;
       try {
         runFinalizers([
           ...(handle === undefined
@@ -565,6 +646,17 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
                   if (this.#unsubscribeInput === unsubscribeInput) this.#unsubscribeInput = undefined;
                 }
               ]),
+          ...(tooltip === undefined
+            ? []
+            : [
+                () => {
+                  tooltip.destroy();
+                  if (this.#tooltip === tooltip) {
+                    this.#tooltip = undefined;
+                    this.#hoverAnchor = undefined;
+                  }
+                }
+              ]),
           ...(!this.#coordinatorReleased
             ? [
                 () => {
@@ -582,6 +674,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
         this.#handle === undefined &&
         this.#unsubscribeStore === undefined &&
         this.#unsubscribeInput === undefined &&
+        this.#tooltip === undefined &&
         this.#coordinatorReleased &&
         !this.#terminalNotified
       ) {

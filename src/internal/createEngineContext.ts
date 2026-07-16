@@ -4,8 +4,8 @@ import { defaults as defaultControls } from 'ol/control/defaults.js';
 import { defaults as defaultInteractions } from 'ol/interaction/defaults.js';
 import { fromLonLat } from 'ol/proj.js';
 import { ContextMenuViewAdapter } from '../adapters/dom/ContextMenuViewAdapter.js';
+import { TooltipAdapter } from '../adapters/dom/TooltipAdapter.js';
 import { TransformToolbarAdapter } from '../adapters/dom/TransformToolbarAdapter.js';
-import { TransformTooltipAdapter } from '../adapters/dom/TransformTooltipAdapter.js';
 import { FeatureBinding } from '../adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../adapters/openlayers/GeometryCodec.js';
 import { HitTestAdapter } from '../adapters/openlayers/HitTestAdapter.js';
@@ -165,6 +165,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
 
     const drawAdapter = new DrawInteractionAdapter(map, layerAdapter, styleCompiler);
     const editAdapter = new EditInteractionAdapter(map, layerAdapter, binding, styleCompiler);
+    const interactionTooltip = new TooltipAdapter(map);
     const internalDraw = new DrawService({
       store,
       shapes,
@@ -173,6 +174,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       drawPort: drawAdapter,
       editPort: editAdapter,
       input,
+      tooltipPort: interactionTooltip,
       defaultStyle
     });
     const draw = new DrawFacade(internalDraw, elements, nativeRefs);
@@ -194,7 +196,6 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const transformHitTest = new TransformHitTest(map, layerManager, layerAdapter, binding);
     const transformInteraction = new TransformInteractionAdapter(map, transformHitTest, binding, styleCompiler, render);
     const transformToolbar = new TransformToolbarAdapter(map);
-    const transformTooltip = new TransformTooltipAdapter(map);
     const internalTransform = new TransformService({
       store,
       shapes,
@@ -204,7 +205,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       animations,
       transients: animations,
       toolbar: transformToolbar,
-      tooltip: transformTooltip,
+      tooltip: interactionTooltip,
       input: transformInput
     });
     const transform = new TransformFacade(internalTransform, elements);

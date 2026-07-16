@@ -415,7 +415,7 @@ describe('EditInteractionAdapter', () => {
       );
       expect(anchorIndexLoadCount()).toBe(2);
       map.view.setCenter([100 * 360, 0]);
-      expect(input.handleEvent(pointerEvent('click', [100 * 360 + 5, 0]))).toBe(false);
+      expect(input.handleEvent(pointerEvent('click', [100 * 360 + 5, 0], { altKey: true }))).toBe(false);
       expect(received.at(-1)).toEqual({ type: 'insert', anchor: { kind: 'insertion', index: 1, coordinate: [5, 0] } });
       expect(anchorIndexLoadCount()).toBe(2);
     } finally {
@@ -799,7 +799,41 @@ describe('EditInteractionAdapter', () => {
     handle.destroy();
   });
 
-  it('maps control drags, insertion clicks, and Alt-removal clicks to detached semantic events', () => {
+  it('reports pointer movement with the nearest insertion or control anchor for hover guidance', () => {
+    const { adapter, map } = setup();
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    handle.render(renderState());
+    const input = editInteraction(map);
+
+    expect(input.handleEvent(pointerEvent('pointermove', [4, 0], { button: -1 }))).toBe(true);
+    expect(input.handleEvent(pointerEvent('pointermove', [8, 0], { button: -1 }))).toBe(true);
+    expect(input.handleEvent(pointerEvent('pointermove', [40, 40], { button: -1 }))).toBe(true);
+
+    expect(received).toEqual([
+      { type: 'pointer-move', coordinate: [4, 0], anchor: { kind: 'insertion', index: 1, coordinate: [4, 0] } },
+      {
+        type: 'pointer-move',
+        coordinate: [8, 0],
+        anchor: { kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true }
+      },
+      { type: 'pointer-move', coordinate: [40, 40] }
+    ]);
+
+    handle.destroy();
+  });
+
+  it('maps control drags and Alt topology clicks to detached semantic events while ordinary midpoint clicks do nothing', () => {
     const { adapter, map, reports } = setup();
     const received: EditInteractionEvent[] = [];
     const handle = adapter.open(
@@ -826,6 +860,8 @@ describe('EditInteractionAdapter', () => {
     input.handleEvent(pointerEvent('pointerdrag', [9, 2], { button: -1 }));
     input.handleEvent(pointerEvent('pointerup', [10, 3], { button: -1 }));
     input.handleEvent(pointerEvent('click', [4, 0]));
+    expect(received).toHaveLength(6);
+    input.handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
     input.handleEvent(pointerEvent('click', [8, 0], { altKey: true }));
 
     expect(received).toEqual([
@@ -845,7 +881,44 @@ describe('EditInteractionAdapter', () => {
     expect(received).toHaveLength(8);
   });
 
-  it('prioritizes the operation-specific anchor when control and insertion handles overlap', () => {
+  it('uses the nearest anchor when Alt insertion and removal hit tolerances overlap', () => {
+    const { adapter, map } = setup();
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    handle.render({
+      ...renderState(),
+      anchors: [
+        { kind: 'control', index: 0, coordinate: [0, 0], role: 'start', removable: true },
+        { kind: 'insertion', index: 1, coordinate: [4, 0] }
+      ]
+    });
+    const input = editInteraction(map);
+
+    input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+    input.handleEvent(pointerEvent('pointercancel', [0, 0], { button: -1 }));
+    input.handleEvent(pointerEvent('click', [4, 0]));
+    expect(received.map(({ type }) => type)).toEqual(['move-start', 'move-cancel']);
+    input.handleEvent(pointerEvent('click', [3, 0], { altKey: true }));
+    input.handleEvent(pointerEvent('click', [1, 0], { altKey: true }));
+
+    expect(received.map(({ type }) => type)).toEqual(['move-start', 'move-cancel', 'insert', 'remove']);
+    expect(received[0]).toMatchObject({ type: 'move-start', anchor: { kind: 'control' } });
+    expect(received[2]).toMatchObject({ type: 'insert', anchor: { kind: 'insertion' } });
+    expect(received[3]).toMatchObject({ type: 'remove', anchor: { kind: 'control' } });
+    handle.destroy();
+  });
+
+  it('prefers the visually higher control anchor when a control and insertion anchor exactly overlap', () => {
     const { adapter, map } = setup();
     const received: EditInteractionEvent[] = [];
     const handle = adapter.open(
@@ -868,15 +941,17 @@ describe('EditInteractionAdapter', () => {
     });
     const input = editInteraction(map);
 
-    input.handleEvent(pointerEvent('pointerdown', [0, 0]));
-    input.handleEvent(pointerEvent('pointercancel', [0, 0], { button: -1 }));
-    input.handleEvent(pointerEvent('click', [0, 0]));
+    input.handleEvent(pointerEvent('pointermove', [0, 0], { button: -1 }));
     input.handleEvent(pointerEvent('click', [0, 0], { altKey: true }));
 
-    expect(received.map(({ type }) => type)).toEqual(['move-start', 'move-cancel', 'insert', 'remove']);
-    expect(received[0]).toMatchObject({ type: 'move-start', anchor: { kind: 'control' } });
-    expect(received[2]).toMatchObject({ type: 'insert', anchor: { kind: 'insertion' } });
-    expect(received[3]).toMatchObject({ type: 'remove', anchor: { kind: 'control' } });
+    expect(received).toEqual([
+      {
+        type: 'pointer-move',
+        coordinate: [0, 0],
+        anchor: { kind: 'control', index: 0, coordinate: [0, 0], role: 'start', removable: true }
+      },
+      { type: 'remove', anchor: { kind: 'control', index: 0, coordinate: [0, 0], role: 'start', removable: true } }
+    ]);
     handle.destroy();
   });
 
@@ -1303,7 +1378,7 @@ describe('EditInteractionAdapter', () => {
     const nativeSetSource = layer.setSource.bind(layer);
     const setSource = vi.spyOn(layer, 'setSource').mockImplementationOnce((source) => {
       nativeSetSource(source);
-      input.handleEvent(pointerEvent('click', [7, 2]));
+      input.handleEvent(pointerEvent('click', [7, 2], { altKey: true }));
       throw new Error('source handoff failed');
     });
     setSource.mockImplementation((source) => nativeSetSource(source));
@@ -1324,7 +1399,7 @@ describe('EditInteractionAdapter', () => {
     expect(previousSource.getFeatures()).toEqual(previousFeatures);
     expect(received).toEqual([]);
 
-    input.handleEvent(pointerEvent('click', [4, 0]));
+    input.handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
     expect(received).toEqual([{ type: 'insert', anchor: { kind: 'insertion', index: 1, coordinate: [4, 0] } }]);
     handle.destroy();
   });
@@ -1423,7 +1498,7 @@ describe('EditInteractionAdapter', () => {
     vi.spyOn(map, 'addInteraction').mockImplementation((interaction) => {
       candidateInteraction = interaction;
       nativeAddInteraction(interaction);
-      interaction.handleEvent(pointerEvent('click', [4, 0]));
+      interaction.handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
       throw new Error('interaction attach failed');
     });
     const nativeRemoveLayer = map.removeLayer.bind(map);
@@ -1460,7 +1535,7 @@ describe('EditInteractionAdapter', () => {
     expect(removeLayer).toHaveBeenCalledTimes(2);
     expect(removeInteraction).toHaveBeenCalledTimes(2);
     expect(persistentSource.getFeatures()).toEqual([persistentFeature]);
-    candidateInteraction?.handleEvent(pointerEvent('click', [4, 0]));
+    candidateInteraction?.handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
     expect(events).toEqual([]);
   });
 
@@ -1507,7 +1582,7 @@ describe('EditInteractionAdapter', () => {
     expect((failure as AggregateError).errors.map((error) => (error as Error).message)).toContain('map layer removal failed');
     const abandoned = editInteraction(map);
     expect(abandoned.getActive()).toBe(false);
-    abandoned.handleEvent(pointerEvent('click', [4, 0]));
+    abandoned.handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
     expect(events).toEqual([]);
   });
 
@@ -1694,7 +1769,7 @@ describe('EditInteractionAdapter', () => {
     firstHandle.render(renderState());
     secondHandle.render(renderState());
 
-    editInteraction(first.map).handleEvent(pointerEvent('click', [4, 0]));
+    editInteraction(first.map).handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
     editInteraction(second.map).handleEvent(pointerEvent('click', [8, 0], { altKey: true }));
     expect(firstEvents.map(({ type }) => type)).toEqual(['insert']);
     expect(secondEvents.map(({ type }) => type)).toEqual(['remove']);
@@ -1702,7 +1777,7 @@ describe('EditInteractionAdapter', () => {
     expect(second.persistentSource.hasFeature(second.persistentFeature)).toBe(false);
 
     firstHandle.destroy();
-    editInteraction(second.map).handleEvent(pointerEvent('click', [4, 0]));
+    editInteraction(second.map).handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
     expect(first.map.layers.getLength()).toBe(1);
     expect(first.map.interactions.getLength()).toBe(0);
     expect(first.persistentSource.getFeatures()).toEqual([first.persistentFeature]);

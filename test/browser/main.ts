@@ -111,6 +111,7 @@ interface BrowserFixture {
   closeMenu(): void;
   elementPixel(elementId: string, controlPointIndex?: number): readonly [number, number];
   editControlPixel(controlPointIndex: number): readonly [number, number];
+  editInsertionPixel(insertionIndex: number): readonly [number, number];
   elementState(elementId: string): unknown;
   destroyA(preserveViewport?: boolean): Promise<void>;
   recreateDefaultA(): unknown;
@@ -442,24 +443,10 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     return pixelOf(a, coordinate);
   },
   editControlPixel(controlPointIndex) {
-    if (!Number.isSafeInteger(controlPointIndex) || controlPointIndex < 0) throw new Error('Edit control-point index must be a non-negative safe integer.');
-    a.earth.map.renderSync();
-    let controlCoordinates: readonly (readonly number[])[] | undefined;
-    for (const layer of a.earth.map.getLayers().getArray()) {
-      const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
-      if (!isNativeSourceProbe(source)) continue;
-      for (const feature of source.getFeatures()) {
-        const featureStyle = feature.getStyle?.();
-        if (!isAnchorStyleProbe(featureStyle) || featureStyle.getZIndex() !== 1) continue;
-        const geometry = (feature as NativeFeatureProbe & { getGeometry?: () => unknown }).getGeometry?.();
-        if (!isMultiPointGeometryProbe(geometry)) continue;
-        const coordinates = geometry.getCoordinates();
-        if (controlCoordinates === undefined || coordinates.length > controlCoordinates.length) controlCoordinates = coordinates;
-      }
-    }
-    const coordinate = controlCoordinates?.[controlPointIndex];
-    if (coordinate === undefined) throw new Error(`Edit control point does not exist: ${controlPointIndex}`);
-    return pixelOf(a, coordinate);
+    return editAnchorPixel(a, controlPointIndex, 1, 'control');
+  },
+  editInsertionPixel(insertionIndex) {
+    return editAnchorPixel(a, insertionIndex, 0, 'insertion');
   },
   elementState(elementId) {
     return cloneGeometry(requireOwnedElement(a, elementId).state.geometry);
@@ -892,6 +879,28 @@ function isMultiPointGeometryProbe(value: unknown): value is MultiPointGeometryP
   if (value === null || typeof value !== 'object') return false;
   const probe = value as Partial<MultiPointGeometryProbe>;
   return typeof probe.getType === 'function' && probe.getType() === 'MultiPoint' && typeof probe.getCoordinates === 'function';
+}
+
+/** 读取编辑临时图层中的控制点或插入点像素。 */
+function editAnchorPixel(current: Runtime, index: number, zIndex: 0 | 1, label: 'control' | 'insertion'): readonly [number, number] {
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error(`Edit ${label}-point index must be a non-negative safe integer.`);
+  current.earth.map.renderSync();
+  let anchorCoordinates: readonly (readonly number[])[] | undefined;
+  for (const layer of current.earth.map.getLayers().getArray()) {
+    const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
+    if (!isNativeSourceProbe(source)) continue;
+    for (const feature of source.getFeatures()) {
+      const featureStyle = feature.getStyle?.();
+      if (!isAnchorStyleProbe(featureStyle) || featureStyle.getZIndex() !== zIndex) continue;
+      const geometry = (feature as NativeFeatureProbe & { getGeometry?: () => unknown }).getGeometry?.();
+      if (!isMultiPointGeometryProbe(geometry)) continue;
+      const coordinates = geometry.getCoordinates();
+      if (anchorCoordinates === undefined || coordinates.length > anchorCoordinates.length) anchorCoordinates = coordinates;
+    }
+  }
+  const coordinate = anchorCoordinates?.[index];
+  if (coordinate === undefined) throw new Error(`Edit ${label} point does not exist: ${index}`);
+  return pixelOf(current, coordinate);
 }
 
 function isTransformHandleMetadata(value: unknown): value is { readonly key: string; readonly coordinate: Coordinate } {

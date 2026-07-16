@@ -21,6 +21,7 @@ import { InteractionCoordinator } from '../src/services/events/InteractionCoordi
 import { DrawService } from '../src/services/draw/DrawService.js';
 import type { RoutedPointerEvent } from '../src/services/events/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
 
@@ -80,6 +81,7 @@ function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[
   const store = new ElementStore(shapes);
   const port = new FakeDrawPort();
   const coordinator = new InteractionCoordinator();
+  const tooltip = new FakeTooltipPort();
   const reports: unknown[] = [];
   let id = 0;
   const service = new DrawService({
@@ -89,12 +91,13 @@ function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[
     coordinator,
     drawPort: port,
     editPort: {} as EditInteractionPort,
+    tooltipPort: tooltip,
     ...(input === undefined ? {} : { input }),
     defaultStyle: () => style,
     createId: () => `draw-${++id}`,
     errorReporter: (error) => reports.push(error)
   });
-  return { coordinator, port, reports, service, store };
+  return { coordinator, port, reports, service, store, tooltip };
 }
 
 function rightClick(coordinate: readonly [number, number] = [0, 0]): RoutedPointerEvent<'rightclick'> {
@@ -124,6 +127,29 @@ describe('DrawSession', () => {
 
     expect(() => service.query(invalid)).toThrow(InvalidArgumentError);
     expect(() => service.clear(invalid)).toThrow(InvalidArgumentError);
+  });
+
+  it('shows the legacy Draw guidance at the pointer, updates history hints, and releases the tooltip with the session', () => {
+    const { port, service, tooltip } = setup();
+    const session = service.start({ type: 'polyline', layerId: 'draw-layer', style });
+
+    expect(tooltip.views).toHaveLength(0);
+    port.emit({ type: 'move', coordinate: [2, 3] });
+
+    const view = tooltip.views[0];
+    expect(view?.spec).toMatchObject({ ownerId: 'draw:draw-layer', variant: 'draw', offset: [15, -11] });
+    expect(view?.state).toMatchObject({ position: [2, 3], lines: ['左击开始绘制，右击退出绘制', '按住 Shift 拖动可自由绘制'] });
+
+    port.emit({ type: 'move', coordinate: [4, 5] });
+    port.emit({ type: 'click', coordinate: [4, 5] });
+    expect(tooltip.views).toHaveLength(1);
+    expect(view?.state).toMatchObject({
+      position: [4, 5],
+      lines: ['左击开始绘制，右击退出绘制', '按住 Shift 拖动可自由绘制', 'Ctrl+Z 撤销 (1)']
+    });
+
+    session.cancel();
+    expect(view?.destroyed).toBe(true);
   });
 
   it('keeps preview state out of Store and commits a variable shape once on right-click', async () => {

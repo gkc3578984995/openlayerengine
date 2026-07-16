@@ -1,6 +1,7 @@
 import type OlMap from 'ol/Map.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TransformToolbarAdapter } from '../src/adapters/dom/TransformToolbarAdapter.js';
+import { TooltipAdapter } from '../src/adapters/dom/TooltipAdapter.js';
 import { transformToolbarIcons } from '../src/adapters/dom/transformToolbarIcons.js';
 import { TransformTooltipAdapter } from '../src/adapters/dom/TransformTooltipAdapter.js';
 import type { TransformToolbarViewEvent, TransformToolbarViewSpec } from '../src/core/ports/TransformToolbarPort.js';
@@ -157,6 +158,28 @@ describe('TransformToolbarAdapter', () => {
 });
 
 describe('TransformTooltipAdapter', () => {
+  it('uses interaction-specific classes for Draw and Edit tooltips', () => {
+    const documentTarget = new FakeDocument();
+    installDomGlobals(documentTarget);
+    const map = new FakeMap();
+    const view = new TooltipAdapter(map as unknown as OlMap).open({
+      ownerId: 'edit-owner',
+      variant: 'edit',
+      position: [10, 20],
+      lines: ['按住 Alt 单击添加点'],
+      offset: [15, -11],
+      visible: true
+    });
+    const overlay = requireOverlay(0);
+    const root = requireRoot(overlay);
+
+    expect(root.className).toBe('ol-tooltip ol-edit-tooltip');
+    expect(root.children[0]?.className).toBe('ol-edit-tooltip-line');
+    expect(overlay.className).toBe('ol-overlay-container ol-edit-tooltip-overlay');
+
+    view.destroy();
+  });
+
   it('只更新变化的提示字段，连续移动时保留文字 DOM 并立即采用最新位置', () => {
     const documentTarget = new FakeDocument();
     installDomGlobals(documentTarget);

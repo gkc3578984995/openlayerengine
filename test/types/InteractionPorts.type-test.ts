@@ -82,6 +82,11 @@ type ExpectedEditRenderState = {
   readonly anchors: readonly (EditControlAnchor | EditInsertionAnchor)[];
 };
 type ExpectedEditEvent =
+  | {
+      readonly type: 'pointer-move';
+      readonly coordinate: Coordinate;
+      readonly anchor?: EditControlAnchor | EditInsertionAnchor;
+    }
   | { readonly type: 'move-start'; readonly anchor: EditControlAnchor; readonly coordinate: Coordinate }
   | { readonly type: 'move'; readonly anchor: EditControlAnchor; readonly coordinate: Coordinate }
   | { readonly type: 'move-end'; readonly anchor: EditControlAnchor; readonly coordinate: Coordinate }

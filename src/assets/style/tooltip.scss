@@ -11,14 +11,20 @@
   user-select: none;
 }
 
+.ol-draw-tooltip,
+.ol-edit-tooltip,
 .ol-transform-tooltip {
   pointer-events: none;
-
-  .ol-transform-tooltip-line + .ol-transform-tooltip-line {
-    margin-top: 2px;
-  }
 }
 
+.ol-draw-tooltip-line + .ol-draw-tooltip-line,
+.ol-edit-tooltip-line + .ol-edit-tooltip-line,
+.ol-transform-tooltip-line + .ol-transform-tooltip-line {
+  margin-top: 2px;
+}
+
+.ol-draw-tooltip-overlay,
+.ol-edit-tooltip-overlay,
 .ol-transform-tooltip-overlay {
   pointer-events: none !important;
   transition: none !important;

@@ -66,6 +66,14 @@ export interface EditInteractionRenderState {
  */
 export type EditInteractionEvent =
   | {
+      /** 普通指针移动事件判别字段。 */
+      readonly type: 'pointer-move';
+      /** 指针当前所在的展示世界坐标。 */
+      readonly coordinate: Coordinate;
+      /** 当前命中的最近控制点或插入点；未命中时不存在。 */
+      readonly anchor?: EditInteractionAnchor;
+    }
+  | {
       /** 控制点拖动开始事件判别字段。 */
       readonly type: 'move-start';
       /** 开始拖动的控制点快照。 */
