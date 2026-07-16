@@ -250,34 +250,32 @@ describe('Transform 默认视觉', () => {
     harness.handles.destroy();
   });
 
-  it('视图变化只更新依赖分辨率的边框与手柄，不写入未变化的预览和顶点', () => {
+  it('编辑模式下的视图变化不写入未变化的预览和顶点', () => {
     const previewStyle = new Style({ stroke: new Stroke({ color: '#000000' }) });
     const harness = createHarness(previewStyle, interactionOptions());
-    harness.handles.setTarget(polygonTarget({ canEditVertices: true }));
+    harness.handles.setTarget(
+      polygonTarget({
+        mode: 'edit',
+        canTranslate: false,
+        canRotate: false,
+        canScale: false,
+        canStretch: false,
+        canEditVertices: true
+      })
+    );
 
     const previewGeometry = previewFeature(harness.map, previewStyle).getGeometry();
-    const bboxGeometry = bboxFeature(harness.map, previewStyle).getGeometry();
     const vertexGeometry = transformHandles(harness.map).get('vertex-0')?.getGeometry();
-    const scaleGeometry = transformHandles(harness.map).get('scale-ne')?.getGeometry();
-    if (
-      !(previewGeometry instanceof Polygon) ||
-      !(bboxGeometry instanceof Polygon) ||
-      !(vertexGeometry instanceof Point) ||
-      !(scaleGeometry instanceof Point)
-    ) {
+    if (!(previewGeometry instanceof Polygon) || !(vertexGeometry instanceof Point)) {
       throw new Error('Transform 测试要素几何类型不正确');
     }
     const previewSetter = vi.spyOn(previewGeometry, 'setCoordinates');
-    const bboxSetter = vi.spyOn(bboxGeometry, 'setCoordinates');
     const vertexSetter = vi.spyOn(vertexGeometry, 'setCoordinates');
-    const scaleSetter = vi.spyOn(scaleGeometry, 'setCoordinates');
 
     harness.map.view.setResolution(1);
 
     expect(previewSetter).not.toHaveBeenCalled();
     expect(vertexSetter).not.toHaveBeenCalled();
-    expect(bboxSetter).toHaveBeenCalledTimes(1);
-    expect(scaleSetter).toHaveBeenCalledTimes(1);
     harness.handles.destroy();
   });
 
@@ -341,7 +339,7 @@ describe('Transform 默认视觉', () => {
     );
     const editHandles = transformHandles(harness.map);
     expect(editHandles.has('scale-ne')).toBe(false);
-    expect([...editHandles.keys()].filter((key) => key.startsWith('vertex-'))).toHaveLength(5);
+    expect([...editHandles.keys()].filter((key) => key.startsWith('vertex-'))).toHaveLength(4);
 
     harness.handles.setTarget(transformTarget);
     expect(clear).not.toHaveBeenCalled();
@@ -354,11 +352,11 @@ describe('Transform 默认视觉', () => {
     harness.handles.destroy();
   });
 
-  it('离开大顶点编辑时快速重置数据源并释放顶点要素池', () => {
+  it('顶点拖拽期间保留隐藏要素池，恢复完整锚点时原位复用并在离开编辑后释放', () => {
     const previewStyle = new Style({ stroke: new Stroke({ color: '#000000' }) });
-    const harness = createHarness(previewStyle, interactionOptions({ handleStyle: {} }));
+    const harness = createHarness(previewStyle, interactionOptions());
     const transformTarget = polygonTarget();
-    const controlPoints = Object.freeze(Array.from({ length: 512 }, (_, index): Coordinate => Object.freeze([index, index % 17])));
+    const controlPoints = Object.freeze(Array.from({ length: 511 }, (_, index): Coordinate => Object.freeze([index, index % 17])));
     const editTarget = polygonTarget({
       mode: 'edit',
       controlPoints,
@@ -371,26 +369,42 @@ describe('Transform 默认视觉', () => {
     harness.handles.setTarget(transformTarget);
     const source = sourceOf(harness.map);
     const clear = vi.spyOn(source, 'clear');
-    const removeFeature = vi.spyOn(source, 'removeFeature');
 
     harness.handles.setTarget(editTarget);
-    const retired = transformHandles(harness.map).get('vertex-511');
+    const retired = transformHandles(harness.map).get('vertex-510');
     if (retired === undefined) throw new Error('未创建大顶点编辑手柄');
     const dispose = vi.spyOn(retired, 'dispose');
     clear.mockClear();
-    removeFeature.mockClear();
+
+    harness.handles.setOperationActive(true, 'vertex');
+    harness.handles.setTarget(
+      polygonTarget({
+        mode: 'edit',
+        controlPoints: [controlPoints[0]],
+        editAnchors: controlAnchors([controlPoints[0]]),
+        canTranslate: false,
+        canRotate: false,
+        canScale: false,
+        canStretch: false,
+        canEditVertices: true
+      })
+    );
+    expect(dispose).not.toHaveBeenCalled();
+
+    harness.handles.setTarget(editTarget);
+    expect(transformHandles(harness.map).get('vertex-510')).toBe(retired);
+    harness.handles.setOperationActive(false);
 
     harness.handles.setTarget(transformTarget);
 
-    expect(clear).toHaveBeenCalledOnce();
+    expect(clear).toHaveBeenCalled();
     expect(clear).toHaveBeenCalledWith(true);
-    expect(removeFeature).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledOnce();
     expect(retired.getGeometry()).toBeUndefined();
     expect([...transformHandles(harness.map).keys()].some((key) => key.startsWith('vertex-'))).toBe(false);
 
     harness.handles.setTarget(editTarget);
-    expect(transformHandles(harness.map).get('vertex-511')).not.toBe(retired);
+    expect(transformHandles(harness.map).get('vertex-510')).not.toBe(retired);
     harness.handles.destroy();
   });
 
@@ -415,10 +429,21 @@ describe('Transform 默认视觉', () => {
     const batch = vertexBatchFeature(harness.map);
     const geometry = batch.getGeometry();
     if (!(geometry instanceof MultiPoint)) throw new Error('大顶点批次不是 MultiPoint');
+    const dispose = vi.spyOn(batch, 'dispose');
 
-    expect(source.getFeatures()).toHaveLength(3);
+    expect(source.getFeatures()).toHaveLength(2);
     expect(geometry.getCoordinates()).toHaveLength(5_000);
     expect([...transformHandles(harness.map).keys()].some((key) => key.startsWith('vertex-'))).toBe(false);
+    harness.handles.setOperationActive(true, 'vertex');
+    harness.handles.setTarget({
+      ...editTarget,
+      controlPoints: [controlPoints[0]],
+      editAnchors: controlAnchors([controlPoints[0]])
+    });
+    expect(dispose).not.toHaveBeenCalled();
+    harness.handles.setTarget(editTarget);
+    expect(vertexBatchFeature(harness.map)).toBe(batch);
+    harness.handles.setOperationActive(false);
     const selectedIndex = 3_456;
     const selectedCoordinate = controlPoints[selectedIndex];
     const nativeHitTest = vi.spyOn(harness.map, 'forEachFeatureAtPixel');
@@ -431,8 +456,11 @@ describe('Transform 默认视觉', () => {
     expect(nativeHitTest).not.toHaveBeenCalled();
     const hitDuration = performance.now() - hitStarted;
     const adjacentCoordinate = controlPoints[selectedIndex + 1];
-    const midpoint: Coordinate = [(selectedCoordinate[0] + adjacentCoordinate[0]) / 2, (selectedCoordinate[1] + adjacentCoordinate[1]) / 2];
-    expect(harness.handles.hit(harness.map.getPixelFromCoordinate(midpoint), 2)).toMatchObject({ index: selectedIndex });
+    const nearbyCoordinate: Coordinate = [
+      selectedCoordinate[0] + (adjacentCoordinate[0] - selectedCoordinate[0]) / 4,
+      selectedCoordinate[1] + (adjacentCoordinate[1] - selectedCoordinate[1]) / 4
+    ];
+    expect(harness.handles.hit(harness.map.getPixelFromCoordinate(nearbyCoordinate), 2)).toMatchObject({ index: selectedIndex });
     expect(nativeHitTest).not.toHaveBeenCalled();
 
     const context = fakeCanvasContext();
@@ -458,7 +486,7 @@ describe('Transform 默认视觉', () => {
     const updatedCoordinate: Coordinate = [selectedCoordinate[0] + 0.25, selectedCoordinate[1] + 0.25];
     const updatedControlPoints = Object.freeze([...controlPoints.slice(0, selectedIndex), updatedCoordinate, ...controlPoints.slice(selectedIndex + 1)]);
     const updateStarted = performance.now();
-    harness.handles.setTarget({ ...editTarget, controlPoints: updatedControlPoints });
+    harness.handles.setTarget({ ...editTarget, controlPoints: updatedControlPoints, editAnchors: controlAnchors(updatedControlPoints) });
     const updateDuration = performance.now() - updateStarted;
     expect(vertexBatchFeature(harness.map)).toBe(batch);
     expect(batch.getGeometry()).toBe(geometry);
@@ -467,7 +495,6 @@ describe('Transform 默认视觉', () => {
       coordinate: updatedCoordinate
     });
 
-    const dispose = vi.spyOn(batch, 'dispose');
     const exitStarted = performance.now();
     harness.handles.setTarget(transformTarget);
     const exitDuration = performance.now() - exitStarted;
@@ -481,7 +508,7 @@ describe('Transform 默认视觉', () => {
     harness.handles.destroy();
   });
 
-  it('5 千自定义样式顶点压力样本使用单个 MultiPoint/RBush，并保持单点更新稳定', () => {
+  it('5 千顶点编辑忽略 Transform 自定义手柄样式并保持统一锚点视觉和单点更新稳定', () => {
     const targetStyle: StyleSpec = {};
     const handleStyle: StyleSpec = { symbol: { type: 'circle', radius: 9, fill: { type: 'solid', color: '#ff0000' } } };
     const previewStyle = new Style({ stroke: new Stroke({ color: '#000000' }) });
@@ -509,8 +536,9 @@ describe('Transform 默认视觉', () => {
     const batch = vertexBatchFeature(harness.map);
     const geometry = batch.getGeometry();
     if (!(geometry instanceof MultiPoint)) throw new Error('自定义样式大顶点批次不是 MultiPoint');
-    expect(source.getFeatures()).toHaveLength(3);
-    expect(batch.getStyle()).toBe(customStyle);
+    expect(source.getFeatures()).toHaveLength(2);
+    expect(batch.getStyle()).not.toBe(customStyle);
+    expect(compiler.compile).not.toHaveBeenCalledWith(handleStyle);
     expect([...transformHandles(harness.map).keys()].some((key) => key.startsWith('vertex-'))).toBe(false);
 
     const selectedIndex = 3_456;
@@ -528,7 +556,7 @@ describe('Transform 默认视觉', () => {
     const updatedCoordinate: Coordinate = [selectedCoordinate[0] + 0.25, selectedCoordinate[1] + 0.25];
     const updatedControlPoints = Object.freeze([...controlPoints.slice(0, selectedIndex), updatedCoordinate, ...controlPoints.slice(selectedIndex + 1)]);
     const updateStarted = performance.now();
-    harness.handles.setTarget({ ...editTarget, controlPoints: updatedControlPoints });
+    harness.handles.setTarget({ ...editTarget, controlPoints: updatedControlPoints, editAnchors: controlAnchors(updatedControlPoints) });
     const updateDuration = performance.now() - updateStarted;
     expect(vertexBatchFeature(harness.map)).toBe(batch);
     expect(batch.getGeometry()).toBe(geometry);
@@ -651,20 +679,27 @@ function polygonTarget(overrides: Partial<TransformInteractionTarget> = {}): Tra
     [10, -5],
     [-10, -5]
   ] as const;
+  const defaultControlPoints = ring.slice(0, -1);
+  const mode = overrides.mode ?? 'transform';
+  const controlPoints = overrides.controlPoints ?? defaultControlPoints;
+  const editAnchors = overrides.editAnchors ?? (mode === 'edit' ? controlAnchors(controlPoints) : Object.freeze([]));
   return {
     elementId: 'polygon',
     type: 'polygon',
     layerId: 'default',
     geometry: { type: 'polygon', coordinates: [ring] },
     style: {},
-    controlPoints: ring,
+    controlPoints,
+    editAnchors,
     canTranslate: true,
     canRotate: true,
     canScale: true,
     canStretch: true,
     canEditVertices: false,
     ...overrides,
-    mode: overrides.mode ?? 'transform'
+    mode,
+    controlPoints,
+    editAnchors
   };
 }
 
@@ -677,12 +712,19 @@ function pointTarget(): TransformInteractionTarget {
     style: {},
     mode: 'transform',
     controlPoints: [[0, 0]],
+    editAnchors: [],
     canTranslate: true,
     canRotate: true,
     canScale: false,
     canStretch: false,
     canEditVertices: false
   };
+}
+
+function controlAnchors(controlPoints: TransformInteractionTarget['controlPoints']): TransformInteractionTarget['editAnchors'] {
+  return Object.freeze(
+    controlPoints.map((coordinate, index) => Object.freeze({ kind: 'control' as const, index, coordinate, role: 'control', removable: true }))
+  );
 }
 
 function sourceOf(map: MapHarness): VectorSource<Feature<Geometry>> {

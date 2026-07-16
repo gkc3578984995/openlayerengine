@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { createControlPointDefinition } from '../src/builtins/shapes/definition.js';
 import { InvalidArgumentError } from '../src/core/errors.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
-import { isTrustedTransformDefinition, renderTrustedShapeState } from '../src/core/shape/trustedRender.js';
+import { isTrustedTransformDefinition, moveTrustedShapeState, renderTrustedShapeState } from '../src/core/shape/trustedRender.js';
 import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
 
 function definition<T extends ShapeType>(type: T): ShapeDefinition<ShapeState<T>> {
@@ -25,6 +25,84 @@ describe('basic shape definitions', () => {
 
     expect(isTrustedTransformDefinition(builtIn)).toBe(true);
     expect(isTrustedTransformDefinition(customSnapshot)).toBe(false);
+  });
+
+  it('inherits trusted move and render paths across ShapeRegistry snapshots while validating only the moved state', () => {
+    const validate = vi.fn();
+    const render = vi.fn((points: ShapeState<'polyline'>['controlPoints']) => ({ type: 'polyline' as const, coordinates: points }));
+    const source = createControlPointDefinition({
+      type: 'polyline',
+      previewMin: 2,
+      completeMin: 2,
+      validate,
+      render
+    });
+    const firstSnapshot = new ShapeRegistry([source]).get('polyline');
+    const registered = new ShapeRegistry([firstSnapshot]).get('polyline');
+    const state = registered.normalize({
+      type: 'polyline',
+      controlPoints: [
+        [0, 0],
+        [4, 0]
+      ]
+    });
+    validate.mockClear();
+    render.mockClear();
+
+    const moved = moveTrustedShapeState(registered, state, 1, [5, 2]);
+    const geometry = renderTrustedShapeState(registered, moved);
+
+    expect(moved.controlPoints).toEqual([
+      [0, 0],
+      [5, 2]
+    ]);
+    expect(geometry).toEqual({
+      type: 'polyline',
+      coordinates: [
+        [0, 0],
+        [5, 2]
+      ]
+    });
+    expect(validate).toHaveBeenCalledOnce();
+    expect(render).toHaveBeenCalledOnce();
+
+    validate.mockClear();
+    registered.editTopology?.move(state, 1, [5, 2]);
+    expect(validate).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to copied public methods when a custom definition reuses a trusted definition', () => {
+    const source = createControlPointDefinition({
+      type: 'polyline',
+      previewMin: 2,
+      completeMin: 2,
+      render: (points) => ({ type: 'polyline', coordinates: points })
+    });
+    const sourceTopology = source.editTopology;
+    if (sourceTopology === undefined) throw new Error('Missing source edit topology');
+    const move = vi.fn(sourceTopology.move);
+    const toRenderGeometry = vi.fn(source.toRenderGeometry);
+    const custom: ShapeDefinition<ShapeState<'polyline'>> = Object.freeze({
+      ...source,
+      editTopology: Object.freeze({ ...sourceTopology, move }),
+      toRenderGeometry
+    });
+    const registered = new ShapeRegistry([custom]).get('polyline');
+    const state = registered.normalize({
+      type: 'polyline',
+      controlPoints: [
+        [0, 0],
+        [4, 0]
+      ]
+    });
+
+    const moved = moveTrustedShapeState(registered, state, 1, [6, 3]);
+    const geometry = renderTrustedShapeState(registered, moved);
+
+    expect(move).toHaveBeenCalledOnce();
+    expect(toRenderGeometry).toHaveBeenCalledOnce();
+    expect(moved.controlPoints[1]).toEqual([6, 3]);
+    expect(geometry).toEqual({ type: 'polyline', coordinates: moved.controlPoints });
   });
 
   it('rejects a custom complete outcome that remains incomplete', () => {

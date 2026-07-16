@@ -6,6 +6,7 @@ import type { ElementStore } from '../../core/element/ElementStore.js';
 import type { ElementState } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import type { InputEventMap } from '../../core/ports/InputPort.js';
+import type { CursorPort, CursorViewHandle } from '../../core/ports/CursorPort.js';
 import type {
   EditControlAnchor,
   EditInteractionAnchor,
@@ -17,6 +18,7 @@ import type {
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
 import type { ControlPointTopology, RenderGeometryState, ShapeDefinition, ShapeEditTopology, ShapeState } from '../../core/shape/types.js';
+import { moveTrustedShapeState, renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
 import type { ContextMenuDecision, ExclusiveInteractionSession, InteractionCancelReason, InteractionStatus } from '../events/types.js';
@@ -46,6 +48,8 @@ export interface EditSessionDependencies {
   readonly input?: SessionKeyboardInput;
   /** 可选的跟随鼠标交互提示端口。 */
   readonly tooltipPort?: TooltipPort;
+  /** 可选的地图交互光标端口。 */
+  readonly cursorPort?: CursorPort;
   /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
   /** 会话进入终态后的回调。 */
@@ -75,6 +79,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   readonly #input: SessionKeyboardInput | undefined;
   /** 可选的跟随鼠标交互提示端口。 */
   readonly #tooltipPort: TooltipPort | undefined;
+  /** 可选的地图交互光标端口。 */
+  readonly #cursorPort: CursorPort | undefined;
   /** 会话错误报告器。 */
   readonly #errorReporter: ErrorReporter;
   /** 会话终止回调。 */
@@ -97,6 +103,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #unsubscribeInput: (() => void) | undefined;
   /** 当前编辑提示框句柄。 */
   #tooltip: TooltipViewHandle | undefined;
+  /** 当前编辑光标句柄。 */
+  #cursor: CursorViewHandle | undefined;
   /** 最近一次命中的编辑锚点。 */
   #hoverAnchor: EditInteractionAnchor | undefined;
   /** 会话开始时的元素状态。 */
@@ -148,6 +156,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#options = dependencies.options;
     this.#input = dependencies.input;
     this.#tooltipPort = dependencies.tooltipPort;
+    this.#cursorPort = dependencies.cursorPort;
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
     this.#onTerminal = dependencies.onTerminal;
     this.finished = new Promise((resolve) => {
@@ -191,6 +200,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
         (event) => this.#handlePortEvent(event)
       );
       this.#handle = handle;
+      this.#cursor = this.#cursorPort?.open();
       if (this.#status !== 'active') throw new ObjectDisposedError('Edit session was cancelled while opening');
       this.#workingState = freezeShapeState(this.#stateFromControlPoints(handle.placement.controlPoints));
       this.#history = [this.#workingState];
@@ -360,10 +370,13 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     try {
       if (event.type === 'pointer-move') {
         this.#hoverAnchor = event.anchor;
+        if (event.anchor === undefined) this.#cursor?.reset();
+        else this.#cursor?.set('move');
         this.#updateTooltip(event.coordinate, this.#tooltipLines(event.anchor));
       } else if (event.type === 'move-start') {
         this.#startMove(event.anchor);
         this.#hoverAnchor = event.anchor;
+        this.#cursor?.set('grabbing');
         this.#updateTooltip(event.coordinate, ['拖拽中…']);
       } else if (event.type === 'move') {
         this.#move(event.anchor, event.coordinate, false);
@@ -371,10 +384,11 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       } else if (event.type === 'move-end') {
         this.#move(event.anchor, event.coordinate, true);
         this.#hoverAnchor = event.anchor;
+        this.#cursor?.set('move');
         this.#updateTooltip(event.coordinate, this.#tooltipLines(event.anchor));
       } else if (event.type === 'move-cancel') {
         this.#cancelMove();
-        this.#refreshTooltip();
+        this.#clearHover();
       } else if (event.type === 'insert') {
         this.#insert(event.anchor.index, event.anchor.coordinate);
         this.#clearHover();
@@ -430,7 +444,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     if (this.#dragOrigin === undefined || this.#dragIndex !== anchor.index) throw new InvalidArgumentError('Edit move sequence is not active');
     const state = this.#requireWorkingState();
     const coordinate = this.#placeCoordinate(input, anchor.index);
-    this.#workingState = freezeShapeState(this.#topology().move(state as never, anchor.index, coordinate) as ShapeState);
+    this.#workingState = freezeShapeState(moveTrustedShapeState(this.#definition, state as never, anchor.index, coordinate) as ShapeState);
     this.#dragCoordinate = coordinate;
     this.#render(end ? undefined : { anchor, coordinate });
     if (end) {
@@ -479,7 +493,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     if (handle === undefined || entry === undefined) throw new ObjectDisposedError('Edit interaction is not open');
     const description = activeMove === undefined ? this.#topology().describe(state as never) : undefined;
     const preview: EditInteractionRenderState = Object.freeze({
-      geometry: freezeRenderGeometry(this.#definition.toRenderGeometry(state as never)),
+      geometry: freezeRenderGeometry(renderTrustedShapeState(this.#definition, state as never)),
       style: entry.style,
       anchors: activeMove === undefined ? freezeAnchors(description as ControlPointTopology) : freezeActiveAnchor(activeMove)
     });
@@ -551,9 +565,9 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     const canInsert = (topology?.insertions.length ?? 0) > 0;
     const canRemove = topology?.handles.some(({ removable }) => removable) ?? false;
     const lines = ['拖拽控制点进行编辑'];
-    if (canInsert && canRemove) lines.push('按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点删除点');
+    if (canInsert && canRemove) lines.push('按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点');
     else if (canInsert) lines.push('按住 Alt 单击中点添加点');
-    else if (canRemove) lines.push('按住 Alt 单击可删除控制点删除点');
+    else if (canRemove) lines.push('按住 Alt 单击可删除控制点');
     lines.push('右击退出编辑');
     if (this.#historyIndex > 0) lines.push(`Ctrl+Z 撤销 (${this.#historyIndex})`);
     const redoCount = this.#history.length - this.#historyIndex - 1;
@@ -569,6 +583,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   /** 清除可能已经失效的悬停锚点并恢复基础提示。 */
   #clearHover(): void {
     this.#hoverAnchor = undefined;
+    this.#cursor?.reset();
     this.#refreshTooltip();
   }
 
@@ -617,6 +632,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       const unsubscribeStore = this.#unsubscribeStore;
       const unsubscribeInput = this.#unsubscribeInput;
       const tooltip = this.#tooltip;
+      const cursor = this.#cursor;
       try {
         runFinalizers([
           ...(handle === undefined
@@ -657,6 +673,14 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
                   }
                 }
               ]),
+          ...(cursor === undefined
+            ? []
+            : [
+                () => {
+                  cursor.destroy();
+                  if (this.#cursor === cursor) this.#cursor = undefined;
+                }
+              ]),
           ...(!this.#coordinatorReleased
             ? [
                 () => {
@@ -675,6 +699,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
         this.#unsubscribeStore === undefined &&
         this.#unsubscribeInput === undefined &&
         this.#tooltip === undefined &&
+        this.#cursor === undefined &&
         this.#coordinatorReleased &&
         !this.#terminalNotified
       ) {

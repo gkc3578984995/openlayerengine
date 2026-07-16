@@ -296,6 +296,55 @@ describe('TransformInteractionAdapter', () => {
     }
   });
 
+  it('maps an OL pointerup that wraps native pointercancel to operation-cancel and discards the pending frame', () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      const id = ++nextFrame;
+      frames.set(id, callback);
+      return id;
+    });
+    const cancelFrame = vi.fn((id: number) => frames.delete(id));
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-pointer-cancel', { ...options, keepRectangle: false }, (event) => received.push(event));
+    try {
+      handle.setTarget(polygonTarget());
+      map.hitHandleKey = 'scale-ne';
+      const input = map.interactions.item(0);
+      if (input === null) throw new Error('Transform interaction was not installed.');
+
+      input.handleEvent(pointerGestureEvent('pointerdown', [2, 1]));
+      input.handleEvent(pointerGestureEvent('pointerdrag', [4, 3]));
+      const lateFrame = frames.get(1);
+      if (lateFrame === undefined) throw new Error('Missing cancelled animation frame');
+      input.handleEvent(pointerGestureEvent('pointerup', [5, 4], { nativeType: 'pointercancel' }));
+
+      expect(received.filter((event) => (event as { type?: string }).type !== 'bounds-change')).toEqual([
+        expect.objectContaining({ type: 'operation-start', operation: 'scale' }),
+        expect.objectContaining({ type: 'operation-cancel', operation: 'scale', delta: { type: 'scale', scaleX: 1, scaleY: 1, center: [0, 0] } })
+      ]);
+      expect(cancelFrame).toHaveBeenCalledWith(1);
+      const afterCancel = received.length;
+      lateFrame(16);
+      expect(received).toHaveLength(afterCancel);
+
+      input.handleEvent(pointerGestureEvent('pointerdown', [2, 1]));
+      input.handleEvent(pointerGestureEvent('pointerup', [4, 3]));
+      expect(received).toContainEqual(expect.objectContaining({ type: 'operation-end', operation: 'scale' }));
+    } finally {
+      handle.destroy();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each([1, -1, 50, -50])('keeps Transform math canonical and renders one handle set in wrapped world %s', (world) => {
     const map = new MapHarness();
     map.view.setCenter([world * 360, 0]);
@@ -324,6 +373,80 @@ describe('TransformInteractionAdapter', () => {
     handle.destroy();
   });
 
+  it('emits structural edit requests only for Alt clicks on insertion or removable control anchors', () => {
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-structural-edit', options, (event) => received.push(event));
+    const target = structuralEditTarget();
+    handle.setTarget(target);
+    const insertion = target.editAnchors.find((anchor) => anchor.kind === 'insertion');
+    const removable = target.editAnchors.find((anchor) => anchor.kind === 'control' && anchor.removable);
+    if (insertion?.kind !== 'insertion' || removable?.kind !== 'control') throw new Error('Transform structural edit anchors were not created.');
+    const click = (coordinate: readonly [number, number], altKey: boolean): void => {
+      const originalEvent = Object.assign(new Event('pointerdown'), { altKey });
+      map.dispatchEvent(mapPointerEvent('click', coordinate, originalEvent, coordinate));
+      map.dispatchEvent(mapPointerEvent('singleclick', coordinate, originalEvent, coordinate));
+    };
+
+    map.hitHandleKey = 'insertion-0';
+    click(insertion.coordinate as readonly [number, number], false);
+    expect(structuralEvents(received)).toEqual([]);
+
+    click(insertion.coordinate as readonly [number, number], true);
+    expect(structuralEvents(received)).toEqual([{ type: 'edit-insert', anchor: insertion }]);
+
+    map.hitHandleKey = `vertex-${removable.index}`;
+    click(removable.coordinate as readonly [number, number], false);
+    expect(structuralEvents(received)).toEqual([{ type: 'edit-insert', anchor: insertion }]);
+
+    click(removable.coordinate as readonly [number, number], true);
+    expect(structuralEvents(received)).toEqual([
+      { type: 'edit-insert', anchor: insertion },
+      { type: 'edit-remove', anchor: removable }
+    ]);
+    handle.destroy();
+  });
+
+  it('filters overlapping Transform Edit anchors before nearest-hit selection', () => {
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-overlapping-edit-anchors', options, (event) => received.push(event));
+    const base = smallEditTarget();
+    handle.setTarget({
+      ...base,
+      editAnchors: [
+        { kind: 'control', index: 0, coordinate: [0, 0], role: 'start', removable: false },
+        { kind: 'insertion', index: 1, coordinate: [2, 0] }
+      ]
+    });
+    const clickSource = Object.assign(new Event('pointerdown'), { altKey: true });
+    map.dispatchEvent(mapPointerEvent('click', [0.5, 0], clickSource, [0.5, 0]));
+    map.dispatchEvent(mapPointerEvent('singleclick', [0.5, 0], clickSource, [0.5, 0]));
+    expect(structuralEvents(received)).toEqual([{ type: 'edit-insert', anchor: { kind: 'insertion', index: 1, coordinate: [2, 0] } }]);
+
+    handle.setTarget({
+      ...base,
+      editAnchors: [
+        { kind: 'insertion', index: 0, coordinate: [0, 0] },
+        { kind: 'control', index: 1, coordinate: [2, 0], role: 'end', removable: true }
+      ]
+    });
+    const input = map.interactions.item(0);
+    if (input === null) throw new Error('Transform interaction was not installed.');
+    input.handleEvent(pointerGestureEvent('pointerdown', [0.5, 0]));
+    expect(received).toContainEqual(expect.objectContaining({ type: 'operation-start', operation: 'vertex', anchor: expect.objectContaining({ index: 1 }) }));
+    input.handleEvent(pointerGestureEvent('pointerup', [0.5, 0], { button: -1 }));
+    handle.destroy();
+  });
+
   it.each([50, -50])('hits a 50k MultiPoint vertex batch with canonical deltas in wrapped world %s', (world) => {
     const map = new MapHarness();
     map.view.setCenter([world * 360, 0]);
@@ -349,7 +472,7 @@ describe('TransformInteractionAdapter', () => {
     const input = map.interactions.item(0);
     if (input === null) throw new Error('Transform interaction was not installed.');
 
-    expect(source.getFeatures()).toHaveLength(3);
+    expect(source.getFeatures()).toHaveLength(2);
     expect(geometry.getCoordinates()).toHaveLength(50_000);
     expect(geometry.getCoordinates()[selectedIndex]).toEqual(presented);
     input.handleEvent(pointerGestureEvent('pointerdown', presented));
@@ -528,7 +651,7 @@ describe('TransformInteractionAdapter', () => {
       const input = map.interactions.item(0);
       if (input === null) throw new Error('Transform interaction was not installed.');
 
-      expect(source.getFeatures()).toHaveLength(3);
+      expect(source.getFeatures()).toHaveLength(2);
       expect(geometry.getCoordinates()[selectedIndex]).toEqual(presented);
       input.handleEvent(pointerGestureEvent('pointerdown', presented));
       input.handleEvent(pointerGestureEvent('pointerup', [presented[0] + 0.00001, presented[1] + 0.00001]));
@@ -581,19 +704,31 @@ describe('TransformInteractionAdapter', () => {
   });
 });
 
-function mapPointerEvent(type: 'click' | 'singleclick', pixel: readonly [number, number], originalEvent: Event): BaseEvent {
-  return Object.assign(new BaseEvent(type), { pixel, originalEvent });
+function mapPointerEvent(
+  type: 'click' | 'singleclick',
+  pixel: readonly [number, number],
+  originalEvent: Event,
+  coordinate?: readonly [number, number]
+): BaseEvent {
+  return Object.assign(new BaseEvent(type), { pixel, ...(coordinate === undefined ? {} : { coordinate }), originalEvent });
 }
 
 function pointerGestureEvent(
   type: 'pointerdown' | 'pointerdrag' | 'pointermove' | 'pointerup',
   coordinate: readonly [number, number],
-  modifiers: Readonly<{ shiftKey?: boolean; altKey?: boolean }> = {}
+  modifiers: Readonly<{ shiftKey?: boolean; altKey?: boolean; nativeType?: 'pointercancel' }> = {}
 ): BaseEvent {
   return Object.assign(new BaseEvent(type), {
     coordinate,
     pixel: coordinate,
-    originalEvent: { type, button: 0, isPrimary: true, shiftKey: modifiers.shiftKey === true, altKey: modifiers.altKey === true, preventDefault: vi.fn() }
+    originalEvent: {
+      type: modifiers.nativeType ?? type,
+      button: 0,
+      isPrimary: true,
+      shiftKey: modifiers.shiftKey === true,
+      altKey: modifiers.altKey === true,
+      preventDefault: vi.fn()
+    }
   });
 }
 
@@ -626,6 +761,7 @@ function polygonTarget(): TransformInteractionTarget {
     [10, -5],
     [-10, -5]
   ] as const;
+  const controlPoints = ring.slice(0, -1);
   return {
     elementId: 'polygon',
     type: 'polygon',
@@ -633,7 +769,8 @@ function polygonTarget(): TransformInteractionTarget {
     geometry: { type: 'polygon', coordinates: [ring] },
     style: {},
     mode: 'transform',
-    controlPoints: ring,
+    controlPoints,
+    editAnchors: [],
     canTranslate: true,
     canRotate: true,
     canScale: true,
@@ -654,6 +791,7 @@ function largeEditTarget(length: number): TransformInteractionTarget {
     ...base,
     mode: 'edit',
     controlPoints,
+    editAnchors: controlAnchors(controlPoints),
     canTranslate: false,
     canRotate: false,
     canScale: false,
@@ -674,6 +812,7 @@ function largeTransformTarget(length: number): TransformInteractionTarget {
     style: {},
     mode: 'transform',
     controlPoints: Object.freeze([]),
+    editAnchors: Object.freeze([]),
     canTranslate: true,
     canRotate: false,
     canScale: false,
@@ -687,6 +826,7 @@ function smallEditTarget(): TransformInteractionTarget {
   return {
     ...target,
     mode: 'edit',
+    editAnchors: controlAnchors(target.controlPoints),
     canTranslate: false,
     canRotate: false,
     canScale: false,
@@ -702,5 +842,24 @@ function largeGeographicEditTarget(length: number): TransformInteractionTarget {
       Object.freeze([(index % 1_000) * 0.0001 - 0.05, Math.floor(index / 1_000) * 0.0001 - 0.0025])
     )
   );
-  return { ...target, controlPoints };
+  return { ...target, controlPoints, editAnchors: controlAnchors(controlPoints) };
+}
+
+function structuralEditTarget(): TransformInteractionTarget {
+  const target = smallEditTarget();
+  const insertion = Object.freeze({ kind: 'insertion' as const, index: 1, coordinate: Object.freeze([-10, 0] as const) });
+  return { ...target, editAnchors: Object.freeze([...target.editAnchors, insertion]) };
+}
+
+function controlAnchors(controlPoints: TransformInteractionTarget['controlPoints']): TransformInteractionTarget['editAnchors'] {
+  return Object.freeze(
+    controlPoints.map((coordinate, index) => Object.freeze({ kind: 'control' as const, index, coordinate, role: 'control', removable: true }))
+  );
+}
+
+function structuralEvents(events: readonly unknown[]): readonly unknown[] {
+  return events.filter((event) => {
+    const type = (event as Readonly<{ type?: unknown }>).type;
+    return type === 'edit-insert' || type === 'edit-remove';
+  });
 }

@@ -1,6 +1,12 @@
 import type { Coordinate } from '../../core/common/types.js';
 import type { ElementCopyOptions, ElementSelector, ElementState } from '../../core/element/types.js';
-import type { TransformDelta, TransformInteractionMode, TransformInteractionOptions, TransformOperation } from '../../core/ports/TransformInteractionPort.js';
+import type {
+  TransformDelta,
+  TransformEditOperation,
+  TransformInteractionMode,
+  TransformInteractionOptions,
+  TransformOperation
+} from '../../core/ports/TransformInteractionPort.js';
 import type { TransformToolbarViewHandle } from '../../core/ports/TransformToolbarPort.js';
 import type { InteractionCancelReason, InteractionPolicy, InteractionStatus } from '../events/types.js';
 
@@ -97,7 +103,7 @@ export interface NormalizedTransformOptions extends Omit<
 /** 记录历史快照对应的变换命令。 */
 export interface TransformCommandMetadata {
   /** 产生快照的操作类型。 */
-  readonly operation: TransformOperation | 'select' | 'replace';
+  readonly operation: TransformOperation | TransformEditOperation | 'select' | 'replace';
   /** 命令创建时间戳。 */
   readonly timestamp: number;
 }
@@ -131,7 +137,7 @@ export interface InternalTransformEventMap<T = unknown> {
   /** 缩放结束事件。 */
   readonly scaleEnd: Readonly<{ type: 'scaleEnd'; state: Readonly<ElementState<T>>; delta: TransformDelta }>;
   /** 变换结果编辑事件。 */
-  readonly edit: Readonly<{ type: 'edit'; state: Readonly<ElementState<T>>; operation: TransformOperation }>;
+  readonly edit: Readonly<{ type: 'edit'; state: Readonly<ElementState<T>>; operation: TransformEditOperation }>;
   /** 复制预览确认事件。 */
   readonly copyPreviewConfirm: Readonly<{ type: 'copyPreviewConfirm'; state: Readonly<ElementState<T>> }>;
   /** 复制预览取消事件。 */

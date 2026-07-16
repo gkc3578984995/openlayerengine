@@ -8,6 +8,7 @@ import type { Coordinate, Pixel } from '../../../core/common/types.js';
 import { runFinalizers } from '../../../core/common/dispose.js';
 import { horizontalWorldFromExtent, type HorizontalWorld } from '../../../core/common/worldWrap.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
+import type { EditInteractionAnchor } from '../../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
 import type { LayerRenderPort } from '../../../core/ports/LayerRenderPort.js';
 import type {
@@ -90,9 +91,12 @@ export class TransformInteractionAdapter implements TransformInteractionPort {
 }
 
 /** 一次手柄拖拽的起点、中心和当前增量。 */
+type ActiveTransformHandleHit = TransformHandleHit & Readonly<{ operation: TransformOperation }>;
+
+/** 一次手柄拖拽的起点、中心和当前增量。 */
 interface DragState {
   /** 被拖拽的控制手柄。 */
-  readonly hit: TransformHandleHit;
+  readonly hit: ActiveTransformHandleHit;
   /** 拖拽起始坐标。 */
   readonly start: Coordinate;
   /** 缩放和旋转使用的中心。 */
@@ -229,7 +233,8 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#clickListener = clickListener;
     this.#keys.push(this.#map.on('click', clickListener));
     const singleClickListener = (event: PointerMapEvent) => {
-      if (observedClicks.delete(event.originalEvent)) this.#selectAt(event.pixel, event.coordinate);
+      if (!observedClicks.delete(event.originalEvent)) return;
+      if (!this.#editAt(event)) this.#selectAt(event.pixel, event.coordinate);
     };
     this.#singleClickListener = singleClickListener;
     this.#keys.push(this.#map.on('singleclick', singleClickListener));
@@ -356,8 +361,9 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       return true;
     }
     if (!isPrimary(event) || this.#target === undefined) return false;
-    const hit = this.#handles.hit(currentPixel, this.#options.hitTolerance);
-    if (hit === undefined || !operationAllowed(this.#target, hit.operation)) return false;
+    if (this.#target.mode === 'edit' && event.originalEvent.altKey === true) return false;
+    const hit = this.#handles.hit(currentPixel, this.#options.hitTolerance, this.#target.mode === 'edit' ? 'control' : 'all');
+    if (!hasTransformOperation(hit) || !operationAllowed(this.#target, hit.operation)) return false;
     const center =
       this.#target.handleCenter === undefined
         ? extentCenter(this.#handles.extent ?? [0, 0, 0, 0])
@@ -369,7 +375,16 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     const viewWorldOffset = viewWorldOffsetFor(this.#map, world, worldReferenceX);
     this.#cancelPendingDrag();
     this.#drag = { hit, start, center, delta, viewWorldOffset, ...(world === undefined ? {} : { world }), worldReferenceX };
-    this.#emit({ type: 'operation-start', operation: hit.operation, delta, pixel: currentPixel, coordinate: currentCoordinate });
+    this.#emit({
+      type: 'operation-start',
+      operation: hit.operation,
+      delta,
+      pixel: currentPixel,
+      coordinate: currentCoordinate,
+      ...(hit.axis === undefined ? {} : { axis: hit.axis }),
+      ...(hit.anchor?.kind !== 'control' ? {} : { anchor: hit.anchor }),
+      cursor: cursorFor(hit)
+    });
     return true;
   }
 
@@ -397,6 +412,29 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   /** 处理指针抬起并结束当前拖拽。 */
   #up(event: PointerMapEvent): boolean {
     if (this.#drag === undefined) return false;
+    if (isPointerCancel(event)) {
+      const drag = this.#drag;
+      this.#cancelPendingDrag();
+      const currentCoordinate = this.#coordinateInDragWorld(drag, coordinate(event.coordinate));
+      const currentPixel = pixel(event.pixel);
+      try {
+        this.#emit({
+          type: 'operation-cancel',
+          operation: drag.hit.operation,
+          delta: drag.delta,
+          pixel: currentPixel,
+          coordinate: currentCoordinate,
+          ...(drag.hit.axis === undefined ? {} : { axis: drag.hit.axis }),
+          ...(drag.hit.anchor?.kind !== 'control' ? {} : { anchor: drag.hit.anchor }),
+          cursor: cursorFor(drag.hit)
+        });
+      } finally {
+        if (this.#drag === drag) this.#drag = undefined;
+        this.#leaveHover(currentCoordinate, currentPixel);
+        if (this.#worldRepositionPending) this.#repositionForView();
+      }
+      return false;
+    }
     this.#cancelDragFrame();
     this.#flushPendingDrag();
     const drag = this.#drag;
@@ -405,7 +443,16 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     const currentPixel = pixel(event.pixel);
     drag.delta = this.#deltaFor(drag, this.#lastCoordinate, event.originalEvent.shiftKey === true);
     try {
-      this.#emit({ type: 'operation-end', operation: drag.hit.operation, delta: drag.delta, pixel: currentPixel, coordinate: this.#lastCoordinate });
+      this.#emit({
+        type: 'operation-end',
+        operation: drag.hit.operation,
+        delta: drag.delta,
+        pixel: currentPixel,
+        coordinate: this.#lastCoordinate,
+        ...(drag.hit.axis === undefined ? {} : { axis: drag.hit.axis }),
+        ...(drag.hit.anchor?.kind !== 'control' ? {} : { anchor: drag.hit.anchor }),
+        cursor: cursorFor(drag.hit)
+      });
     } finally {
       if (this.#drag === drag) this.#drag = undefined;
       if (this.#worldRepositionPending) this.#repositionForView();
@@ -421,7 +468,16 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     if (sample === undefined || drag === undefined) return;
     this.#lastCoordinate = sample.coordinate;
     drag.delta = this.#deltaFor(drag, sample.coordinate, sample.keepAspectRatio);
-    this.#emit({ type: 'operation-change', operation: drag.hit.operation, delta: drag.delta, pixel: sample.pixel, coordinate: sample.coordinate });
+    this.#emit({
+      type: 'operation-change',
+      operation: drag.hit.operation,
+      delta: drag.delta,
+      pixel: sample.pixel,
+      coordinate: sample.coordinate,
+      ...(drag.hit.axis === undefined ? {} : { axis: drag.hit.axis }),
+      ...(drag.hit.anchor?.kind !== 'control' ? {} : { anchor: drag.hit.anchor }),
+      cursor: cursorFor(drag.hit)
+    });
   }
 
   /** 取消尚未执行的浏览器绘制帧，但保留最后一次采样供 pointerup 同步处理。 */
@@ -458,13 +514,33 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       this.#emit({
         type: 'enter-handle',
         key: hit.key,
-        operation: hit.operation,
+        ...(hit.operation === undefined ? {} : { operation: hit.operation }),
         ...(hit.axis === undefined ? {} : { axis: hit.axis }),
+        ...(hit.anchor === undefined ? {} : { anchor: hit.anchor }),
         cursor: cursorFor(hit),
         coordinate: current,
         pixel: currentPixel
       });
     }
+  }
+
+  /** Alt 单击语义锚点时发布原子插入或删除请求，并阻止重新选择目标。 */
+  #editAt(event: PointerMapEvent): boolean {
+    const target = this.#target;
+    if (target?.mode !== 'edit' || this.#drag !== undefined || this.#copyActive) return false;
+    const currentPixel = pixel(event.pixel);
+    const hovered = this.#handles.hit(currentPixel, this.#options.hitTolerance);
+    if (hovered?.anchor === undefined) return false;
+    const currentCoordinate = coordinate(event.coordinate);
+    this.#lastCoordinate = currentCoordinate;
+    event.originalEvent.preventDefault?.();
+    if (event.originalEvent.altKey !== true) return true;
+    const anchor = this.#handles.hit(currentPixel, this.#options.hitTolerance, 'structural')?.anchor;
+    if (anchor === undefined) return true;
+    this.#leaveHover(currentCoordinate, currentPixel);
+    if (anchor.kind === 'insertion') this.#emit({ type: 'edit-insert', anchor });
+    else this.#emit({ type: 'edit-remove', anchor });
+    return true;
   }
 
   /** 在指定像素选择最前面的可操作元素。 */
@@ -535,8 +611,9 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       this.#emit({
         type: 'leave-handle',
         key: hover.key,
-        operation: hover.operation,
+        ...(hover.operation === undefined ? {} : { operation: hover.operation }),
         ...(hover.axis === undefined ? {} : { axis: hover.axis }),
+        ...(hover.anchor === undefined ? {} : { anchor: hover.anchor }),
         cursor: cursorFor(hover),
         ...(current === undefined ? {} : { coordinate: current }),
         ...(currentPixel === undefined ? {} : { pixel: currentPixel })
@@ -650,9 +727,16 @@ function snapshotTarget(target: TransformInteractionTarget): TransformInteractio
   return Object.freeze({
     ...target,
     controlPoints: Object.freeze(target.controlPoints.map(coordinate)),
+    editAnchors: Object.freeze(target.editAnchors.map(snapshotEditAnchor)),
     ...(target.handleCenter === undefined ? {} : { handleCenter: coordinate(target.handleCenter) }),
     ...(target.style === undefined ? {} : { style: target.style })
   });
+}
+
+/** 深拷贝并冻结 Transform 编辑锚点，避免调用方在交互期间修改拓扑快照。 */
+function snapshotEditAnchor(anchor: EditInteractionAnchor): EditInteractionAnchor {
+  const snapshot = { ...anchor, coordinate: coordinate(anchor.coordinate) };
+  return Object.freeze(snapshot) as EditInteractionAnchor;
 }
 
 /** 根据点击位置、视图中心和业务源 wrapX 选择唯一展示世界。 */
@@ -702,7 +786,7 @@ function shiftCoordinate(value: Coordinate, x: number): Coordinate {
 }
 
 /** 判断目标是否允许指定手柄操作。 */
-function operationAllowed(target: TransformInteractionTarget, operation: TransformHandleHit['operation']): boolean {
+function operationAllowed(target: TransformInteractionTarget, operation: TransformOperation): boolean {
   if (operation === 'vertex') return target.mode === 'edit' && target.canEditVertices;
   if (target.mode !== 'transform') return false;
   if (operation === 'translate') return target.canTranslate;
@@ -713,7 +797,7 @@ function operationAllowed(target: TransformInteractionTarget, operation: Transfo
 }
 
 /** 根据手柄、起点和中心生成初始变换增量。 */
-function initialDelta(hit: TransformHandleHit, start: Coordinate, center: Coordinate): TransformDelta {
+function initialDelta(hit: ActiveTransformHandleHit, start: Coordinate, center: Coordinate): TransformDelta {
   if (hit.operation === 'translate') return Object.freeze({ type: 'translate', x: 0, y: 0 });
   if (hit.operation === 'rotate') return Object.freeze({ type: 'rotate', angle: 0, center });
   if (hit.operation === 'vertex') {
@@ -750,14 +834,32 @@ function isPrimary(event: PointerMapEvent): boolean {
   return native.isPrimary !== false && native.button === 0;
 }
 
+/** 判断 OpenLayers 的 pointerup 是否由原生 pointercancel 包装而来。 */
+function isPointerCancel(event: PointerMapEvent): boolean {
+  return event.type === 'pointercancel' || (event.originalEvent as Readonly<{ type?: unknown }>).type === 'pointercancel';
+}
+
+/** 判断命中项是否可启动一次连续 Transform 操作。 */
+function hasTransformOperation(hit: TransformHandleHit | undefined): hit is ActiveTransformHandleHit {
+  return hit?.operation !== undefined;
+}
+
 /** 判断两个悬停命中是否指向同一手柄。 */
 function sameHit(left: TransformHandleHit | undefined, right: TransformHandleHit | undefined): boolean {
-  return left?.key === right?.key;
+  if (left?.key !== right?.key || left?.operation !== right?.operation) return false;
+  const leftAnchor = left?.anchor;
+  const rightAnchor = right?.anchor;
+  if (leftAnchor === undefined || rightAnchor === undefined) return leftAnchor === rightAnchor;
+  return (
+    leftAnchor.kind === rightAnchor.kind &&
+    leftAnchor.index === rightAnchor.index &&
+    (leftAnchor.kind !== 'control' || rightAnchor.kind !== 'control' || leftAnchor.removable === rightAnchor.removable)
+  );
 }
 
 /** 按手柄操作和坐标轴选择鼠标样式。 */
 function cursorFor(hit: TransformHandleHit): string {
-  if (hit.operation === 'translate' || hit.operation === 'vertex') return 'move';
+  if (hit.anchor !== undefined || hit.operation === 'translate' || hit.operation === 'vertex') return 'move';
   if (hit.operation === 'rotate') return 'grab';
   if (hit.operation === 'stretch') return hit.axis === 'x' ? 'ew-resize' : 'ns-resize';
   if (hit.key === 'scale-sw' || hit.key === 'scale-ne') return 'nesw-resize';

@@ -13,7 +13,7 @@ import type {
 } from '../../core/shape/types.js';
 import { registerShapeFreehandAccumulator } from '../../core/shape/freehandAccumulator.js';
 import { createImmutableSet } from '../../core/shape/immutableSet.js';
-import { registerTrustedShapeRenderer } from '../../core/shape/trustedRender.js';
+import { registerTrustedShapeMover, registerTrustedShapeRenderer } from '../../core/shape/trustedRender.js';
 
 /** 内部方法。处理 immutableSet 相关数据。 */
 export function immutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
@@ -354,8 +354,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     return normalize({ type: options.type, controlPoints: points });
   };
 
-  const move = (state: ShapeState<T>, index: number, coordinate: Coordinate): ShapeState<T> => {
-    const normalized = normalize(state);
+  const moveNormalized = (normalized: ShapeState<T>, index: number, coordinate: Coordinate): ShapeState<T> => {
     if (!Number.isInteger(index) || index < 0 || index >= normalized.controlPoints.length) {
       throw new InvalidArgumentError(`Control-point index is out of range: ${index}`);
     }
@@ -363,6 +362,8 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     points[index] = normalizeCoordinate(coordinate);
     return normalize({ type: options.type, controlPoints: points });
   };
+
+  const move = (state: ShapeState<T>, index: number, coordinate: Coordinate): ShapeState<T> => moveNormalized(normalize(state), index, coordinate);
 
   const midpointCoordinate = (left: Coordinate, right: Coordinate): Coordinate => {
     if (left.length !== right.length) throw new InvalidArgumentError(`${options.type} control-point topology requires uniform dimensions`);
@@ -573,6 +574,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     if (options.renderTrusted === undefined) assertFiniteRenderGeometry(geometry);
     return geometry;
   });
+  registerTrustedShapeMover(definition, (state, index, coordinate) => moveNormalized(state, index, coordinate));
 
   return Object.freeze(definition);
 }

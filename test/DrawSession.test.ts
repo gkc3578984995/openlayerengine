@@ -21,6 +21,7 @@ import { InteractionCoordinator } from '../src/services/events/InteractionCoordi
 import { DrawService } from '../src/services/draw/DrawService.js';
 import type { RoutedPointerEvent } from '../src/services/events/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { FakeCursorPort } from './helpers/cursorHarness.js';
 import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
@@ -81,6 +82,7 @@ function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[
   const store = new ElementStore(shapes);
   const port = new FakeDrawPort();
   const coordinator = new InteractionCoordinator();
+  const cursor = new FakeCursorPort();
   const tooltip = new FakeTooltipPort();
   const reports: unknown[] = [];
   let id = 0;
@@ -91,13 +93,14 @@ function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[
     coordinator,
     drawPort: port,
     editPort: {} as EditInteractionPort,
+    cursorPort: cursor,
     tooltipPort: tooltip,
     ...(input === undefined ? {} : { input }),
     defaultStyle: () => style,
     createId: () => `draw-${++id}`,
     errorReporter: (error) => reports.push(error)
   });
-  return { coordinator, port, reports, service, store, tooltip };
+  return { coordinator, cursor, port, reports, service, store, tooltip };
 }
 
 function rightClick(coordinate: readonly [number, number] = [0, 0]): RoutedPointerEvent<'rightclick'> {
@@ -130,8 +133,13 @@ describe('DrawSession', () => {
   });
 
   it('shows the legacy Draw guidance at the pointer, updates history hints, and releases the tooltip with the session', () => {
-    const { port, service, tooltip } = setup();
+    const { cursor, port, service, tooltip } = setup();
     const session = service.start({ type: 'polyline', layerId: 'draw-layer', style });
+
+    const cursorView = cursor.views[0];
+    expect(cursor.open).toHaveBeenCalledOnce();
+    expect(cursorView?.cursor).toBe('pointer');
+    expect(cursorView?.set).toHaveBeenCalledWith('pointer');
 
     expect(tooltip.views).toHaveLength(0);
     port.emit({ type: 'move', coordinate: [2, 3] });
@@ -150,6 +158,8 @@ describe('DrawSession', () => {
 
     session.cancel();
     expect(view?.destroyed).toBe(true);
+    expect(cursorView?.destroyed).toBe(true);
+    expect(cursorView?.cursor).toBeUndefined();
   });
 
   it('keeps preview state out of Store and commits a variable shape once on right-click', async () => {

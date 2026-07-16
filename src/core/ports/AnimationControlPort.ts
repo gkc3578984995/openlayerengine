@@ -1,5 +1,6 @@
 import type { AnimationChannel, AnimationSpec, AnimationStatus } from '../animation/types.js';
 import type { ElementSelector, ElementState } from '../element/types.js';
+import type { RenderGeometryState } from '../shape/types.js';
 
 /** 内部接口。约定 AnimationControlHandle 使用的数据和操作。 */
 export interface AnimationControlHandle {
@@ -23,8 +24,8 @@ export interface AnimationControlPort {
 
 /** 内部接口。约定 AnimationPreviewPort 使用的数据和操作。 */
 export interface AnimationPreviewPort {
-  /** 设置元素动画预览。 */
-  setPreview(state: Readonly<ElementState>): void;
+  /** 使用调用方同一帧已生成的渲染几何设置元素动画预览。 */
+  setPreview(state: Readonly<ElementState>, geometry: RenderGeometryState): void;
   /** 清除元素动画预览。 */
   clearPreview(elementId: string): void;
 }

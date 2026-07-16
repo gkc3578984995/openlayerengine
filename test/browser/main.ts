@@ -95,12 +95,16 @@ interface BrowserFixture {
   startTransformByClick(): unknown;
   startTransformDirect(toolbar?: boolean): unknown;
   startTransformElement(elementId: string, toolbar?: boolean): unknown;
+  startTransformEdit(elementId: string): unknown;
   armTransformOnNextMapClick(): void;
   deferredSingleClickCount(): number;
   transformSummary(): unknown;
   transformPixels(): unknown;
+  transformEditControlPixel(index: number): readonly [number, number];
+  transformEditInsertionPixel(index: number): readonly [number, number];
   populatePerformanceElements(count: number): number;
   ensurePerformanceEditElement(count: number): string;
+  ensurePerformanceTailedAttackArrow(count: number): string;
   setViewWorld(index: number): unknown;
   measureViewWorldChanges(indices: readonly number[]): readonly number[];
   setViewRotation(rotation: number): unknown;
@@ -317,6 +321,15 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     subscribeTransform(a, a.transform);
     return transformSummary(a);
   },
+  startTransformEdit(elementId) {
+    endExclusiveSessions(a);
+    const element = requireOwnedElement(a, elementId);
+    a.transformEvents = [];
+    a.transform = a.earth.transform.select(element, transformOptions(false));
+    subscribeTransform(a, a.transform);
+    a.transform.setMode('edit');
+    return transformSummary(a);
+  },
   armTransformOnNextMapClick() {
     endExclusiveSessions(a);
     deferredSingleClickCount = 0;
@@ -338,6 +351,12 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   },
   transformPixels() {
     return transformPixels(a);
+  },
+  transformEditControlPixel(index) {
+    return transformEditAnchorPixel(a, index, 'control');
+  },
+  transformEditInsertionPixel(index) {
+    return transformEditAnchorPixel(a, index, 'insertion');
   },
   populatePerformanceElements(count) {
     if (!Number.isInteger(count) || count < 0 || count > 10_000) throw new Error('性能测试元素数量必须是 0 到 10000 之间的整数');
@@ -383,6 +402,27 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
       module: 'browser-performance-edit',
       geometry: { type: 'polyline', controlPoints },
       style: { strokes: [{ color: '#7c3aed', width: 2 }] }
+    }).id;
+  },
+  ensurePerformanceTailedAttackArrow(count) {
+    if (!Number.isInteger(count) || count < 3 || count > 256) throw new Error('燕尾进攻箭头控制点数量必须是 3 到 256 之间的整数');
+    const id = `browser-performance-tailed-attack-arrow-${count}`;
+    const existing = a.earth.elements.get(id);
+    if (existing !== undefined) return existing.id;
+    const controlPoints: Coordinate[] = [coordinateAtPixel(a, [100, 260]), coordinateAtPixel(a, [100, 340])];
+    const boneCount = count - 2;
+    for (let index = 0; index < boneCount; index += 1) {
+      const progress = index / Math.max(1, boneCount - 1);
+      controlPoints.push(coordinateAtPixel(a, [130 + progress * 290, 300 + Math.sin(progress * Math.PI * 2) * 52]));
+    }
+    return a.earth.elements.add({
+      id,
+      module: 'browser-performance-edit',
+      geometry: { type: 'tailed-attack-arrow', controlPoints },
+      style: {
+        strokes: [{ color: '#dc2626', width: 2 }],
+        fill: { type: 'solid', color: 'rgba(220, 38, 38, 0.2)' }
+      }
     }).id;
   },
   setViewWorld(index) {
@@ -607,6 +647,8 @@ function runtimeSnapshot(current: Runtime): unknown {
       contextMenus: target.querySelectorAll('.ol-context-menu').length,
       toolbars: target.querySelectorAll('.ol-toolbar').length,
       measureTooltips: target.querySelectorAll('.ol-engine-measure-tooltip').length,
+      drawTooltips: target.querySelectorAll('.ol-draw-tooltip').length,
+      editTooltips: target.querySelectorAll('.ol-edit-tooltip').length,
       transformTooltips: target.querySelectorAll('.ol-transform-tooltip').length
     }),
     animationHandles: [...current.animationHandles].filter((handle) => handle.status === 'running' || handle.status === 'paused').length,
@@ -719,7 +761,8 @@ function subscribeTransform(current: Runtime, session: TransformSession): void {
         current.transformEvents.push({
           type,
           elementId: event.element.id,
-          ...('key' in event ? { key: event.key } : {})
+          ...('key' in event ? { key: event.key } : {}),
+          ...('operation' in event ? { operation: event.operation } : {})
         });
       } else if (type === 'error') {
         current.transformEvents.push({ type });
@@ -903,10 +946,37 @@ function editAnchorPixel(current: Runtime, index: number, zIndex: 0 | 1, label: 
   return pixelOf(current, coordinate);
 }
 
-function isTransformHandleMetadata(value: unknown): value is { readonly key: string; readonly coordinate: Coordinate } {
+function transformEditAnchorPixel(current: Runtime, index: number, kind: 'control' | 'insertion'): readonly [number, number] {
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error(`Transform Edit ${kind} index must be a non-negative safe integer.`);
+  current.earth.map.renderSync();
+  const anchors: Array<Readonly<{ key: string; coordinate: Coordinate }>> = [];
+  for (const layer of current.earth.map.getLayers().getArray()) {
+    const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
+    if (!isNativeSourceProbe(source)) continue;
+    for (const feature of source.getFeatures()) {
+      const metadata = feature.get('ol-engine-transform-handle');
+      if (!isTransformHandleMetadata(metadata) || metadata.anchor?.kind !== kind) continue;
+      anchors.push(metadata);
+    }
+  }
+  anchors.sort((left, right) => left.key.localeCompare(right.key, undefined, { numeric: true }));
+  const anchor = anchors[index];
+  if (anchor === undefined) throw new Error(`Transform Edit ${kind} anchor does not exist: ${index}`);
+  return pixelOf(current, anchor.coordinate);
+}
+
+function isTransformHandleMetadata(value: unknown): value is {
+  readonly key: string;
+  readonly coordinate: Coordinate;
+  readonly anchor?: Readonly<{ readonly kind: 'control' | 'insertion' }>;
+} {
   if (value === null || typeof value !== 'object') return false;
-  const metadata = value as { readonly key?: unknown; readonly coordinate?: unknown };
-  return typeof metadata.key === 'string' && isCoordinate(metadata.coordinate);
+  const metadata = value as { readonly key?: unknown; readonly coordinate?: unknown; readonly anchor?: unknown };
+  if (typeof metadata.key !== 'string' || !isCoordinate(metadata.coordinate)) return false;
+  if (metadata.anchor === undefined) return true;
+  if (metadata.anchor === null || typeof metadata.anchor !== 'object') return false;
+  const kind = (metadata.anchor as { readonly kind?: unknown }).kind;
+  return kind === 'control' || kind === 'insertion';
 }
 
 function isCoordinate(value: unknown): value is Coordinate {

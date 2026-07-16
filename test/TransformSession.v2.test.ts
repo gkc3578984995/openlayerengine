@@ -79,6 +79,131 @@ describe('TransformSession v2', () => {
     expect(harness.log.indexOf('transient:handle-stop')).toBeLessThan(harness.log.indexOf('interaction:destroy'));
   });
 
+  it('rolls back a cancelled translate without history or Store changes and restores animation feedback', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'point-cancel', 'point', [[1, 2]]);
+    const session = harness.service.select('point-cancel');
+    const translateEnd = vi.fn();
+    session.on('translateEnd', translateEnd);
+    const initial = { type: 'translate' as const, x: 0, y: 0 };
+    const moved = { type: 'translate' as const, x: 5, y: -1 };
+
+    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: initial, cursor: 'move' });
+    expect(harness.interaction.handle?.operationActive).toBe(true);
+    harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: moved, cursor: 'move' });
+    expect(harness.interaction.handle?.target?.geometry).toEqual({ type: 'point', coordinates: [6, 1] });
+
+    harness.interaction.emit({ type: 'operation-cancel', operation: 'translate', delta: moved, cursor: 'move' });
+
+    expect(harness.interaction.handle?.operationActive).toBe(false);
+    expect(harness.interaction.handle?.target?.geometry).toEqual({ type: 'point', coordinates: [1, 2] });
+    expect(harness.store.get('point-cancel')?.geometry).toEqual({ type: 'point', controlPoints: [[1, 2]] });
+    expect(session.undo()).toBe(false);
+    expect(translateEnd).not.toHaveBeenCalled();
+    expect(harness.log).toContain('animation:pause:point-cancel');
+    expect(harness.log).toContain('animation:resume:point-cancel');
+    expect(harness.cursorPort.views[0]?.cursor).toBeUndefined();
+    expect(harness.tooltipPort.views[0]?.state.lines[0]).toBe('选择控制点进行变换操作');
+
+    session.finish();
+    expect(harness.store.get('point-cancel')?.geometry).toEqual({ type: 'point', controlPoints: [[1, 2]] });
+  });
+
+  it('rolls back a cancelled vertex drag and restores the complete edit anchor set', () => {
+    const harness = createTransformHarness();
+    const original = addElement(harness, 'polygon-cancel', 'polygon', [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ]);
+    const session = harness.service.select('polygon-cancel');
+    session.setMode('edit');
+    const initialTarget = harness.interaction.handle?.target;
+    const anchor = initialTarget?.editAnchors.find((candidate) => candidate.kind === 'control' && candidate.removable);
+    if (anchor?.kind !== 'control' || initialTarget === undefined) throw new Error('Transform edit control anchor is missing');
+    const delta = { type: 'vertex' as const, index: anchor.index, coordinate: [anchor.coordinate[0] + 2, anchor.coordinate[1] + 1] };
+
+    harness.interaction.emit({ type: 'operation-start', operation: 'vertex', delta, cursor: 'move', anchor });
+    expect(harness.interaction.handle?.operationActive).toBe(true);
+    harness.interaction.emit({ type: 'operation-change', operation: 'vertex', delta, cursor: 'move', anchor });
+    expect(harness.interaction.handle?.target?.editAnchors).toHaveLength(1);
+
+    harness.interaction.emit({ type: 'operation-cancel', operation: 'vertex', delta, cursor: 'move', anchor });
+
+    expect(harness.interaction.handle?.operationActive).toBe(false);
+    expect(harness.interaction.handle?.target?.geometry).toEqual(initialTarget.geometry);
+    expect(harness.interaction.handle?.target?.editAnchors).toEqual(initialTarget.editAnchors);
+    expect(harness.store.get('polygon-cancel')?.geometry).toEqual(original.geometry);
+    expect(session.undo()).toBe(false);
+    expect(harness.cursorPort.views[0]?.cursor).toBeUndefined();
+    expect(harness.tooltipPort.views[0]?.state.lines[0]).toBe('拖拽控制点编辑图形');
+
+    session.finish();
+    expect(harness.store.get('polygon-cancel')?.geometry).toEqual(original.geometry);
+  });
+
+  it('统一管理 Transform 与 Edit 手柄的悬停、按下和退出光标', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'polygon-a', 'polygon', [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ]);
+    const session = harness.service.select('polygon-a');
+    const cursor = harness.cursorPort.views[0];
+    if (cursor === undefined) throw new Error('Transform cursor was not opened');
+
+    harness.interaction.emit({ type: 'enter-handle', key: 'scale-ne', operation: 'scale', cursor: 'nwse-resize' });
+    expect(cursor.cursor).toBe('nwse-resize');
+    harness.interaction.emit({ type: 'leave-handle', key: 'scale-ne', operation: 'scale', cursor: 'nwse-resize' });
+    expect(cursor.cursor).toBeUndefined();
+
+    const scale = { type: 'scale' as const, scaleX: 1, scaleY: 1, center: [2, 2] as const };
+    harness.interaction.emit({ type: 'operation-start', operation: 'scale', delta: scale, axis: 'xy', cursor: 'nwse-resize' });
+    expect(cursor.cursor).toBe('nwse-resize');
+    expect(harness.interaction.handle?.operationActive).toBe(true);
+    harness.interaction.emit({ type: 'operation-end', operation: 'scale', delta: scale, axis: 'xy', cursor: 'nwse-resize' });
+    expect(cursor.cursor).toBe('nwse-resize');
+    expect(harness.interaction.handle?.operationActive).toBe(false);
+    harness.interaction.emit({ type: 'leave-handle', key: 'scale-ne', operation: 'scale', axis: 'xy', cursor: 'nwse-resize' });
+    expect(cursor.cursor).toBeUndefined();
+
+    session.setMode('edit');
+    const anchor = harness.interaction.handle?.target?.editAnchors.find((candidate) => candidate.kind === 'control' && candidate.removable);
+    if (anchor?.kind !== 'control') throw new Error('Transform edit control anchor is missing');
+    const delta = { type: 'vertex' as const, index: anchor.index, coordinate: [anchor.coordinate[0] + 1, anchor.coordinate[1] + 1] };
+    harness.interaction.emit({ type: 'enter-handle', key: `vertex-${anchor.index}`, operation: 'vertex', cursor: 'move', anchor });
+    expect(cursor.cursor).toBe('move');
+    harness.interaction.emit({ type: 'operation-start', operation: 'vertex', delta, cursor: 'move', axis: 'xy', anchor });
+    expect(cursor.cursor).toBe('grabbing');
+    expect(harness.interaction.handle?.operationActive).toBe(true);
+    harness.interaction.emit({ type: 'operation-change', operation: 'vertex', delta, cursor: 'move', axis: 'xy', anchor });
+    expect(harness.interaction.handle?.operationActive).toBe(true);
+    expect(harness.interaction.handle?.target?.editAnchors).toHaveLength(1);
+    expect(harness.interaction.handle?.target?.controlPoints).toHaveLength(1);
+    harness.interaction.emit({ type: 'operation-end', operation: 'vertex', delta, cursor: 'move', axis: 'xy', anchor });
+    expect(cursor.cursor).toBe('move');
+    expect(harness.interaction.handle?.operationActive).toBe(false);
+    expect(harness.interaction.handle?.target?.editAnchors.length).toBeGreaterThan(1);
+    expect(harness.tooltipPort.views[0]?.state.lines).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
+    harness.interaction.emit({ type: 'leave-handle', key: `vertex-${anchor.index}`, operation: 'vertex', cursor: 'move', anchor });
+    expect(cursor.cursor).toBeUndefined();
+    expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Z 撤销 (1)');
+
+    session.finish();
+    expect(cursor.destroyed).toBe(true);
+  });
+
+  it('uses the unified 8 CSS px hitTolerance by default', () => {
+    const harness = createTransformHarness();
+    const session = harness.service.start();
+
+    expect(harness.interaction.options?.hitTolerance).toBe(8);
+    session.cancel();
+  });
+
   it('reuses the trusted immutable working snapshot and isolates the operation delta', () => {
     const harness = createTransformHarness();
     addElement(harness, 'line-a', 'polyline', [
@@ -113,6 +238,31 @@ describe('TransformSession v2', () => {
         [9, 1]
       ]
     });
+    session.cancel();
+  });
+
+  it('reuses the same prepared render geometry for handles and animation preview in each transform frame', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'curve-a', 'curve-polyline', [
+      [0, 0],
+      [2, 2],
+      [4, 0]
+    ]);
+    const setPreview = vi.spyOn(harness.animations, 'setPreview');
+    const session = harness.service.select('curve-a');
+    setPreview.mockClear();
+    const initial = { type: 'translate' as const, x: 0, y: 0 };
+    const moved = { type: 'translate' as const, x: 3, y: -2 };
+
+    harness.interaction.emit({ type: 'operation-start', operation: 'translate', delta: initial });
+    harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: moved });
+
+    const targetGeometry = harness.interaction.handle?.target?.geometry;
+    expect(targetGeometry).toBeDefined();
+    expect(setPreview).toHaveBeenCalledOnce();
+    expect(setPreview.mock.calls[0]?.[1]).toBe(targetGeometry);
+
+    harness.interaction.emit({ type: 'operation-end', operation: 'translate', delta: moved });
     session.cancel();
   });
 

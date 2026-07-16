@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { shapeTypes } from '../src/core/shape/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { addElement, createTransformHarness, representativePoints } from './helpers/transformHarness.js';
@@ -39,6 +39,76 @@ describe('Transform shape capabilities', () => {
     expect((harness.store.get('arrow')?.geometry as { controlPoints: readonly unknown[] }).controlPoints[2]).toEqual([6, 7]);
   });
 
+  it.each([
+    ['polyline', 'line', 1],
+    ['polygon', 'area', 1],
+    ['attack-arrow', 'arrow-structure', 2]
+  ] as const)(
+    'delegates %s insertion and removal to ShapeDefinition topology with preview-only history before one finish commit',
+    (type, id, insertionIndex) => {
+      const harness = createTransformHarness();
+      const original = addElement(harness, id, type, representativePoints[type]);
+      if (original.geometry.type === 'circle') throw new Error(`${type} unexpectedly normalized to a circle`);
+      const originalControlPoints = original.geometry.controlPoints;
+      const commits = vi.fn();
+      const unsubscribe = harness.store.subscribe(commits);
+      const session = harness.service.select(id);
+      const operations: string[] = [];
+      session.on('edit', ({ operation }) => operations.push(operation));
+      session.setMode('edit');
+
+      const initialTarget = harness.interaction.handle?.target;
+      const insertion = initialTarget?.editAnchors.find((anchor) => anchor.kind === 'insertion' && anchor.index === insertionIndex);
+      if (insertion?.kind !== 'insertion') throw new Error(`Missing ${type} insertion anchor at index ${insertionIndex}`);
+
+      harness.interaction.emit({ type: 'edit-insert', anchor: insertion });
+
+      const insertedTarget = harness.interaction.handle?.target;
+      const insertedControlPoints = insertedTarget?.controlPoints;
+      expect(insertedControlPoints).toHaveLength(originalControlPoints.length + 1);
+      expect(insertedControlPoints?.[insertionIndex]).toEqual(insertion.coordinate);
+      expect(operations.at(-1)).toBe('insert');
+      expect(harness.store.get(id)?.geometry).toEqual(original.geometry);
+      expect(commits).not.toHaveBeenCalled();
+      expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Z 撤销 (1)');
+
+      expect(session.undo()).toBe(true);
+      expect(harness.interaction.handle?.target?.controlPoints).toEqual(originalControlPoints);
+      expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Y 重做 (1)');
+      expect(session.redo()).toBe(true);
+      expect(harness.interaction.handle?.target?.controlPoints).toEqual(insertedControlPoints);
+
+      const insertedControl = harness.interaction.handle?.target?.editAnchors.find(
+        (anchor) => anchor.kind === 'control' && anchor.index === insertionIndex && anchor.removable
+      );
+      if (insertedControl?.kind !== 'control') throw new Error(`Missing removable ${type} control anchor at index ${insertionIndex}`);
+
+      harness.interaction.emit({ type: 'edit-remove', anchor: insertedControl });
+
+      expect(harness.interaction.handle?.target?.controlPoints).toEqual(originalControlPoints);
+      expect(operations.at(-1)).toBe('remove');
+      expect(harness.store.get(id)?.geometry).toEqual(original.geometry);
+      expect(commits).not.toHaveBeenCalled();
+      expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Z 撤销 (2)');
+
+      expect(session.undo()).toBe(true);
+      expect(harness.interaction.handle?.target?.controlPoints).toEqual(insertedControlPoints);
+      expect(session.redo()).toBe(true);
+      expect(harness.interaction.handle?.target?.controlPoints).toEqual(originalControlPoints);
+      expect(session.undo()).toBe(true);
+      expect(harness.interaction.handle?.target?.controlPoints).toEqual(insertedControlPoints);
+      expect(harness.store.get(id)?.geometry).toEqual(original.geometry);
+
+      session.finish();
+
+      expect(session.status).toBe('finished');
+      expect(harness.store.get(id)?.geometry).toMatchObject({ controlPoints: insertedControlPoints });
+      expect(commits).toHaveBeenCalledOnce();
+      expect(commits.mock.calls[0]?.[0].changes).toEqual([expect.objectContaining({ id, kind: 'update' })]);
+      unsubscribe();
+    }
+  );
+
   it('exposes only the capabilities declared by each ShapeDefinition', () => {
     const harness = createTransformHarness();
     addElement(harness, 'circle', 'circle', representativePoints.circle);
@@ -60,5 +130,28 @@ describe('Transform shape capabilities', () => {
       canRotate: false,
       canEditVertices: true
     });
+  });
+
+  it('keeps arrow tails non-removable and omits insertion anchors for fixed edit topology', () => {
+    const arrowHarness = createTransformHarness();
+    addElement(arrowHarness, 'arrow-boundary', 'attack-arrow', representativePoints['attack-arrow']);
+    const arrowSession = arrowHarness.service.select('arrow-boundary');
+    arrowSession.setMode('edit');
+    const arrowAnchors = arrowHarness.interaction.handle?.target?.editAnchors ?? [];
+
+    expect(arrowAnchors.filter((anchor) => anchor.kind === 'control' && (anchor.index === 0 || anchor.index === 1))).toEqual([
+      expect.objectContaining({ kind: 'control', index: 0, removable: false }),
+      expect.objectContaining({ kind: 'control', index: 1, removable: false })
+    ]);
+    expect(arrowAnchors.some((anchor) => anchor.kind === 'insertion')).toBe(true);
+    arrowSession.cancel();
+
+    const fixedHarness = createTransformHarness();
+    addElement(fixedHarness, 'fixed-arrow', 'fine-arrow', representativePoints['fine-arrow']);
+    const fixedSession = fixedHarness.service.select('fixed-arrow');
+    fixedSession.setMode('edit');
+
+    expect(fixedHarness.interaction.handle?.target?.editAnchors.some((anchor) => anchor.kind === 'insertion')).toBe(false);
+    fixedSession.cancel();
   });
 });

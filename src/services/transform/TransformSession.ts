@@ -7,9 +7,12 @@ import { cloneElementSnapshot, createElementSnapshot, deriveElementSnapshot, isE
 import type { ElementCopyOptions, ElementState } from '../../core/element/types.js';
 import { CapabilityError, InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
 import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
+import type { CursorPort, CursorViewHandle } from '../../core/ports/CursorPort.js';
+import type { EditControlAnchor, EditInteractionAnchor } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type {
   TransformDelta,
+  TransformEditOperation,
   TransformInteractionEvent,
   TransformInteractionHandle,
   TransformInteractionOptions,
@@ -26,8 +29,14 @@ import type {
 import type { TransformTooltipPort, TransformTooltipViewHandle } from '../../core/ports/TransformTooltipPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
-import { isTrustedTransformDefinition, renderTrustedShapeState } from '../../core/shape/trustedRender.js';
-import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
+import {
+  isTrustedTransformDefinition,
+  isTrustedShapeMoveDefinition,
+  moveTrustedShapeState,
+  renderTrustedShapeState,
+  trustedShapeControlPointAt
+} from '../../core/shape/trustedRender.js';
+import type { ControlPointHandle, ControlPointInsertion, ShapeDefinition, ShapeState } from '../../core/shape/types.js';
 import { isNativeStyleRef, type IconSymbolSpec, type StyleSpec, type TextSpec } from '../../core/style/types.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
@@ -66,6 +75,8 @@ export interface TransformSessionDependencies {
   readonly toolbarPort?: TransformToolbarPort;
   /** 可选的鼠标提示端口。 */
   readonly tooltipPort?: TransformTooltipPort;
+  /** 可选的地图交互光标端口。 */
+  readonly cursorPort?: CursorPort;
   /** 可选的键盘输入。 */
   readonly input?: TransformKeyboardInput;
   /** 规范化后的 Transform 配置。 */
@@ -84,6 +95,12 @@ export interface TransformSessionDependencies {
 
 /** Transform 内部事件监听函数。 */
 type Listener = (event: never) => void;
+
+/** 无编辑锚点时复用的不可变空快照。 */
+const emptyEditAnchors = Object.freeze([]) as readonly EditInteractionAnchor[];
+
+/** 无控制点时复用的不可变空快照。 */
+const emptyControlPoints = Object.freeze([]) as readonly Coordinate[];
 
 /** 管理元素选择、变换、历史、复制和交互视图的状态机。 */
 export class TransformSession<T = unknown> implements InternalTransformSession<T> {
@@ -107,6 +124,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #toolbarPort: TransformToolbarPort | undefined;
   /** 可选的鼠标提示端口。 */
   readonly #tooltipPort: TransformTooltipPort | undefined;
+  /** 可选的地图交互光标端口。 */
+  readonly #cursorPort: CursorPort | undefined;
   /** 可选的键盘输入。 */
   readonly #input: TransformKeyboardInput | undefined;
   /** 规范化后的 Transform 配置。 */
@@ -137,6 +156,16 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #toolbar: TransformToolbarViewHandle | undefined;
   /** 当前鼠标提示句柄。 */
   #tooltip: TransformTooltipViewHandle | undefined;
+  /** 当前 viewport 光标所有权句柄。 */
+  #cursor: CursorViewHandle | undefined;
+  /** 最近悬停手柄建议使用的光标。 */
+  #hoverCursor: string | undefined;
+  /** 最近悬停手柄的操作语义。 */
+  #hoverOperation: TransformOperation | undefined;
+  /** 最近悬停手柄的方向。 */
+  #hoverAxis: 'x' | 'y' | 'xy' | undefined;
+  /** 最近悬停的编辑锚点。 */
+  #hoverAnchor: EditInteractionAnchor | undefined;
   /** 已确认选中的元素快照。 */
   #selected: ElementSnapshot<T> | undefined;
   /** 当前预览中的工作快照。 */
@@ -194,6 +223,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#transients = dependencies.transients;
     this.#toolbarPort = dependencies.toolbarPort;
     this.#tooltipPort = dependencies.tooltipPort;
+    this.#cursorPort = dependencies.cursorPort;
     this.#input = dependencies.input;
     this.#options = dependencies.options;
     this.#createId = dependencies.createId;
@@ -235,6 +265,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     try {
       this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
       this.#handle = this.#interaction.open(this.id, this.#interactionOptions(), (event) => this.#handleInteractionEvent(event));
+      this.#cursor = this.#cursorPort?.open();
       const unsubscribeInput = this.#input?.on('keydown', (event) => this.#handleKeydown(event));
       if (unsubscribeInput !== undefined && typeof unsubscribeInput !== 'function') throw new InvalidArgumentError('Transform input must return a disposer');
       this.#unsubscribeInput = unsubscribeInput;
@@ -274,6 +305,11 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
     if (this.#mode === mode) return;
     this.#stopTransient();
+    this.#hoverCursor = undefined;
+    this.#hoverOperation = undefined;
+    this.#hoverAxis = undefined;
+    this.#hoverAnchor = undefined;
+    this.#cursor?.reset();
     this.#mode = mode;
     this.#requireHandle().setTarget(this.#presentation(working));
     this.#toolbar?.setActive(mode === 'edit' ? 'edit' : '');
@@ -332,6 +368,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (snapshot === undefined) return false;
     this.#applyHistory(snapshot);
     this.#syncToolbarState();
+    this.#clearHoverFeedback();
+    this.#setTooltipLines(this.#baseTooltipLines());
     return true;
   }
 
@@ -342,6 +380,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (snapshot === undefined) return false;
     this.#applyHistory(snapshot);
     this.#syncToolbarState();
+    this.#clearHoverFeedback();
+    this.#setTooltipLines(this.#baseTooltipLines());
     return true;
   }
 
@@ -470,8 +510,9 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#operationOrigin = undefined;
     const handle = this.#requireHandle();
     try {
-      handle.setTarget(this.#presentation(this.#working));
-      this.#animations.setPreview(this.#working);
+      const presentation = this.#presentation(this.#working);
+      handle.setTarget(presentation);
+      this.#animations.setPreview(this.#working, presentation.geometry);
       if (resetHistory) this.#history.reset(this.#working);
       this.#createToolbar();
       this.#createTooltip();
@@ -505,11 +546,26 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   /** 将元素快照转换为底层交互目标。 */
-  #presentation(state: ElementSnapshot<T>): TransformInteractionTarget {
+  #presentation(state: ElementSnapshot<T>, activeEditAnchor?: EditControlAnchor): TransformInteractionTarget {
     const definition = this.#shapes.get(state.type);
     const topology = definition.editTopology;
     const editing = this.#mode === 'edit' && definition.capabilities.has('vertexEdit') && topology !== undefined;
-    const controlPoints = editing ? topology.describe(state.geometry as never).handles.map(({ coordinate }) => cloneCoordinate(coordinate)) : [];
+    let controlPoints = emptyControlPoints;
+    let editAnchors = emptyEditAnchors;
+    if (editing && activeEditAnchor !== undefined) {
+      const trustedCoordinate = trustedShapeControlPointAt(definition, state.geometry as never, activeEditAnchor.index);
+      const describedHandle =
+        trustedCoordinate === undefined ? topology.describe(state.geometry as never).handles.find(({ index }) => index === activeEditAnchor.index) : undefined;
+      const coordinate = trustedCoordinate ?? describedHandle?.coordinate;
+      if (coordinate === undefined) throw new InvalidArgumentError(`Transform active edit anchor is unavailable: ${activeEditAnchor.index}`);
+      const frozenAnchor = freezeEditControlAnchor(activeEditAnchor, coordinate);
+      controlPoints = Object.freeze([frozenAnchor.coordinate]);
+      editAnchors = Object.freeze([frozenAnchor]);
+    } else if (editing) {
+      const description = topology.describe(state.geometry as never);
+      editAnchors = freezeEditAnchors(description.handles, description.insertions);
+      controlPoints = Object.freeze(description.handles.map((_, index) => editAnchors[index]!.coordinate));
+    }
     const transforming = this.#mode === 'transform';
     return Object.freeze({
       elementId: state.id,
@@ -518,7 +574,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       geometry: renderTrustedShapeState(definition, state.geometry as never),
       style: state.style,
       mode: this.#mode,
-      controlPoints: Object.freeze(controlPoints),
+      controlPoints,
+      editAnchors,
       ...(this.#options.handleCenter === undefined ? {} : { handleCenter: cloneCoordinate(this.#options.handleCenter) }),
       canTranslate: transforming && this.#options.translate !== 'none' && definition.capabilities.has('translate'),
       canRotate: transforming && this.#options.rotate && definition.capabilities.has('rotate'),
@@ -551,27 +608,62 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       } else if (event.type === 'enter-handle' || event.type === 'leave-handle') {
         const state = this.#requireWorking();
         const type = event.type === 'enter-handle' ? 'enterHandle' : 'leaveHandle';
-        this.#updateTooltipFromEvent(event, event.type === 'enter-handle' ? this.#handleTooltipLines(event.operation, event.axis) : this.#baseTooltipLines());
+        if (event.type === 'enter-handle') {
+          this.#hoverCursor = event.cursor;
+          this.#hoverOperation = event.operation;
+          this.#hoverAxis = event.axis;
+          this.#hoverAnchor = event.anchor;
+          if (event.cursor === undefined) this.#cursor?.reset();
+          else this.#cursor?.set(event.cursor);
+        } else {
+          this.#hoverCursor = undefined;
+          this.#hoverOperation = undefined;
+          this.#hoverAxis = undefined;
+          this.#hoverAnchor = undefined;
+          this.#cursor?.reset();
+        }
+        this.#updateTooltipFromEvent(
+          event,
+          event.type === 'enter-handle' ? this.#handleTooltipLines(event.operation, event.axis, event.anchor) : this.#baseTooltipLines()
+        );
         this.#emit(type, freeze({ type, state, key: event.key, ...(event.cursor === undefined ? {} : { cursor: event.cursor }) }) as never);
       } else if (event.type === 'operation-start') {
         this.#assertOperationAllowed(event.operation);
         assertFiniteTransformDelta(event.delta);
         this.#operationOrigin = cloneElementSnapshot(this.#shapes, this.#requireWorking());
+        this.#hoverOperation = event.operation;
+        if (event.axis !== undefined) this.#hoverAxis = event.axis;
+        if (event.anchor !== undefined) this.#hoverAnchor = event.anchor;
+        if (event.cursor !== undefined) this.#hoverCursor = event.cursor;
+        this.#setOperationCursor(event.operation, event.cursor);
         this.#startOperationVisual(event.operation);
         this.#pauseAnimationsFor(event.operation);
         this.#updateTooltipFromEvent(event, this.#operationTooltipLines(event.operation, event.delta));
         this.#emitOperation('start', event.operation, event.delta);
       } else if (event.type === 'operation-change') {
         this.#updateTooltipFromEvent(event, this.#operationTooltipLines(event.operation, event.delta));
-        this.#applyOperation(event.operation, event.delta, false);
+        this.#applyOperation(event.operation, event.delta, false, event.anchor);
       } else if (event.type === 'operation-end') {
         this.#updateTooltipFromEvent(event, this.#operationTooltipLines(event.operation, event.delta));
         try {
-          this.#applyOperation(event.operation, event.delta, true);
+          this.#applyOperation(event.operation, event.delta, true, event.anchor);
         } finally {
           this.#stopOperationVisual();
-          this.#setTooltipLines(this.#handleTooltipLines(event.operation, undefined));
+          this.#restoreHoverCursor();
+          this.#setTooltipLines(this.#handleTooltipLines(this.#hoverOperation, this.#hoverAxis, this.#hoverAnchor));
         }
+      } else if (event.type === 'operation-cancel') {
+        try {
+          this.#cancelOperation();
+        } finally {
+          this.#stopOperationVisual();
+          this.#clearHoverFeedback();
+          this.#setTooltipLines(this.#baseTooltipLines());
+        }
+      } else if (event.type === 'edit-insert') {
+        this.#applyStructuralEdit('insert', event.anchor);
+      } else if (event.type === 'edit-remove') {
+        this.#applyStructuralEdit('remove', event.anchor);
       } else if (event.type === 'copy-preview-confirm') {
         this.#confirmCopyPreview(event.delta);
       } else {
@@ -586,15 +678,17 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   /** 将变换增量应用到工作快照。 */
-  #applyOperation(operation: TransformOperation, delta: TransformDelta, end: boolean): void {
+  #applyOperation(operation: TransformOperation, delta: TransformDelta, end: boolean, anchor?: EditControlAnchor): void {
     const origin = this.#operationOrigin;
     if (origin === undefined) throw new InvalidArgumentError('Transform operation did not start');
     if (delta.type !== operation && !(operation === 'stretch' && delta.type === 'stretch')) {
       throw new InvalidArgumentError('Transform operation and delta do not match');
     }
     this.#working = transformSnapshot(this.#shapes, this.#styles, origin, delta);
-    this.#requireHandle().setTarget(this.#presentation(this.#working));
-    this.#animations.setPreview(this.#working);
+    const activeAnchor = operation === 'vertex' && !end && delta.type === 'vertex' && anchor?.index === delta.index ? anchor : undefined;
+    const presentation = this.#presentation(this.#working, activeAnchor);
+    this.#requireHandle().setTarget(presentation);
+    this.#animations.setPreview(this.#working, presentation.geometry);
     this.#emitOperation(end ? 'end' : 'change', operation, delta);
     if (operation === 'vertex') this.#emit('edit', freeze({ type: 'edit', state: this.#working, operation }));
     if (end) {
@@ -603,6 +697,65 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#syncToolbarState();
       this.#resumePausedAnimations();
     }
+  }
+
+  /** 回滚被浏览器取消的连续操作，不产生历史或 Store 事务。 */
+  #cancelOperation(): void {
+    const origin = this.#operationOrigin;
+    if (origin === undefined) throw new InvalidArgumentError('Transform operation did not start');
+    this.#working = origin;
+    try {
+      const presentation = this.#presentation(origin);
+      this.#requireHandle().setTarget(presentation);
+      this.#animations.setPreview(origin, presentation.geometry);
+    } finally {
+      this.#operationOrigin = undefined;
+      this.#resumePausedAnimations();
+    }
+  }
+
+  /** 原子应用一次控制点插入或删除，并把结果纳入当前 Transform 历史。 */
+  #applyStructuralEdit(operation: Exclude<TransformEditOperation, 'vertex'>, anchor: EditInteractionAnchor): void {
+    if (this.#mode !== 'edit') throw new InvalidArgumentError('Transform structural edit requires edit mode');
+    if (this.#operationOrigin !== undefined) throw new InvalidArgumentError('Transform structural edit cannot run while an operation is active');
+    assertEditAnchor(anchor);
+    const origin = this.#requireWorking();
+    const definition = this.#shapes.get(origin.type);
+    const topology = definition.editTopology;
+    if (topology === undefined || !definition.capabilities.has('vertexEdit')) {
+      throw new CapabilityError(`Shape does not support vertex editing: ${origin.type}`);
+    }
+    const description = topology.describe(origin.geometry as never);
+    let geometry: ShapeState;
+    if (operation === 'insert') {
+      if (anchor.kind !== 'insertion') throw new InvalidArgumentError('Transform insert event requires an insertion anchor');
+      if (!definition.capabilities.has('controlPointInsert') || topology.insert === undefined) {
+        throw new CapabilityError(`Shape does not support control-point insertion: ${origin.type}`);
+      }
+      const current = description.insertions.find(({ index }) => index === anchor.index);
+      if (current === undefined || !coordinatesEqual(current.coordinate, anchor.coordinate)) {
+        throw new InvalidArgumentError(`Transform insertion anchor is stale or unavailable: ${anchor.index}`);
+      }
+      geometry = topology.insert(origin.geometry as never, current.index, cloneCoordinate(current.coordinate)) as ShapeState;
+    } else {
+      if (anchor.kind !== 'control') throw new InvalidArgumentError('Transform remove event requires a control anchor');
+      if (!definition.capabilities.has('controlPointRemove') || topology.remove === undefined) {
+        throw new CapabilityError(`Shape does not support control-point removal: ${origin.type}`);
+      }
+      const current = description.handles.find(({ index }) => index === anchor.index);
+      if (current === undefined || !current.removable || !anchor.removable || !coordinatesEqual(current.coordinate, anchor.coordinate)) {
+        throw new InvalidArgumentError(`Transform control anchor cannot be removed: ${anchor.index}`);
+      }
+      geometry = topology.remove(origin.geometry as never, current.index) as ShapeState;
+    }
+    this.#working = createElementSnapshot(this.#shapes, { ...origin, geometry });
+    const presentation = this.#presentation(this.#working);
+    this.#requireHandle().setTarget(presentation);
+    this.#animations.setPreview(this.#working, presentation.geometry);
+    this.#history.record(this.#working, metadata(operation));
+    this.#syncToolbarState();
+    this.#setTooltipLines(this.#baseTooltipLines());
+    this.#emit('edit', freeze({ type: 'edit', state: this.#working, operation }));
   }
 
   /** 按变换阶段发出对应会话事件。 */
@@ -627,8 +780,9 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       this.#activateSnapshot({ ...current, geometry: snapshot.geometry, style: snapshot.style }, false, true);
     } else {
       this.#working = cloneElementSnapshot(this.#shapes, snapshot);
-      this.#requireHandle().setTarget(this.#presentation(this.#working));
-      this.#animations.setPreview(this.#working);
+      const presentation = this.#presentation(this.#working);
+      this.#requireHandle().setTarget(presentation);
+      this.#animations.setPreview(this.#working, presentation.geometry);
     }
     this.#emit('edit', freeze({ type: 'edit', state: this.#requireWorking(), operation: 'vertex' }));
   }
@@ -827,6 +981,31 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
+  /** 根据连续操作类型切换按下状态光标。 */
+  #setOperationCursor(operation: TransformOperation, cursor?: string): void {
+    if (operation === 'translate' || operation === 'rotate' || operation === 'vertex') {
+      this.#cursor?.set('grabbing');
+      return;
+    }
+    if (cursor === undefined) this.#restoreHoverCursor();
+    else this.#cursor?.set(cursor);
+  }
+
+  /** 恢复当前悬停手柄的光标；未命中时恢复外部光标。 */
+  #restoreHoverCursor(): void {
+    if (this.#hoverCursor === undefined) this.#cursor?.reset();
+    else this.#cursor?.set(this.#hoverCursor);
+  }
+
+  /** 清除可能因模式、拓扑或历史变化而失效的悬停反馈。 */
+  #clearHoverFeedback(): void {
+    this.#hoverCursor = undefined;
+    this.#hoverOperation = undefined;
+    this.#hoverAxis = undefined;
+    this.#hoverAnchor = undefined;
+    this.#cursor?.reset();
+  }
+
   /** 更新鼠标提示的文本行。 */
   #setTooltipLines(lines: readonly string[]): void {
     this.#tooltip?.update({ lines });
@@ -834,7 +1013,21 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   /** 生成当前模式的基础提示行。 */
   #baseTooltipLines(): readonly string[] {
-    if (this.#mode === 'edit') return Object.freeze(['拖拽控制点编辑图形', '右键完成 | Esc 退出']);
+    if (this.#mode === 'edit') {
+      const working = this.#working;
+      const definition = working === undefined ? undefined : this.#shapes.get(working.type);
+      const description = definition?.editTopology?.describe(working?.geometry as never);
+      const canInsert = (description?.insertions.length ?? 0) > 0;
+      const canRemove = description?.handles.some(({ removable }) => removable) ?? false;
+      const lines = ['拖拽控制点编辑图形'];
+      if (canInsert && canRemove) lines.push('按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点');
+      else if (canInsert) lines.push('按住 Alt 单击中点添加点');
+      else if (canRemove) lines.push('按住 Alt 单击可删除控制点');
+      lines.push('右键完成 | Esc 退出');
+      if (this.#history.undoCount > 0) lines.push(`Ctrl+Z 撤销 (${this.#history.undoCount})`);
+      if (this.#history.redoCount > 0) lines.push(`Ctrl+Y 重做 (${this.#history.redoCount})`);
+      return Object.freeze(lines);
+    }
     const history: string[] = [];
     if (this.#history.undoCount > 0) history.push(`Ctrl+Z 撤销 (${this.#history.undoCount})`);
     if (this.#history.redoCount > 0) history.push(`Ctrl+Y 重做 (${this.#history.redoCount})`);
@@ -842,7 +1035,11 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   /** 生成控制手柄悬停提示行。 */
-  #handleTooltipLines(operation: TransformOperation | undefined, axis: 'x' | 'y' | 'xy' | undefined): readonly string[] {
+  #handleTooltipLines(operation: TransformOperation | undefined, axis: 'x' | 'y' | 'xy' | undefined, anchor?: EditInteractionAnchor): readonly string[] {
+    if (anchor?.kind === 'insertion') return Object.freeze(['按住 Alt 单击添加点']);
+    if (anchor?.kind === 'control') {
+      return anchor.removable ? Object.freeze(['拖拽控制点编辑图形', '按住 Alt 单击删除点']) : Object.freeze(['拖拽控制点编辑图形']);
+    }
     if (operation === 'translate') return Object.freeze(['鼠标左键按下平移']);
     if (operation === 'rotate') return Object.freeze(['鼠标左键按下旋转']);
     if (operation === 'stretch') return Object.freeze([axis === 'x' ? '鼠标左键按下水平拉伸' : axis === 'y' ? '鼠标左键按下垂直拉伸' : '鼠标左键按下拉伸']);
@@ -890,6 +1087,11 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       }
     }
     this.#animationsPaused = false;
+    this.#hoverCursor = undefined;
+    this.#hoverOperation = undefined;
+    this.#hoverAxis = undefined;
+    this.#hoverAnchor = undefined;
+    this.#cursor?.reset();
     this.#destroyTooltip();
     this.#destroyToolbar();
     try {
@@ -943,9 +1145,9 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   /** 启动变换操作的临时视觉动画。 */
   #startOperationVisual(operation: TransformOperation): void {
-    if (operation === 'vertex') return;
     const handle = this.#requireHandle();
     handle.setOperationActive(true, operation);
+    if (operation === 'vertex') return;
     try {
       this.#transient = this.#transients.playTransient({
         ownerId: this.id,
@@ -1031,6 +1233,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         this.#destroyToolbar();
       }
       const handle = this.#handle;
+      const cursor = this.#cursor;
       const unsubscribeStore = this.#unsubscribeStore;
       const unsubscribeInput = this.#unsubscribeInput;
       try {
@@ -1041,6 +1244,14 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
                 () => {
                   handle.destroy();
                   if (this.#handle === handle) this.#handle = undefined;
+                }
+              ]),
+          ...(cursor === undefined
+            ? []
+            : [
+                () => {
+                  cursor.destroy();
+                  if (this.#cursor === cursor) this.#cursor = undefined;
                 }
               ]),
           ...(unsubscribeStore === undefined
@@ -1074,6 +1285,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       if (
         !this.#opening &&
         this.#handle === undefined &&
+        this.#cursor === undefined &&
         this.#unsubscribeStore === undefined &&
         this.#unsubscribeInput === undefined &&
         this.#toolbarCleanup.size === 0 &&
@@ -1183,7 +1395,7 @@ function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snaps
   const pointVisualTransform = source.geometry.type === 'point' && delta.type !== 'translate' && delta.type !== 'vertex';
   const geometry = pointVisualTransform ? source.geometry : transformShape(definition, source.geometry, delta);
   const style = pointVisualTransform ? transformPointStyle(styles, source.style, delta) : source.style;
-  if (delta.type === 'vertex' || !isTrustedTransformDefinition(definition)) {
+  if ((delta.type === 'vertex' && !isTrustedShapeMoveDefinition(definition)) || (delta.type !== 'vertex' && !isTrustedTransformDefinition(definition))) {
     return createElementSnapshot(shapes, { ...source, geometry, style });
   }
   return deriveElementSnapshot(source, geometry, style);
@@ -1192,9 +1404,10 @@ function transformSnapshot<T>(shapes: ShapeRegistry, styles: StyleService, snaps
 /** 将变换增量应用到图形状态。 */
 function transformShape(definition: ShapeDefinition, state: ShapeState, delta: TransformDelta): ShapeState {
   if (delta.type === 'vertex') {
-    const topology = definition.editTopology;
-    if (topology === undefined || !definition.capabilities.has('vertexEdit')) throw new CapabilityError(`Shape does not support vertex editing: ${state.type}`);
-    return topology.move(state as never, delta.index, cloneCoordinate(delta.coordinate)) as ShapeState;
+    if (definition.editTopology === undefined || !definition.capabilities.has('vertexEdit')) {
+      throw new CapabilityError(`Shape does not support vertex editing: ${state.type}`);
+    }
+    return moveTrustedShapeState(definition, state as never, delta.index, cloneCoordinate(delta.coordinate)) as ShapeState;
   }
   if (delta.type === 'translate') {
     if (!definition.capabilities.has('translate')) throw new CapabilityError(`Shape does not support translation: ${state.type}`);
@@ -1282,9 +1495,54 @@ function toolbarPosition(definition: ShapeDefinition, state: ShapeState): Coordi
   return [maxX, maxY];
 }
 
+/** 把图形拓扑快照转换为 Transform 适配器使用的不可变语义锚点。 */
+function freezeEditAnchors(handles: readonly ControlPointHandle[], insertions: readonly ControlPointInsertion[]): readonly EditInteractionAnchor[] {
+  const anchors = new Array<EditInteractionAnchor>(handles.length + insertions.length);
+  let offset = 0;
+  for (const handle of handles) {
+    anchors[offset++] = Object.freeze({
+      ...handle,
+      kind: 'control' as const,
+      coordinate: Object.freeze(cloneCoordinate(handle.coordinate))
+    });
+  }
+  for (const insertion of insertions) {
+    anchors[offset++] = Object.freeze({
+      ...insertion,
+      kind: 'insertion' as const,
+      coordinate: Object.freeze(cloneCoordinate(insertion.coordinate))
+    });
+  }
+  return Object.freeze(anchors);
+}
+
+/** 复用控制点角色和删除能力，只替换高频拖拽中的活动坐标。 */
+function freezeEditControlAnchor(anchor: EditControlAnchor, coordinate: Coordinate): EditControlAnchor {
+  return Object.freeze({
+    ...anchor,
+    coordinate: Object.freeze(cloneCoordinate(coordinate))
+  });
+}
+
 /** 复制地图坐标。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
+}
+
+/** 校验适配器传入的编辑锚点，避免无效索引或坐标进入图形拓扑。 */
+function assertEditAnchor(anchor: EditInteractionAnchor): void {
+  if (anchor === null || typeof anchor !== 'object') throw new InvalidArgumentError('Transform edit anchor must be an object');
+  if (!Number.isSafeInteger(anchor.index) || anchor.index < 0) {
+    throw new InvalidArgumentError('Transform edit anchor index must be a non-negative safe integer');
+  }
+  assertFiniteCoordinate(anchor.coordinate, 'Transform edit anchor coordinate');
+  if (anchor.kind === 'insertion') return;
+  if (anchor.kind !== 'control' || typeof anchor.removable !== 'boolean') throw new InvalidArgumentError('Transform edit anchor kind is invalid');
+}
+
+/** 比较两个二维或三维控制点是否属于同一份拓扑快照。 */
+function coordinatesEqual(left: Coordinate, right: Coordinate): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 /** 平移地图坐标。 */

@@ -918,6 +918,45 @@ describe('EditInteractionAdapter', () => {
     handle.destroy();
   });
 
+  it('filters overlapping anchors by input semantics before choosing the nearest candidate', () => {
+    const { adapter, map } = setup();
+    const received: EditInteractionEvent[] = [];
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [4, 0]
+        ],
+        underlay: false
+      },
+      (event) => received.push(event)
+    );
+    const input = editInteraction(map);
+
+    handle.render({
+      ...renderState(),
+      anchors: [
+        { kind: 'control', index: 0, coordinate: [0, 0], role: 'start', removable: false },
+        { kind: 'insertion', index: 1, coordinate: [4, 0] }
+      ]
+    });
+    input.handleEvent(pointerEvent('click', [1, 0], { altKey: true }));
+    expect(received).toEqual([{ type: 'insert', anchor: { kind: 'insertion', index: 1, coordinate: [4, 0] } }]);
+
+    handle.render({
+      ...renderState(),
+      anchors: [
+        { kind: 'insertion', index: 0, coordinate: [0, 0] },
+        { kind: 'control', index: 1, coordinate: [4, 0], role: 'end', removable: true }
+      ]
+    });
+    input.handleEvent(pointerEvent('pointerdown', [1, 0]));
+    expect(received.at(-1)).toMatchObject({ type: 'move-start', anchor: { kind: 'control', index: 1 } });
+    input.handleEvent(pointerEvent('pointercancel', [1, 0], { button: -1 }));
+    handle.destroy();
+  });
+
   it('prefers the visually higher control anchor when a control and insertion anchor exactly overlap', () => {
     const { adapter, map } = setup();
     const received: EditInteractionEvent[] = [];

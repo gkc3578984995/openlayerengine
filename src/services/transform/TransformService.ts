@@ -3,6 +3,7 @@ import { compileSelector } from '../../core/element/selector.js';
 import type { ElementSelector } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
+import type { CursorPort } from '../../core/ports/CursorPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { TransformInteractionPort } from '../../core/ports/TransformInteractionPort.js';
 import type { TransformToolbarPort } from '../../core/ports/TransformToolbarPort.js';
@@ -53,6 +54,8 @@ export interface TransformServiceDependencies {
   readonly toolbar?: TransformToolbarPort;
   /** 可选的鼠标提示端口。 */
   readonly tooltip?: TransformTooltipPort;
+  /** 可选的地图交互光标端口。 */
+  readonly cursor?: CursorPort;
   /** 可选的键盘输入。 */
   readonly input?: TransformKeyboardInput;
   /** 可选的复制元素 ID 生成器。 */
@@ -81,6 +84,8 @@ export class TransformService implements InternalTransformService {
   readonly #toolbar: TransformToolbarPort | undefined;
   /** 可选的鼠标提示端口。 */
   readonly #tooltip: TransformTooltipPort | undefined;
+  /** 可选的地图交互光标端口。 */
+  readonly #cursor: CursorPort | undefined;
   /** 可选的键盘输入。 */
   readonly #input: TransformKeyboardInput | undefined;
   /** 可选的复制元素 ID 生成器。 */
@@ -114,6 +119,7 @@ export class TransformService implements InternalTransformService {
     this.#transients = dependencies.transients;
     this.#toolbar = dependencies.toolbar;
     this.#tooltip = dependencies.tooltip;
+    this.#cursor = dependencies.cursor;
     this.#input = dependencies.input;
     this.#providedCreateId = dependencies.createId;
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
@@ -153,6 +159,7 @@ export class TransformService implements InternalTransformService {
       transients: this.#transients,
       ...(this.#toolbar === undefined ? {} : { toolbarPort: this.#toolbar }),
       ...(this.#tooltip === undefined ? {} : { tooltipPort: this.#tooltip }),
+      ...(this.#cursor === undefined ? {} : { cursorPort: this.#cursor }),
       ...(this.#input === undefined ? {} : { input: this.#input }),
       options,
       createId: () => this.#createId(),
@@ -201,7 +208,7 @@ export class TransformService implements InternalTransformService {
     const selector = hasOwn(record, 'selector') && record.selector !== undefined ? cloneSelector(record.selector) : undefined;
     if (selector !== undefined) void compileSelector(selector);
     const layerIds = hasOwn(record, 'layerIds') && record.layerIds !== undefined ? stringArray(record.layerIds, 'Transform layerIds') : undefined;
-    const hitTolerance = optionalNonNegative(record, 'hitTolerance', 2, 'Transform hitTolerance');
+    const hitTolerance = optionalNonNegative(record, 'hitTolerance', 8, 'Transform hitTolerance');
     const translate = hasOwn(record, 'translate') && record.translate !== undefined ? translateMode(record.translate) : 'feature';
     const scale = optionalBoolean(record, 'scale', true, 'Transform scale');
     const stretch = optionalBoolean(record, 'stretch', true, 'Transform stretch');

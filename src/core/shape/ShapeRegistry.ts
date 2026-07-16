@@ -1,6 +1,6 @@
 import { CapabilityError, InvalidArgumentError } from '../errors.js';
 import { snapshotImmutableSet } from './immutableSet.js';
-import { inheritTrustedShapeRenderer, inheritTrustedTransformDefinition } from './trustedRender.js';
+import { inheritTrustedShapeMover, inheritTrustedShapeRenderer, inheritTrustedTransformDefinition } from './trustedRender.js';
 import {
   shapeTypes,
   type ControlPointPolicy,
@@ -173,6 +173,7 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
     toRenderGeometry: requiredFunction(record, 'toRenderGeometry')
   } as unknown as ShapeDefinition<S>;
   const frozen = Object.freeze(snapshot);
+  inheritTrustedShapeMover(definition, frozen);
   inheritTrustedShapeRenderer(definition, frozen);
   inheritTrustedTransformDefinition(definition, frozen);
   return frozen;

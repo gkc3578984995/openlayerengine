@@ -27,12 +27,13 @@ import type {
 } from '../../src/core/ports/TransformTooltipPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../src/core/ports/TransientAnimationPort.js';
 import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
-import type { ShapeState, ShapeType } from '../../src/core/shape/types.js';
+import type { RenderGeometryState, ShapeState, ShapeType } from '../../src/core/shape/types.js';
 import type { ElementStyleState } from '../../src/core/style/types.js';
 import { InteractionCoordinator } from '../../src/services/events/InteractionCoordinator.js';
 import { StyleService } from '../../src/services/style/StyleService.js';
 import { TransformService } from '../../src/services/transform/TransformService.js';
 import type { InternalTransformToolbarOptions } from '../../src/services/transform/types.js';
+import { FakeCursorPort } from './cursorHarness.js';
 
 export class FakeTransformPort implements TransformInteractionPort {
   readonly log: string[];
@@ -133,7 +134,8 @@ class FakeAnimations implements TransformAnimationPort {
     return 1;
   }
 
-  setPreview(state: Readonly<ElementState>): void {
+  setPreview(state: Readonly<ElementState>, geometry: RenderGeometryState): void {
+    void geometry;
     this.log.push(`animation:preview:set:${state.id}`);
   }
 
@@ -281,6 +283,7 @@ export function createTransformHarness(
   const interaction = new FakeTransformPort(log);
   const toolbarPort = new FakeToolbarPort();
   const tooltipPort = new FakeTooltipPort();
+  const cursorPort = new FakeCursorPort();
   const input = new FakeTransformInput();
   const animationPorts = createAnimationPorts?.({ store, shapes }) ?? {
     animations: new FakeAnimations(log),
@@ -297,11 +300,26 @@ export function createTransformHarness(
     transients: animationPorts.transients,
     toolbar: toolbarPort,
     tooltip: tooltipPort,
+    cursor: cursorPort,
     input,
     createId: () => `copy-${++id}`,
     errorReporter: () => undefined
   });
-  return { coordinator, input, interaction, log, service, shapes, store, styles, toolbar, toolbarPort, tooltipPort };
+  return {
+    animations: animationPorts.animations,
+    coordinator,
+    cursorPort,
+    input,
+    interaction,
+    log,
+    service,
+    shapes,
+    store,
+    styles,
+    toolbar,
+    toolbarPort,
+    tooltipPort
+  };
 }
 
 export function addElement<T = unknown>(

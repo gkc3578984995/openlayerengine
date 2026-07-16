@@ -168,22 +168,23 @@ describe('动画生命周期', () => {
   });
 
   it('Transform preview 只覆盖动画帧输入，清理后恢复 Store geometry 且时间连续', () => {
-    const { manager, render, store } = createAnimationHarness([polylineElement('flight')]);
+    const { manager, render, shapes, store } = createAnimationHarness([polylineElement('flight')]);
     manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, repeat: false, trailLength: 0.5, showStart: false, showEnd: false, arrow: false });
     render.frame('default', 0);
     const state = store.get('flight');
     if (state === undefined) throw new Error('测试元素不存在');
 
-    manager.setPreview({
+    const previewState = {
       ...state,
       geometry: {
-        type: 'polyline',
+        type: 'polyline' as const,
         controlPoints: [
           [0, 0],
           [200, 0]
         ]
       }
-    });
+    };
+    manager.setPreview(previewState, shapes.get(previewState.type).toRenderGeometry(previewState.geometry));
     const preview = render.frame('default', 500);
     const previewCoordinates =
       preview.contributions[0]?.value.primitives?.flatMap(({ geometry }) => (geometry.type === 'polyline' ? geometry.coordinates : [])) ?? [];

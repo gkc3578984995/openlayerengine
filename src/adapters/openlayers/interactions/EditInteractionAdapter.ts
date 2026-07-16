@@ -13,8 +13,6 @@ import { unByKey } from 'ol/Observable.js';
 import type { EventsKey } from 'ol/events.js';
 import { fromUserCoordinate, getUserProjection } from 'ol/proj.js';
 import VectorSource from 'ol/source/Vector.js';
-import Style from 'ol/style/Style.js';
-import type { RenderFunction } from 'ol/style/Style.js';
 import RBush from 'ol/structs/RBush.js';
 import type { Coordinate } from '../../../core/common/types.js';
 import { horizontalWorldFromExtent, prepareWorldEdit, type PreparedWorldEdit } from '../../../core/common/worldWrap.js';
@@ -35,6 +33,7 @@ import type { ElementStyleState } from '../../../core/style/types.js';
 import type { FeatureBinding, ProjectionSuppressionLease } from '../FeatureBinding.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
+import { EDIT_CONTROL_ANCHOR_HIT_RADIUS, EDIT_INSERTION_ANCHOR_HIT_RADIUS, editControlAnchorStyle, editInsertionAnchorStyle } from './EditAnchorVisuals.js';
 
 /** 编辑交互使用的临时 OpenLayers 要素。 */
 type EditFeature = Feature<Geometry>;
@@ -89,15 +88,6 @@ interface PendingMove {
   readonly coordinate: Coordinate;
 }
 
-/** 一类批量锚点的 Canvas 视觉参数，单位均为 CSS 像素。 */
-interface AnchorBatchVisual {
-  readonly radius: number;
-  readonly fill: string;
-  readonly stroke: string;
-  readonly strokeWidth: number;
-  readonly lineDash?: readonly number[];
-}
-
 /** 单个编辑预览要素的分步清理进度。 */
 interface FeatureCleanupProgress {
   /** 待清理的预览要素。 */
@@ -134,58 +124,6 @@ export interface EditInteractionAdapterOptions {
    * @defaultValue `8`
    */
   readonly hitTolerance?: number;
-}
-
-/** 控制点和插入点的视觉半径（CSS 像素）。 */
-const CONTROL_ANCHOR_RADIUS = 5;
-const INSERTION_ANCHOR_RADIUS = 4;
-const CONTROL_ANCHOR_HIT_RADIUS = CONTROL_ANCHOR_RADIUS + 1;
-const INSERTION_ANCHOR_HIT_RADIUS = INSERTION_ANCHOR_RADIUS + 0.75;
-
-/** 编辑控制点和插入点的批量 Canvas 样式。 */
-const controlAnchorStyle = new Style({
-  renderer: createAnchorBatchRenderer({ radius: CONTROL_ANCHOR_RADIUS, fill: '#ffffff', stroke: '#3388ff', strokeWidth: 2 }),
-  zIndex: 1
-});
-const insertionAnchorStyle = new Style({
-  renderer: createAnchorBatchRenderer({
-    radius: INSERTION_ANCHOR_RADIUS,
-    fill: 'rgba(255,255,255,0.75)',
-    stroke: '#3388ff',
-    strokeWidth: 1.5,
-    lineDash: [3, 2]
-  }),
-  zIndex: 0
-});
-
-/** 为一个 MultiPoint 批次创建单路径 Canvas renderer。 */
-function createAnchorBatchRenderer(visual: AnchorBatchVisual): RenderFunction {
-  return (coordinates, state) => {
-    const points = coordinates as readonly (readonly number[])[];
-    if (points.length === 0) return;
-    const context = state.context;
-    const pixelRatio = state.pixelRatio;
-    const radius = visual.radius * pixelRatio;
-    context.save();
-    try {
-      context.beginPath();
-      for (const point of points) {
-        const x = point[0];
-        const y = point[1];
-        if (x === undefined || y === undefined) continue;
-        context.moveTo(x + radius, y);
-        context.arc(x, y, radius, 0, 2 * Math.PI);
-      }
-      context.fillStyle = visual.fill;
-      context.fill();
-      context.strokeStyle = visual.stroke;
-      context.lineWidth = visual.strokeWidth * pixelRatio;
-      if (visual.lineDash !== undefined) context.setLineDash(visual.lineDash.map((length) => length * pixelRatio));
-      context.stroke();
-    } finally {
-      context.restore();
-    }
-  };
 }
 
 /**
@@ -261,7 +199,7 @@ export class EditInteractionAdapter implements EditInteractionPort {
     let transientLayer: EditLayer | undefined;
     let handle: OpenLayersEditInteractionHandle | undefined;
     try {
-      transientSource = new VectorSource<EditFeature>({ wrapX: false });
+      transientSource = new VectorSource<EditFeature>({ wrapX: false, useSpatialIndex: false });
       const targetZIndex = targetLayer.getZIndex();
       transientLayer = new VectorLayer<EditSource>({
         source: transientSource,
@@ -458,7 +396,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
 
       if (type === 'pointerdown') {
         if (!isPrimary(event, true)) return true;
-        const anchor = this.#anchorAt(event, 'control');
+        const anchor = this.#anchorAt(event, ({ kind }) => kind === 'control');
         if (anchor?.kind === 'control' && !isAlt(event)) {
           const coordinate = this.#canonicalCoordinate(event.coordinate);
           if (coordinate === undefined) return true;
@@ -493,17 +431,18 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       }
 
       if (type !== 'click' || !isPrimary(event, true)) return true;
-      const alt = isAlt(event);
-      const anchor = this.#anchorAt(event);
-      if (anchor?.kind === 'insertion' && alt) {
+      const hovered = this.#anchorAt(event);
+      if (!isAlt(event)) return hovered === undefined;
+      const anchor = this.#anchorAt(event, (candidate) => candidate.kind === 'insertion' || candidate.removable);
+      if (anchor?.kind === 'insertion') {
         this.#emit({ type: 'insert', anchor });
         return false;
       }
-      if (anchor?.kind === 'control' && anchor.removable && alt) {
+      if (anchor?.kind === 'control') {
         this.#emit({ type: 'remove', anchor });
         return false;
       }
-      return anchor === undefined;
+      return hovered === undefined;
     } catch (error) {
       report(this.#errorReporter, error, 'input');
       return true;
@@ -750,7 +689,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
 
   /** 取得屏幕外缓冲；首次渲染时只额外创建一个数据源。 */
   #takeStaging(): RenderBundle {
-    const staging = this.#staging ?? emptyRenderBundle(new VectorSource<EditFeature>({ wrapX: false }));
+    const staging = this.#staging ?? emptyRenderBundle(new VectorSource<EditFeature>({ wrapX: false, useSpatialIndex: false }));
     this.#staging = undefined;
     return staging;
   }
@@ -862,8 +801,8 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     }
   }
 
-  /** 在完整语义锚点上按像素距离查询最近命中，并可优先返回当前操作需要的类型。 */
-  #anchorAt(event: MapBrowserEvent, preferredKind?: EditInteractionAnchor['kind']): EditInteractionAnchor | undefined {
+  /** 先按当前输入语义过滤候选，再在有效锚点中选择像素距离最近项。 */
+  #anchorAt(event: MapBrowserEvent, accepts: (anchor: EditInteractionAnchor) => boolean = () => true): EditInteractionAnchor | undefined {
     const pixel = safePixel(event.pixel);
     if (pixel === undefined) return undefined;
     const bundle = this.#requireBundle();
@@ -872,7 +811,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     const indexWorldOffset = internalWorldOffsetForEdit(this.#map, this.placement, this.#worldOffset);
     const indexCoordinate: Coordinate = indexWorldOffset === 0 ? coordinate : Object.freeze([coordinate[0] - indexWorldOffset, coordinate[1]]);
     const resolution = this.#map.getView().getResolution();
-    const maximumTolerance = this.#hitTolerance + Math.max(CONTROL_ANCHOR_HIT_RADIUS, INSERTION_ANCHOR_HIT_RADIUS);
+    const maximumTolerance = this.#hitTolerance + Math.max(EDIT_CONTROL_ANCHOR_HIT_RADIUS, EDIT_INSERTION_ANCHOR_HIT_RADIUS);
     const candidates =
       resolution !== undefined && Number.isFinite(resolution) && resolution > 0
         ? bundle.anchorIndex.getInExtent([
@@ -882,43 +821,31 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
             indexCoordinate[1] + maximumTolerance * resolution
           ])
         : bundle.anchorIndex.getAll();
-    let preferred: EditInteractionAnchor | undefined;
-    let preferredDistance = Number.POSITIVE_INFINITY;
-    let preferredOrder = -1;
-    let fallback: EditInteractionAnchor | undefined;
-    let fallbackDistance = Number.POSITIVE_INFINITY;
-    let fallbackOrder = -1;
+    let best: EditInteractionAnchor | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    let bestOrder = -1;
     for (const indexed of candidates) {
       const anchor = indexed.anchor;
+      if (!accepts(anchor)) continue;
       const presentationCoordinate = this.#worldOffset === 0 ? indexed.coordinate : shiftCoordinate(indexed.coordinate, this.#worldOffset);
       const anchorPixel = safePixel(this.#map.getPixelFromCoordinate(presentationCoordinate as unknown as number[]));
       if (anchorPixel === undefined) continue;
       const deltaX = anchorPixel[0] - pixel[0];
       const deltaY = anchorPixel[1] - pixel[1];
       const distance = deltaX * deltaX + deltaY * deltaY;
-      const radius = anchor.kind === 'control' ? CONTROL_ANCHOR_HIT_RADIUS : INSERTION_ANCHOR_HIT_RADIUS;
+      const radius = anchor.kind === 'control' ? EDIT_CONTROL_ANCHOR_HIT_RADIUS : EDIT_INSERTION_ANCHOR_HIT_RADIUS;
       const tolerance = radius + this.#hitTolerance;
       if (distance > tolerance * tolerance) continue;
-      if (preferredKind !== undefined && anchor.kind === preferredKind) {
-        if (distance < preferredDistance || (distance === preferredDistance && indexed.order > preferredOrder)) {
-          preferred = anchor;
-          preferredDistance = distance;
-          preferredOrder = indexed.order;
-        }
-      } else {
-        const winsEqualDistance =
-          distance === fallbackDistance &&
-          (fallback === undefined ||
-            (anchor.kind === 'control' && fallback.kind === 'insertion') ||
-            (anchor.kind === fallback.kind && indexed.order > fallbackOrder));
-        if (distance < fallbackDistance || winsEqualDistance) {
-          fallback = anchor;
-          fallbackDistance = distance;
-          fallbackOrder = indexed.order;
-        }
+      const winsEqualDistance =
+        distance === bestDistance &&
+        (best === undefined || (anchor.kind === 'control' && best.kind === 'insertion') || (anchor.kind === best.kind && indexed.order > bestOrder));
+      if (distance < bestDistance || winsEqualDistance) {
+        best = anchor;
+        bestDistance = distance;
+        bestOrder = indexed.order;
       }
     }
-    return preferred ?? fallback;
+    return best;
   }
 
   /** 浏览器中把同一动画帧内的 pointerdrag 合并为最后一个坐标；无 rAF 时保持同步语义。 */
@@ -1266,13 +1193,13 @@ function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: n
   if (insertionCoordinates.length > 0) {
     insertionAnchors = pooledFeature(bundle, 'anchors:insertion');
     updateMultiPointGeometry(insertionAnchors, insertionCoordinates);
-    if (insertionAnchors.getStyle() !== insertionAnchorStyle) insertionAnchors.setStyle(insertionAnchorStyle);
+    if (insertionAnchors.getStyle() !== editInsertionAnchorStyle) insertionAnchors.setStyle(editInsertionAnchorStyle);
   }
   let controlAnchors: EditFeature | undefined;
   if (controlCoordinates.length > 0) {
     controlAnchors = pooledFeature(bundle, 'anchors:control');
     updateMultiPointGeometry(controlAnchors, controlCoordinates);
-    if (controlAnchors.getStyle() !== controlAnchorStyle) controlAnchors.setStyle(controlAnchorStyle);
+    if (controlAnchors.getStyle() !== editControlAnchorStyle) controlAnchors.setStyle(editControlAnchorStyle);
   }
   const features: readonly EditFeature[] = Object.freeze([
     ...(underlay === undefined ? [] : [underlay]),

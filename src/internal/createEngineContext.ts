@@ -4,6 +4,7 @@ import { defaults as defaultControls } from 'ol/control/defaults.js';
 import { defaults as defaultInteractions } from 'ol/interaction/defaults.js';
 import { fromLonLat } from 'ol/proj.js';
 import { ContextMenuViewAdapter } from '../adapters/dom/ContextMenuViewAdapter.js';
+import { CursorAdapter } from '../adapters/dom/CursorAdapter.js';
 import { TooltipAdapter } from '../adapters/dom/TooltipAdapter.js';
 import { TransformToolbarAdapter } from '../adapters/dom/TransformToolbarAdapter.js';
 import { FeatureBinding } from '../adapters/openlayers/FeatureBinding.js';
@@ -166,6 +167,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const drawAdapter = new DrawInteractionAdapter(map, layerAdapter, styleCompiler);
     const editAdapter = new EditInteractionAdapter(map, layerAdapter, binding, styleCompiler);
     const interactionTooltip = new TooltipAdapter(map);
+    const interactionCursor = new CursorAdapter(viewport);
     const internalDraw = new DrawService({
       store,
       shapes,
@@ -175,6 +177,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       editPort: editAdapter,
       input,
       tooltipPort: interactionTooltip,
+      cursorPort: interactionCursor,
       defaultStyle
     });
     const draw = new DrawFacade(internalDraw, elements, nativeRefs);
@@ -206,12 +209,13 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       transients: animations,
       toolbar: transformToolbar,
       tooltip: interactionTooltip,
+      cursor: interactionCursor,
       input: transformInput
     });
     const transform = new TransformFacade(internalTransform, elements);
     rollback.push(() => internalTransform.destroy());
 
-    const view = new ViewServiceImpl({ map, olView, viewport }, homeCenter);
+    const view = new ViewServiceImpl({ map, olView, viewport, setCursor: (cursor) => interactionCursor.setBase(cursor) }, homeCenter);
     rollback.push(() => view.destroy());
     const controlService = new ControlServiceImpl({ map });
     rollback.push(() => controlService.destroy());

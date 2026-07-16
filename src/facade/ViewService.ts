@@ -326,6 +326,8 @@ interface ViewServiceContext {
   readonly olView: View;
   /** 地图视口。 */
   readonly viewport: HTMLElement;
+  /** 可选的交互光标基准更新入口。 */
+  readonly setCursor?: (cursor: string) => void;
 }
 
 /** 校验后的动画配置。 */
@@ -353,6 +355,8 @@ export class ViewServiceImpl implements ViewService {
   readonly #map: Map;
   /** 地图视口。 */
   readonly #viewport: HTMLElement;
+  /** 更新外部光标基准的入口。 */
+  readonly #setCursor: (cursor: string) => void;
   /** 初始中心点。 */
   readonly #home: Coordinate;
   /** 服务是否已销毁。 */
@@ -363,6 +367,7 @@ export class ViewServiceImpl implements ViewService {
     this.#map = context.map;
     this.olView = context.olView;
     this.#viewport = context.viewport;
+    this.#setCursor = context.setCursor ?? ((cursor) => (this.#viewport.style.cursor = cursor));
     const initialCenter = home ?? context.olView.getCenter();
     this.#home = initialCenter === undefined ? Object.freeze([0, 0]) : copyCoordinate(initialCenter, 'Home center');
   }
@@ -437,7 +442,7 @@ export class ViewServiceImpl implements ViewService {
   setCursor(cursor: string): void {
     this.#assertActive();
     if (typeof cursor !== 'string' || cursor.trim().length === 0) throw new InvalidArgumentError('Cursor must be a non-empty string');
-    this.#viewport.style.cursor = cursor;
+    this.#setCursor(cursor);
   }
 
   /** 恢复默认光标。 */

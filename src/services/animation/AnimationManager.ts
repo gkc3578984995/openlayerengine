@@ -352,7 +352,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   }
 
   /** 设置交互期间优先使用的元素预览状态。 */
-  setPreview(state: Readonly<ElementState>): void {
+  setPreview(state: Readonly<ElementState>, geometry: RenderGeometryState): void {
     this.#assertActive();
     if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Animation preview must be an Element state');
     const elementId = nonEmptyString(state.id, 'Animation preview Element id');
@@ -366,7 +366,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     const snapshot = trusted ? state : cloneElementSnapshot(this.#shapes, state);
     const preview: PreparedElementState = Object.freeze({
       state: snapshot,
-      geometry: freezeRenderGeometry(this.#shapes.get(snapshot.type).toRenderGeometry(snapshot.geometry as never)),
+      geometry: freezeRenderGeometry(geometry),
       generation: committed.generation,
       revision: committed.revision,
       ...(trusted ? { sourceIdentity: state } : {})

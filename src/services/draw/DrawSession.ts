@@ -6,6 +6,7 @@ import type { ElementStore } from '../../core/element/ElementStore.js';
 import type { ElementState } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import type { InputEventMap } from '../../core/ports/InputPort.js';
+import type { CursorPort, CursorViewHandle } from '../../core/ports/CursorPort.js';
 import type { DrawInteractionEvent, DrawInteractionHandle, DrawInteractionPort, DrawInteractionRenderState } from '../../core/ports/DrawInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
@@ -41,6 +42,8 @@ export interface DrawSessionDependencies<T> {
   readonly input?: SessionKeyboardInput;
   /** 可选的跟随鼠标交互提示端口。 */
   readonly tooltipPort?: TooltipPort;
+  /** 可选的地图交互光标端口。 */
+  readonly cursorPort?: CursorPort;
   /** 默认样式解析函数。 */
   readonly defaultStyle: (state: ShapeState) => ElementStyleState;
   /** 元素 ID 生成器。 */
@@ -79,6 +82,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   readonly #input: SessionKeyboardInput | undefined;
   /** 可选的跟随鼠标交互提示端口。 */
   readonly #tooltipPort: TooltipPort | undefined;
+  /** 可选的地图交互光标端口。 */
+  readonly #cursorPort: CursorPort | undefined;
   /** 默认样式解析函数。 */
   readonly #defaultStyle: DrawSessionDependencies<T>['defaultStyle'];
   /** 元素 ID 生成器。 */
@@ -107,6 +112,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #unsubscribeInput: (() => void) | undefined;
   /** 当前绘制提示框句柄。 */
   #tooltip: TooltipViewHandle | undefined;
+  /** 当前绘制光标句柄。 */
+  #cursor: CursorViewHandle | undefined;
   /** 当前草稿控制点。 */
   #controlPoints: Coordinate[] = [];
   /** 当前指针坐标。 */
@@ -153,6 +160,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#options = dependencies.options;
     this.#input = dependencies.input;
     this.#tooltipPort = dependencies.tooltipPort;
+    this.#cursorPort = dependencies.cursorPort;
     this.#defaultStyle = dependencies.defaultStyle;
     this.#createId = dependencies.createId;
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
@@ -194,6 +202,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
         },
         (event) => this.#handlePortEvent(event)
       );
+      this.#cursor = this.#cursorPort?.open();
+      this.#cursor?.set('pointer');
       if (this.#status !== 'active') throw new ObjectDisposedError('Draw session was cancelled while opening');
       const unsubscribeInput = this.#input?.on('keydown', (event) => this.#handleKeydown(event));
       if (unsubscribeInput !== undefined && typeof unsubscribeInput !== 'function') {
@@ -674,6 +684,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       const handle = this.#handle;
       const unsubscribeInput = this.#unsubscribeInput;
       const tooltip = this.#tooltip;
+      const cursor = this.#cursor;
       try {
         runFinalizers([
           ...(handle === undefined
@@ -700,6 +711,14 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
                   if (this.#tooltip === tooltip) this.#tooltip = undefined;
                 }
               ]),
+          ...(cursor === undefined
+            ? []
+            : [
+                () => {
+                  cursor.destroy();
+                  if (this.#cursor === cursor) this.#cursor = undefined;
+                }
+              ]),
           ...(!this.#coordinatorReleased
             ? [
                 () => {
@@ -717,6 +736,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
         this.#handle === undefined &&
         this.#unsubscribeInput === undefined &&
         this.#tooltip === undefined &&
+        this.#cursor === undefined &&
         this.#coordinatorReleased &&
         !this.#terminalNotified
       ) {

@@ -159,7 +159,10 @@ describe('AnimationManager', () => {
     const resolve = vi.spyOn(store, 'resolve');
     const getShape = vi.spyOn(shapes, 'get');
 
-    manager.setPreview(preview);
+    manager.setPreview(preview, {
+      type: 'polyline',
+      coordinates: (preview.geometry as { readonly controlPoints: readonly (readonly number[])[] }).controlPoints
+    });
 
     expect(manager.activeCount).toBe(0);
     expect(get).not.toHaveBeenCalled();
@@ -182,11 +185,12 @@ describe('AnimationManager', () => {
         ]
       }
     });
+    const previewGeometry = shapes.get(preview.type).toRenderGeometry(preview.geometry as never);
     const get = vi.spyOn(store, 'get');
     const getShape = vi.spyOn(shapes, 'get');
 
-    manager.setPreview(preview);
-    expect(getShape).toHaveBeenCalledTimes(1);
+    manager.setPreview(preview, previewGeometry);
+    expect(getShape).not.toHaveBeenCalled();
 
     manager.play({ id: 'preview-cache' }, { type: 'dash-flow' });
     expect(render.frame('default', 0).contributions[0]?.value.primitives?.[0]?.geometry).toEqual({
@@ -199,16 +203,24 @@ describe('AnimationManager', () => {
 
     get.mockClear();
     getShape.mockClear();
-    manager.setPreview(preview);
+    manager.setPreview(preview, previewGeometry);
     expect(get).not.toHaveBeenCalled();
     expect(getShape).not.toHaveBeenCalled();
 
     store.update({ id: 'preview-cache' }, { data: { revision: 2 } });
     get.mockClear();
     getShape.mockClear();
-    manager.setPreview(preview);
+    const revisedGeometry = {
+      type: 'polyline' as const,
+      coordinates: [
+        [0, 0],
+        [300, 0]
+      ]
+    };
+    manager.setPreview(preview, revisedGeometry);
     expect(get).not.toHaveBeenCalled();
-    expect(getShape).toHaveBeenCalledTimes(1);
+    expect(getShape).not.toHaveBeenCalled();
+    expect(render.frame('default', 1).contributions[0]?.value.primitives?.[0]?.geometry).toEqual(revisedGeometry);
   });
 
   it('拒绝把具有可变内部槽或函数的冻结预览当作可信 identity', () => {
@@ -220,17 +232,18 @@ describe('AnimationManager', () => {
       }
     }
 
-    const { manager, store } = createAnimationHarness([polylineElement('unsafe-preview')]);
+    const { manager, shapes, store } = createAnimationHarness([polylineElement('unsafe-preview')]);
     manager.play({ id: 'unsafe-preview' }, { type: 'dash-flow' });
     const committed = store.get('unsafe-preview');
     if (committed === undefined) throw new Error('测试元素不存在');
     const mutableBox = Object.freeze(new MutableBox());
     mutableBox.increment();
     const invalidData = [Object.freeze(new Map([['value', 1]])), Object.freeze(new Date(0)), mutableBox, Object.freeze({ callback: () => undefined })];
+    const geometry = shapes.get(committed.type).toRenderGeometry(committed.geometry as never);
 
     for (const data of invalidData) {
       const preview = Object.freeze({ ...committed, data });
-      expect(() => manager.setPreview(preview as never)).toThrowError(InvalidArgumentError);
+      expect(() => manager.setPreview(preview as never, geometry)).toThrowError(InvalidArgumentError);
     }
   });
 });

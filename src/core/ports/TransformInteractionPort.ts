@@ -1,9 +1,13 @@
 import type { Coordinate, Pixel } from '../common/types.js';
 import type { RenderGeometryState, ShapeType } from '../shape/types.js';
 import type { ElementStyleState, StyleSpec } from '../style/types.js';
+import type { EditControlAnchor, EditInsertionAnchor, EditInteractionAnchor } from './EditInteractionPort.js';
 
 /** 内部类型。描述 TransformOperation 的可用数据。 */
 export type TransformOperation = 'translate' | 'rotate' | 'scale' | 'stretch' | 'vertex';
+
+/** 内部类型。描述一次顶点编辑产生的语义操作。 */
+export type TransformEditOperation = 'vertex' | 'insert' | 'remove';
 
 /** 内部类型。描述 TransformInteractionMode 的可用数据。 */
 export type TransformInteractionMode = 'transform' | 'edit';
@@ -59,6 +63,8 @@ export interface TransformInteractionTarget {
   readonly mode: TransformInteractionMode;
   /** 控制点。保存可编辑的图形控制点。 */
   readonly controlPoints: readonly Coordinate[];
+  /** 编辑锚点。完整保留可移动控制点和可插入中点的语义。 */
+  readonly editAnchors: readonly EditInteractionAnchor[];
   /** 当前展示世界中的自定义变换中心。 */
   readonly handleCenter?: Coordinate;
   /** 可平移。表示当前图形是否支持平移。 */
@@ -101,6 +107,8 @@ export type TransformInteractionEvent =
       coordinate?: Coordinate;
       /** 鼠标样式。保存手柄建议使用的光标。 */
       cursor?: string;
+      /** 编辑锚点。编辑模式下提供当前命中的控制点或插入点。 */
+      anchor?: EditInteractionAnchor;
     }>
   | Readonly<{
       /** 类型。标识当前数据或事件的类型。 */
@@ -117,10 +125,21 @@ export type TransformInteractionEvent =
       coordinate?: Coordinate;
       /** 鼠标样式。保存手柄建议使用的光标。 */
       cursor?: string;
+      /** 编辑锚点。编辑模式下提供刚离开的控制点或插入点。 */
+      anchor?: EditInteractionAnchor;
     }>
-  | Readonly<{ type: 'operation-start'; operation: TransformOperation; delta: TransformDelta; pixel?: Pixel; coordinate?: Coordinate }>
-  | Readonly<{ type: 'operation-change'; operation: TransformOperation; delta: TransformDelta; pixel?: Pixel; coordinate?: Coordinate }>
-  | Readonly<{ type: 'operation-end'; operation: TransformOperation; delta: TransformDelta; pixel?: Pixel; coordinate?: Coordinate }>
+  | Readonly<{
+      type: 'operation-start' | 'operation-change' | 'operation-end' | 'operation-cancel';
+      operation: TransformOperation;
+      delta: TransformDelta;
+      pixel?: Pixel;
+      coordinate?: Coordinate;
+      axis?: 'x' | 'y' | 'xy';
+      cursor?: string;
+      anchor?: EditControlAnchor;
+    }>
+  | Readonly<{ type: 'edit-insert'; anchor: EditInsertionAnchor }>
+  | Readonly<{ type: 'edit-remove'; anchor: EditControlAnchor }>
   | Readonly<{ type: 'copy-preview-confirm'; delta: Readonly<{ x: number; y: number }> }>
   | Readonly<{ type: 'copy-preview-cancel' }>;
 

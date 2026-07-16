@@ -12,7 +12,6 @@ import { unByKey } from 'ol/Observable.js';
 import type { EventsKey } from 'ol/events.js';
 import { fromUserCoordinate, getUserProjection, toUserResolution } from 'ol/proj.js';
 import RBush from 'ol/structs/RBush.js';
-import CircleStyle from 'ol/style/Circle.js';
 import Fill from 'ol/style/Fill.js';
 import Icon from 'ol/style/Icon.js';
 import Stroke from 'ol/style/Stroke.js';
@@ -21,11 +20,20 @@ import type { Coordinate, Pixel } from '../../../core/common/types.js';
 import { runFinalizers } from '../../../core/common/dispose.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import type { LayerRenderPort, LayerRenderTargetHandle } from '../../../core/ports/LayerRenderPort.js';
+import type { EditControlAnchor, EditInteractionAnchor } from '../../../core/ports/EditInteractionPort.js';
 import type { TransformInteractionOptions, TransformInteractionTarget, TransformOperation } from '../../../core/ports/TransformInteractionPort.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import { isNativeStyleRef, type ElementStyleState } from '../../../core/style/types.js';
 import type { ProjectionSuppressionLease, FeatureBinding } from '../FeatureBinding.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
+import {
+  EDIT_CONTROL_ANCHOR_HIT_RADIUS,
+  EDIT_INSERTION_ANCHOR_HIT_RADIUS,
+  editControlAnchorBatchRenderer,
+  editControlAnchorPointStyle,
+  editInsertionAnchorBatchRenderer,
+  editInsertionAnchorPointStyle
+} from '../interactions/EditAnchorVisuals.js';
 import { centerImage, rotateImage, scaleImage, stretchHorizontalImage, stretchVerticalImage, translateImage } from './handleImages.js';
 import { extentCenter, renderExtent, type TransformExtent } from './PreviewTransform.js';
 
@@ -34,14 +42,19 @@ export interface TransformHandleHit {
   /** 手柄的唯一键。 */
   readonly key: string;
   /** 手柄触发的操作类型。 */
-  readonly operation: 'translate' | 'rotate' | 'scale' | 'stretch' | 'vertex';
+  readonly operation?: 'translate' | 'rotate' | 'scale' | 'stretch' | 'vertex';
   /** 操作影响的坐标轴。 */
   readonly axis?: 'x' | 'y' | 'xy';
   /** 顶点手柄对应的控制点索引。 */
   readonly index?: number;
+  /** 编辑模式下命中的完整语义锚点。 */
+  readonly anchor?: EditInteractionAnchor;
   /** 手柄所在的地图坐标。 */
   readonly coordinate: Coordinate;
 }
+
+/** Transform Edit 按当前输入语义筛选锚点候选。 */
+export type EditAnchorHitMode = 'all' | 'control' | 'structural';
 
 /** 控制手柄图层的内部创建配置。 */
 interface HandleLayerOptions {
@@ -54,9 +67,11 @@ interface HandleLayerOptions {
 }
 
 /** 大顶点批量的空间索引条目。 */
-interface VertexIndexEntry {
-  /** 顶点在 Core 控制点列表中的索引。 */
-  readonly index: number;
+interface EditAnchorIndexEntry {
+  /** 锚点在当前完整拓扑中的稳定顺序。 */
+  readonly order: number;
+  /** 控制点或可插入位置的完整语义。 */
+  anchor: EditInteractionAnchor;
   /** 当前展示世界中的投影坐标。 */
   coordinate: Coordinate;
   /** RBush 和视图分辨率共同使用的视图投影坐标。 */
@@ -69,14 +84,14 @@ const handleMetadata = 'ol-engine-transform-handle';
 /** 标记使用 MultiPoint 统一渲染的大顶点要素。 */
 const vertexBatchMetadata = 'ol-engine-transform-vertex-batch';
 
+/** 标记使用 MultiPoint 统一渲染的大插入点要素。 */
+const insertionBatchMetadata = 'ol-engine-transform-insertion-batch';
+
 /** 默认统一样式超过该数量后切换为 MultiPoint 批次。 */
 const vertexBatchThreshold = 512;
 
 /** 自定义 StyleFunction 在该规模以下保留逐顶点 Feature 语义，以上改为单个 MultiPoint 批次。 */
 const customVertexBatchThreshold = 4_096;
-
-/** 默认顶点圆的可视半径，包含描边的半像素扩展。 */
-const defaultVertexHitRadius = 6;
 
 /** 超过该规模且移除过半时改用数据源快速重置。 */
 const bulkResetRemovalThreshold = 256;
@@ -125,12 +140,16 @@ export class HandleLayer {
   readonly #handleFeatures = new globalThis.Map<string, Feature<Geometry>>();
   /** 顶点手柄池当前保留的连续索引数量。 */
   #vertexHandleCount = 0;
+  /** 插入点手柄池当前保留的连续顺序数量。 */
+  #insertionHandleCount = 0;
   /** 默认样式的大顶点 MultiPoint 要素。 */
   #vertexBatch: Feature<Geometry> | undefined;
-  /** 大顶点命中使用的投影坐标索引。 */
-  readonly #vertexIndex = new RBush<VertexIndexEntry>();
-  /** 与顶点索引一一对应的稳定条目。 */
-  #vertexEntries: VertexIndexEntry[] = [];
+  /** 默认样式的大插入点 MultiPoint 要素。 */
+  #insertionBatch: Feature<Geometry> | undefined;
+  /** 编辑锚点命中使用的投影坐标索引。 */
+  readonly #editAnchorIndex = new RBush<EditAnchorIndexEntry>();
+  /** 与完整语义锚点一一对应的稳定条目。 */
+  #editAnchorEntries: EditAnchorIndexEntry[] = [];
   /** 当前已经加入数据源的目标相关要素。 */
   readonly #activeTargetFeatures = new Set<Feature<Geometry>>();
   /** 上一次编译的目标样式状态。 */
@@ -303,11 +322,9 @@ export class HandleLayer {
   }
 
   /** 查询指定像素命中的控制手柄。 */
-  hit(pixel: Pixel, hitTolerance: number): TransformHandleHit | undefined {
+  hit(pixel: Pixel, hitTolerance: number, editMode: EditAnchorHitMode = 'all'): TransformHandleHit | undefined {
     this.#assertActive();
-    const vertex = this.#hitVertexBatch(pixel, hitTolerance);
-    if (vertex !== undefined) return vertex;
-    if (this.#vertexBatch !== undefined && this.#target?.mode === 'edit') return undefined;
+    if (this.#target?.mode === 'edit') return this.#hitEditAnchor(pixel, hitTolerance, editMode);
     const regular = this.#map.forEachFeatureAtPixel(
       [...pixel],
       (feature) => {
@@ -373,8 +390,9 @@ export class HandleLayer {
       for (const feature of this.#handleFeatures.values()) releaseFeature(feature);
       this.#handleFeatures.clear();
       this.#vertexHandleCount = 0;
+      this.#insertionHandleCount = 0;
       this.#activeTargetFeatures.clear();
-      this.#clearVertexBatch();
+      this.#clearEditAnchorBatches();
       this.#previewStyleState = undefined;
       this.#previewStyle = undefined;
       this.#compiledHandleStyle = undefined;
@@ -407,113 +425,179 @@ export class HandleLayer {
     );
 
     const features = [preview, ...this.#syncExtentFeatures(target, handleStyle, geometryExtent, worldOffset)];
-    const vertexHandleCount = target.canEditVertices ? target.controlPoints.length : 0;
+    const editAnchors = target.canEditVertices ? target.editAnchors : [];
+    const controlAnchors = editAnchors.filter((anchor): anchor is EditControlAnchor => anchor.kind === 'control');
+    const insertionAnchors = editAnchors.filter((anchor) => anchor.kind === 'insertion');
+    this.#syncEditAnchorIndex(editAnchors, worldOffset);
+    const vertexHandleCount = controlAnchors.length;
+    const insertionHandleCount = insertionAnchors.length;
     const batchThreshold = handleStyle === undefined ? vertexBatchThreshold : customVertexBatchThreshold;
     const useVertexBatch = vertexHandleCount >= batchThreshold;
+    const useInsertionBatch = insertionHandleCount >= vertexBatchThreshold;
     if (useVertexBatch) {
-      features.push(this.#syncVertexBatch(target.controlPoints, handleStyle, worldOffset));
+      features.push(this.#syncVertexBatch(controlAnchors, handleStyle, worldOffset));
     } else if (vertexHandleCount > 0) {
-      for (let index = 0; index < vertexHandleCount; index += 1) {
-        features.push(this.#handle(`vertex-${index}`, 'vertex', presentationCoordinate(target.controlPoints[index], worldOffset), 'xy', handleStyle, index));
+      for (let order = 0; order < vertexHandleCount; order += 1) {
+        const anchor = controlAnchors[order];
+        features.push(
+          this.#handle(`vertex-${order}`, 'vertex', presentationCoordinate(anchor.coordinate, worldOffset), 'xy', handleStyle, anchor.index, anchor)
+        );
+      }
+    }
+    if (useInsertionBatch) {
+      features.push(this.#syncInsertionBatch(insertionAnchors, worldOffset));
+    } else if (insertionHandleCount > 0) {
+      for (let order = 0; order < insertionHandleCount; order += 1) {
+        const anchor = insertionAnchors[order];
+        features.push(
+          this.#handle(`insertion-${order}`, undefined, presentationCoordinate(anchor.coordinate, worldOffset), undefined, undefined, anchor.index, anchor)
+        );
       }
     }
     this.#syncSourceFeatures(features);
-    this.#trimVertexHandlePool(useVertexBatch ? 0 : vertexHandleCount);
-    if (!useVertexBatch) this.#clearVertexBatch();
+    this.#trimVertexHandlePool(useVertexBatch ? 0 : vertexHandleCount, this.#operationActive);
+    this.#trimInsertionHandlePool(useInsertionBatch ? 0 : insertionHandleCount, this.#operationActive);
+    if (!this.#operationActive && !useVertexBatch) this.#clearVertexBatch();
+    if (!this.#operationActive && !useInsertionBatch) this.#clearInsertionBatch();
   }
 
-  /** 原位更新大顶点 MultiPoint 及其命中索引。 */
-  #syncVertexBatch(coordinates: readonly Coordinate[], customStyle: ReturnType<StyleCompiler['compile']> | undefined, worldOffset: number): Feature<Geometry> {
+  /** 原位更新大控制点 MultiPoint；语义命中统一由完整锚点索引负责。 */
+  #syncVertexBatch(
+    anchors: readonly EditControlAnchor[],
+    customStyle: ReturnType<StyleCompiler['compile']> | undefined,
+    worldOffset: number
+  ): Feature<Geometry> {
     const feature = this.#vertexBatch ?? new Feature<Geometry>();
     this.#vertexBatch = feature;
-    const coordinatesChanged = this.#syncVertexIndex(coordinates, worldOffset);
-    if (coordinatesChanged) updateMultiPointGeometry(feature, coordinates, worldOffset);
+    updateMultiPointGeometry(
+      feature,
+      anchors.map(({ coordinate }) => coordinate),
+      worldOffset
+    );
     const style = customStyle ?? vertexBatchStyle;
     if (feature.getStyle() !== style) feature.setStyle(style);
     if (feature.get(vertexBatchMetadata) !== true) feature.set(vertexBatchMetadata, true, true);
     return feature;
   }
 
-  /** 大顶点首次批量加载 RBush，单顶点变化时只更新差异条目。 */
-  #syncVertexIndex(coordinates: readonly Coordinate[], worldOffset: number): boolean {
-    const entries = this.#vertexEntries;
-    if (entries.length !== coordinates.length) {
-      this.#rebuildVertexIndex(coordinates, worldOffset);
-      return true;
-    }
-    const incrementalLimit = Math.max(32, Math.floor(coordinates.length / 100));
-    const changes: Array<Readonly<{ entry: VertexIndexEntry; coordinate: Coordinate }>> = [];
-    for (let index = 0; index < coordinates.length; index += 1) {
-      if (coordinateEqualsPresentation(entries[index].coordinate, coordinates[index], worldOffset)) continue;
-      changes.push({ entry: entries[index], coordinate: coordinates[index] });
-      if (changes.length > incrementalLimit) {
-        this.#rebuildVertexIndex(coordinates, worldOffset);
-        return true;
-      }
-    }
-    if (changes.length === 0) return false;
-    for (const change of changes) {
-      const presented = presentationCoordinate(change.coordinate, worldOffset);
-      change.entry.coordinate = presented;
-      change.entry.internalCoordinate = coordinateForIndex(this.#map, presented);
-      this.#vertexIndex.update(pointExtent(change.entry.internalCoordinate), change.entry);
-    }
-    return true;
+  /** 原位更新大插入点 MultiPoint。 */
+  #syncInsertionBatch(anchors: readonly EditInteractionAnchor[], worldOffset: number): Feature<Geometry> {
+    const feature = this.#insertionBatch ?? new Feature<Geometry>();
+    this.#insertionBatch = feature;
+    updateMultiPointGeometry(
+      feature,
+      anchors.map(({ coordinate }) => coordinate),
+      worldOffset
+    );
+    if (feature.getStyle() !== insertionBatchStyle) feature.setStyle(insertionBatchStyle);
+    if (feature.get(insertionBatchMetadata) !== true) feature.set(insertionBatchMetadata, true, true);
+    return feature;
   }
 
-  /** 使用点范围一次批量构建大顶点 RBush。 */
-  #rebuildVertexIndex(coordinates: readonly Coordinate[], worldOffset: number): void {
-    this.#vertexIndex.clear();
-    const entries = coordinates.map((coordinate, index): VertexIndexEntry => {
-      const presented = presentationCoordinate(coordinate, worldOffset);
-      return { index, coordinate: presented, internalCoordinate: coordinateForIndex(this.#map, presented) };
+  /** 首次批量加载完整编辑锚点，连续拖拽时只更新变化条目。 */
+  #syncEditAnchorIndex(anchors: readonly EditInteractionAnchor[], worldOffset: number): void {
+    const entries = this.#editAnchorEntries;
+    if (entries.length !== anchors.length || entries.some((entry, order) => !sameAnchorIdentity(entry.anchor, anchors[order]))) {
+      this.#rebuildEditAnchorIndex(anchors, worldOffset);
+      return;
+    }
+    const incrementalLimit = Math.max(32, Math.floor(anchors.length / 100));
+    const changes: Array<Readonly<{ entry: EditAnchorIndexEntry; anchor: EditInteractionAnchor }>> = [];
+    for (let order = 0; order < anchors.length; order += 1) {
+      const anchor = anchors[order];
+      if (coordinateEqualsPresentation(entries[order].coordinate, anchor.coordinate, worldOffset)) continue;
+      changes.push({ entry: entries[order], anchor });
+      if (changes.length > incrementalLimit) {
+        this.#rebuildEditAnchorIndex(anchors, worldOffset);
+        return;
+      }
+    }
+    if (changes.length === 0) return;
+    for (const change of changes) {
+      const presented = presentationCoordinate(change.anchor.coordinate, worldOffset);
+      change.entry.anchor = change.anchor;
+      change.entry.coordinate = presented;
+      change.entry.internalCoordinate = coordinateForIndex(this.#map, presented);
+      this.#editAnchorIndex.update(pointExtent(change.entry.internalCoordinate), change.entry);
+    }
+  }
+
+  /** 使用点范围一次批量构建完整编辑锚点 RBush。 */
+  #rebuildEditAnchorIndex(anchors: readonly EditInteractionAnchor[], worldOffset: number): void {
+    this.#editAnchorIndex.clear();
+    const entries = anchors.map((anchor, order): EditAnchorIndexEntry => {
+      const presented = presentationCoordinate(anchor.coordinate, worldOffset);
+      return { order, anchor, coordinate: presented, internalCoordinate: coordinateForIndex(this.#map, presented) };
     });
-    this.#vertexEntries = entries;
+    this.#editAnchorEntries = entries;
     if (entries.length > 0)
-      this.#vertexIndex.load(
+      this.#editAnchorIndex.load(
         entries.map((entry) => pointExtent(entry.internalCoordinate)),
         entries
       );
   }
 
-  /** 用屏幕容差查询大顶点索引，等距时固定选择较小索引。 */
-  #hitVertexBatch(pixel: Pixel, hitTolerance: number): TransformHandleHit | undefined {
-    if (this.#vertexBatch === undefined || this.#vertexEntries.length === 0) return undefined;
+  /** 在完整语义锚点上查询最近命中；等距时控制点优先于插入点。 */
+  #hitEditAnchor(pixel: Pixel, hitTolerance: number, mode: EditAnchorHitMode): TransformHandleHit | undefined {
+    if (this.#editAnchorEntries.length === 0) return undefined;
     const rawCoordinate = this.#map.getCoordinateFromPixelInternal([...pixel]);
     if (!Array.isArray(rawCoordinate) || rawCoordinate.length < 2 || !Number.isFinite(rawCoordinate[0]) || !Number.isFinite(rawCoordinate[1])) return undefined;
     const coordinate: Coordinate = [rawCoordinate[0], rawCoordinate[1]];
-    const tolerance = internalResolution(this.#map) * (Math.max(0, hitTolerance) + defaultVertexHitRadius);
-    const candidates = this.#vertexIndex.getInExtent([
-      coordinate[0] - tolerance,
-      coordinate[1] - tolerance,
-      coordinate[0] + tolerance,
-      coordinate[1] + tolerance
+    const resolution = internalResolution(this.#map);
+    const maximumTolerance = resolution * (Math.max(0, hitTolerance) + Math.max(EDIT_CONTROL_ANCHOR_HIT_RADIUS, EDIT_INSERTION_ANCHOR_HIT_RADIUS));
+    const candidates = this.#editAnchorIndex.getInExtent([
+      coordinate[0] - maximumTolerance,
+      coordinate[1] - maximumTolerance,
+      coordinate[0] + maximumTolerance,
+      coordinate[1] + maximumTolerance
     ]);
-    const toleranceSquared = tolerance * tolerance;
-    let best: VertexIndexEntry | undefined;
+    let best: EditAnchorIndexEntry | undefined;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const candidate of candidates) {
+      if (!acceptsEditAnchor(candidate.anchor, mode)) continue;
       const x = candidate.internalCoordinate[0] - coordinate[0];
       const y = candidate.internalCoordinate[1] - coordinate[1];
       const distance = x * x + y * y;
-      if (distance > toleranceSquared) continue;
-      if (distance < bestDistance || (distance === bestDistance && (best === undefined || candidate.index < best.index))) {
+      const radius = candidate.anchor.kind === 'control' ? EDIT_CONTROL_ANCHOR_HIT_RADIUS : EDIT_INSERTION_ANCHOR_HIT_RADIUS;
+      const tolerance = resolution * (Math.max(0, hitTolerance) + radius);
+      if (distance > tolerance * tolerance) continue;
+      const winsEqualDistance =
+        distance === bestDistance &&
+        (best === undefined ||
+          (candidate.anchor.kind === 'control' && best.anchor.kind === 'insertion') ||
+          (candidate.anchor.kind === best.anchor.kind && candidate.order > best.order));
+      if (distance < bestDistance || winsEqualDistance) {
         best = candidate;
         bestDistance = distance;
       }
     }
-    return best === undefined
-      ? undefined
-      : freezeHit({ key: `vertex-${best.index}`, operation: 'vertex', axis: 'xy', index: best.index, coordinate: best.coordinate });
+    if (best === undefined) return undefined;
+    const anchor = best.anchor;
+    return anchor.kind === 'control'
+      ? freezeHit({ key: `vertex-${best.order}`, operation: 'vertex', axis: 'xy', index: anchor.index, coordinate: best.coordinate, anchor })
+      : freezeHit({ key: `insertion-${best.order}`, index: anchor.index, coordinate: best.coordinate, anchor });
   }
 
-  /** 断开大顶点批次和空间索引的全部引用。 */
+  /** 断开大控制点批次引用。 */
   #clearVertexBatch(): void {
     const feature = this.#vertexBatch;
     this.#vertexBatch = undefined;
-    this.#vertexEntries = [];
-    this.#vertexIndex.clear();
     if (feature !== undefined) releaseFeature(feature);
+  }
+
+  /** 断开大插入点批次引用。 */
+  #clearInsertionBatch(): void {
+    const feature = this.#insertionBatch;
+    this.#insertionBatch = undefined;
+    if (feature !== undefined) releaseFeature(feature);
+  }
+
+  /** 清理全部批次和语义命中索引。 */
+  #clearEditAnchorBatches(): void {
+    this.#clearVertexBatch();
+    this.#clearInsertionBatch();
+    this.#editAnchorEntries = [];
+    this.#editAnchorIndex.clear();
   }
 
   /** 更新受视图分辨率影响的选中框与操作手柄，不触碰预览和顶点要素。 */
@@ -533,6 +617,8 @@ export class HandleLayer {
       target.geometry.type === 'point' ? pointVisualPadding(preview, this.#map) : undefined
     );
     this.#extent = extent;
+    // 编辑模式仅显示业务图形与语义锚点，避免 Transform 选框遮盖真实样式。
+    if (target.mode === 'edit') return [];
     const [minX, minY, maxX, maxY] = extent;
     const center = target.handleCenter === undefined ? extentCenter(extent) : presentationCoordinate(target.handleCenter, worldOffset);
     const bbox = this.#bbox ?? new Feature<Geometry>();
@@ -597,6 +683,7 @@ export class HandleLayer {
 
   /** 自定义手柄样式只编译一次，并由全部交互手柄共享。 */
   #handleStyleForTarget(target: TransformInteractionTarget): ReturnType<StyleCompiler['compile']> | undefined {
+    if (target.mode === 'edit') return undefined;
     if (!hasInteractiveHandles(target, this.#options) || this.#options.handleStyle === undefined) return undefined;
     if (this.#handleStyleCompiled) return this.#compiledHandleStyle;
     const compiled = this.#styles.compile(this.#options.handleStyle);
@@ -624,16 +711,29 @@ export class HandleLayer {
     for (const feature of features) this.#activeTargetFeatures.add(feature);
   }
 
-  /** 顶点数缩减或离开编辑模式时立即释放不再可见的要素池。 */
-  #trimVertexHandlePool(nextCount: number): void {
+  /** 记录当前逐点控制点数；暂时隐藏的池成员保留到目标切换，供拖拽结束原位复用。 */
+  #trimVertexHandlePool(nextCount: number, retainHidden: boolean): void {
     const previousCount = this.#vertexHandleCount;
     this.#vertexHandleCount = nextCount;
-    if (nextCount >= previousCount) return;
+    if (retainHidden || nextCount >= previousCount) return;
     for (let index = nextCount; index < previousCount; index += 1) {
-      const key = `vertex-${index}`;
-      const feature = this.#handleFeatures.get(key);
+      const feature = this.#handleFeatures.get(`vertex-${index}`);
       if (feature === undefined) continue;
-      this.#handleFeatures.delete(key);
+      this.#handleFeatures.delete(`vertex-${index}`);
+      if (this.#activeTargetFeatures.delete(feature)) this.#source.removeFeature(feature);
+      releaseFeature(feature);
+    }
+  }
+
+  /** 记录当前逐点插入点数；隐藏期间保留池成员，避免拖拽首尾集中销毁和重建。 */
+  #trimInsertionHandlePool(nextCount: number, retainHidden: boolean): void {
+    const previousCount = this.#insertionHandleCount;
+    this.#insertionHandleCount = nextCount;
+    if (retainHidden || nextCount >= previousCount) return;
+    for (let order = nextCount; order < previousCount; order += 1) {
+      const feature = this.#handleFeatures.get(`insertion-${order}`);
+      if (feature === undefined) continue;
+      this.#handleFeatures.delete(`insertion-${order}`);
       if (this.#activeTargetFeatures.delete(feature)) this.#source.removeFeature(feature);
       releaseFeature(feature);
     }
@@ -646,7 +746,8 @@ export class HandleLayer {
     for (const feature of this.#handleFeatures.values()) releaseFeature(feature);
     this.#handleFeatures.clear();
     this.#vertexHandleCount = 0;
-    this.#clearVertexBatch();
+    this.#insertionHandleCount = 0;
+    this.#clearEditAnchorBatches();
     this.#preview = undefined;
     this.#bbox = undefined;
     this.#rotationCenter = undefined;
@@ -726,7 +827,8 @@ export class HandleLayer {
     coordinate: Coordinate,
     axis: TransformHandleHit['axis'],
     customStyle: ReturnType<StyleCompiler['compile']> | undefined,
-    index?: number
+    index?: number,
+    anchor?: EditInteractionAnchor
   ): Feature<Geometry> {
     let feature = this.#handleFeatures.get(key);
     if (feature === undefined) {
@@ -736,7 +838,14 @@ export class HandleLayer {
     updatePointGeometry(feature, coordinate);
     const style = customStyle ?? styleFor(operation, axis);
     if (feature.getStyle() !== style) feature.setStyle(style);
-    setHandleHit(feature, { key, operation, coordinate, axis, ...(index === undefined ? {} : { index }) });
+    setHandleHit(feature, {
+      key,
+      ...(operation === undefined ? {} : { operation }),
+      coordinate,
+      ...(axis === undefined ? {} : { axis }),
+      ...(index === undefined ? {} : { index }),
+      ...(anchor === undefined ? {} : { anchor })
+    });
     return feature;
   }
 
@@ -768,37 +877,11 @@ const stretchHorizontalHandleStyle = iconStyle(stretchHorizontalImage);
 const stretchVerticalHandleStyle = iconStyle(stretchVerticalImage);
 const translateHandleStyle = iconStyle(translateImage);
 const centerHandleStyle = iconStyle(centerImage);
-const vertexHandleStyle = new Style({
-  image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#27ae60', width: 2 }) })
-});
-
-/** 用一条 Canvas path 绘制默认顶点批次，所有视觉尺寸按 DPR 缩放。 */
-const renderVertexBatch: RenderFunction = (coordinates, state): void => {
-  if (!Array.isArray(coordinates) || coordinates.length === 0 || !Array.isArray(coordinates[0])) return;
-  const points = coordinates as unknown as readonly Coordinate[];
-  const context = state.context;
-  const pixelRatio = Number.isFinite(state.pixelRatio) && state.pixelRatio > 0 ? state.pixelRatio : 1;
-  const radius = 5 * pixelRatio;
-  context.save();
-  try {
-    context.beginPath();
-    for (const point of points) {
-      context.moveTo(point[0] + radius, point[1]);
-      context.arc(point[0], point[1], radius, 0, Math.PI * 2);
-    }
-    context.fillStyle = '#ffffff';
-    context.fill();
-    context.strokeStyle = '#27ae60';
-    context.lineWidth = 2 * pixelRatio;
-    context.stroke();
-  } finally {
-    context.restore();
-  }
-};
 
 /** MultiPoint 命中由 RBush 负责，命中画布上不重复绘制大批量圆。 */
 const renderEmptyHitBatch: RenderFunction = (): void => undefined;
-const vertexBatchStyle = new Style({ renderer: renderVertexBatch, hitDetectionRenderer: renderEmptyHitBatch });
+const vertexBatchStyle = new Style({ renderer: editControlAnchorBatchRenderer, hitDetectionRenderer: renderEmptyHitBatch, zIndex: 1 });
+const insertionBatchStyle = new Style({ renderer: editInsertionAnchorBatchRenderer, hitDetectionRenderer: renderEmptyHitBatch, zIndex: 0 });
 
 /** 用内置图片创建手柄图标样式。 */
 function iconStyle(src: string, displacement?: readonly [number, number]): Style {
@@ -808,7 +891,8 @@ function iconStyle(src: string, displacement?: readonly [number, number]): Style
 /** 按操作类型和坐标轴选择内置手柄样式。 */
 function styleFor(operation: TransformHandleHit['operation'], axis: TransformHandleHit['axis']): Style {
   if (operation === 'rotate') return rotateHandleStyle;
-  if (operation === 'vertex') return vertexHandleStyle;
+  if (operation === 'vertex') return editControlAnchorPointStyle;
+  if (operation === undefined) return editInsertionAnchorPointStyle;
   if (operation === 'translate') return translateHandleStyle;
   if (operation === 'stretch') return axis === 'x' ? stretchHorizontalHandleStyle : stretchVerticalHandleStyle;
   return scaleHandleStyle;
@@ -885,12 +969,14 @@ function updatePointGeometry(feature: Feature<Geometry>, coordinate: Coordinate)
 
 /** 已确认坐标变化后原位更新大顶点 MultiPoint。 */
 function updateMultiPointGeometry(feature: Feature<Geometry>, coordinates: readonly Coordinate[], worldOffset: number): void {
-  const presented = coordinates.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset));
   const geometry = feature.getGeometry();
   if (geometry instanceof MultiPoint) {
+    if (multiPointCoordinatesEqual(geometry, coordinates, worldOffset)) return;
+    const presented = coordinates.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset));
     geometry.setCoordinates(presented);
     return;
   }
+  const presented = coordinates.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset));
   feature.setGeometry(new MultiPoint(presented));
 }
 
@@ -905,6 +991,22 @@ function releaseFeature(feature: Feature<Geometry>): void {
 function flatCoordinatesEqual(geometry: Point, coordinate: Coordinate, worldOffset = 0): boolean {
   const flat = geometry.getFlatCoordinates();
   return flat.length === coordinate.length && flat.every((value, index) => value === coordinate[index] + (index === 0 ? worldOffset : 0));
+}
+
+/** 无分配比较批量编辑锚点的扁平坐标。 */
+function multiPointCoordinatesEqual(geometry: MultiPoint, coordinates: readonly Coordinate[], worldOffset = 0): boolean {
+  const flat = geometry.getFlatCoordinates();
+  const stride = geometry.getStride();
+  if (flat.length !== coordinates.length * stride) return false;
+  let offset = 0;
+  for (const coordinate of coordinates) {
+    if (coordinate.length !== stride) return false;
+    for (let index = 0; index < stride; index += 1) {
+      if (flat[offset] !== coordinate[index] + (index === 0 ? worldOffset : 0)) return false;
+      offset += 1;
+    }
+  }
+  return true;
 }
 
 /** 把一个投影坐标转为 RBush 使用的零面积范围。 */
@@ -1064,6 +1166,20 @@ function coordinatesEqual(left: readonly number[], right: readonly number[]): bo
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+/** 判断两份编辑锚点是否占据同一个语义槽位。 */
+function sameAnchorIdentity(left: EditInteractionAnchor, right: EditInteractionAnchor | undefined): boolean {
+  if (right === undefined || left.kind !== right.kind || left.index !== right.index) return false;
+  if (left.kind === 'insertion' || right.kind === 'insertion') return left.kind === right.kind;
+  return left.role === right.role && left.removable === right.removable;
+}
+
+/** 判断编辑锚点是否符合当前输入动作的语义候选集合。 */
+function acceptsEditAnchor(anchor: EditInteractionAnchor, mode: EditAnchorHitMode): boolean {
+  if (mode === 'all') return true;
+  if (mode === 'control') return anchor.kind === 'control';
+  return anchor.kind === 'insertion' || anchor.removable;
+}
+
 /** 判断两份命中元数据是否完全相同。 */
 function handleHitsEqual(left: TransformHandleHit, right: TransformHandleHit): boolean {
   return (
@@ -1071,6 +1187,8 @@ function handleHitsEqual(left: TransformHandleHit, right: TransformHandleHit): b
     left.operation === right.operation &&
     left.axis === right.axis &&
     left.index === right.index &&
+    ((left.anchor === undefined && right.anchor === undefined) ||
+      (left.anchor !== undefined && right.anchor !== undefined && sameAnchorIdentity(left.anchor, right.anchor))) &&
     coordinatesEqual(left.coordinate, right.coordinate)
   );
 }
@@ -1103,5 +1221,7 @@ function styleValuesEqual(left: unknown, right: unknown): boolean {
 function isHandleHit(value: unknown): value is TransformHandleHit {
   if (value === null || typeof value !== 'object') return false;
   const hit = value as Partial<TransformHandleHit>;
-  return typeof hit.key === 'string' && ['translate', 'rotate', 'scale', 'stretch', 'vertex'].includes(hit.operation ?? '') && Array.isArray(hit.coordinate);
+  const operationValid = ['translate', 'rotate', 'scale', 'stretch', 'vertex'].includes(hit.operation ?? '');
+  const insertionValid = hit.operation === undefined && hit.anchor?.kind === 'insertion';
+  return typeof hit.key === 'string' && (operationValid || insertionValid) && Array.isArray(hit.coordinate);
 }

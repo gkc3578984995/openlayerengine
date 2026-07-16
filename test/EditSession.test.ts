@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
+import { createControlPointDefinition } from '../src/builtins/shapes/definition.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import type { PreparedWorldEdit } from '../src/core/common/worldWrap.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
@@ -20,6 +21,7 @@ import { EditSession } from '../src/services/draw/EditSession.js';
 import { InteractionCoordinator } from '../src/services/events/InteractionCoordinator.js';
 import type { RoutedPointerEvent } from '../src/services/events/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
+import { FakeCursorPort } from './helpers/cursorHarness.js';
 import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
@@ -108,6 +110,7 @@ function setup(
   const coordinator = new InteractionCoordinator();
   const port = new FakeEditPort();
   const keyboard = new FakeKeyboardInput();
+  const cursor = new FakeCursorPort();
   const tooltip = new FakeTooltipPort();
   port.placement = placement;
   const reports: unknown[] = [];
@@ -122,13 +125,14 @@ function setup(
     elementId: state.id,
     options: { underlay },
     input: keyboard,
+    cursorPort: cursor,
     tooltipPort: tooltip,
     errorReporter: (error) => reports.push(error),
     onTerminal
   });
   coordinator.activate(session);
   session.open();
-  return { coordinator, keyboard, onTerminal, port, reports, session, store, tooltip };
+  return { coordinator, cursor, keyboard, onTerminal, port, reports, session, store, tooltip };
 }
 
 function controlCoordinates(port: FakeEditPort): readonly (readonly number[])[] {
@@ -173,7 +177,7 @@ describe('EditSession', () => {
     port.emit({ type: 'pointer-move', coordinate: [10, 10] });
     const view = tooltip.views[0];
     expect(view?.spec).toMatchObject({ ownerId: 'edit:edit-polyline', variant: 'edit', offset: [15, -11] });
-    expect(view?.state.lines).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点删除点', '右击退出编辑']);
+    expect(view?.state.lines).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点', '右击退出编辑']);
 
     port.emit({ type: 'pointer-move', coordinate: insertion.coordinate, anchor: insertion });
     expect(view?.state).toMatchObject({ position: insertion.coordinate, lines: ['按住 Alt 单击添加点'] });
@@ -183,7 +187,7 @@ describe('EditSession', () => {
     port.emit({ type: 'move-start', anchor: control, coordinate: control.coordinate });
     expect(view?.state.lines).toEqual(['拖拽中…']);
     port.emit({ type: 'move-cancel', anchor: control });
-    expect(view?.state.lines).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
+    expect(view?.state.lines).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点', '右击退出编辑']);
 
     port.emit({ type: 'insert', anchor: insertion });
     expect(view?.state.lines).toContain('Ctrl+Z 撤销 (1)');
@@ -192,6 +196,42 @@ describe('EditSession', () => {
 
     session.cancel();
     expect(view?.destroyed).toBe(true);
+  });
+
+  it('uses move and grabbing cursors for edit anchors and restores the cursor on cancel and finish', () => {
+    const { cursor, port, session } = setup(
+      element('polyline', [
+        [0, 0],
+        [4, 0],
+        [8, 0]
+      ])
+    );
+    const cursorView = cursor.views[0];
+    const control = port.renders[0]?.anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 1);
+    if (cursorView === undefined || control?.kind !== 'control') throw new Error('Missing edit cursor or control anchor');
+
+    expect(cursor.open).toHaveBeenCalledOnce();
+    expect(cursorView.cursor).toBeUndefined();
+
+    port.emit({ type: 'pointer-move', coordinate: control.coordinate, anchor: control });
+    expect(cursorView.cursor).toBe('move');
+
+    port.emit({ type: 'move-start', anchor: control, coordinate: control.coordinate });
+    expect(cursorView.cursor).toBe('grabbing');
+
+    port.emit({ type: 'move-cancel', anchor: control });
+    expect(cursorView.cursor).toBeUndefined();
+
+    port.emit({ type: 'pointer-move', coordinate: [20, 20] });
+    expect(cursorView.cursor).toBeUndefined();
+
+    port.emit({ type: 'pointer-move', coordinate: control.coordinate, anchor: control });
+    expect(cursorView.cursor).toBe('move');
+
+    session.finish();
+    expect(cursorView.destroyed).toBe(true);
+    expect(cursorView.cursor).toBeUndefined();
+    expect(cursorView.log).toEqual(['set:move', 'set:grabbing', 'reset', 'reset', 'set:move', 'destroy']);
   });
 
   it('does not subscribe keyboard input after the initial render synchronously cancels the session', () => {
@@ -296,6 +336,44 @@ describe('EditSession', () => {
     expect(describe).toHaveBeenCalledTimes(3);
     expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'control')).toHaveLength(3);
     expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'insertion')).toHaveLength(2);
+    session.cancel();
+  });
+
+  it('uses the trusted mover and renderer once per built-in drag preview while preserving the resulting geometry', () => {
+    const validate = vi.fn();
+    const render = vi.fn((points: readonly (readonly [number, number])[]) => ({ type: 'polyline' as const, coordinates: points }));
+    const trustedDefinition = createControlPointDefinition({
+      type: 'polyline',
+      previewMin: 2,
+      completeMin: 2,
+      validate,
+      render
+    });
+    const entry = element('polyline', [
+      [0, 0],
+      [4, 0],
+      [8, 0]
+    ]);
+    const { port, session } = setup(entry, false, undefined, undefined, undefined, trustedDefinition);
+    validate.mockClear();
+    render.mockClear();
+
+    const moved = port.renders[0].anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 1);
+    if (moved?.kind !== 'control') throw new Error('Missing trusted movable anchor');
+    port.emit({ type: 'move-start', anchor: moved, coordinate: moved.coordinate });
+    port.emit({ type: 'move', anchor: moved, coordinate: [5, 2] });
+
+    expect(validate).toHaveBeenCalledOnce();
+    expect(render).toHaveBeenCalledOnce();
+    expect(port.renders.at(-1)?.geometry).toEqual({
+      type: 'polyline',
+      coordinates: [
+        [0, 0],
+        [5, 2],
+        [8, 0]
+      ]
+    });
+
     session.cancel();
   });
 
