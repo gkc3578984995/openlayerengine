@@ -14,17 +14,17 @@ interface ElementHandleState<T> {
   removedByHandle: boolean;
 }
 
-/** 只允许内部服务创建 Element 的校验令牌。 */
+/** 防止调用方绕过 ElementService 构造句柄的内部令牌。 */
 const elementToken = Symbol('ol-engine.facade.Element.internal');
 /** Element 句柄与内部状态的关联表。 */
 const elementStates = new WeakMap<Element, ElementHandleState<unknown>>();
 
 /**
- * 地图元素句柄。用于读取状态、更新元素或将其移除。
+ * 地图 Element 的实时句柄，可读取状态、提交更新或移除对象。
  *
  * Element 由 `earth.elements` 等服务返回，请不要手动创建。
  *
- * @typeParam T 业务数据。表示 `state.data` 的类型。
+ * @typeParam T `state.data` 中保存的业务数据类型。
  *
  * @example
  * ```ts
@@ -36,7 +36,7 @@ export class Element<T = unknown> {
   /**
    * 创建 Element 句柄。
    *
-   * 该构造器只供引擎内部使用，外部应通过 `earth.elements` 获取元素。
+   * 该构造器只供引擎内部使用，外部应通过 `earth.elements` 获取 Element。
    *
    * @example
    * ```ts
@@ -52,26 +52,25 @@ export class Element<T = unknown> {
     elementStates.set(this, args[1]);
   }
 
-  /** 元素 ID。用于唯一标识当前元素。 */
+  /** 当前 Element 的唯一 ID。 */
   get id(): string {
     return stateOf(this).id;
   }
 
-  /** 元素状态。返回当前不可变状态快照。 */
+  /** Element 当前的不可变状态快照。 */
   get state(): Readonly<ElementState<T>> {
     return currentStateOf(this).getState() as Readonly<ElementState<T>>;
   }
 
-  /** 原生要素。用于高级 OpenLayers 互操作。 */
+  /** OpenLayers 渲染 Feature。直接修改不会回写 Element 状态，并可能在下次投影时被覆盖。 */
   get olFeature(): Feature<Geometry> {
     return currentStateOf(this).feature;
   }
 
   /**
-   * 更新元素状态。
+   * 更新 Element 状态。
    *
-   * @param patch 更新内容。只写入需要修改的字段。
-   * @returns 无返回值。
+   * @param patch 需要修改的状态字段。
    *
    * @example
    * ```ts
@@ -83,9 +82,8 @@ export class Element<T = unknown> {
   }
 
   /**
-   * 从所属 Earth 中移除当前元素。
+   * 从所属 Earth 中移除当前 Element。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -101,18 +99,18 @@ export class Element<T = unknown> {
   }
 }
 
-/** 使用内部状态创建公开 Element 句柄。 */
+/** 由内部状态构造公共 Element 句柄。 */
 export function constructElementHandle<T>(internal: unknown): Element<T> {
   const Constructor = Element as unknown as new (token: symbol, state: unknown) => Element<T>;
   return new Constructor(elementToken, internal);
 }
 
-/** 判断 Element 句柄是否对应指定原生 Feature。 */
+/** 判断 Element 句柄是否映射到指定 OpenLayers Feature。 */
 export function ownsElementHandle(handle: Element, feature: Feature<Geometry>): boolean {
   return elementStates.get(handle)?.feature === feature;
 }
 
-/** 读取 Element 句柄关联的原生 Feature。 */
+/** 读取 Element 句柄映射的 OpenLayers Feature。 */
 export function elementHandleFeature(handle: Element): Feature<Geometry> | undefined {
   return elementStates.get(handle)?.feature;
 }
@@ -124,14 +122,14 @@ function stateOf(handle: Element): ElementHandleState<unknown> {
   return state;
 }
 
-/** 读取仍然有效的 Element 内部状态。 */
+/** 读取 Element 的内部状态，并拒绝已失效的句柄。 */
 function currentStateOf(handle: Element): ElementHandleState<unknown> {
   const state = stateOf(handle);
   if (!state.isCurrent()) throw new ObjectDisposedError(`Element handle is stale: ${state.id}`);
   return state;
 }
 
-/** 判断未知值是否满足 Element 内部状态结构。 */
+/** 检查未知值是否具备 Element 句柄所需的内部结构。 */
 function isElementHandleState(value: unknown): value is ElementHandleState<unknown> {
   if (value === null || typeof value !== 'object') return false;
   const state = value as Partial<ElementHandleState<unknown>>;

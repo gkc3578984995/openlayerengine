@@ -16,78 +16,58 @@ import { createPatternFill, type PatternCanvasFactory } from './pattern.js';
 
 /** 样式编译器的可选配置。 */
 export interface StyleCompilerOptions {
-  /** 返回当前视图旋转角度。 */
+  /** 按需读取当前 View 旋转角度。 */
   readonly getViewRotation?: () => number;
-  /** 自定义纹理画布上下文工厂。 */
+  /** 为纹理填充提供自定义画布上下文。 */
   readonly createCanvasContext?: PatternCanvasFactory;
 }
 
 /** 结构化样式实际依赖的渲染上下文。 */
 interface StyleDependencies {
-  /** 样式是否读取要素几何。 */
   readonly geometry: boolean;
-  /** 样式是否随地图分辨率变化。 */
   readonly resolution: boolean;
-  /** 样式是否随视图旋转变化。 */
   readonly viewRotation: boolean;
 }
 
-/** 单个要素最近一次样式编译缓存。 */
+/** 单个 Feature 最近一次样式编译缓存。 */
 interface CacheEntry {
-  /** 参与编译的几何对象。 */
   readonly geometry: object | undefined;
-  /** 参与编译的几何修订号。 */
   readonly geometryRevision: number | undefined;
-  /** 参与编译的地图分辨率。 */
   readonly resolution: number;
-  /** 参与编译的视图旋转角度。 */
   readonly viewRotation: number;
-  /** 已编译的 OpenLayers 样式。 */
   readonly styles: Style[];
 }
 
 /** 本次样式编译使用的缓存上下文。 */
 interface CompilationCacheContext {
-  /** 当前结果是否可以安全缓存。 */
   readonly cacheable: boolean;
-  /** 样式装饰可能读取的几何对象。 */
   readonly geometry: object | undefined;
-  /** 几何发生变化时使用的修订号。 */
   readonly geometryRevision: number | undefined;
-  /** 归一化后的地图分辨率。 */
   readonly resolution: number;
-  /** 归一化后的视图旋转角度。 */
   readonly viewRotation: number;
 }
 
-/** 样式计算使用的二维坐标。 */
 type Coordinate2 = readonly [number, number];
 
 /** 线装饰箭头的位置和朝向。 */
 interface ArrowPoint {
-  /** 箭头所在坐标。 */
   readonly coordinate: Coordinate2;
-  /** 箭头沿线方向的弧度角。 */
   readonly angle: number;
 }
 
-/** 将结构化样式或原生样式引用编译为 OpenLayers 样式。 */
+/** 将 StyleSpec 单向编译为 OpenLayers 样式，并直接解析 nativeStyle 引用。 */
 export class StyleCompiler {
-  /** 解析原生 OpenLayers 样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
-  /** 返回当前视图旋转角度。 */
   readonly #getViewRotation: () => number;
-  /** 可选的纹理画布上下文工厂。 */
   readonly #createCanvasContext: PatternCanvasFactory | undefined;
 
-  /** 保存原生引用注册表和编译配置。 */
   constructor(nativeRefs: NativeRefRegistry, options: StyleCompilerOptions = {}) {
     this.#nativeRefs = nativeRefs;
     this.#getViewRotation = options.getViewRotation ?? (() => 0);
     this.#createCanvasContext = options.createCanvasContext;
   }
 
-  /** 编译结构化样式，或直接解析原生样式引用。 */
+  /** 结构化样式按其真实上下文依赖缓存；nativeStyle 保持原引用。 */
   compile(style: StyleSpec | Parameters<NativeRefRegistry['requireStyle']>[0]): StyleLike {
     if (isNativeStyleRef(style)) return this.#nativeRefs.requireStyle(style);
 
@@ -123,7 +103,7 @@ export class StyleCompiler {
     return compiled;
   }
 
-  /** 将一份结构化样式编译为一组 OpenLayers Style。 */
+  /** 把多层描边、填充、符号、文字和装饰组合为有序 Style 列表。 */
   #compileStructured(
     spec: StyleSpec,
     geometry: object | undefined,
@@ -351,13 +331,9 @@ function placeArrows(paths: readonly Coordinate2[][], decoration: ArrowDecoratio
 
 /** 路径中一条有效线段的长度和方向。 */
 interface PathSegment {
-  /** 线段起点。 */
   readonly start: Coordinate2;
-  /** 线段终点。 */
   readonly end: Coordinate2;
-  /** 线段长度。 */
   readonly length: number;
-  /** 线段方向角。 */
   readonly angle: number;
 }
 
@@ -395,9 +371,7 @@ function sampleSegments(segments: readonly PathSegment[], distance: number): Arr
 
 /** 从 OpenLayers Geometry 提取的线性路径。 */
 interface ExtractedGeometryPaths {
-  /** OpenLayers 几何类型。 */
   readonly type: string | undefined;
-  /** 可用于线装饰计算的二维路径。 */
   readonly paths: Coordinate2[][];
 }
 
@@ -470,7 +444,7 @@ function nestedCoordinateArrays(value: unknown): Coordinate2[][] {
   return value.map(coordinateArray).filter((path) => path.length > 0);
 }
 
-/** 安全读取要素的几何对象。 */
+/** Feature 几何访问器异常时按无几何处理，不中断样式渲染。 */
 function featureGeometry(feature: FeatureLike): object | undefined {
   const geometry = callUnknown(feature, 'getGeometry');
   return geometry !== null && typeof geometry === 'object' ? geometry : undefined;
@@ -529,30 +503,26 @@ function cacheMatches(entry: CacheEntry, context: CompilationCacheContext, depen
   return !dependencies.viewRotation || entry.viewRotation === context.viewRotation;
 }
 
-/** 安全调用对象上的无参方法。 */
 function callUnknown(value: object, name: string): unknown {
   const candidate = (value as Record<string, unknown>)[name];
   return typeof candidate === 'function' ? (candidate as () => unknown).call(value) : undefined;
 }
 
-/** 安全调用并读取数值结果。 */
 function callNumber(value: object, name: string): number | undefined {
   const result = callUnknown(value, name);
   return typeof result === 'number' && Number.isFinite(result) ? result : undefined;
 }
 
-/** 安全调用并读取字符串结果。 */
 function callString(value: object, name: string): string | undefined {
   const result = callUnknown(value, name);
   return typeof result === 'string' ? result : undefined;
 }
 
-/** 计算一条二维路径的总长度。 */
 function pathLength(path: readonly Coordinate2[]): number {
   return pathSegments(path).reduce((sum, segment) => sum + segment.length, 0);
 }
 
-/** 获取最后一层显式线条颜色供其他样式继承。 */
+/** 其他样式从最后一层显式线条颜色继承默认值。 */
 function lastExplicitStrokeColor(strokes: readonly StrokeSpec[] | undefined): Color | undefined {
   if (strokes === undefined) return undefined;
   for (let index = strokes.length - 1; index >= 0; index -= 1) {
@@ -566,22 +536,18 @@ function copyColor(color: Color): Color {
   return typeof color === 'string' ? color : ([...color] as Color);
 }
 
-/** 复制可选数值数组。 */
 function copyNumbers(numbers: readonly number[] | undefined): number[] | undefined {
   return numbers === undefined ? undefined : [...numbers];
 }
 
-/** 复制标量或二维缩放值。 */
 function copyScale(scale: number | readonly [number, number]): number | [number, number] {
   return typeof scale === 'number' ? scale : [...scale];
 }
 
-/** 将角度转换为弧度。 */
 function degreesToRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
-/** 非有限数值改用指定默认值。 */
 function finiteOr(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }

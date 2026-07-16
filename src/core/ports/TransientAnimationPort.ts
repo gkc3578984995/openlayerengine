@@ -1,39 +1,35 @@
 import type { AnimationChannel, AnimationStatus } from '../animation/types.js';
 
-/** 内部接口。约定 BlinkAnimationSpec 使用的数据和操作。 */
 export interface BlinkAnimationSpec {
-  /** 类型。标识当前数据或事件的类型。 */
+  /** 闪烁动画判别字段。 */
   readonly type: 'blink';
-  /** 周期。保存一次闪烁持续的毫秒数。 */
+  /** 单次闪烁周期，单位为毫秒。 */
   readonly periodMs: number;
 }
 
-/** 内部接口。约定 TransientAnimationSpec 使用的数据和操作。 */
 export interface TransientAnimationSpec {
-  /** 拥有者 ID。标识资源所属会话。 */
+  /** 持有临时资源的 Session ID。 */
   readonly ownerId: string;
-  /** 渲染图层 ID。标识临时内容所在图层。 */
+  /** 临时内容所在的渲染图层 ID。 */
   readonly renderLayerId: string;
-  /** 渲染目标 ID。标识临时渲染目标。 */
+  /** 临时渲染目标 ID。 */
   readonly renderTargetId: string;
-  /** 通道。区分同一目标的多组内容。 */
+  /** 同一目标内的动画通道。 */
   readonly channel: AnimationChannel;
-  /** 动画。保存临时动画配置。 */
+  /** 临时动画配置。 */
   readonly animation: BlinkAnimationSpec;
 }
 
-/** 内部接口。约定 TransientAnimationHandle 使用的数据和操作。 */
 export interface TransientAnimationHandle {
-  /** 状态。保存当前对象的运行状态。 */
+  /** 动画当前的生命周期状态。 */
   readonly status: AnimationStatus;
   /** 停止当前动画。 */
   stop(): void;
 }
 
-/** 内部接口。约定 TransientAnimationPort 使用的数据和操作。 */
 export interface TransientAnimationPort {
   /** 播放一次临时动画。 */
   playTransient(spec: TransientAnimationSpec): TransientAnimationHandle;
-  /** 停止指定拥有者的临时动画。 */
+  /** 停止指定 Session 持有的全部临时动画。 */
   stopTransient(ownerId: string): number;
 }

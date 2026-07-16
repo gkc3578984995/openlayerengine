@@ -12,9 +12,7 @@ import {
   type ShapeType
 } from './types.js';
 
-/** 内部常量。保存 canonicalShapeTypes 使用的数据。 */
 const canonicalShapeTypes: ReadonlySet<string> = new Set(shapeTypes);
-/** 内部常量。保存 canonicalCapabilities 使用的数据。 */
 const canonicalCapabilities: ReadonlySet<string> = new Set<ShapeCapability>([
   'draw',
   'edit',
@@ -29,7 +27,6 @@ const canonicalCapabilities: ReadonlySet<string> = new Set<ShapeCapability>([
   'path'
 ]);
 
-/** 内部方法。处理 ownDataSnapshot 相关数据。 */
 function ownDataSnapshot(input: unknown, label: string): Record<string, unknown> {
   if (input === null || typeof input !== 'object') throw new InvalidArgumentError(`${label} must be a plain object`);
   const prototype = Object.getPrototypeOf(input);
@@ -45,27 +42,23 @@ function ownDataSnapshot(input: unknown, label: string): Record<string, unknown>
   return values;
 }
 
-/** 内部方法。处理 requiredValue 相关数据。 */
 function requiredValue(record: Record<string, unknown>, key: string, label: string): unknown {
   if (!Object.prototype.hasOwnProperty.call(record, key)) throw new InvalidArgumentError(`${label} requires ${key}`);
   return record[key];
 }
 
-/** 内部方法。处理 requiredFunction 相关数据。 */
 function requiredFunction(record: Record<string, unknown>, key: string, label = 'Shape definition'): (...args: never[]) => unknown {
   const value = requiredValue(record, key, label);
   if (typeof value !== 'function') throw new InvalidArgumentError(`${label} ${key} must be a function`);
   return value as (...args: never[]) => unknown;
 }
 
-/** 内部方法。处理 optionalFunction 相关数据。 */
 function optionalFunction(record: Record<string, unknown>, key: string, label = 'Shape definition'): ((...args: never[]) => unknown) | undefined {
   if (!Object.prototype.hasOwnProperty.call(record, key) || record[key] === undefined) return undefined;
   if (typeof record[key] !== 'function') throw new InvalidArgumentError(`${label} ${key} must be a function`);
   return record[key] as (...args: never[]) => unknown;
 }
 
-/** 内部方法。处理 parsePolicy 相关数据。 */
 function parsePolicy(input: unknown): ControlPointPolicy {
   const record = ownDataSnapshot(input, 'Control-point policy');
   const integer = (key: string, optional = false): number | undefined => {
@@ -88,13 +81,11 @@ function parsePolicy(input: unknown): ControlPointPolicy {
   });
 }
 
-/** 内部方法。处理 parseCapability 相关数据。 */
 function parseCapability(value: unknown): ShapeCapability {
   if (typeof value !== 'string' || !canonicalCapabilities.has(value)) throw new InvalidArgumentError(`Unknown shape capability: ${String(value)}`);
   return value as ShapeCapability;
 }
 
-/** 内部方法。处理 parseEditTopology 相关数据。 */
 function parseEditTopology<S extends ShapeState>(input: unknown): ShapeEditTopology<S> {
   const record = ownDataSnapshot(input, 'Shape edit topology');
   const insert = optionalFunction(record, 'insert', 'Shape edit topology');
@@ -107,7 +98,6 @@ function parseEditTopology<S extends ShapeState>(input: unknown): ShapeEditTopol
   }) as unknown as ShapeEditTopology<S>;
 }
 
-/** 内部方法。处理 parseFreehandPolicy 相关数据。 */
 function parseFreehandPolicy<S extends ShapeState>(input: unknown): ShapeFreehandPolicy<S> {
   const record = ownDataSnapshot(input, 'Shape freehand policy');
   return Object.freeze({
@@ -116,7 +106,6 @@ function parseFreehandPolicy<S extends ShapeState>(input: unknown): ShapeFreehan
   }) as unknown as ShapeFreehandPolicy<S>;
 }
 
-/** 内部方法。处理 assertCapabilityContracts 相关数据。 */
 function assertCapabilityContracts<S extends ShapeState>(
   capabilities: ReadonlySet<ShapeCapability>,
   editTopology?: ShapeEditTopology<S>,
@@ -143,7 +132,6 @@ function assertCapabilityContracts<S extends ShapeState>(
   }
 }
 
-/** 内部方法。处理 snapshotDefinition 相关数据。 */
 function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>): ShapeDefinition<S> {
   const record = ownDataSnapshot(definition, 'Shape definition');
   const rawType = requiredValue(record, 'type', 'Shape definition');
@@ -179,17 +167,16 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
   return frozen;
 }
 
-/** 内部类。管理 ShapeRegistry 相关状态。 */
+/** 保存图形能力、拓扑和可信渲染入口的实例级注册表。 */
 export class ShapeRegistry {
-  /** 内部字段。保存 #definitions 相关状态。 */
   readonly #definitions = new Map<ShapeType, ShapeDefinition>();
 
-  /** 创建一个空的图形注册表。 */
+  /** 创建注册表，并按顺序载入初始定义。 */
   constructor(definitions: readonly ShapeDefinition[] = []) {
     for (const definition of definitions) this.register(definition);
   }
 
-  /** 注册一个图形定义。 */
+  /** 校验、冻结并注册 ShapeDefinition。 */
   register<S extends ShapeState>(definition: ShapeDefinition<S>): void {
     const snapshot = snapshotDefinition(definition);
     const type = snapshot.type as ShapeType;
@@ -197,14 +184,14 @@ export class ShapeRegistry {
     this.#definitions.set(type, snapshot as ShapeDefinition);
   }
 
-  /** 读取指定对象。 */
+  /** 读取指定图形类型的定义。 */
   get<T extends ShapeType>(type: T): ShapeDefinition<ShapeState<T>> {
     const definition = this.#definitions.get(type);
     if (definition === undefined) throw new CapabilityError(`Shape definition is unavailable: ${String(type)}`);
     return definition as ShapeDefinition<ShapeState<T>>;
   }
 
-  /** 判断图形是否支持能力。 */
+  /** 判断图形是否声明指定能力。 */
   supports(type: ShapeType, capability: ShapeCapability): boolean {
     return this.get(type).capabilities.has(capability);
   }

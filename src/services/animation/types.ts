@@ -4,18 +4,16 @@ import type { LayerRenderValue } from '../../core/ports/LayerRenderPort.js';
 import type { RenderGeometryState } from '../../core/shape/types.js';
 import type { StyleSpec } from '../../core/style/types.js';
 
-/** 动画句柄。用于查看和控制一次动画。 */
+/** 控制一组由同次播放请求启动的动画。 */
 export interface AnimationHandle {
-  /** 动画 ID。当前动画的唯一标识。 */
+  /** 本次播放请求的唯一 ID。 */
   readonly id: string;
-  /** 状态。当前动画的运行状态。 */
+  /** 这组动画的整体运行状态。 */
   readonly status: AnimationStatus;
-  /** 完成结果。动画停止或自然结束后完成。 */
+  /** 所有动画自然结束或被停止后兑现。 */
   readonly finished: Promise<void>;
   /**
    * 暂停当前动画。
-   *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -26,8 +24,6 @@ export interface AnimationHandle {
   pause(): void;
   /**
    * 继续播放已暂停的动画。
-   *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -40,8 +36,6 @@ export interface AnimationHandle {
   /**
    * 停止当前动画。
    *
-   * @returns 无返回值。
-   *
    * @example
    * ```ts
    * const handle = earth.animations.play({ id: 'marker' }, { type: 'pulse' });
@@ -51,14 +45,14 @@ export interface AnimationHandle {
   stop(): void;
 }
 
-/** 动画管理器。统一播放和控制元素动画。 */
+/** 统一播放和控制当前 Earth 的 Element 动画。 */
 export interface AnimationManager {
   /**
    * 为匹配的元素播放动画。
    *
-   * @param selector 元素选择器。指定要播放动画的元素。
-   * @param spec 动画配置。指定动画类型和效果。
-   * @returns 新动画的控制句柄。
+   * @param selector 需要播放动画的 Element。
+   * @param spec 动画类型及效果配置。
+   * @returns 本次播放请求的控制句柄。
    *
    * @example
    * ```ts
@@ -69,9 +63,9 @@ export interface AnimationManager {
   /**
    * 暂停匹配元素上的动画。
    *
-   * @param selector 元素选择器。指定要暂停动画的元素。
-   * @param channels 动画通道。省略时暂停元素上的全部动画。
-   * @returns 实际暂停的动画数量。
+   * @param selector 需要暂停动画的 Element。
+   * @param channels 需要暂停的通道；省略时暂停匹配 Element 的全部动画。
+   * @returns 本次增加暂停层级的动画数量。
    *
    * @example
    * ```ts
@@ -80,11 +74,11 @@ export interface AnimationManager {
    */
   pause(selector: ElementSelector, channels?: readonly AnimationChannel[]): number;
   /**
-   * 继续播放匹配元素上已暂停的动画。
+   * 恢复匹配 Element 上已暂停的动画。
    *
-   * @param selector 元素选择器。指定要继续动画的元素。
-   * @param channels 动画通道。省略时继续元素上的全部动画。
-   * @returns 实际继续的动画数量。
+   * @param selector 需要恢复动画的 Element。
+   * @param channels 需要恢复的通道；省略时恢复匹配 Element 的全部动画。
+   * @returns 本次减少暂停层级的动画数量。
    *
    * @example
    * ```ts
@@ -95,9 +89,9 @@ export interface AnimationManager {
   /**
    * 停止匹配元素上的动画。
    *
-   * @param selector 元素选择器。指定要停止动画的元素。
-   * @param channels 动画通道。省略时停止元素上的全部动画。
-   * @returns 实际停止的动画数量。
+   * @param selector 需要停止动画的 Element。
+   * @param channels 需要停止的通道；省略时停止匹配 Element 的全部动画。
+   * @returns 此次真正停止的动画数量。
    *
    * @example
    * ```ts
@@ -108,8 +102,6 @@ export interface AnimationManager {
   /**
    * 停止当前 Earth 中的全部动画。
    *
-   * @returns 无返回值。
-   *
    * @example
    * ```ts
    * earth.animations.stopAll();
@@ -118,35 +110,35 @@ export interface AnimationManager {
   stopAll(): void;
 }
 
-/** 动画帧上下文。向内部动画定义提供当前元素和时间。 */
+/** 动画定义计算单帧结果时读取的上下文。 */
 export interface AnimationFrameContext {
-  /** 动画实例。当前动画记录在完整生命周期内保持稳定的内部身份。 */
+  /** 动画记录在整个生命周期内保持不变的身份对象。 */
   readonly instance: object;
-  /** 元素状态。当前元素的只读状态。 */
+  /** 当前 Element 的只读规范状态。 */
   readonly state: Readonly<ElementState>;
-  /** 几何。当前元素用于渲染的几何。 */
+  /** 由规范状态投影得到的渲染几何。 */
   readonly geometry: RenderGeometryState;
-  /** 样式。当前元素的结构化样式。 */
+  /** 当前 Element 的结构化样式。 */
   readonly style: StyleSpec;
-  /** 已运行时间。动画已经运行的毫秒数。 */
+  /** 动画累计推进的时间，单位为毫秒。 */
   readonly elapsedMs: number;
-  /** 分辨率。当前视图的地图分辨率。 */
+  /** 当前 View 的地图分辨率。 */
   readonly resolution: number;
 }
 
-/** 动画帧结果。保存本帧的渲染内容和完成状态。 */
+/** 动画定义为当前帧计算出的临时渲染结果。 */
 export interface AnimationFrameResult {
-  /** 渲染内容。本帧要绘制的内容。 */
+  /** 本帧提交给 LayerRenderPort 的临时值。 */
   readonly value: LayerRenderValue;
-  /** 是否完成。表示动画是否已经到达终点。 */
+  /** 本帧结束后是否进入自然完成状态。 */
   readonly finished: boolean;
-  /** 是否保留。控制完成后是否保留最后一帧。 */
+  /** 完成后是否继续保留最后一帧的临时渲染值。 */
   readonly retain?: boolean;
 }
 
-/** 动画定义。供内部注册一种完整动画。 */
+/** 一类结构化动画的内部定义。 */
 export interface AnimationDefinition {
-  /** 类型。当前定义处理的动画类型。 */
+  /** 此定义对应的动画类型。 */
   readonly type: AnimationSpec['type'];
   /** 校验并补齐动画配置。 */
   normalize(spec: AnimationSpec): AnimationSpec;

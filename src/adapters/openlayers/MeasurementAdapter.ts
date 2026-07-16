@@ -12,31 +12,27 @@ import type { MeasurementTooltipPort } from '../../services/measure/types.js';
 
 /** 测量适配器的可选配置。 */
 export interface MeasurementAdapterOptions {
-  /** 地图当前使用的投影。 */
+  /** 地图当前使用的投影，默认 `EPSG:3857`。 */
   readonly projection?: ProjectionLike;
-  /** 测量提示框使用的原生引用注册表。 */
+  /** 测量 Tooltip 的 DOM 引用注册表。 */
   readonly nativeRefs?: NativeRefRegistry;
-  /** 自定义提示框 DOM 的创建方式。 */
+  /** 创建测量 Tooltip 节点的自定义工厂。 */
   readonly createElement?: () => HTMLElement;
 }
 
-/** 提供长度、面积和测量提示框的 OpenLayers 实现。 */
+/** 以 OpenLayers 实现长度、面积计算和测量 Tooltip。 */
 export class MeasurementAdapter implements MeasurementPort, MeasurementTooltipPort {
-  /** 参与测量换算的地图投影。 */
   readonly #projection: ProjectionLike;
-  /** 管理测量提示框 DOM 引用。 */
   readonly #nativeRefs: NativeRefRegistry | undefined;
-  /** 创建测量提示框 DOM。 */
   readonly #createElement: (() => HTMLElement) | undefined;
 
-  /** 保存投影和可选的提示框依赖。 */
   constructor(options: MeasurementAdapterOptions = {}) {
     this.#projection = options.projection ?? 'EPSG:3857';
     this.#nativeRefs = options.nativeRefs;
     this.#createElement = options.createElement ?? defaultElementFactory();
   }
 
-  /** 按路径或径向方式测量折线长度。 */
+  /** `path` 累加相邻线段，`radial` 则从首点分别量到其余点。 */
   measureLine(coordinates: readonly Coordinate[], mode: 'path' | 'radial'): LineMeasurement | undefined {
     const points = normalizeCoordinates(coordinates);
     if (points.length < 2) return undefined;
@@ -47,7 +43,7 @@ export class MeasurementAdapter implements MeasurementPort, MeasurementTooltipPo
     return freeze({ meters, anchor: cloneCoordinate(points[points.length - 1]), segments: Object.freeze(segments) });
   }
 
-  /** 测量多边形面积并计算标注位置。 */
+  /** 测量多边形面积，并以内部点作为标注位置。 */
   measureArea(ring: readonly Coordinate[]): SurfaceMeasurement | undefined {
     const points = normalizeCoordinates(ring);
     if (points.length < 3) return undefined;
@@ -63,7 +59,7 @@ export class MeasurementAdapter implements MeasurementPort, MeasurementTooltipPo
     });
   }
 
-  /** 创建并注册测量提示框元素。 */
+  /** 创建测量 Tooltip，并把 DOM 所有权登记到当前 Earth。 */
   create(style: Readonly<Omit<TextSpec, 'text'>>): NativeRef<'element'> {
     const refs = this.#nativeRefs;
     const createElement = this.#createElement;
@@ -74,21 +70,18 @@ export class MeasurementAdapter implements MeasurementPort, MeasurementTooltipPo
     return refs.register('element', element);
   }
 
-  /** 更新测量提示框文字。 */
   setText(reference: NativeRef<'element'>, text: string): void {
     const refs = this.#nativeRefs;
     if (refs === undefined) throw new ObjectDisposedError('Measurement tooltip adapter is not configured');
     refs.require<HTMLElement>('element', reference).textContent = text;
   }
 
-  /** 释放测量提示框元素。 */
   release(reference: NativeRef<'element'>): void {
     const refs = this.#nativeRefs;
     if (refs === undefined) throw new ObjectDisposedError('Measurement tooltip adapter is not configured');
     refs.revoke('element', reference);
   }
 
-  /** 测量一条线段并生成完整结果。 */
   #segment(start: Coordinate, end: Coordinate): MeasurementSegment {
     const geometry = new LineString([[...start], [...end]]);
     const meters = getLength(geometry, { projection: this.#projection });
@@ -105,7 +98,6 @@ export class MeasurementAdapter implements MeasurementPort, MeasurementTooltipPo
   }
 }
 
-/** 校验并复制一组测量坐标。 */
 function normalizeCoordinates(input: readonly Coordinate[]): Coordinate[] {
   if (!Array.isArray(input)) throw new InvalidArgumentError('Measurement coordinates must be an array');
   return input.map((coordinate) => {
@@ -114,34 +106,30 @@ function normalizeCoordinates(input: readonly Coordinate[]): Coordinate[] {
   });
 }
 
-/** 判断输入是否是有效的二维或三维坐标。 */
 function validCoordinate(value: unknown): value is Coordinate {
   return Array.isArray(value) && (value.length === 2 || value.length === 3) && value.every((item) => typeof item === 'number' && Number.isFinite(item));
 }
 
-/** 判断两个坐标是否完全相同。 */
 function sameCoordinate(left: Coordinate, right: Coordinate): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-/** 复制并冻结坐标。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return Object.freeze([...coordinate]) as Coordinate;
 }
 
-/** 将 OpenLayers 坐标转换为核心坐标。 */
 function coordinateFromOl(coordinate: readonly number[]): Coordinate {
   if (!validCoordinate(coordinate)) throw new InvalidArgumentError('Measurement coordinate must contain two or three finite numbers');
   return cloneCoordinate(coordinate);
 }
 
-/** 在浏览器环境中提供默认提示框元素工厂。 */
+/** 仅在浏览器环境中提供默认 Tooltip 工厂。 */
 function defaultElementFactory(): (() => HTMLElement) | undefined {
   const document = globalThis.document;
   return document === undefined ? undefined : () => document.createElement('div');
 }
 
-/** 将文本样式应用到测量提示框 DOM。 */
+/** 将 TextSpec 可表达的视觉语义映射到 Tooltip DOM。 */
 function applyTextStyle(element: HTMLElement, style: Readonly<Omit<TextSpec, 'text'>>): void {
   if (style.font !== undefined) element.style.font = style.font;
   if (style.fontFamily !== undefined) element.style.fontFamily = style.fontFamily;
@@ -179,7 +167,6 @@ function applyTextStyle(element: HTMLElement, style: Readonly<Omit<TextSpec, 'te
   }
 }
 
-/** 将前景填充应用到文字。 */
 function applyForeground(element: HTMLElement, fill: NonNullable<TextSpec['fill']>): void {
   if (fill.type === 'solid') {
     element.style.color = colorToCss(fill.color);
@@ -191,7 +178,6 @@ function applyForeground(element: HTMLElement, fill: NonNullable<TextSpec['fill'
   element.style.setProperty('-webkit-background-clip', 'text');
 }
 
-/** 将背景填充应用到提示框。 */
 function applyBackground(element: HTMLElement, fill: NonNullable<TextSpec['backgroundFill']>): void {
   if (fill.type === 'solid') element.style.backgroundColor = colorToCss(fill.color);
   else {
@@ -200,7 +186,7 @@ function applyBackground(element: HTMLElement, fill: NonNullable<TextSpec['backg
   }
 }
 
-/** 将纹理填充转换为 CSS 背景图。 */
+/** 用 CSS 渐变近似表达纹理填充。 */
 function patternImage(fill: Extract<NonNullable<TextSpec['fill']>, { type: 'pattern' }>): string {
   const color = fill.color === undefined ? '#ffffff' : colorToCss(fill.color);
   const size = Math.max(1, fill.size ?? 8);
@@ -217,20 +203,18 @@ function patternImage(fill: Extract<NonNullable<TextSpec['fill']>, { type: 'patt
   return `repeating-linear-gradient(45deg, ${color} 0 ${width}px, transparent ${width}px ${size}px)`;
 }
 
-/** 用多方向阴影模拟文字描边。 */
+/** 在不支持完整文字描边的环境中用四向阴影补足效果。 */
 function textShadow(width: number, color: string): string {
   const offset = Math.max(1, width);
   return [`${offset}px 0 ${color}`, `${-offset}px 0 ${color}`, `0 ${offset}px ${color}`, `0 ${-offset}px ${color}`].join(', ');
 }
 
-/** 将文本基线转换为 CSS 垂直对齐值。 */
 function baseline(value: NonNullable<TextSpec['textBaseline']>): string {
   if (value === 'top' || value === 'hanging') return 'top';
   if (value === 'bottom' || value === 'alphabetic' || value === 'ideographic') return 'bottom';
   return 'middle';
 }
 
-/** 将核心颜色值转换为 CSS 颜色。 */
 function colorToCss(color: Color): string {
   if (typeof color === 'string') return color;
   if (color.length === 3) return `rgb(${color.join(', ')})`;
@@ -238,7 +222,6 @@ function colorToCss(color: Color): string {
   return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
 }
 
-/** 冻结并返回测量结果对象。 */
 function freeze<T>(value: T): Readonly<T> {
   return Object.freeze(value);
 }

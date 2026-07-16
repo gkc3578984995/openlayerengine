@@ -19,11 +19,11 @@ import type { AnimationDefinition, AnimationHandle, AnimationManager } from './t
 
 /** 构造动画管理器所需的依赖。 */
 export interface AnimationManagerDependencies {
-  /** 元素状态仓库。 */
+  /** Element 状态真源；动画只读取已提交状态。 */
   readonly store: ElementStore;
   /** 图形定义注册表。 */
   readonly shapes: ShapeRegistry;
-  /** 图层渲染端口。 */
+  /** 隔离具体渲染 Adapter 的图层渲染 Port。 */
   readonly render: LayerRenderPort;
   /** 将元素规范状态转换为 View 工作状态。 */
   readonly shapeProjection: ShapeProjectionPort;
@@ -47,7 +47,7 @@ interface BaseRecord {
   readonly id: string;
   /** 保持跨图层迁移前后渲染顺序稳定的创建序号。 */
   readonly order: number;
-  /** 用于替换同目标动画的唯一键。 */
+  /** 同一目标与通道发生 replace 时使用的唯一键。 */
   readonly key: string;
   /** 所属动画句柄 ID。 */
   readonly handleId: string;
@@ -106,7 +106,7 @@ interface LayerRecordIndex {
   renderableCount: number;
   /** 当前需要继续请求动画帧的记录数。 */
   runningCount: number;
-  /** 该索引见过的最大创建序号，用于快速追加新记录。 */
+  /** 已收录的最大创建序号，新记录可据此直接追加。 */
   lastOrder: number;
 }
 
@@ -124,13 +124,13 @@ interface PreparedElementState {
   readonly sourceIdentity?: Readonly<ElementState>;
 }
 
-/** 统一管理元素动画、临时动画、预览状态和图层渲染循环。 */
+/** 统一管理 Element 动画、Session 临时预览和图层级渲染循环。 */
 export class AnimationManagerImpl implements AnimationManager, AnimationControlPort, AnimationPreviewPort, TransientAnimationPort {
-  /** 元素状态仓库。 */
+  /** Element 状态真源；帧内临时值绝不反写。 */
   readonly #store: ElementStore;
   /** 图形定义注册表。 */
   readonly #shapes: ShapeRegistry;
-  /** 图层渲染端口。 */
+  /** 隔离具体渲染 Adapter 的图层渲染 Port。 */
   readonly #render: LayerRenderPort;
   /** 将元素规范状态转换为 View 工作状态。 */
   readonly #shapeProjection: ShapeProjectionPort;
@@ -152,11 +152,11 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   readonly #recordKeys = new Map<string, string>();
   /** 各图层的渲染循环。 */
   readonly #passes = new Map<string, LayerRenderLoopHandle>();
-  /** Transform 等交互提供的元素预览状态。 */
+  /** Transform 等 Session 提供的临时 Element 工作态。 */
   readonly #previews = new Map<string, PreparedElementState>();
-  /** 当前有动画记录的元素所对应的已提交帧输入。 */
+  /** 活动动画对应的已提交帧输入，按 Element 版本复用。 */
   readonly #committedStates = new Map<string, PreparedElementState>();
-  /** 元素仓库订阅释放函数。 */
+  /** ElementStore 订阅的释放函数。 */
   readonly #unsubscribeStore: () => void;
   /** 下一个动画句柄 ID。 */
   #nextHandleId = 0;
@@ -164,11 +164,10 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #nextRecordId = 0;
   /** 管理器是否已销毁。 */
   #disposed = false;
-  /** 是否正在执行销毁流程。 */
   #destroying = false;
   /** 是否已请求销毁。 */
   #destroyRequested = false;
-  /** 元素仓库订阅是否仍有效。 */
+  /** ElementStore 订阅是否仍有效。 */
   #storeSubscribed = true;
 
   /** 创建动画管理器并订阅元素变化。 */
@@ -357,7 +356,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#syncPasses();
   }
 
-  /** 设置交互期间优先使用的元素预览状态。 */
+  /** 设置交互期间优先渲染的 Session 工作态，不写回 ElementStore。 */
   setPreview(state: Readonly<ElementState>, geometry: RenderGeometryState): void {
     this.#assertActive();
     if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Animation preview must be an Element state');
@@ -588,7 +587,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     current.lastOrder = Math.max(current.lastOrder, record.order);
   }
 
-  /** 从图层索引移除记录，并维护调用方捕获的旧状态计数。 */
+  /** 从图层索引移除记录，并按移除前状态修正热路径计数。 */
   #unindexLayerRecord(record: ManagedRecord, layerId: string, renderable: boolean, running: boolean): void {
     const current = this.#recordsByLayer.get(layerId);
     if (current === undefined || !current.records.delete(record)) return;
@@ -756,7 +755,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     return !record.hidden;
   }
 
-  /** 根据元素仓库变化同步动画记录。 */
+  /** 根据 ElementStore 变化同步动画记录。 */
   #handleStoreChanges(changes: ElementChangeSet): void {
     if (this.#disposed || this.#destroyRequested) return;
     const affectedLayers = new Set<string>();
@@ -856,7 +855,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   }
 }
 
-/** 深冻结动画专用渲染几何，使按坐标身份建立的帧缓存可安全复用。 */
+/** 深冻结动画渲染几何，确保按对象身份命中的帧缓存不会被外部改写。 */
 function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryState {
   if (geometry.type === 'point') {
     Object.freeze(geometry.coordinates);
@@ -875,7 +874,7 @@ function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryStat
   return Object.freeze(geometry);
 }
 
-/** 从未信任输入中读取动画类型。 */
+/** 从不可信输入中解析动画类型。 */
 function animationType(input: AnimationSpec): AnimationSpec['type'] {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Animation spec must be a plain object');
   const descriptor = Object.getOwnPropertyDescriptor(input, 'type');

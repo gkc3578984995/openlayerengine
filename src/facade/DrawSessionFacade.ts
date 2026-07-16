@@ -5,24 +5,24 @@ import type { ElementService } from './types.js';
 import type { DrawSession, DrawSessionEventMap } from './drawTypes.js';
 
 /**
- * 将内部绘制状态快照映射为公开元素句柄的会话实现。
+ * 把内部绘制状态快照映射为公共 Element 句柄。
  *
- * @typeParam T 元素附加业务数据的类型。
+ * @typeParam T Element 携带的业务数据类型。
  * @internal
  */
 export class DrawSessionFacade<T = unknown> implements DrawSession<T> {
-  /** 执行实际绘制工作的内部会话。 */
+  /** 执行实际绘制工作的内部 Session。 */
   readonly #session: InternalDrawSession<T>;
-  /** 按 ID 获取公开元素句柄。 */
+  /** 当前 Earth 的 Element 服务。 */
   readonly #elements: ElementService;
-  /** 保存已经完成且仍有效的元素句柄。 */
+  /** 已完成绘制且尚未失效的 Element 句柄。 */
   readonly #completedElements = new Map<string, Element<T>>();
-  /** 会话结束后得到的有效元素列表。 */
+  /** Session 结束时仍然有效的绘制结果。 */
   readonly finished: Promise<readonly Element<T>[]>;
 
   /**
-   * @param session 内部绘制会话。
-   * @param elements 当前 Earth 的公开元素服务。
+   * @param session 待包装的内部绘制 Session。
+   * @param elements 当前 Earth 的公共 Element 服务。
    */
   constructor(session: InternalDrawSession<T>, elements: ElementService) {
     this.#session = session;
@@ -35,27 +35,27 @@ export class DrawSessionFacade<T = unknown> implements DrawSession<T> {
     this.finished = session.finished.then((states) => this.#elementsFor(states.map(({ id }) => id)));
   }
 
-  /** 返回当前绘制会话状态。 */
+  /** 当前 Session 状态。 */
   get status(): DrawSession<T>['status'] {
     return this.#session.status;
   }
 
-  /** 返回本次会话已经完成且仍存在的元素。 */
+  /** 本次 Session 已完成且仍存在的 Element。 */
   get results(): DrawSession<T>['results'] {
     return this.#elementsFor(this.#session.results.map(({ id }) => id));
   }
 
-  /** 完成本次绘制会话。 */
+  /** 完成本次 Draw Session。 */
   finish(): void {
     this.#session.finish();
   }
 
-  /** 取消本次绘制会话。 */
+  /** 取消本次 Draw Session。 */
   cancel(): void {
     this.#session.cancel();
   }
 
-  /** 销毁会话并释放交互资源。 */
+  /** 销毁 Session 并释放交互资源。 */
   destroy(): void {
     this.#session.destroy();
   }
@@ -70,7 +70,7 @@ export class DrawSessionFacade<T = unknown> implements DrawSession<T> {
     return this.#session.redo();
   }
 
-  /** 监听绘制事件，并把内部状态转换为公开元素。 */
+  /** 监听绘制事件，并把内部状态转换为公共 Element 句柄。 */
   on<K extends keyof DrawSessionEventMap<T>>(type: K, listener: (event: DrawSessionEventMap<T>[K]) => void): () => void {
     if (typeof listener !== 'function') throw new InvalidArgumentError('Draw session listener must be a function');
     if (type === 'complete') {
@@ -83,7 +83,7 @@ export class DrawSessionFacade<T = unknown> implements DrawSession<T> {
     return this.#session.on(type, listener as unknown as (event: InternalDrawSessionEventMap<T>[K]) => void);
   }
 
-  /** 按 ID 收集仍属于本次会话的有效元素。 */
+  /** 只保留仍属于本次 Session 的有效 Element。 */
   #elementsFor(ids: readonly string[]): DrawSession<T>['results'] {
     return Object.freeze(
       ids.flatMap((id) => {

@@ -8,7 +8,7 @@ function assertUnambiguousSelector<T>(selector: ElementSelector<T>): void {
   }
 }
 
-/** 把元素选择器编译成状态判断函数。 */
+/** 把 ElementSelector 编译成状态判断函数。 */
 export function compileSelector<T>(selector?: ElementSelector<T>): (state: Readonly<ElementState<T>>) => boolean {
   if (selector === undefined) return () => true;
   assertUnambiguousSelector(selector);
@@ -27,7 +27,7 @@ export function compileSelector<T>(selector?: ElementSelector<T>): (state: Reado
   };
 }
 
-/** 确保删除类操作带有明确的选择条件。 */
+/** 拒绝没有明确筛选条件的破坏性操作。 */
 export function assertDestructiveSelector(selector: ElementSelector): void {
   if (selector === null || typeof selector !== 'object' || Array.isArray(selector)) throw new InvalidSelectorError();
   assertUnambiguousSelector(selector);

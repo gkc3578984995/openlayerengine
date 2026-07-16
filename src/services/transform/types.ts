@@ -15,13 +15,13 @@ export type TransformTranslateMode = 'none' | 'center' | 'feature';
 /** Transform 会话当前的交互模式。 */
 export type TransformMode = TransformInteractionMode;
 
-/** 启动 Transform 会话时使用的内部配置。 */
+/** Public Facade 校验后交给 TransformService 的内部配置。 */
 export interface InternalTransformOptions {
-  /** 可选的元素选择范围。 */
+  /** 可被选中的 Element；省略时不按 Selector 限制。 */
   readonly selector?: ElementSelector;
   /** 可参与变换的图层 ID。 */
   readonly layerIds?: readonly string[];
-  /** 元素命中的像素容差。 */
+  /** Element 命中的容差，单位为 CSS 像素。 */
   readonly hitTolerance?: number;
   /** 平移能力模式。 */
   readonly translate?: TransformTranslateMode;
@@ -37,9 +37,9 @@ export interface InternalTransformOptions {
   readonly noFlip?: boolean;
   /** 是否保持矩形形状。 */
   readonly keepRectangle?: boolean;
-  /** 控制区域外扩像素。 */
+  /** 控制区域向外扩张的距离，单位为 CSS 像素。 */
   readonly buffer?: number;
-  /** 点元素控制区域半径。 */
+  /** Point 控制区域半径，单位为 CSS 像素。 */
   readonly pointRadius?: number;
   /** 控制手柄样式。 */
   readonly handleStyle?: TransformInteractionOptions['handleStyle'];
@@ -75,7 +75,7 @@ export interface InternalTransformToolbarItemSpec {
 export interface InternalTransformToolbarOptions {
   /** 工具栏项目。 */
   readonly items?: readonly InternalTransformToolbarItemSpec[];
-  /** 工具栏相对元素的像素偏移。 */
+  /** 工具栏相对 Element 的偏移，单位为 CSS 像素。 */
   readonly offset?: readonly [number, number];
   /** 工具栏附加类名。 */
   readonly className?: string;
@@ -104,7 +104,7 @@ export interface NormalizedTransformOptions extends Omit<
 export interface TransformCommandMetadata {
   /** 产生快照的操作类型。 */
   readonly operation: TransformOperation | TransformEditOperation | 'select' | 'replace';
-  /** 命令创建时间戳。 */
+  /** 命令创建时的 Unix 时间戳，单位为毫秒。 */
   readonly timestamp: number;
 }
 
@@ -154,7 +154,7 @@ export interface InternalTransformReplaceOptions {
   readonly retainHistory?: boolean;
 }
 
-/** Facade 与实现之间使用的 Transform 会话契约。 */
+/** Public Facade 与 TransformService 之间的 Session 契约。 */
 export interface InternalTransformSession<T = unknown> {
   /** 会话 ID。 */
   readonly id: string;

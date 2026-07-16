@@ -8,7 +8,7 @@ import { animationRecord, arrayValues, boolean, channel, color, copyColor, finit
 
 /** 路径采样与累计长度缓存。 */
 interface TravelPathMetrics {
-  /** 用于检测几何版本变化的源坐标身份。 */
+  /** 源坐标的引用身份；引用变化时缓存失效。 */
   readonly sourceCoordinates: readonly Coordinate[];
   /** 生成缓存时使用的曲率。 */
   readonly curvature: number;
@@ -22,13 +22,11 @@ interface TravelPathMetrics {
   readonly totalLength: number;
 }
 
-/** 按动画记录实例保存路径指标，记录释放后缓存不会阻止垃圾回收。 */
+/** 以动画记录为弱引用缓存路径指标，不延长记录生命周期。 */
 const travelPathCache = new WeakMap<object, TravelPathMetrics>();
 
-/** 内部常量。保存 pathTravelAnimationDefinition 使用的数据。 */
 export const pathTravelAnimationDefinition = Object.freeze({
   type: 'path-travel',
-  /** 校验并整理输入数据。 */
   normalize(input) {
     const record = animationRecord(input, 'path-travel', [
       'type',
@@ -83,13 +81,11 @@ export const pathTravelAnimationDefinition = Object.freeze({
     };
     return Object.freeze(spec);
   },
-  /** 检查动画和图形是否兼容。 */
   assertCompatible(_state, geometry) {
     if (geometry.type !== 'polyline' || geometry.coordinates.length < 2) {
       throw new CapabilityError('Path-travel animation requires polyline render geometry with at least two points');
     }
   },
-  /** 计算当前动画帧。 */
   frame(context, input): AnimationFrameResult {
     if (context.geometry.type !== 'polyline') throw new CapabilityError('Path-travel animation requires polyline render geometry');
     const spec = input as PathTravelAnimationSpec;
@@ -129,7 +125,7 @@ export const pathTravelAnimationDefinition = Object.freeze({
   }
 } satisfies AnimationDefinition);
 
-/** 返回当前动画记录实例与几何对应的缓存路径及累计长度。 */
+/** 读取当前动画记录和几何对应的路径指标，缓存失效时重新计算。 */
 function cachedTravelPath(instance: object, coordinates: readonly Coordinate[], spec: PathTravelAnimationSpec): TravelPathMetrics {
   const curvature = spec.curvature ?? 0;
   const smoothness = spec.smoothness ?? 180;
@@ -156,7 +152,6 @@ function cachedTravelPath(instance: object, coordinates: readonly Coordinate[], 
   return metrics;
 }
 
-/** 内部方法。处理 travelPath 相关数据。 */
 function travelPath(coordinates: readonly Coordinate[], curvature: number, smoothness: number): readonly Coordinate[] {
   if (coordinates.length !== 2 || curvature === 0) return coordinates.map(cloneCoordinate);
   const start = coordinates[0];
@@ -175,7 +170,6 @@ function travelPath(coordinates: readonly Coordinate[], curvature: number, smoot
   return points;
 }
 
-/** 内部方法。处理 slicePath 相关数据。 */
 function slicePath(metrics: TravelPathMetrics, from: number, to: number, smoothness: number): readonly Coordinate[] {
   if (to <= from) {
     const point = pointAt(metrics, to);
@@ -187,7 +181,6 @@ function slicePath(metrics: TravelPathMetrics, from: number, to: number, smoothn
   return result;
 }
 
-/** 内部方法。处理 pointAt 相关数据。 */
 function pointAt(metrics: TravelPathMetrics, progress: number): Coordinate {
   const { cumulativeLengths, path, totalLength } = metrics;
   if (totalLength <= Number.EPSILON) return cloneCoordinate(path[0]);
@@ -205,7 +198,6 @@ function pointAt(metrics: TravelPathMetrics, progress: number): Coordinate {
   return interpolate(path[startIndex], path[low], segmentProgress);
 }
 
-/** 内部方法。处理 linePrimitives 相关数据。 */
 function linePrimitives(
   trail: readonly Coordinate[],
   gradient: PathTravelAnimationSpec['gradient'],
@@ -228,7 +220,6 @@ function linePrimitives(
   return result;
 }
 
-/** 内部方法。处理 linePrimitive 相关数据。 */
 function linePrimitive(
   coordinates: readonly Coordinate[],
   strokeColor: Color,
@@ -255,7 +246,6 @@ function linePrimitive(
   return Object.freeze({ geometry: Object.freeze({ type: 'polyline', coordinates: Object.freeze(coordinates.map(cloneCoordinate)) }), style });
 }
 
-/** 内部方法。处理 anchorPrimitive 相关数据。 */
 function anchorPrimitive(coordinate: Coordinate, anchorColor: Color, zIndex: number | undefined): LayerRenderPrimitive {
   const style: StyleSpec = {
     symbol: { type: 'circle', radius: 4, fill: { type: 'solid', color: copyColor(anchorColor) } },
@@ -267,7 +257,6 @@ function anchorPrimitive(coordinate: Coordinate, anchorColor: Color, zIndex: num
   });
 }
 
-/** 内部方法。处理 normalizeGradient 相关数据。 */
 function normalizeGradient(value: unknown): readonly (readonly [number, Color])[] {
   const stops = arrayValues(value, 'Path-travel gradient');
   if (stops.length < 2) throw new InvalidArgumentError('Path-travel gradient must contain at least two stops');
@@ -285,7 +274,6 @@ function normalizeGradient(value: unknown): readonly (readonly [number, Color])[
   return Object.freeze(result);
 }
 
-/** 内部方法。处理 gradientColor 相关数据。 */
 function gradientColor(stops: readonly (readonly [number, Color])[], progress: number): Color {
   if (progress <= stops[0][0]) return copyColor(stops[0][1]);
   for (let index = 1; index < stops.length; index += 1) {
@@ -298,30 +286,25 @@ function gradientColor(stops: readonly (readonly [number, Color])[], progress: n
   return copyColor(stops[stops.length - 1][1]);
 }
 
-/** 内部方法。处理 interpolate 相关数据。 */
 function interpolate(start: Coordinate, end: Coordinate, ratio: number): Coordinate {
   const x = start[0] + (end[0] - start[0]) * ratio;
   const y = start[1] + (end[1] - start[1]) * ratio;
   return start.length === 3 || end.length === 3 ? [x, y, (start[2] ?? 0) + ((end[2] ?? 0) - (start[2] ?? 0)) * ratio] : [x, y];
 }
 
-/** 内部方法。处理 cloneCoordinate 相关数据。 */
 function cloneCoordinate(value: Coordinate): Coordinate {
   return value.length === 3 ? [value[0], value[1], value[2]] : [value[0], value[1]];
 }
 
-/** 内部方法。处理 positiveInteger 相关数据。 */
 function positiveInteger(value: unknown, fallback: number, label: string): number {
   const result = positive(value, fallback, label);
   if (!Number.isSafeInteger(result)) throw new InvalidArgumentError(`${label} must be a positive safe integer`);
   return result;
 }
 
-/** 内部方法。处理 positiveModulo 相关数据。 */
 function positiveModulo(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus;
 }
 
-/** 内部常量。保存 arrowDataUrl 使用的数据。 */
 const arrowDataUrl =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"%3E%3Cpath d="M1 8 15 1l-4 7 4 7z" fill="white"/%3E%3C/svg%3E';

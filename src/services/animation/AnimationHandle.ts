@@ -17,9 +17,9 @@ export class AnimationHandleImpl implements AnimationHandle {
   readonly id: string;
   /** 动画进入终态时完成的 Promise。 */
   readonly finished: Promise<void>;
-  /** 负责执行控制命令的管理器接口。 */
+  /** 接收 pause、resume、stop 命令的管理器控制接口。 */
   readonly #controller: AnimationHandleController;
-  /** 用于结束 finished Promise。 */
+  /** `finished` Promise 的兑现函数。 */
   readonly #resolveFinished: () => void;
   /** 当前动画状态。 */
   #status: AnimationStatus;
@@ -57,7 +57,7 @@ export class AnimationHandleImpl implements AnimationHandle {
     if (this.#status !== 'stopped') this.#controller.stop(this.id);
   }
 
-  /** 同步动画状态，并在进入终态时结束完成信号。 */
+  /** 同步运行状态；首次进入终态时兑现 `finished`。 */
   setStatus(status: AnimationStatus): void {
     if (isTerminal(this.#status)) return;
     this.#status = status;

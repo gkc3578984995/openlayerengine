@@ -1,4 +1,4 @@
-/** 将 Base64 图片内容包装为 PNG Data URL。 */
+/** 把 Base64 图片内容包装成 PNG Data URL。 */
 const png = (value: string): string => `data:image/png;base64,${value}`;
 
 /** Transform 控制手柄使用的内置图片。 */

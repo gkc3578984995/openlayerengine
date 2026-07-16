@@ -2,7 +2,7 @@ import type { Coordinate, Pixel } from '../../core/common/types.js';
 import type { NativeRef } from '../../core/native/types.js';
 import type { CoreOverlayOwnership, CoreOverlayPositioning, CorePanIntoViewSpec } from '../../core/ports/OverlayPort.js';
 
-/** 创建普通 Overlay 时使用的内部配置。 */
+/** Public Facade 校验后交给 OverlayService 的普通 Overlay 配置。 */
 export interface InternalOverlaySpec<T = unknown> {
   /** 可选的 Overlay ID。 */
   readonly id?: string;
@@ -26,7 +26,7 @@ export interface InternalOverlaySpec<T = unknown> {
   readonly module?: string;
   /** Overlay 附加业务数据。 */
   readonly data?: T;
-  /** 原生元素引用的所有权规则。 */
+  /** 原生 DOM 引用的所有权；external 资源只解绑，不清空或销毁。 */
   readonly ownership?: CoreOverlayOwnership;
 }
 
@@ -44,7 +44,7 @@ export interface InternalOverlayPatch<T = unknown> {
   readonly visible?: boolean;
   /** 新的业务数据。 */
   readonly data?: T | undefined;
-  /** 新的原生元素所有权规则。 */
+  /** 替换 DOM 引用时采用的新所有权规则。 */
   readonly ownership?: CoreOverlayOwnership;
 }
 
@@ -86,7 +86,7 @@ export interface InternalOverlayState<T = unknown> {
   readonly module: string | undefined;
   /** 冻结后的业务数据。 */
   readonly data: Readonly<T> | undefined;
-  /** 原生元素引用的所有权规则。 */
+  /** 当前 DOM 引用的所有权规则。 */
   readonly ownership: CoreOverlayOwnership;
   /** 当前是否可见。 */
   readonly visible: boolean;
@@ -113,7 +113,7 @@ export type InternalDescriptorCloseAction = 'hide' | 'destroy';
 /** 固定线跟随地图坐标或屏幕像素的方式。 */
 export type InternalDescriptorFixedMode = 'position' | 'pixel';
 
-/** 创建 Descriptor 时使用的内部配置。 */
+/** Public Facade 校验后交给 OverlayService 的 Descriptor 配置。 */
 export interface InternalDescriptorSpec<T = unknown> {
   /** 可选的 Descriptor ID。 */
   readonly id?: string;
@@ -159,7 +159,7 @@ export interface InternalDescriptorPatch<T = unknown> {
   readonly position?: Coordinate;
   /** 新的像素偏移。 */
   readonly offset?: Pixel;
-  /** Descriptor 自有 OverlayHandle 使用的内部可见状态桥接字段。 */
+  /** Descriptor 与其内部 OverlayHandle 同步可见性时使用的桥接值。 */
   readonly visible?: boolean;
   /** 是否显示关闭入口。 */
   readonly close?: boolean;

@@ -37,17 +37,17 @@ export interface TransformKeyboardInput {
 
 /** 构造 Transform 服务所需的依赖。 */
 export interface TransformServiceDependencies {
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly store: ElementStore;
   /** 图形定义注册表。 */
   readonly shapes: ShapeRegistry;
   /** 内部样式服务。 */
   readonly styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 保证 Draw、Edit、Transform、Measure 互斥的协调器。 */
   readonly coordinator: InteractionCoordinator;
-  /** 底层变换交互端口。 */
+  /** 隔离 Transform Adapter 的交互 Port。 */
   readonly interaction: TransformInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly animations: TransformAnimationPort;
@@ -67,19 +67,19 @@ export interface TransformServiceDependencies {
   readonly errorReporter?: ErrorReporter;
 }
 
-/** 创建并管理 Transform 会话及共享剪贴板。 */
+/** 创建 Transform Session，并管理它们共享的 Element 快照剪贴板。 */
 export class TransformService implements InternalTransformService {
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly #store: ElementStore;
   /** 图形定义注册表。 */
   readonly #shapes: ShapeRegistry;
   /** 内部样式服务。 */
   readonly #styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 保证 Draw、Edit、Transform、Measure 互斥的协调器。 */
   readonly #coordinator: InteractionCoordinator;
-  /** 底层变换交互端口。 */
+  /** 隔离 Transform Adapter 的交互 Port。 */
   readonly #interaction: TransformInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly #animations: TransformAnimationPort;
@@ -97,9 +97,9 @@ export class TransformService implements InternalTransformService {
   readonly #providedCreateId: (() => string) | undefined;
   /** Transform 错误报告器。 */
   readonly #errorReporter: ErrorReporter;
-  /** 当前活动的 Transform 会话。 */
+  /** 尚未进入终态的 Transform Session。 */
   readonly #sessions = new Set<TransformSession>();
-  /** 最近复制的元素快照。 */
+  /** 最近复制的 ElementSnapshot，不包含 Feature 或动画运行态。 */
   #clipboard: ReturnType<ElementStore['get']>;
   /** 下一个自动生成的复制元素 ID。 */
   #nextId = 0;

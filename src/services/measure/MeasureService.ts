@@ -20,11 +20,11 @@ import {
 /** 测量服务支持的测量类型集合。 */
 const types = new Set<InternalMeasureType>(['distance-segments', 'distance-total', 'distance-radial', 'area']);
 
-/** 负责创建测量会话并管理测量结果的内部服务。 */
+/** 基于 DrawService 创建 Measure Session，并统一管理其结果生命周期。 */
 export class MeasureService implements InternalMeasureService {
-  /** 内部绘制服务。 */
+  /** 复用的 DrawService；Measure 不维护第二套绘制内核。 */
   readonly #draw: InternalDrawService;
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly #store: ElementStore;
   /** 内部样式服务。 */
   readonly #styles: StyleService;
@@ -40,11 +40,10 @@ export class MeasureService implements InternalMeasureService {
   readonly #providedCreateId: (() => string) | undefined;
   /** 测量错误报告器。 */
   readonly #errorReporter: ErrorReporter;
-  /** 当前活动的测量会话。 */
+  /** 尚未进入终态的 Measure Session。 */
   readonly #sessions = new Set<MeasureSession>();
   /** 下一个自动生成的元素 ID。 */
   #nextId = 0;
-  /** 是否已经请求销毁。 */
   #destroyRequested = false;
   /** 服务是否已销毁。 */
   #disposed = false;
@@ -129,7 +128,7 @@ export class MeasureService implements InternalMeasureService {
     if (failure !== undefined) throw failure;
   }
 
-  /** 取消活动会话并移除服务拥有的结果。 */
+  /** 先取消活动 Session，再移除 MeasureService 拥有的 Element 与 Overlay。 */
   #clearOwned(): void {
     const sessions = [...this.#sessions];
     runFinalizers([

@@ -22,7 +22,7 @@ import type {
 interface RegistrationRecord {
   /** 注册目标的唯一键。 */
   readonly key: string;
-  /** 用于区分重复注册的代次。 */
+  /** 区分同一目标重复注册的代次。 */
   readonly generation: number;
   /** 菜单注册目标。 */
   readonly target: InternalContextMenuTarget;
@@ -46,7 +46,7 @@ interface CurrentMenu {
   readonly selectable: ReadonlyMap<string, { readonly item: InternalContextMenuItemSpec; readonly disabled: boolean }>;
 }
 
-/** 在路由回调期间检测目标元素失效。 */
+/** 检测菜单路由回调期间目标 Element 是否失效。 */
 interface RouteTargetGuard {
   /** 路由开始时命中的元素 ID。 */
   readonly elementId: string;
@@ -57,11 +57,11 @@ interface RouteTargetGuard {
 /** 菜单项目状态的局部更新。 */
 type ItemStatePatch = Partial<InternalContextMenuItemState>;
 
-/** 管理右键菜单注册、状态、路由与视图生命周期。 */
+/** 管理右键菜单注册、Element 关联状态、输入路由和视图生命周期。 */
 export class ContextMenuService {
   /** 内部事件服务。 */
   readonly #events: EventService;
-  /** 元素状态仓库。 */
+  /** Element 状态真源；菜单命中以其中的规范状态为准。 */
   readonly #store: ElementStore;
   /** 右键菜单视图端口。 */
   readonly #view: ContextMenuViewPort;
@@ -75,7 +75,7 @@ export class ContextMenuService {
   readonly #routeTargetGuards: RouteTargetGuard[] = [];
   /** 右键事件订阅释放函数。 */
   readonly #eventDispose: () => void;
-  /** 元素仓库订阅释放函数。 */
+  /** ElementStore 订阅的释放函数。 */
   readonly #storeDispose: () => void;
   /** 视图事件订阅释放函数。 */
   readonly #viewDispose: () => void;
@@ -87,11 +87,10 @@ export class ContextMenuService {
   #theme: 'light' | 'dark' = 'light';
   /** 服务是否已进入销毁状态。 */
   #disposed = false;
-  /** 是否正在执行销毁流程。 */
   #destroying = false;
   /** 右键事件订阅是否已释放。 */
   #eventDisposed = false;
-  /** 元素仓库订阅是否已释放。 */
+  /** ElementStore 订阅是否已释放。 */
   #storeDisposed = false;
   /** 视图监听器是否已释放。 */
   #viewListenerDisposed = false;
@@ -114,7 +113,7 @@ export class ContextMenuService {
       try {
         this.#eventDispose();
       } catch {
-        // 尝试回滚后继续保留仓库订阅的原始异常。
+        // 回滚失败不能掩盖仓库订阅抛出的原始异常。
       }
       throw error;
     }
@@ -128,7 +127,7 @@ export class ContextMenuService {
       try {
         runFinalizers([...(viewDispose === undefined ? [] : [viewDispose]), this.#eventDispose, this.#storeDispose]);
       } catch {
-        // 尝试全部回滚后继续保留构造阶段的原始异常。
+        // 即使回滚步骤失败，也保留构造阶段最先抛出的异常。
       }
       throw error;
     }
@@ -497,7 +496,7 @@ export class ContextMenuService {
       });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // 错误上报失败不能中断菜单路由或清理流程。
+      // 报告错误只是旁路行为，失败时仍要继续路由或清理。
     }
   }
 

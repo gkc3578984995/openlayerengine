@@ -4,25 +4,25 @@ import type { ElementStyleState, NativeStyleRef } from '../core/style/types.js';
 import type { StyleService as InternalStyleService } from '../services/style/StyleService.js';
 import type { StyleInput, StyleService } from './styleTypes.js';
 
-/** 原生样式注册表接受的值。 */
+/** 原生样式注册表支持的输入类型。 */
 type NativeStyleValue = Parameters<NativeRefRegistry['registerStyle']>[0];
-/** 公开样式是否属于原生样式写法的检查结果。 */
+/** 公共样式输入的原生样式匹配结果。 */
 export type NativeStyleMatch = { readonly matched: false } | { readonly matched: true; readonly value: NativeStyleValue };
 
-/** 将公开样式操作转交给内部样式服务。 */
+/** 在公共样式 API 与内部样式服务之间处理原生引用。 */
 export class StyleFacade implements StyleService {
-  /** 负责修改元素样式状态的内部服务。 */
+  /** 修改 Element 样式状态的内部服务。 */
   readonly #service: InternalStyleService;
   /** 管理原生 OpenLayers 样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
 
-  /** 保存内部样式服务和原生引用注册表。 */
+  /** 绑定内部样式服务和当前 Earth 的原生引用注册表。 */
   constructor(service: InternalStyleService, nativeRefs: NativeRefRegistry) {
     this.#service = service;
     this.#nativeRefs = nativeRefs;
   }
 
-  /** 为匹配的元素设置完整样式。 */
+  /** 为匹配的 Element 设置完整样式。 */
   set(selector: Parameters<StyleService['set']>[0], style: StyleInput): void {
     let reference: NativeStyleRef | undefined;
     try {
@@ -40,20 +40,20 @@ export class StyleFacade implements StyleService {
         try {
           this.#nativeRefs.discardProvisionalStyle(reference);
         } catch {
-          // 注册表销毁后，临时样式已经自动失效。
+          // 注册表销毁会一并终结临时样式，无需再次释放。
         }
       }
       throw error;
     }
   }
 
-  /** 合并修改匹配元素的部分样式。 */
+  /** 合并修改匹配 Element 的部分样式。 */
   patch(selector: Parameters<StyleService['patch']>[0], patch: Parameters<StyleService['patch']>[1]): void {
     this.#service.patch(selector, patch);
   }
 }
 
-/** 检查样式输入是否是仅包含 nativeStyle 的原生样式对象。 */
+/** 识别只含 `nativeStyle` 数据属性的原生样式输入。 */
 export function inspectStyleInput(style: StyleInput): NativeStyleMatch {
   if (style === null || typeof style !== 'object') return { matched: false };
 

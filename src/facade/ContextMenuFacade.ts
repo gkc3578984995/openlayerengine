@@ -6,61 +6,61 @@ import { Element, elementHandleFeature } from './Element.js';
 import type { Layer } from './Layer.js';
 import type { ElementService, LayerService } from './types.js';
 
-/** 右键菜单注册目标。接受地图、元素或业务模块。 */
+/** 可注册右键菜单的地图、Element 或业务模块目标。 */
 export type ContextMenuTarget = 'map' | Element | Readonly<Record<'module', string>>;
 
-/** 右键菜单状态目标。接受地图或元素。 */
+/** 可保存菜单项目状态的地图或 Element 目标。 */
 export type ContextMenuStateTarget = 'map' | Element;
 
 /** 单个右键菜单项目的配置。 */
 export interface ContextMenuItemSpec {
-  /** 项目标识。用于查询、更新和触发菜单项目。 */
+  /** 查询、更新和触发菜单项目时使用的唯一标识。 */
   readonly key: string;
-  /** 项目文本。指定菜单中展示的名称。 */
+  /** 菜单中展示的名称。 */
   readonly label: string;
-  /** 可见状态。控制菜单项目是否显示。 */
+  /** 菜单项目是否可见。 */
   readonly visible?: boolean;
-  /** 禁用状态。控制菜单项目是否不可操作。 */
+  /** 菜单项目是否禁用。 */
   readonly disabled?: boolean;
-  /** 互斥项目。当前项目显隐变化时，反向切换指定项目的可见状态。 */
+  /** 当前项目显隐变化时，反向切换这些项目的可见状态。 */
   readonly mutexKey?: string;
-  /** 子级项目。定义当前项目包含的嵌套菜单。 */
+  /** 当前项目包含的嵌套菜单。 */
   readonly children?: readonly ContextMenuItemSpec[];
 }
 
-/** 右键菜单项目回调接收的公开上下文。 */
+/** 右键菜单回调接收的公共上下文。 */
 export interface ContextMenuItemContext {
-  /** 菜单项目。提供当前处理项目的只读配置。 */
+  /** 当前处理项目的只读配置。 */
   readonly item: ContextMenuItemSpec;
-  /** 命中范围。表示菜单来自地图、业务模块或元素。 */
+  /** 菜单来自地图、业务模块还是 Element。 */
   readonly scope: 'map' | 'module' | 'element';
-  /** 地图坐标。提供右键发生位置的坐标快照。 */
+  /** 右键位置的地图坐标快照。 */
   readonly coordinate: Coordinate;
-  /** 屏幕像素。提供右键相对地图视口的像素位置。 */
+  /** 右键位置相对地图视口的屏幕坐标。 */
   readonly pixel: Pixel;
-  /** 命中元素。右键命中受管理元素时提供其实时句柄。 */
+  /** 命中受管理 Element 时提供的实时句柄。 */
   readonly element?: Element;
-  /** 业务模块。命中元素带有模块标识时提供该值。 */
+  /** 命中 Element 携带的业务模块标识。 */
   readonly module?: string;
-  /** 命中图层。命中元素时提供所属图层句柄。 */
+  /** 命中 Element 所属的图层句柄。 */
   readonly layer?: Layer;
 }
 
 /** 一组右键菜单项目及其回调配置。 */
 export interface ContextMenuSpec {
-  /** 菜单项目。定义当前目标可展示的菜单树。 */
+  /** 当前目标可展示的菜单树。 */
   readonly items: readonly ContextMenuItemSpec[];
-  /** 显示前回调。返回 `true` 时项目可用，返回其他值或抛错时项目仍显示但会禁用。 */
+  /** 显示前判断；仅返回 `true` 时项目可用，其他返回值或异常会保留项目但将其禁用。 */
   readonly before?: (context: ContextMenuItemContext) => boolean;
-  /** 选择回调。用户选择可用菜单项目后调用。 */
+  /** 用户选择可用菜单项目后调用。 */
   readonly onSelect?: (context: ContextMenuItemContext) => void;
 }
 
 /** 右键菜单项目的可变状态。 */
 export interface ContextMenuItemState {
-  /** 可见状态。表示菜单项目当前是否显示。 */
+  /** 菜单项目当前是否可见。 */
   readonly visible: boolean;
-  /** 禁用状态。表示菜单项目当前是否不可操作。 */
+  /** 菜单项目当前是否禁用。 */
   readonly disabled: boolean;
 }
 
@@ -69,7 +69,6 @@ export interface ContextMenuHandle {
   /**
    * 注销本次右键菜单注册。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -83,13 +82,13 @@ export interface ContextMenuHandle {
   destroy(): void;
 }
 
-/** 右键菜单能力的公开入口。 */
+/** 注册和控制右键菜单的公开服务。 */
 export interface ContextMenuService {
   /**
-   * 为地图、模块或元素注册右键菜单。
+   * 为地图、业务模块或 Element 注册右键菜单。
    *
-   * @param target 注册目标。指定菜单生效的地图、元素或业务模块。
-   * @param spec 菜单配置。指定菜单项目及其显示前和选择回调。
+   * @param target 菜单生效的地图、Element 或业务模块。
+   * @param spec 菜单项目及其显示前和选择回调。
    * @returns 用于注销本次注册的控制句柄。
    *
    * @example
@@ -102,10 +101,10 @@ export interface ContextMenuService {
    */
   register(target: ContextMenuTarget, spec: ContextMenuSpec): ContextMenuHandle;
   /**
-   * 读取地图或元素菜单项目的当前状态。
+   * 读取地图或 Element 菜单项目的当前状态。
    *
-   * @param target 查询目标。指定要查询的地图或元素。
-   * @param key 项目标识。指定要查询的菜单项目。
+   * @param target 要查询的地图或 Element。
+   * @param key 要查询的菜单项目标识。
    * @returns 项目状态快照，项目不存在时返回 `undefined`。
    *
    * @example
@@ -118,12 +117,11 @@ export interface ContextMenuService {
    */
   getItemState(target: ContextMenuStateTarget, key: string): ContextMenuItemState | undefined;
   /**
-   * 更新地图或元素菜单项目的状态。
+   * 更新地图或 Element 菜单项目的状态。
    *
-   * @param target 更新目标。指定要更新的地图或元素。
-   * @param key 项目标识。指定要更新的菜单项目。
-   * @param patch 状态更新。指定可见和禁用状态的部分更新。
-   * @returns 无返回值。
+   * @param target 要更新的地图或 Element。
+   * @param key 要更新的菜单项目标识。
+   * @param patch 可见和禁用状态的部分更新。
    *
    * @example
    * ```ts
@@ -135,10 +133,10 @@ export interface ContextMenuService {
    */
   setItemState(target: ContextMenuStateTarget, key: string, patch: Partial<ContextMenuItemState>): void;
   /**
-   * 切换地图或元素菜单项目的状态。
+   * 切换地图或 Element 菜单项目的状态。
    *
-   * @param target 更新目标。指定要更新的地图或元素。
-   * @param key 项目标识。指定要切换状态的菜单项目。
+   * @param target 要更新的地图或 Element。
+   * @param key 要切换状态的菜单项目标识。
    * @returns 切换后的菜单项目状态快照。
    *
    * @example
@@ -153,8 +151,7 @@ export interface ContextMenuService {
   /**
    * 设置右键菜单主题。
    *
-   * @param theme 菜单主题。指定要使用的明亮或暗色主题。
-   * @returns 无返回值。
+   * @param theme 要使用的明亮或暗色主题。
    *
    * @example
    * ```ts
@@ -180,10 +177,9 @@ export interface ContextMenuService {
    */
   toggleTheme(): 'light' | 'dark';
   /**
-   * 清除指定元素保存的菜单项目状态。
+   * 清除指定 Element 保存的菜单项目状态。
    *
-   * @param elementId 元素 ID。指定要清除菜单状态的元素。
-   * @returns 无返回值。
+   * @param elementId 要清除菜单状态的 Element ID。
    *
    * @example
    * ```ts
@@ -197,7 +193,6 @@ export interface ContextMenuService {
   /**
    * 关闭当前显示的右键菜单。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -210,16 +205,16 @@ export interface ContextMenuService {
   close(): void;
 }
 
-/** 将公开菜单目标和回调上下文转换为内部状态的门面。 */
+/** 在公共菜单目标、回调上下文与内部状态之间完成转换。 */
 export class ContextMenuFacade implements ContextMenuService {
-  /** 内部服务。负责菜单注册、状态和视图生命周期。 */
+  /** 管理菜单注册、状态和视图生命周期的内部服务。 */
   readonly #service: InternalContextMenuService;
-  /** 元素服务。用于校验归属并还原公开元素句柄。 */
+  /** 校验归属并还原公共 Element 句柄。 */
   readonly #elements: ElementService;
-  /** 图层服务。用于还原菜单回调中的公开图层句柄。 */
+  /** 还原菜单回调中的公共图层句柄。 */
   readonly #layers: LayerService;
 
-  /** 创建右键菜单门面并绑定 Earth 范围内的服务。 */
+  /** 绑定当前 Earth 的右键菜单、Element 和图层服务。 */
   constructor(service: InternalContextMenuService, elements: ElementService, layers: LayerService) {
     this.#service = service;
     this.#elements = elements;
@@ -227,10 +222,10 @@ export class ContextMenuFacade implements ContextMenuService {
   }
 
   /**
-   * 为地图、模块或元素注册右键菜单。
+   * 为地图、业务模块或 Element 注册右键菜单。
    *
-   * @param target 注册目标。指定菜单生效的地图、元素或业务模块。
-   * @param spec 菜单配置。指定菜单项目及其显示前和选择回调。
+   * @param target 菜单生效的地图、Element 或业务模块。
+   * @param spec 菜单项目及其显示前和选择回调。
    * @returns 用于注销本次注册的控制句柄。
    *
    * @example
@@ -251,10 +246,10 @@ export class ContextMenuFacade implements ContextMenuService {
   }
 
   /**
-   * 读取地图或元素菜单项目的当前状态。
+   * 读取地图或 Element 菜单项目的当前状态。
    *
-   * @param target 查询目标。指定要查询的地图或元素。
-   * @param key 项目标识。指定要查询的菜单项目。
+   * @param target 要查询的地图或 Element。
+   * @param key 要查询的菜单项目标识。
    * @returns 项目状态快照，项目不存在时返回 `undefined`。
    *
    * @example
@@ -270,12 +265,11 @@ export class ContextMenuFacade implements ContextMenuService {
   }
 
   /**
-   * 更新地图或元素菜单项目的状态。
+   * 更新地图或 Element 菜单项目的状态。
    *
-   * @param target 更新目标。指定要更新的地图或元素。
-   * @param key 项目标识。指定要更新的菜单项目。
-   * @param patch 状态更新。指定可见和禁用状态的部分更新。
-   * @returns 无返回值。
+   * @param target 要更新的地图或 Element。
+   * @param key 要更新的菜单项目标识。
+   * @param patch 可见和禁用状态的部分更新。
    *
    * @example
    * ```ts
@@ -290,10 +284,10 @@ export class ContextMenuFacade implements ContextMenuService {
   }
 
   /**
-   * 切换地图或元素菜单项目的状态。
+   * 切换地图或 Element 菜单项目的状态。
    *
-   * @param target 更新目标。指定要更新的地图或元素。
-   * @param key 项目标识。指定要切换状态的菜单项目。
+   * @param target 要更新的地图或 Element。
+   * @param key 要切换状态的菜单项目标识。
    * @returns 切换后的菜单项目状态快照。
    *
    * @example
@@ -311,8 +305,7 @@ export class ContextMenuFacade implements ContextMenuService {
   /**
    * 设置右键菜单主题。
    *
-   * @param theme 菜单主题。指定要使用的明亮或暗色主题。
-   * @returns 无返回值。
+   * @param theme 要使用的明亮或暗色主题。
    *
    * @example
    * ```ts
@@ -344,10 +337,9 @@ export class ContextMenuFacade implements ContextMenuService {
   }
 
   /**
-   * 清除指定元素保存的菜单项目状态。
+   * 清除指定 Element 保存的菜单项目状态。
    *
-   * @param elementId 元素 ID。指定要清除菜单状态的元素。
-   * @returns 无返回值。
+   * @param elementId 要清除菜单状态的 Element ID。
    *
    * @example
    * ```ts
@@ -364,7 +356,6 @@ export class ContextMenuFacade implements ContextMenuService {
   /**
    * 关闭当前显示的右键菜单。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -378,12 +369,12 @@ export class ContextMenuFacade implements ContextMenuService {
     this.#service.close();
   }
 
-  /** @internal 销毁右键菜单门面及其内部服务。 */
+  /** @internal 销毁公共 Facade 及其内部右键菜单服务。 */
   destroy(): void {
     this.#service.destroy();
   }
 
-  /** 将内部菜单回调上下文转换为公开句柄和只读坐标。 */
+  /** 将内部回调上下文转换为公共句柄和只读坐标。 */
   #toPublic(context: InternalContextMenuItemContext): ContextMenuItemContext {
     const element = context.element === undefined ? undefined : this.#elements.get(context.element.id);
     const layer = context.layerId === undefined ? undefined : this.#layers.get(context.layerId);
@@ -399,7 +390,7 @@ export class ContextMenuFacade implements ContextMenuService {
   }
 }
 
-/** 将公开注册目标转换为内部菜单目标。 */
+/** 将公共注册目标转换为内部菜单目标。 */
 function toInternalTarget(target: ContextMenuTarget, elements: ElementService): InternalContextMenuTarget {
   if (target === 'map') return Object.freeze({ kind: 'map' });
   if (isElementHandle(target)) return Object.freeze({ kind: 'element', elementId: currentElementId(target, elements) });
@@ -407,19 +398,19 @@ function toInternalTarget(target: ContextMenuTarget, elements: ElementService): 
   return Object.freeze({ kind: 'module', module: record.module });
 }
 
-/** 将公开状态目标转换为内部状态键。 */
+/** 将公共状态目标转换为内部状态键。 */
 function toInternalStateTarget(target: ContextMenuStateTarget, elements: ElementService): InternalContextMenuStateTarget {
   if (target === 'map') return Object.freeze({ kind: 'map' });
   if (isElementHandle(target)) return Object.freeze({ kind: 'element', elementId: currentElementId(target, elements) });
   throw new InvalidArgumentError('Context-menu state target must be map or Element');
 }
 
-/** 判断未知值是否为有效的公开元素句柄。 */
+/** 判断未知值是否为有效的公共 Element 句柄。 */
 function isElementHandle(value: unknown): value is Element {
   return value !== null && typeof value === 'object' && elementHandleFeature(value as Element) !== undefined;
 }
 
-/** 校验元素归属并返回其当前 ID。 */
+/** 校验 Element 归属，并返回当前代次的 ID。 */
 function currentElementId(element: Element, elements: ElementService): string {
   const id = element.id;
   void element.state;
@@ -456,13 +447,13 @@ function inspectModuleTarget(target: unknown): { readonly module: string } {
   return { module: descriptor.value };
 }
 
-/** 校验菜单配置并保留数据属性形式的回调。 */
+/** 校验菜单配置，并只接受数据属性形式的回调。 */
 function inspectSpec(spec: ContextMenuSpec): {
-  /** 菜单项目。保存校验后的只读菜单树。 */
+  /** 校验后的只读菜单树。 */
   readonly items: readonly ContextMenuItemSpec[];
-  /** 显示前回调。保存可选的显示判断函数。 */
+  /** 可选的显示前判断函数。 */
   readonly before?: (context: ContextMenuItemContext) => boolean;
-  /** 选择回调。保存可选的菜单选择函数。 */
+  /** 可选的菜单选择函数。 */
   readonly onSelect?: (context: ContextMenuItemContext) => void;
 } {
   if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) throw new InvalidArgumentError('Context-menu spec must be a plain object');

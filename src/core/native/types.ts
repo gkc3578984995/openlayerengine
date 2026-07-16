@@ -1,26 +1,26 @@
-/** 原生引用的内部标记。 */
+/** 受控原生引用的内部品牌。 */
 const nativeRefBrand: unique symbol = Symbol('ol-engine.native-ref');
-/** 临时原生引用的内部标记。 */
+/** 同步调用期原生引用的内部品牌。 */
 const transientNativeRefBrand: unique symbol = Symbol('ol-engine.transient-native-ref');
-/** 已创建的原生引用及其类型。 */
+/** 记录当前模块签发的原生引用及其类别。 */
 const issuedNativeRefs = new WeakMap<object, NativeRefKind>();
-/** 已创建的临时原生引用及其类型。 */
+/** 记录当前模块签发的临时引用及其类别。 */
 const issuedTransientNativeRefs = new WeakMap<object, TransientNativeRefKind>();
 
-/** 原生引用类型。区分图层、数据源和元素。 */
+/** 受控原生引用的资源类别。 */
 export type NativeRefKind = 'layer' | 'source' | 'element';
-/** 临时原生引用类型。当前只用于输入事件。 */
+/** 临时引用类别；目前仅有输入事件。 */
 export type TransientNativeRefKind = 'input-event';
 
-/** 原生引用。安全指向注册表中的原生对象。 */
+/** 指向 Adapter 注册表中原生对象的不透明引用。 */
 export interface NativeRef<K extends NativeRefKind = NativeRefKind> {
-  /** 内部标记。记录原生对象的类型。 */
+  /** 仅由引擎签发的资源类别品牌。 */
   readonly [nativeRefBrand]: K;
 }
 
-/** 临时原生引用。只在一次同步调用期间有效。 */
+/** 仅在一次同步调用期间有效的不透明原生引用。 */
 export interface TransientNativeRef<K extends TransientNativeRefKind = TransientNativeRefKind> {
-  /** 内部标记。记录临时原生对象的类型。 */
+  /** 仅由引擎签发的临时资源类别品牌。 */
   readonly [transientNativeRefBrand]: K;
 }
 

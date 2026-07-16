@@ -29,23 +29,19 @@ import {
   thirdPoint
 } from './math.js';
 
-/** 内部方法。处理 requireTwoDimensional 相关数据。 */
 function requireTwoDimensional(points: readonly Coordinate[]): void {
   if (points.some((point) => point.length !== 2)) throw new InvalidArgumentError('Plot shapes require two-dimensional control points');
 }
 
-/** 内部方法。处理 requireArea 相关数据。 */
 function requireArea(points: readonly Coordinate[]): void {
   requireNonZeroPlanarArea(points, 'Polygon control points must enclose a non-zero area');
 }
 
-/** 内部方法。处理 validateSegments 相关数据。 */
 function validateSegments(points: readonly Coordinate[]): void {
   requireTwoDimensional(points);
   for (let index = 1; index < points.length; index += 1) requireSeparated(points, [index - 1, index]);
 }
 
-/** 内部方法。处理 polygonRender 相关数据。 */
 function polygonRender(generator: (points: readonly Coordinate[]) => Coordinate[]) {
   return (points: readonly Coordinate[]) => {
     const ring = generator(points);
@@ -54,7 +50,6 @@ function polygonRender(generator: (points: readonly Coordinate[]) => Coordinate[
   };
 }
 
-/** 内部方法。处理 validateGeneratedPolygon 相关数据。 */
 function validateGeneratedPolygon(
   points: readonly Coordinate[],
   generator: (points: readonly Coordinate[]) => Coordinate[],
@@ -65,7 +60,6 @@ function validateGeneratedPolygon(
   if (requireRenderedArea) requireNonZeroPlanarArea(ring, 'Plot polygon must remain non-degenerate on the coordinate grid');
 }
 
-/** 内部方法。处理 rectangle 相关数据。 */
 function rectangle(points: readonly Coordinate[]): Coordinate[] {
   const minX = Math.min(points[0][0], points[1][0]);
   const minY = Math.min(points[0][1], points[1][1]);
@@ -80,12 +74,10 @@ function rectangle(points: readonly Coordinate[]): Coordinate[] {
   ];
 }
 
-/** 内部方法。处理 triangle 相关数据。 */
 function triangle(points: readonly Coordinate[]): Coordinate[] {
   return points.map(cloneCoordinate);
 }
 
-/** 内部方法。处理 equilateralTriangle 相关数据。 */
 function equilateralTriangle(points: readonly Coordinate[]): Coordinate[] {
   const [point1, point2] = points;
   const vectorX = point2[0] - point1[0];
@@ -99,25 +91,21 @@ function equilateralTriangle(points: readonly Coordinate[]): Coordinate[] {
   return [cloneCoordinate(point1), cloneCoordinate(point2), cloneCoordinate(point3)];
 }
 
-/** 内部方法。处理 relativeLengthError 相关数据。 */
 function relativeLengthError(left: number, right: number): number {
   if (left === right) return 0;
   return Math.abs(left - right) / Math.max(left, right);
 }
 
-/** 内部方法。处理 segmentLengthRoundingError 相关数据。 */
 function segmentLengthRoundingError(left: Coordinate, right: Coordinate): number {
   return Math.hypot(numberRoundingRadius(left[0]) + numberRoundingRadius(right[0]), numberRoundingRadius(left[1]) + numberRoundingRadius(right[1]));
 }
 
-/** 内部方法。处理 equilateralLengthTolerance 相关数据。 */
 function equilateralLengthTolerance(referenceStart: Coordinate, referenceEnd: Coordinate, candidateEnd: Coordinate, referenceLength: number): number {
   const roundingError = segmentLengthRoundingError(referenceStart, referenceEnd) + segmentLengthRoundingError(referenceStart, candidateEnd);
   const relativeRoundingError = roundingError / referenceLength;
   return Math.min(1e-3, relativeRoundingError * 8 + Number.EPSILON * 8);
 }
 
-/** 内部方法。处理 assemblePolygon 相关数据。 */
 function assemblePolygon(points: readonly Coordinate[]): Coordinate[] {
   let working = points.map(cloneCoordinate);
   if (working.length === 2) {
@@ -145,7 +133,6 @@ function assemblePolygon(points: readonly Coordinate[]): Coordinate[] {
   return result;
 }
 
-/** 内部方法。处理 closedCurvePolygon 相关数据。 */
 function closedCurvePolygon(points: readonly Coordinate[]): Coordinate[] {
   if (points.length === 2) return points.map(cloneCoordinate);
   const working = [...points.map(cloneCoordinate), cloneCoordinate(points[0]), cloneCoordinate(points[1])];
@@ -167,7 +154,6 @@ function closedCurvePolygon(points: readonly Coordinate[]): Coordinate[] {
   return result;
 }
 
-/** 内部方法。处理 sector 相关数据。 */
 function sector(points: readonly Coordinate[]): Coordinate[] {
   if (points.length === 2) return points.map(cloneCoordinate);
   const [center, point2, point3] = points;
@@ -177,7 +163,6 @@ function sector(points: readonly Coordinate[]): Coordinate[] {
   return result;
 }
 
-/** 内部方法。处理 lunePolygon 相关数据。 */
 function lunePolygon(points: readonly Coordinate[]): Coordinate[] {
   const working = points.map(cloneCoordinate);
   if (working.length === 2) {
@@ -194,7 +179,6 @@ function lunePolygon(points: readonly Coordinate[]): Coordinate[] {
   return result;
 }
 
-/** 内部常量。保存 rectangleDefinition 使用的数据。 */
 const rectangleDefinition = createControlPointDefinition({
   type: 'rectangle',
   previewMin: 2,
@@ -211,7 +195,6 @@ const rectangleDefinition = createControlPointDefinition({
   render: polygonRender(rectangle)
 });
 
-/** 内部常量。保存 triangleDefinition 使用的数据。 */
 const triangleDefinition = createControlPointDefinition({
   type: 'triangle',
   previewMin: 2,
@@ -226,7 +209,6 @@ const triangleDefinition = createControlPointDefinition({
   render: polygonRender(triangle)
 });
 
-/** 内部常量。保存 equilateralTriangleDefinition 使用的数据。 */
 const equilateralTriangleDefinition = createControlPointDefinition({
   type: 'equilateral-triangle',
   previewMin: 2,
@@ -251,7 +233,6 @@ const equilateralTriangleDefinition = createControlPointDefinition({
   render: polygonRender(equilateralTriangle)
 });
 
-/** 内部常量。保存 assemblePolygonDefinition 使用的数据。 */
 const assemblePolygonDefinition = createControlPointDefinition({
   type: 'assemble-polygon',
   previewMin: 2,
@@ -267,7 +248,6 @@ const assemblePolygonDefinition = createControlPointDefinition({
   render: polygonRender(assemblePolygon)
 });
 
-/** 内部常量。保存 closedCurvePolygonDefinition 使用的数据。 */
 const closedCurvePolygonDefinition = createControlPointDefinition({
   type: 'closed-curve-polygon',
   previewMin: 2,
@@ -286,7 +266,6 @@ const closedCurvePolygonDefinition = createControlPointDefinition({
   render: polygonRender(closedCurvePolygon)
 });
 
-/** 内部常量。保存 sectorDefinition 使用的数据。 */
 const sectorDefinition = createControlPointDefinition({
   type: 'sector',
   previewMin: 2,
@@ -308,7 +287,6 @@ const sectorDefinition = createControlPointDefinition({
   render: polygonRender(sector)
 });
 
-/** 内部常量。保存 lunePolygonDefinition 使用的数据。 */
 const lunePolygonDefinition = createControlPointDefinition({
   type: 'lune-polygon',
   previewMin: 2,
@@ -327,7 +305,6 @@ const lunePolygonDefinition = createControlPointDefinition({
   render: polygonRender(lunePolygon)
 });
 
-/** 内部常量。保存 polygonShapeDefinitions 使用的数据。 */
 export const polygonShapeDefinitions = Object.freeze([
   rectangleDefinition,
   triangleDefinition,

@@ -1,16 +1,15 @@
 import type { Pixel } from '../common/types.js';
 
-/** 内部接口。约定 HitTestPort 使用的数据和操作。 */
 export interface HitTestPort {
-  /** 查找指定像素位置的元素。 */
+  /** 命中指定屏幕像素处的 Element。 */
   atPixel(pixel: Pixel):
     | {
-        /** 元素 ID。标识命中的元素。 */
+        /** 命中的 Element ID。 */
         readonly elementId: string;
-        /** 图层 ID。标识元素所在图层。 */
+        /** Element 所在的渲染图层 ID。 */
         readonly layerId: string;
       }
     | undefined;
-  /** 读取元素在屏幕上的范围。 */
+  /** 读取 Element 的屏幕像素范围。 */
   getScreenExtent(elementId: string): readonly [number, number, number, number] | undefined;
 }

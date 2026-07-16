@@ -9,7 +9,7 @@ const sourceEntry = path.join(sourceRoot, 'index.ts');
 const publicNames = [...publicApiManifest.valueExports, ...publicApiManifest.typeExports];
 
 describe('公共 API 中文注释契约', () => {
-  it('根导出具有中文说明，公开字段和方法遵守统一格式', () => {
+  it('根导出具有完整的中文说明、参数文档和示例', () => {
     const program = createSourceProgram();
     const diagnostics = ts.getPreEmitDiagnostics(program);
     expect(diagnostics, formatDiagnostics(diagnostics)).toEqual([]);
@@ -43,7 +43,7 @@ describe('公共 API 中文注释契约', () => {
   });
 });
 
-/** 创建只加载根入口的源码类型检查程序。 */
+/** 创建只加载根入口的 TypeScript 程序。 */
 function createSourceProgram(): ts.Program {
   const configPath = path.join(repositoryRoot, 'tsconfig.json');
   const loaded = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -53,7 +53,7 @@ function createSourceProgram(): ts.Program {
   return ts.createProgram({ rootNames: [sourceEntry], options: { ...parsed.options, noEmit: true } });
 }
 
-/** 检查一个根导出的声明及其公开成员。 */
+/** 检查根导出及其公开成员。 */
 function auditRootDeclaration(name: string, declarations: readonly ts.Declaration[], issues: string[]): void {
   const primary = declarations.find(isNamedPublicDeclaration) ?? declarations[0];
   auditSummary(primary, name, issues);
@@ -77,7 +77,7 @@ function auditRootDeclaration(name: string, declarations: readonly ts.Declaratio
   }
 }
 
-/** 检查类、接口或内联对象的公开成员。 */
+/** 检查类、接口或内联对象中的公开成员。 */
 function auditMembers(members: ts.NodeArray<ts.TypeElement | ts.ClassElement>, owner: string, issues: string[]): void {
   const overloadKeys = new Set(
     members
@@ -125,14 +125,14 @@ function auditTypeNode(node: ts.TypeNode, owner: string, issues: string[]): void
   if (ts.isParenthesizedTypeNode(node)) auditTypeNode(node.type, owner, issues);
 }
 
-/** 检查声明是否带有中文 TypeDoc 摘要。 */
+/** 确认声明带有中文 TypeDoc 摘要。 */
 function auditSummary(node: ts.Node, route: string, issues: string[]): void {
   const summary = jsDocSummary(node);
   if (summary.length === 0) issues.push(`${route}：缺少 TypeDoc 说明`);
   else if (!/[\u3400-\u9fff]/u.test(summary)) issues.push(`${route}：说明必须使用中文`);
 }
 
-/** 检查公开字段是否使用“名称。说明。”格式。 */
+/** 确认公开字段带有中文说明。 */
 function auditFieldSummary(node: ts.Node, route: string, issues: string[]): void {
   const summary = jsDocSummary(node);
   if (summary.length === 0) {
@@ -140,11 +140,10 @@ function auditFieldSummary(node: ts.Node, route: string, issues: string[]): void
     return;
   }
   if (!/[\u3400-\u9fff]/u.test(summary)) issues.push(`${route}：字段说明必须使用中文`);
-  if (summary.split('。').filter((part) => part.trim().length > 0).length < 2) issues.push(`${route}：字段说明应使用“名称。说明。”格式`);
 }
 
 /** 检查公开 callable 的参数、返回值和示例。 */
-function auditCallable(node: ts.Node, parameters: ts.NodeArray<ts.ParameterDeclaration>, route: string, issues: string[], requireReturns: boolean): void {
+function auditCallable(node: ts.Node, parameters: ts.NodeArray<ts.ParameterDeclaration>, route: string, issues: string[], checkReturns: boolean): void {
   auditSummary(node, route, issues);
   auditTypeParameters(node, route, issues);
   const tags = ts.getJSDocTags(node);
@@ -158,20 +157,32 @@ function auditCallable(node: ts.Node, parameters: ts.NodeArray<ts.ParameterDecla
     }
     const description = jsDocCommentText(tag.comment).trim();
     if (!/[\u3400-\u9fff]/u.test(description)) issues.push(`${route}：@param ${name} 必须使用中文`);
-    if (description.split('。').filter((part) => part.trim().length > 0).length < 2) {
-      issues.push(`${route}：@param ${name} 应使用“名称。说明。”格式`);
-    }
   }
   const tagNames = new Set(tags.map((tag) => tag.tagName.text));
   const returns = tags.find((tag) => tag.tagName.text === 'returns' || tag.tagName.text === 'return');
-  if (requireReturns && returns === undefined) issues.push(`${route}：缺少 @returns`);
+  if (checkReturns && !hasExplicitVoidReturn(node) && returns === undefined) issues.push(`${route}：缺少 @returns`);
   else if (returns !== undefined && !/[\u3400-\u9fff]/u.test(jsDocCommentText(returns.comment))) issues.push(`${route}：@returns 必须使用中文`);
   const example = tags.find((tag) => tag.tagName.text === 'example');
   if (!tagNames.has('example')) issues.push(`${route}：缺少 @example`);
   else if (example === undefined || !jsDocCommentText(example.comment).includes('```')) issues.push(`${route}：@example 必须包含代码示例`);
 }
 
-/** 检查公开泛型参数是否使用“名称。说明。”格式。 */
+/** 判断 callable 是否显式声明返回 `void`。 */
+function hasExplicitVoidReturn(node: ts.Node): boolean {
+  if (
+    !ts.isFunctionDeclaration(node) &&
+    !ts.isFunctionTypeNode(node) &&
+    !ts.isMethodDeclaration(node) &&
+    !ts.isMethodSignature(node) &&
+    !ts.isCallSignatureDeclaration(node) &&
+    !ts.isConstructSignatureDeclaration(node)
+  ) {
+    return false;
+  }
+  return node.type?.kind === ts.SyntaxKind.VoidKeyword;
+}
+
+/** 确认公开泛型参数带有中文说明。 */
 function auditTypeParameters(node: ts.Node, route: string, issues: string[]): void {
   const typeParameters = (node as ts.Node & { readonly typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> }).typeParameters;
   if (typeParameters === undefined || typeParameters.length === 0) return;
@@ -190,9 +201,6 @@ function auditTypeParameters(node: ts.Node, route: string, issues: string[]): vo
       continue;
     }
     if (!/[\u3400-\u9fff]/u.test(description)) issues.push(`${route}：@typeParam ${name} 必须使用中文`);
-    if (description.split('。').filter((part) => part.trim().length > 0).length < 2) {
-      issues.push(`${route}：@typeParam ${name} 应使用“名称。说明。”格式`);
-    }
   }
 }
 

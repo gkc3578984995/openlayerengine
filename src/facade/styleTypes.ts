@@ -2,25 +2,24 @@ import type { StyleLike } from 'ol/style/Style.js';
 import type { ElementSelector } from '../core/element/types.js';
 import type { StylePatch, StyleSpec } from '../core/style/types.js';
 
-/** 元素样式输入。结构化样式与 OpenLayers 原生样式必须二选一。 */
+/** Element 样式输入；结构化样式与 OpenLayers 原生样式互斥。 */
 export type StyleInput =
   | (StyleSpec & {
-      /** 原生样式。结构化样式分支禁止设置该字段。 */
+      /** 结构化样式分支不得传入原生样式。 */
       nativeStyle?: never;
     })
   | ({
-      /** 原生样式。提供 OpenLayers 原生样式或样式函数。 */
+      /** OpenLayers 原生样式或样式函数。 */
       nativeStyle: StyleLike;
     } & { [K in keyof StyleSpec]?: never });
 
-/** 元素样式能力的公开入口。 */
+/** 管理 Element 样式的公开服务。 */
 export interface StyleService {
   /**
-   * 完整替换匹配元素的样式。
+   * 完整替换匹配 Element 的样式。
    *
-   * @param selector 元素选择器。用于定位目标元素。
-   * @param style 样式输入。提供新的结构化样式或原生样式。
-   * @returns 无返回值。
+   * @param selector 待更新 Element 的选择器。
+   * @param style 新的结构化样式或原生样式。
    *
    * @example
    * ```ts
@@ -32,11 +31,10 @@ export interface StyleService {
    */
   set(selector: ElementSelector, style: StyleInput): void;
   /**
-   * 局部更新匹配元素的结构化样式。
+   * 局部更新匹配 Element 的结构化样式。
    *
-   * @param selector 元素选择器。用于定位目标元素。
-   * @param patch 样式更新。指定要合并到现有结构化样式的内容。
-   * @returns 无返回值。
+   * @param selector 待更新 Element 的选择器。
+   * @param patch 要合并到现有结构化样式的内容。
    *
    * @example
    * ```ts

@@ -15,42 +15,42 @@ import type { LayerServiceImpl } from './LayerService.js';
 import { inspectStyleInput } from './StyleFacade.js';
 import type { ElementCreateInput, ElementHit, ElementService, ScreenExtent } from './types.js';
 
-/** 元素门面实现使用的可选配置。 */
+/** Element Facade 的可选配置。 */
 export interface ElementServiceOptions {
-  /** 自定义元素 ID 的生成方式。 */
+  /** 自定义 Element ID 生成器。 */
   readonly createId?: () => string;
 }
 
-/** 缓存同一代原生要素和对应的公开句柄。 */
+/** 同代 OpenLayers Feature 与公共 Element 句柄的缓存项。 */
 interface CachedElement {
-  /** 当前绑定的 OpenLayers 要素。 */
+  /** 当前绑定的 OpenLayers Feature。 */
   readonly feature: ReturnType<FeatureBinding['requireFeature']>;
-  /** 返回给调用方的元素句柄。 */
+  /** 返回给调用方的 Element 句柄。 */
   readonly handle: Element;
 }
 
-/** 连接元素状态、图层和 OpenLayers 要素的门面实现。 */
+/** 连接 Element 状态、图层与 OpenLayers Feature 的 Facade。 */
 export class ElementServiceImpl implements ElementService {
-  /** 保存元素的核心状态。 */
+  /** Element 状态的唯一真源。 */
   readonly #store: ElementStore;
-  /** 查询元素所属图层。 */
+  /** 查询 Element 所属图层。 */
   readonly #manager: LayerManager;
-  /** 同步元素状态与 OpenLayers 要素。 */
+  /** 将 Element 状态单向投影到 OpenLayers Feature。 */
   readonly #binding: FeatureBinding;
-  /** 提供公开图层句柄。 */
+  /** 提供公共图层句柄。 */
   readonly #layers: LayerServiceImpl;
   /** 管理原生样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
   /** 处理像素命中和屏幕范围计算。 */
   readonly #hitTest: HitTestPort;
-  /** 可选的元素 ID 生成器。 */
+  /** 可选的 Element ID 生成器。 */
   readonly #createId: (() => string) | undefined;
-  /** 按元素 ID 缓存当前句柄。 */
+  /** 按 Element ID 缓存当前代次的句柄。 */
   readonly #handles = new Map<string, CachedElement>();
   /** 默认 ID 的递增序号。 */
   #nextId = 0;
 
-  /** 保存元素服务所需的状态、适配器和依赖服务。 */
+  /** 绑定 Element Store、OpenLayers Adapter 和依赖服务。 */
   constructor(
     store: ElementStore,
     manager: LayerManager,
@@ -69,7 +69,7 @@ export class ElementServiceImpl implements ElementService {
     this.#createId = options.createId;
   }
 
-  /** 校验并新增元素，随后返回当前句柄。 */
+  /** 校验并新增 Element，再返回当前代次的句柄。 */
   add<T>(input: ElementCreateInput<T>): Element<T> {
     let provisional: NativeStyleRef | undefined;
     try {
@@ -101,7 +101,7 @@ export class ElementServiceImpl implements ElementService {
     }
   }
 
-  /** 按 ID 获取元素；不存在时清理旧句柄缓存。 */
+  /** 按 ID 获取 Element；不存在时清理旧句柄缓存。 */
   get<T>(id: string): Element<T> | undefined {
     if (this.#store.generationOf(id) === undefined) {
       this.#handles.delete(id);
@@ -111,10 +111,10 @@ export class ElementServiceImpl implements ElementService {
   }
 
   /**
-   * O(1) 确认公开句柄仍属于当前 Earth 和当前元素代次。
+   * 以 O(1) 判断公共句柄是否仍属于当前 Earth 和当前 Element 代次。
    *
-   * @param element 待确认的公开元素句柄。
-   * @returns 句柄仍由当前服务缓存且原生要素身份有效时返回 `true`。
+   * @param element 待确认的公共 Element 句柄。
+   * @returns 句柄仍在当前缓存中，且 OpenLayers Feature 身份一致时返回 `true`。
    * @internal
    */
   ownsCurrentHandle(element: Element): boolean {
@@ -125,12 +125,12 @@ export class ElementServiceImpl implements ElementService {
     return cached?.handle === element && cached.feature === feature && this.#binding.isCurrentFeature(id, feature);
   }
 
-  /** 按条件查询元素，并转换为稳定的公开句柄。 */
+  /** 按条件查询 Element，并转换为稳定的公共句柄。 */
   query<T>(selector?: ElementSelector<T>): readonly Element<T>[] {
     return Object.freeze(this.#store.query(selector).map(({ id }) => this.#currentHandle<T>(id)));
   }
 
-  /** 批量更新元素，并在提交前检查原生渲染是否可用。 */
+  /** 批量更新 Element，并在提交前确认 OpenLayers 渲染投影可用。 */
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Element<T>[] {
     const result = this.#store.transaction((transaction) => {
       const states = transaction.update(selector, patch);
@@ -140,26 +140,26 @@ export class ElementServiceImpl implements ElementService {
     return Object.freeze(result.value.map(({ id }) => this.#currentHandle<T>(id)));
   }
 
-  /** 删除匹配的元素并清理对应句柄。 */
+  /** 删除匹配的 Element，并清理对应句柄。 */
   remove(selector: ElementSelector): number {
     const changes = this.#store.remove(selector);
     for (const change of changes.changes) this.#handles.delete(change.id);
     return changes.changes.length;
   }
 
-  /** 隐藏匹配的元素并返回当前句柄。 */
+  /** 隐藏匹配的 Element，并返回当前句柄。 */
   hide(selector: ElementSelector): readonly Element[] {
     const changes = this.#store.hide(selector);
     return Object.freeze(changes.changes.map(({ id }) => this.#currentHandle(id)));
   }
 
-  /** 显示匹配的元素并返回当前句柄。 */
+  /** 显示匹配的 Element，并返回当前句柄。 */
   show(selector: ElementSelector): readonly Element[] {
     const changes = this.#store.show(selector);
     return Object.freeze(changes.changes.map(({ id }) => this.#currentHandle(id)));
   }
 
-  /** 复制指定元素并返回副本句柄。 */
+  /** 复制指定 Element，并返回副本句柄。 */
   copy<T>(id: string, overrides?: ElementCopyOptions<T>): Element<T> {
     const result = this.#store.transaction((transaction) => {
       const state = transaction.copy(id, overrides);
@@ -169,13 +169,13 @@ export class ElementServiceImpl implements ElementService {
     return this.#currentHandle<T>(result.value.id);
   }
 
-  /** 清空所有元素和句柄缓存。 */
+  /** 清空所有 Element 及其句柄缓存。 */
   clear(): void {
     this.#store.clear();
     this.#handles.clear();
   }
 
-  /** 查询指定屏幕像素命中的元素和图层。 */
+  /** 查询指定屏幕像素命中的 Element 和图层。 */
   atPixel<T = unknown>(pixel: Pixel): ElementHit<T> | undefined {
     const hit = this.#hitTest.atPixel(pixel);
     if (hit === undefined) return undefined;
@@ -187,7 +187,7 @@ export class ElementServiceImpl implements ElementService {
     return element === undefined || layer === undefined ? undefined : Object.freeze({ element, layer });
   }
 
-  /** 获取元素在当前视口中的像素范围。 */
+  /** 获取 Element 在当前视口中的屏幕范围。 */
   getScreenExtent(target: string | Element): ScreenExtent | undefined {
     let id: string;
     let feature: ReturnType<FeatureBinding['requireFeature']>;
@@ -213,7 +213,7 @@ export class ElementServiceImpl implements ElementService {
     return this.#hitTest.getScreenExtent(id);
   }
 
-  /** 获取当前一代要素对应的句柄，必要时重新创建。 */
+  /** 获取当前代 Feature 对应的句柄，代次变化时重新创建。 */
   #currentHandle<T>(id: string): Element<T> {
     const feature = this.#binding.requireFeature(id);
     const cached = this.#handles.get(id);
@@ -237,7 +237,7 @@ export class ElementServiceImpl implements ElementService {
     return handle;
   }
 
-  /** 生成一个尚未占用的元素 ID。 */
+  /** 生成尚未占用的 Element ID。 */
   #generateId(): string {
     if (this.#createId !== undefined) return requireString(this.#createId(), 'Generated element id');
     let id: string;
@@ -251,12 +251,12 @@ export class ElementServiceImpl implements ElementService {
     try {
       this.#nativeRefs.discardProvisionalStyle(reference);
     } catch {
-      // 引用已经提交或注册表已经销毁，无需再次处理。
+      // 引用已经提交，或注册表销毁时已统一终结，无需再次处理。
     }
   }
 }
 
-/** 安全读取并校验元素创建参数。 */
+/** 安全读取并校验 Element 创建参数。 */
 function inspectCreateInput(value: unknown): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError('Element input must be a plain object');
   try {
@@ -278,7 +278,7 @@ function inspectCreateInput(value: unknown): Record<PropertyKey, unknown> {
   }
 }
 
-/** 克隆并确认输入是有效的图形状态。 */
+/** 克隆输入，并由 ShapeRegistry 确认其为有效图形状态。 */
 function requireGeometry(value: unknown): ShapeInput {
   const geometry = cloneCoreState(value);
   if (geometry === null || typeof geometry !== 'object' || typeof (geometry as { type?: unknown }).type !== 'string') {
@@ -311,7 +311,7 @@ function requireBoolean(value: unknown, label: string): boolean {
   return value;
 }
 
-/** 为已不存在的元素生成统一错误。 */
+/** 为已不存在的 Element 生成统一错误。 */
 function missingElement(id: string): never {
   throw new InvalidArgumentError(`Element does not exist: ${id}`);
 }

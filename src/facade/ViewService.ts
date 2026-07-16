@@ -21,28 +21,28 @@ type CoordinateRings = readonly CoordinateLine[];
 
 /** 视图动画配置。 */
 export interface ViewAnimationOptions {
-  /** 时长。单位为毫秒。 */
+  /** 动画时长，单位为毫秒。 */
   readonly duration?: number;
-  /** 缓动函数。用于把动画进度转换为新的进度。 */
+  /** 将线性动画进度映射为新的进度。 */
   readonly easing?: (progress: number) => number;
-  /** 完成回调。动画完成或取消时调用。 */
+  /** 动画完成或取消时调用。 */
   readonly callback?: (completed: boolean) => void;
 }
 
 /** 飞行定位动画配置。 */
 export interface FlyToOptions extends ViewAnimationOptions {
-  /** 缩放级别。省略时保留当前缩放级别。 */
+  /** 目标缩放级别；省略时保留当前值。 */
   readonly zoom?: number;
 }
 
-/** 视图服务。用于控制地图视角、光标、拖拽和世界坐标。 */
+/** 控制地图 View、光标、拖拽和世界坐标的公开服务。 */
 export interface ViewService {
-  /** 原生视图。用于高级 OpenLayers 互操作。 */
+  /** 供高级 OpenLayers 互操作使用的原生 View。 */
   readonly olView: View;
   /**
    * 获取当前中心点。
    *
-   * @returns 当前中心点。视图尚未初始化时返回 `undefined`。
+   * @returns 当前中心点；View 尚未初始化时返回 `undefined`。
    *
    * @example
    * ```ts
@@ -53,8 +53,7 @@ export interface ViewService {
   /**
    * 设置当前中心点。
    *
-   * @param center 中心点。传入投影坐标。
-   * @returns 无返回值。
+   * @param center 当前 View 投影下的中心点。
    *
    * @example
    * ```ts
@@ -65,7 +64,7 @@ export interface ViewService {
   /**
    * 获取当前缩放级别。
    *
-   * @returns 当前缩放级别。视图尚未初始化时返回 `undefined`。
+   * @returns 当前缩放级别；View 尚未初始化时返回 `undefined`。
    *
    * @example
    * ```ts
@@ -76,8 +75,7 @@ export interface ViewService {
   /**
    * 设置当前缩放级别。
    *
-   * @param zoom 缩放级别。数值越大视图越近。
-   * @returns 无返回值。
+   * @param zoom 新的缩放级别；数值越大视图越近。
    *
    * @example
    * ```ts
@@ -88,8 +86,7 @@ export interface ViewService {
   /**
    * 以动画返回初始中心点。
    *
-   * @param options 动画配置。用于设置时长、缓动和回调。
-   * @returns 无返回值。
+   * @param options 动画时长、缓动函数和完成回调。
    *
    * @example
    * ```ts
@@ -100,9 +97,8 @@ export interface ViewService {
   /**
    * 以动画飞行到指定中心点。
    *
-   * @param center 中心点。传入投影坐标。
-   * @param options 动画配置。用于设置缩放级别、时长、缓动和回调。
-   * @returns 无返回值。
+   * @param center 当前 View 投影下的目标中心点。
+   * @param options 目标缩放级别、动画时长、缓动函数和完成回调。
    *
    * @example
    * ```ts
@@ -113,9 +109,8 @@ export interface ViewService {
   /**
    * 立即定位到指定中心点。
    *
-   * @param center 中心点。传入投影坐标。
-   * @param zoom 缩放级别。省略时保留当前级别。
-   * @returns 无返回值。
+   * @param center 当前 View 投影下的目标中心点。
+   * @param zoom 目标缩放级别；省略时保留当前值。
    *
    * @example
    * ```ts
@@ -126,8 +121,8 @@ export interface ViewService {
   /**
    * 将单个二维经纬度坐标转换为当前 View 的投影坐标。
    *
-   * @param coordinates 坐标。使用 EPSG:4326，经度在前，纬度在后。
-   * @returns 转换后的新坐标。使用当前 View 投影。
+   * @param coordinates EPSG:4326 坐标，经度在前、纬度在后。
+   * @returns 当前 View 投影下的新坐标。
    *
    * @example
    * ```ts
@@ -139,8 +134,8 @@ export interface ViewService {
   /**
    * 将经纬度坐标转换为当前 View 的投影坐标。
    *
-   * @param coordinates 坐标。使用 EPSG:4326，扁平数组每两个数字表示一组经纬度，嵌套数组中的每项可以是二维或三维坐标。
-   * @returns 转换后的新坐标。使用当前 View 投影，返回结构与输入一致，三维坐标的第三项保持不变。
+   * @param coordinates EPSG:4326 坐标；扁平数组每两个数字为一组经纬度，嵌套数组每项可为二维或三维坐标。
+   * @returns 当前 View 投影下的新坐标；结构与输入一致，三维坐标的第三项保持不变。
    *
    * @example
    * ```ts
@@ -152,8 +147,8 @@ export interface ViewService {
   /**
    * 将嵌套经纬度坐标转换为当前 View 的投影坐标。
    *
-   * @param coordinates 坐标。使用 EPSG:4326，每项可以是二维或三维坐标。
-   * @returns 转换后的新坐标。使用当前 View 投影，三维坐标的第三项保持不变。
+   * @param coordinates EPSG:4326 坐标，每项可为二维或三维坐标。
+   * @returns 当前 View 投影下的新坐标；三维坐标的第三项保持不变。
    *
    * @example
    * ```ts
@@ -167,8 +162,8 @@ export interface ViewService {
   /**
    * 将单个二维投影坐标转换为经纬度坐标。
    *
-   * @param coordinates 坐标。使用当前 View 投影。
-   * @returns 转换后的新坐标。使用 EPSG:4326，经度在前，纬度在后。
+   * @param coordinates 当前 View 投影下的坐标。
+   * @returns 新的 EPSG:4326 坐标，经度在前、纬度在后。
    *
    * @example
    * ```ts
@@ -179,8 +174,8 @@ export interface ViewService {
   /**
    * 将当前 View 的投影坐标转换为经纬度坐标。
    *
-   * @param coordinates 坐标。使用当前 View 投影，扁平数组每两个数字表示一组投影坐标，嵌套数组中的每项可以是二维或三维坐标。
-   * @returns 转换后的新坐标。使用 EPSG:4326，返回结构与输入一致，三维坐标的第三项保持不变。
+   * @param coordinates 当前 View 投影下的坐标；扁平数组每两个数字为一组，嵌套数组每项可为二维或三维坐标。
+   * @returns 新的 EPSG:4326 坐标；结构与输入一致，三维坐标的第三项保持不变。
    *
    * @example
    * ```ts
@@ -192,8 +187,8 @@ export interface ViewService {
   /**
    * 将嵌套投影坐标转换为经纬度坐标。
    *
-   * @param coordinates 坐标。使用当前 View 投影，每项可以是二维或三维坐标。
-   * @returns 转换后的新坐标。使用 EPSG:4326，三维坐标的第三项保持不变。
+   * @param coordinates 当前 View 投影下的坐标，每项可为二维或三维坐标。
+   * @returns 新的 EPSG:4326 坐标；三维坐标的第三项保持不变。
    *
    * @example
    * ```ts
@@ -204,8 +199,7 @@ export interface ViewService {
   /**
    * 设置地图光标。
    *
-   * @param cursor 光标样式。使用有效的 CSS cursor 值。
-   * @returns 无返回值。
+   * @param cursor 有效的 CSS cursor 值。
    *
    * @example
    * ```ts
@@ -216,7 +210,6 @@ export interface ViewService {
   /**
    * 恢复默认光标。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -227,7 +220,6 @@ export interface ViewService {
   /**
    * 使用十字光标。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -238,8 +230,7 @@ export interface ViewService {
   /**
    * 开启或关闭地图拖拽。
    *
-   * @param enabled 开关。传 `true` 允许拖拽，传 `false` 禁止拖拽。
-   * @returns 无返回值。
+   * @param enabled `true` 允许拖拽，`false` 禁止拖拽。
    *
    * @example
    * ```ts
@@ -250,7 +241,7 @@ export interface ViewService {
   /**
    * 获取当前投影的世界宽度。
    *
-   * @returns 世界宽度。投影没有有限范围时返回 `undefined`。
+   * @returns 当前投影的世界宽度；投影没有有限范围时返回 `undefined`。
    *
    * @example
    * ```ts
@@ -261,8 +252,8 @@ export interface ViewService {
   /**
    * 获取横坐标所在的世界副本索引。
    *
-   * @param x 横坐标。传入当前投影下的 X 值。
-   * @returns 世界索引。投影没有有限范围时返回 `undefined`。
+   * @param x 当前投影下的 X 值。
+   * @returns 所在世界副本的索引；投影没有有限范围时返回 `undefined`。
    *
    * @example
    * ```ts
@@ -273,7 +264,7 @@ export interface ViewService {
   /**
    * 将单个坐标移动到当前视图所在的世界副本。
    *
-   * @param coordinates 坐标。传入需要归一化的投影坐标。
+   * @param coordinates 待归一化的投影坐标。
    * @returns 归一化后的新坐标。
    *
    * @example
@@ -285,7 +276,7 @@ export interface ViewService {
   /**
    * 将一组坐标移动到当前视图所在的世界副本。
    *
-   * @param coordinates 坐标列表。传入需要归一化的线坐标。
+   * @param coordinates 待归一化的一组投影坐标。
    * @returns 归一化后的新坐标列表。
    *
    * @example
@@ -297,7 +288,7 @@ export interface ViewService {
   /**
    * 将多组坐标移动到当前视图所在的世界副本。
    *
-   * @param coordinates 坐标组。传入需要归一化的多组坐标。
+   * @param coordinates 待归一化的多组投影坐标。
    * @returns 归一化后的新坐标组。
    *
    * @example
@@ -309,8 +300,8 @@ export interface ViewService {
   /**
    * 将单个坐标恢复到指定世界副本。
    *
-   * @param coordinates 坐标。传入需要恢复的投影坐标。
-   * @param index 世界索引。传 `undefined` 时只返回副本。
+   * @param coordinates 待恢复的投影坐标。
+   * @param index 目标世界副本索引；传 `undefined` 时只复制坐标。
    * @returns 恢复后的新坐标。
    *
    * @example
@@ -322,8 +313,8 @@ export interface ViewService {
   /**
    * 将一组坐标恢复到指定世界副本。
    *
-   * @param coordinates 坐标列表。传入需要恢复的线坐标。
-   * @param index 世界索引。传 `undefined` 时只返回副本。
+   * @param coordinates 待恢复的一组投影坐标。
+   * @param index 目标世界副本索引；传 `undefined` 时只复制坐标。
    * @returns 恢复后的新坐标列表。
    *
    * @example
@@ -335,8 +326,8 @@ export interface ViewService {
   /**
    * 将多组坐标恢复到指定世界副本。
    *
-   * @param coordinates 坐标组。传入需要恢复的多组坐标。
-   * @param index 世界索引。传 `undefined` 时只返回副本。
+   * @param coordinates 待恢复的多组投影坐标。
+   * @param index 目标世界副本索引；传 `undefined` 时只复制坐标。
    * @returns 恢复后的新坐标组。
    *
    * @example
@@ -348,7 +339,7 @@ export interface ViewService {
   /**
    * 将屏幕坐标转换为地图坐标。
    *
-   * @param pixel 屏幕坐标。以地图视口左上角为原点。
+   * @param pixel 以地图视口左上角为原点的屏幕坐标。
    * @returns 对应的地图坐标。无法换算时返回 `undefined`。
    *
    * @example
@@ -360,8 +351,8 @@ export interface ViewService {
   /**
    * 平移单个坐标，使其中心落到指定屏幕位置。
    *
-   * @param pixel 屏幕坐标。表示目标位置。
-   * @param coordinates 坐标。传入需要平移的投影坐标。
+   * @param pixel 目标屏幕位置。
+   * @param coordinates 待平移的投影坐标。
    * @returns 平移后的新坐标。无法换算时返回 `undefined`。
    *
    * @example
@@ -373,8 +364,8 @@ export interface ViewService {
   /**
    * 平移一组坐标，使其中心落到指定屏幕位置。
    *
-   * @param pixel 屏幕坐标。表示目标位置。
-   * @param coordinates 坐标列表。传入需要平移的线坐标。
+   * @param pixel 目标屏幕位置。
+   * @param coordinates 待平移的一组投影坐标。
    * @returns 平移后的新坐标列表。无法换算时返回 `undefined`。
    *
    * @example
@@ -386,8 +377,8 @@ export interface ViewService {
   /**
    * 平移多组坐标，使其中心落到指定屏幕位置。
    *
-   * @param pixel 屏幕坐标。表示目标位置。
-   * @param coordinates 坐标组。传入需要平移的多组坐标。
+   * @param pixel 目标屏幕位置。
+   * @param coordinates 待平移的多组投影坐标。
    * @returns 平移后的新坐标组。无法换算时返回 `undefined`。
    *
    * @example
@@ -398,7 +389,7 @@ export interface ViewService {
   translateCoordinatesToPixel(pixel: Pixel, coordinates: readonly (readonly Coordinate[])[]): readonly (readonly Coordinate[])[] | undefined;
 }
 
-/** ViewService 创建上下文。 */
+/** ViewService 依赖的实例级地图对象和光标端口。 */
 interface ViewServiceContext {
   /** 地图对象。 */
   readonly map: Map;
@@ -406,11 +397,11 @@ interface ViewServiceContext {
   readonly olView: View;
   /** 地图视口。 */
   readonly viewport: HTMLElement;
-  /** 可选的交互光标基准更新入口。 */
+  /** 更新交互光标基准值的可选入口。 */
   readonly setCursor?: (cursor: string) => void;
 }
 
-/** 校验后的动画配置。 */
+/** 归一化后的动画配置。 */
 interface ParsedAnimationOptions {
   /** 动画时长。 */
   readonly duration: number;
@@ -426,7 +417,7 @@ interface ParsedAnimationOptions {
 export class ViewServiceImpl implements ViewService {
   /** 默认动画时长。 */
   static readonly DEFAULT_DURATION = 2_000;
-  /** 返回初始位置时使用的缩放级别。 */
+  /** 返回初始位置时固定使用的缩放级别。 */
   static readonly HOME_ZOOM = 4;
 
   /** 原生视图。 */
@@ -435,14 +426,14 @@ export class ViewServiceImpl implements ViewService {
   readonly #map: Map;
   /** 地图视口。 */
   readonly #viewport: HTMLElement;
-  /** 更新外部光标基准的入口。 */
+  /** 更新外部光标基准值的入口。 */
   readonly #setCursor: (cursor: string) => void;
   /** 初始中心点。 */
   readonly #home: Coordinate;
-  /** 服务是否已销毁。 */
+  /** 防止销毁后继续访问。 */
   #disposed = false;
 
-  /** 创建视图服务。 */
+  /** 绑定地图、View、视口和初始中心点。 */
   constructor(context: ViewServiceContext, home?: readonly number[]) {
     this.#map = context.map;
     this.olView = context.olView;
@@ -518,11 +509,11 @@ export class ViewServiceImpl implements ViewService {
     if (zoom !== undefined) this.olView.setZoom(requireFinite(zoom, 'Fly-to zoom'));
   }
 
-  /** 将经纬度坐标转换为当前 View 的投影坐标。 */
+  /** 将 EPSG:4326 坐标转换为当前 View 的投影坐标。 */
   toProjectedCoordinates(coordinates: readonly [number, number]): readonly [number, number];
   toProjectedCoordinates(coordinates: readonly number[]): readonly number[];
   toProjectedCoordinates(coordinates: readonly (readonly number[])[]): CoordinateLine;
-  /** 统一处理扁平和嵌套坐标。 */
+  /** 保持输入结构，统一处理扁平与嵌套坐标。 */
   toProjectedCoordinates(coordinates: readonly number[] | readonly (readonly number[])[]): readonly number[] | CoordinateLine {
     this.#assertActive();
     const projection = this.olView.getProjection();
@@ -537,7 +528,7 @@ export class ViewServiceImpl implements ViewService {
   toGeographicCoordinates(coordinates: readonly [number, number]): readonly [number, number];
   toGeographicCoordinates(coordinates: readonly number[]): readonly number[];
   toGeographicCoordinates(coordinates: readonly (readonly number[])[]): CoordinateLine;
-  /** 统一处理扁平和嵌套坐标。 */
+  /** 保持输入结构，统一处理扁平与嵌套坐标。 */
   toGeographicCoordinates(coordinates: readonly number[] | readonly (readonly number[])[]): readonly number[] | CoordinateLine {
     this.#assertActive();
     const projection = this.olView.getProjection();
@@ -590,7 +581,7 @@ export class ViewServiceImpl implements ViewService {
   normalizeToViewWorld(coordinates: Coordinate): Coordinate;
   normalizeToViewWorld(coordinates: CoordinateLine): CoordinateLine;
   normalizeToViewWorld(coordinates: CoordinateRings): CoordinateRings;
-  /** 统一处理不同层级的坐标输入。 */
+  /** 保持输入层级，统一处理单点、线和多组坐标。 */
   normalizeToViewWorld(coordinates: Coordinate | CoordinateLine | CoordinateRings): Coordinate | CoordinateLine | CoordinateRings {
     this.#assertActive();
     return normalizeCoordinatesToViewWorld(this.olView, coordinates as CoordinateRings);
@@ -600,7 +591,7 @@ export class ViewServiceImpl implements ViewService {
   restoreToWorld(coordinates: Coordinate, index: number | undefined): Coordinate;
   restoreToWorld(coordinates: CoordinateLine, index: number | undefined): CoordinateLine;
   restoreToWorld(coordinates: CoordinateRings, index: number | undefined): CoordinateRings;
-  /** 统一处理不同层级的坐标输入。 */
+  /** 保持输入层级，统一处理单点、线和多组坐标。 */
   restoreToWorld(coordinates: Coordinate | CoordinateLine | CoordinateRings, index: number | undefined): Coordinate | CoordinateLine | CoordinateRings {
     this.#assertActive();
     return restoreCoordinatesToWorld(this.olView, coordinates as CoordinateRings, index);
@@ -616,7 +607,7 @@ export class ViewServiceImpl implements ViewService {
   translateCoordinatesToPixel(pixel: Pixel, coordinates: Coordinate): Coordinate | undefined;
   translateCoordinatesToPixel(pixel: Pixel, coordinates: CoordinateLine): CoordinateLine | undefined;
   translateCoordinatesToPixel(pixel: Pixel, coordinates: CoordinateRings): CoordinateRings | undefined;
-  /** 统一处理不同层级的坐标输入。 */
+  /** 保持输入层级，统一处理单点、线和多组坐标。 */
   translateCoordinatesToPixel(
     pixel: Pixel,
     coordinates: Coordinate | CoordinateLine | CoordinateRings
@@ -638,13 +629,13 @@ export class ViewServiceImpl implements ViewService {
     else this.olView.animate(options, callback);
   }
 
-  /** 确认服务仍可使用。 */
+  /** 拒绝销毁后的服务调用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('ViewService has been destroyed');
   }
 }
 
-/** 检查并补全动画配置。 */
+/** 校验动画配置，并补齐默认值。 */
 function inspectAnimationOptions(options: ViewAnimationOptions | FlyToOptions | undefined, allowZoom: boolean): ParsedAnimationOptions {
   if (options === undefined) return { duration: ViewServiceImpl.DEFAULT_DURATION };
   const record = inspectRecord(options, 'View animation options');
@@ -664,7 +655,7 @@ function inspectAnimationOptions(options: ViewAnimationOptions | FlyToOptions | 
   };
 }
 
-/** 检查并复制普通对象。 */
+/** 校验并复制只含数据属性的普通对象。 */
 function inspectRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {
@@ -695,7 +686,7 @@ function copyCoordinate(value: unknown, label: string): Coordinate {
   return Object.freeze(numbers) as Coordinate;
 }
 
-/** 转换扁平或一层嵌套坐标，并保持输入结构。 */
+/** 转换扁平或单层嵌套坐标，同时保持输入结构。 */
 function transformCoordinateStructure(
   value: unknown,
   transformCoordinate: (coordinate: Coordinate) => readonly number[],
@@ -725,7 +716,7 @@ function transformCoordinateStructure(
   return Object.freeze(transformed);
 }
 
-/** 转换单个坐标，并把底层投影错误统一为公共参数错误。 */
+/** 转换单个坐标，并将底层投影异常统一为公共参数错误。 */
 function transformCoordinate(coordinate: Coordinate, source: ProjectionLike, destination: ProjectionLike, label: string): readonly number[] {
   try {
     return transform([...coordinate], source, destination);
@@ -734,7 +725,7 @@ function transformCoordinate(coordinate: Coordinate, source: ProjectionLike, des
   }
 }
 
-/** 判断值是否为数组，并统一处理无法读取的代理对象。 */
+/** 安全判断数组，屏蔽不可读取代理对象抛出的异常。 */
 function isArrayValue(value: unknown, label: string): boolean {
   try {
     return Array.isArray(value);
@@ -750,7 +741,7 @@ function inspectCoordinate(value: unknown, label: string): Coordinate {
   return Object.freeze(items.map((item, index) => requireFinite(item, `${label}[${index}]`))) as Coordinate;
 }
 
-/** 安全读取普通数组中的数据项。 */
+/** 从普通数组中安全读取数据项。 */
 function inspectArrayItems(value: unknown, label: string): readonly unknown[] {
   try {
     if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new InvalidArgumentError(`${label} must be an array`);

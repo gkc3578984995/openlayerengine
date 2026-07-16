@@ -4,12 +4,12 @@ import Graticule, { type Options as OlGraticuleOptions } from 'ol/layer/Graticul
 import Stroke from 'ol/style/Stroke.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../core/errors.js';
 
-/** 经纬网配置。沿用 OpenLayers Graticule 公开选项。 */
+/** OpenLayers Graticule 的公开配置。 */
 export type GraticuleOptions = OlGraticuleOptions;
-/** 比例尺配置。沿用 OpenLayers ScaleLine 公开选项。 */
+/** OpenLayers ScaleLine 的公开配置。 */
 export type ScaleLineOptions = OlScaleLineOptions;
 
-/** 控件服务。用于管理经纬网和比例尺。 */
+/** 管理经纬网和比例尺的公开服务。 */
 export interface ControlService {
   /** 经纬网。未启用时为 `undefined`。 */
   readonly graticule: Graticule | undefined;
@@ -20,7 +20,7 @@ export interface ControlService {
    *
    * 再次调用会先移除旧经纬网，再使用新配置创建。
    *
-   * @param options 配置。用于设置线样式、标签和层级等选项。
+   * @param options 线样式、标签和层级等 Graticule 选项。
    * @returns 新创建的 OpenLayers 经纬网图层。
    *
    * @example
@@ -32,7 +32,6 @@ export interface ControlService {
   /**
    * 关闭经纬网。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -45,7 +44,7 @@ export interface ControlService {
    *
    * 再次调用会先移除旧比例尺，再使用新配置创建。
    *
-   * @param options 配置。用于设置单位、样式和最小宽度等选项。
+   * @param options 单位、样式和最小宽度等 ScaleLine 选项。
    * @returns 新创建的 OpenLayers 比例尺控件。
    *
    * @example
@@ -57,7 +56,6 @@ export interface ControlService {
   /**
    * 关闭比例尺。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -67,7 +65,7 @@ export interface ControlService {
   disableScaleLine(): void;
 }
 
-/** ControlService 创建上下文。 */
+/** ControlService 依赖的实例级地图对象。 */
 interface ControlServiceContext {
   /** 地图对象。 */
   readonly map: Map;
@@ -84,7 +82,7 @@ export class ControlServiceImpl implements ControlService {
   /** 服务是否已销毁。 */
   #disposed = false;
 
-  /** 创建控件服务。 */
+  /** 绑定控件服务所属的 OpenLayers Map。 */
   constructor(context: ControlServiceContext) {
     this.#map = context.map;
   }
@@ -188,13 +186,13 @@ export class ControlServiceImpl implements ControlService {
     if (failed) throw firstError;
   }
 
-  /** 确认服务仍可使用。 */
+  /** 拒绝销毁后的服务调用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('ControlService has been destroyed');
   }
 }
 
-/** 检查并浅复制控件配置。 */
+/** 校验并浅复制控件配置，避免读取访问器属性。 */
 function copyOptions<T extends object>(value: T, label: string): T {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {

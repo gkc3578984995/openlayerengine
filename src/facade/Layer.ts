@@ -14,13 +14,13 @@ interface LayerHandleState {
   removedByHandle: boolean;
 }
 
-/** 只允许内部服务创建 Layer 的校验令牌。 */
+/** 防止调用方绕过 LayerService 构造句柄的内部令牌。 */
 const layerToken = Symbol('ol-engine.facade.Layer.internal');
 /** Layer 句柄与内部状态的关联表。 */
 const layerStates = new WeakMap<Layer, LayerHandleState>();
 
 /**
- * 地图图层句柄。用于读取状态、更新图层或将其移除。
+ * 地图 Layer 的实时句柄，可读取状态、提交更新或移除图层。
  *
  * Layer 由 `earth.layers` 返回，请不要手动创建。
  *
@@ -48,38 +48,38 @@ export class Layer {
     layerStates.set(this, args[1]);
   }
 
-  /** 图层 ID。用于唯一标识当前图层。 */
+  /** 当前 Layer 的唯一 ID。 */
   get id(): string {
     return stateOf(this).id;
   }
 
-  /** 图层状态。返回当前不可变状态快照。 */
+  /** 当前不可变状态快照。 */
   get state(): Readonly<LayerState> {
     const state = currentStateOf(this);
     return state.getState();
   }
 
-  /** 图层类型。表示矢量、瓦片或原生图层。 */
+  /** 图层类型：矢量、瓦片或原生图层。 */
   get kind(): LayerKind {
     return this.state.kind;
   }
 
-  /** 可见状态。表示当前图层是否显示。 */
+  /** 当前图层是否可见。 */
   get visible(): boolean {
     return this.state.visible;
   }
 
-  /** 透明度。取值范围为 0 到 1。 */
+  /** 图层透明度，取值范围为 0 到 1。 */
   get opacity(): number {
     return this.state.opacity;
   }
 
-  /** 层级。数值越大越靠上。 */
+  /** 图层层级；数值越大越靠上。 */
   get zIndex(): number | undefined {
     return this.state.zIndex;
   }
 
-  /** 原生图层。用于高级 OpenLayers 互操作。 */
+  /** 供高级 OpenLayers 互操作使用的原生图层。 */
   get olLayer(): BaseLayer {
     return currentStateOf(this).nativeLayer;
   }
@@ -87,8 +87,7 @@ export class Layer {
   /**
    * 更新图层状态。
    *
-   * @param patch 更新内容。只写入需要修改的字段。
-   * @returns 无返回值。
+   * @param patch 需要修改的状态字段。
    *
    * @example
    * ```ts
@@ -102,7 +101,6 @@ export class Layer {
   /**
    * 显示图层。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -116,7 +114,6 @@ export class Layer {
   /**
    * 隐藏图层。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -130,7 +127,6 @@ export class Layer {
   /**
    * 从所属 Earth 中移除当前图层。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -146,7 +142,7 @@ export class Layer {
   }
 }
 
-/** 使用内部状态创建公开 Layer 句柄。 */
+/** 由内部状态构造公共 Layer 句柄。 */
 export function constructLayerHandle(internal: unknown): Layer {
   const Constructor = Layer as unknown as new (token: symbol, state: unknown) => Layer;
   return new Constructor(layerToken, internal);
@@ -159,14 +155,14 @@ function stateOf(handle: Layer): LayerHandleState {
   return state;
 }
 
-/** 读取仍然有效的 Layer 内部状态。 */
+/** 读取 Layer 的内部状态，并拒绝已失效的句柄。 */
 function currentStateOf(handle: Layer): LayerHandleState {
   const state = stateOf(handle);
   if (!state.isCurrent()) throw new ObjectDisposedError(`Layer handle is stale: ${state.id}`);
   return state;
 }
 
-/** 判断未知值是否满足 Layer 内部状态结构。 */
+/** 检查未知值是否具备 Layer 句柄所需的内部结构。 */
 function isLayerHandleState(value: unknown): value is LayerHandleState {
   if (value === null || typeof value !== 'object') return false;
   const state = value as Partial<LayerHandleState>;

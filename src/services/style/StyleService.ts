@@ -81,9 +81,9 @@ const circleOnlyPatchFields = new Set(['radius', 'fill', 'stroke']);
 /** 仅图片符号补丁可使用的字段。 */
 const iconOnlyPatchFields = new Set([...iconFields].filter((field) => field !== 'type'));
 
-/** 负责设置、合并、校验和复制元素样式。 */
+/** 通过 ElementStore 事务设置、合并和复制 Element 样式。 */
 export class StyleService {
-  /** 元素状态仓库。 */
+  /** Element 状态真源；所有持久样式更新都通过事务提交。 */
   readonly #store: ElementStore;
 
   /** 创建样式服务。 */
@@ -96,7 +96,7 @@ export class StyleService {
     return this.setResolved(selector, () => style);
   }
 
-  /** 延迟解析样式后为匹配元素统一替换。 */
+  /** 在事务内解析一次样式，再替换所有匹配 Element 的样式。 */
   setResolved(selector: ElementSelector, resolveStyle: () => ElementStyleState): ElementChangeSet {
     return this.#store.transaction((transaction) => {
       const safeStyle = cloneStyleState(resolveStyle());
@@ -109,7 +109,7 @@ export class StyleService {
     return this.#store.transaction((transaction) => {
       const safePatch = cloneCoreState(patch);
       assertStylePatch(safePatch);
-      // 空更新使破坏性选择器校验与恶意 getter 防护保持在同一事务只读阶段内。
+      // 即使补丁为空，也在事务的只读阶段完成破坏性选择器校验和 getter 防护。
       transaction.update(selector, {});
 
       const matches = transaction.query(selector);

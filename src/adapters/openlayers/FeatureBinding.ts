@@ -14,129 +14,90 @@ import type { GeometryCodec } from './GeometryCodec.js';
 import type { LayerAdapter } from './LayerAdapter.js';
 import type { StyleCompiler } from './style/StyleCompiler.js';
 
-/** 已绑定要素使用的矢量数据源。 */
 type BoundSource = VectorSource<Feature<Geometry>>;
 
-/** 单个元素与 OpenLayers 要素的绑定状态。 */
+/** 单个 Element 与 OpenLayers Feature 的绑定状态。 */
 interface BindingRecord {
-  /** 实际 OpenLayers 要素。 */
   readonly feature: Feature<Geometry>;
-  /** 用于识别绑定代次的标记。 */
   readonly generation: symbol;
-  /** 当前持有的投影抑制令牌。 */
   readonly suppressionTokens: Set<symbol>;
-  /** 正在获取抑制权时加入的令牌。 */
   suppressionAcquisition: Set<symbol> | undefined;
-  /** 要素当前所属的图层 ID。 */
   layerId: string;
-  /** 元素当前是否可见。 */
   visible: boolean;
 }
 
 /** 销毁单个绑定时的分步进度。 */
 interface DestroyRecordProgress {
-  /** 元素 ID。 */
   readonly id: string;
-  /** 待销毁的绑定。 */
   readonly binding: BindingRecord;
-  /** 几何是否已经清除。 */
   geometryCleared: boolean;
-  /** 样式是否已经清除。 */
   styleCleared: boolean;
-  /** 要素是否已经销毁。 */
   disposed: boolean;
 }
 
 /** FeatureBinding 整体销毁进度。 */
 interface DestroyProgress {
-  /** 每个绑定的清理进度。 */
   readonly records: readonly DestroyRecordProgress[];
-  /** 是否已经取消 Store 订阅。 */
   unsubscribed: boolean;
-  /** 是否已经从全部数据源移除要素。 */
   detached: boolean;
 }
 
-/** FeatureBinding 的生命周期状态。 */
 type Lifecycle = 'active' | 'destroying' | 'destroyed';
 
 /** 一份投影抑制租约共享的内部状态。 */
 interface SuppressionLeaseState {
-  /** 被抑制的元素 ID。 */
   readonly elementId: string;
-  /** 获取租约时的绑定。 */
   readonly binding: BindingRecord;
-  /** 获取租约时的绑定代次。 */
   readonly generation: symbol;
-  /** 写入绑定令牌集合的唯一标记。 */
   readonly token: symbol;
-  /** 当前租约句柄的所有者。 */
   owner: symbol | undefined;
-  /** 租约是否已经释放。 */
   released: boolean;
 }
 
 /** FeatureBinding 的可选配置。 */
 export interface FeatureBindingOptions {
-  /** 接收投影和清理过程中的非致命错误。 */
+  /** 接收投影同步与资源清理中的非致命错误。 */
   readonly errorReporter?: ErrorReporter;
 }
 
-/** 从 OpenLayers 要素解析出的元素身份。 */
+/** 从 OpenLayers Feature 解析出的 Element 身份。 */
 export interface BoundFeatureIdentity {
-  /** 元素 ID。 */
   readonly elementId: string;
-  /** 元素所属图层 ID。 */
   readonly layerId: string;
-  /** 元素当前是否可见。 */
   readonly visible: boolean;
 }
 
-/** 暂停元素投影到矢量数据源的租约。 */
+/** 暂停 Element 投影到矢量 Source 的租约。 */
 export interface ProjectionSuppressionLease {
-  /** 被暂停投影的元素 ID。 */
+  /** 暂停投影的 Element ID。 */
   readonly elementId: string;
-  /** 租约是否已经生效且仍有效。 */
+  /** 当前句柄是否仍持有有效租约。 */
   readonly active: boolean;
-  /** 将租约所有权转交给新句柄。 */
+  /** 把所有权移交给新句柄，旧句柄随即失效。 */
   handoff(): ProjectionSuppressionLease;
-  /** 释放租约并恢复元素投影。 */
+  /** 释放最后一份租约时恢复 Element 投影。 */
   release(): void;
 }
 
-/** 元素隐藏时使用的空样式函数。 */
 const hiddenStyle: StyleFunction = () => [];
 
-/** 将元素 Store 持续同步为 OpenLayers 要素。 */
+/** 将 ElementStore 的规范状态单向投影为 OpenLayers Feature。 */
 export class FeatureBinding {
-  /** 元素核心状态来源。 */
   readonly #store: ElementStore;
-  /** 提供矢量图层和数据源。 */
   readonly #layers: LayerAdapter;
-  /** 将图形状态转换为 Geometry。 */
   readonly #geometry: GeometryCodec;
-  /** 将样式状态编译为 OpenLayers 样式。 */
   readonly #styles: StyleCompiler;
-  /** 接收同步过程中的非致命错误。 */
   readonly #errorReporter: ErrorReporter;
-  /** 按元素 ID 保存当前绑定。 */
   readonly #bindings = new Map<string, BindingRecord>();
-  /** 从 OpenLayers 要素反查元素 ID。 */
   readonly #featureIds = new WeakMap<Feature<Geometry>, string>();
-  /** 等待再次同步的元素 ID。 */
   readonly #dirty = new Set<string>();
-  /** 取消元素 Store 订阅的函数。 */
   readonly #unsubscribe: () => void;
-  /** 当前生命周期状态。 */
   #lifecycle: Lifecycle = 'active';
-  /** 可重试的销毁进度。 */
   #destroyProgress: DestroyProgress | undefined;
-  /** 是否正在执行销毁。 */
   #destroyRunning = false;
-  /** 是否正在进行完整对账。 */
   #reconciling = false;
 
-  /** 保存同步依赖、订阅 Store，并执行首次对账。 */
+  /** 订阅 Store 后立即完成首次全量对账。 */
   constructor(store: ElementStore, layers: LayerAdapter, geometry: GeometryCodec, styles: StyleCompiler, options: FeatureBindingOptions = {}) {
     this.#store = store;
     this.#layers = layers;
@@ -147,7 +108,7 @@ export class FeatureBinding {
     this.reconcile();
   }
 
-  /** 在状态提交前检查图层、图形和样式是否可投影。 */
+  /** 在提交前用临时 Feature 验证图层、Geometry 和样式均可投影。 */
   preflight(state: Readonly<ElementState>): void {
     this.#assertActive();
     void this.#layers.requireVectorSource(state.layerId);
@@ -162,13 +123,12 @@ export class FeatureBinding {
     }
   }
 
-  /** 返回图形最终使用的渲染类型。 */
   renderKind(state: ShapeInput): RenderGeometryKind {
     this.#assertActive();
     return this.#geometry.renderKind(state);
   }
 
-  /** 获取元素当前绑定的 OpenLayers 要素。 */
+  /** 取得 Element 当前绑定的 Feature；读取前先重试脏绑定。 */
   requireFeature(id: string): Feature<Geometry> {
     this.#assertActive();
     this.#reconcileDirty();
@@ -177,7 +137,7 @@ export class FeatureBinding {
     return feature;
   }
 
-  /** 临时将元素要素从所有矢量数据源移除。 */
+  /** 暂停 Element 投影，并以可交接租约管理恢复时机。 */
   suppressProjection(elementId: string): ProjectionSuppressionLease {
     this.#assertActive();
     this.#reconcileDirty();
@@ -291,20 +251,20 @@ export class FeatureBinding {
     return current === state.binding && current.generation === state.generation;
   }
 
-  /** 判断要素是否仍是指定元素的当前绑定。 */
+  /** 判断 Feature 是否仍是指定 Element 的当前绑定。 */
   isCurrentFeature(id: string, feature: Feature<Geometry>): boolean {
     this.#assertActive();
     return this.#bindings.get(id)?.feature === feature;
   }
 
-  /** 从当前要素反查元素 ID。 */
+  /** 从当前 Feature 反查 Element ID。 */
   elementIdFor(feature: Feature<Geometry>): string | undefined {
     if (this.#lifecycle !== 'active') return undefined;
     const id = this.#featureIds.get(feature);
     return id !== undefined && this.#bindings.get(id)?.feature === feature ? id : undefined;
   }
 
-  /** 解析要素当前对应的元素、图层和可见状态。 */
+  /** 解析 Feature 当前对应的 Element、图层和可见状态。 */
   resolveFeature(feature: Feature<Geometry>): BoundFeatureIdentity | undefined {
     if (this.#lifecycle !== 'active') return undefined;
     const elementId = this.elementIdFor(feature);
@@ -315,7 +275,7 @@ export class FeatureBinding {
     return { elementId, layerId: binding.layerId, visible: binding.visible };
   }
 
-  /** 判断元素所属矢量源是否启用水平世界环绕。 */
+  /** 判断 Element 所属矢量 Source 是否启用水平世界环绕。 */
   wrapsX(elementId: string): boolean {
     this.#assertActive();
     const binding = this.#bindings.get(elementId);
@@ -323,7 +283,7 @@ export class FeatureBinding {
     return this.#layers.requireVectorSource(binding.layerId).getWrapX() === true;
   }
 
-  /** 对照整个元素 Store 修正全部要素绑定。 */
+  /** 以整个 Element Store 为准修正全部 Feature 绑定。 */
   reconcile(): void {
     this.#assertActive();
     if (this.#reconciling) return;
@@ -341,7 +301,7 @@ export class FeatureBinding {
     }
   }
 
-  /** 分步解绑并销毁全部 OpenLayers 要素。 */
+  /** 分步解绑并销毁全部 OpenLayers Feature。 */
   destroy(): void {
     if (this.#lifecycle === 'destroyed' || this.#destroyRunning) return;
     if (this.#lifecycle === 'active') this.#beginDestroy();
@@ -389,14 +349,14 @@ export class FeatureBinding {
     }
   }
 
-  /** 接收 Store 变化并同步对应要素。 */
+  /** 接收 Store 变化并同步对应 Feature。 */
   #onChanges(changes: ElementChangeSet): void {
     if (this.#lifecycle !== 'active') return;
     this.#reconcileDirty();
     this.#applyChanges(changes);
   }
 
-  /** 重新同步之前失败并标记为脏的元素。 */
+  /** 重新同步此前失败并标记为脏的 Element。 */
   #reconcileDirty(): void {
     if (this.#dirty.size === 0 || this.#reconciling) return;
     const ids = [...this.#dirty];
@@ -409,7 +369,7 @@ export class FeatureBinding {
     this.#applyChanges({ changes });
   }
 
-  /** 只重新同步一个元素。 */
+  /** 只重新同步一个 Element。 */
   #reconcileElement(id: string): void {
     this.#assertActive();
     const state = this.#store.get(id);
@@ -417,7 +377,7 @@ export class FeatureBinding {
     this.#applyChanges({ changes: [change] });
   }
 
-  /** 批量应用元素增删改并更新数据源。 */
+  /** 批量应用 Element 增删改并更新 Source。 */
   #applyChanges(changes: ElementChangeSet): void {
     const sources = this.#layers.vectorSources();
     const targetSources = new Map<string, BoundSource>();
@@ -472,7 +432,7 @@ export class FeatureBinding {
     for (const [id, binding] of removed) this.#disposeBinding(id, binding);
   }
 
-  /** 创建并登记一个新的要素绑定。 */
+  /** 创建并登记一个新的 Feature 绑定。 */
   #createBinding(id: string, layerId: string): BindingRecord {
     const feature = new Feature<Geometry>();
     const record = { feature, generation: Symbol(id), suppressionTokens: new Set<symbol>(), suppressionAcquisition: undefined, layerId, visible: false };
@@ -481,7 +441,7 @@ export class FeatureBinding {
     return record;
   }
 
-  /** 按数据源批量移除要素，失败时逐个重试。 */
+  /** 按 Source 批量移除 Feature，失败时逐个重试。 */
   #removeBatches(batches: Map<BoundSource, Feature<Geometry>[]>, markDirty: boolean): void {
     for (const [source, features] of batches) {
       const unique = [...new Set(features)];
@@ -505,7 +465,7 @@ export class FeatureBinding {
     }
   }
 
-  /** 按数据源批量新增要素，失败时逐个重试。 */
+  /** 按 Source 批量新增 Feature，失败时逐个重试。 */
   #addBatches(batches: Map<BoundSource, Feature<Geometry>[]>): void {
     for (const [source, features] of batches) {
       const unique = [...new Set(features)].filter((feature) => !source.hasFeature(feature));
@@ -528,7 +488,7 @@ export class FeatureBinding {
     }
   }
 
-  /** 删除绑定并尽力清理对应 OpenLayers 要素。 */
+  /** 删除绑定并尽力清理对应 OpenLayers Feature。 */
   #disposeBinding(id: string, binding: BindingRecord): void {
     this.#bindings.delete(id);
     this.#featureIds.delete(binding.feature);
@@ -540,7 +500,7 @@ export class FeatureBinding {
     this.#attempt(() => binding.feature.dispose(), id, 'dispose-feature');
   }
 
-  /** 标记元素需要重试并上报本次错误。 */
+  /** 标记 Element 需要重试并上报本次错误。 */
   #markFailed(id: string, error: unknown, operation: string): void {
     this.#dirty.add(id);
     this.#report(error, operation, id);
@@ -591,7 +551,7 @@ export class FeatureBinding {
     }
   }
 
-  /** 从全部矢量数据源移除待销毁要素。 */
+  /** 从全部矢量 Source 移除待销毁 Feature。 */
   #detachDestroyRecords(records: readonly DestroyRecordProgress[]): void {
     const sources = this.#layers.vectorSources();
     const bySource = new Map<BoundSource, Feature<Geometry>[]>();
@@ -627,7 +587,7 @@ export class FeatureBinding {
   }
 }
 
-/** 将要素追加到按数据源分组的批次。 */
+/** 将 Feature 追加到按 Source 分组的批次。 */
 function append(map: Map<BoundSource, Feature<Geometry>[]>, source: BoundSource, feature: Feature<Geometry>): void {
   const values = map.get(source);
   if (values === undefined) map.set(source, [feature]);

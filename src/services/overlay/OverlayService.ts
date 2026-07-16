@@ -393,7 +393,7 @@ function sameLineStyle(left: ElementState['style'], right: ElementState['style']
 interface OverlayRecord<T = unknown> {
   /** 当前 Overlay 状态。 */
   state: Readonly<InternalOverlayState<T>>;
-  /** 用于识别过期句柄的代次标记。 */
+  /** 句柄创建时捕获的代次；不一致时拒绝过期操作。 */
   readonly generation: object;
   /** 对外返回的 Overlay 句柄。 */
   readonly handle: OverlayHandle<T>;
@@ -429,15 +429,14 @@ interface DescriptorRecord<T = unknown> {
   state: Readonly<InternalDescriptorState<T>>;
   /** 当前业务回调。 */
   callbacks: DescriptorCallbacks<T>;
-  /** 用于识别过期句柄的代次标记。 */
+  /** 句柄创建时捕获的代次；不一致时拒绝过期操作。 */
   readonly generation: object;
   /** 对外返回的 Descriptor 句柄。 */
   readonly handle: DescriptorHandle<T>;
-  /** Descriptor 使用的底层 Overlay 记录。 */
+  /** Descriptor 复用的内部 Overlay 记录。 */
   readonly overlay: OverlayRecord<T>;
   /** 固定线元素 ID。 */
   readonly lineId: string;
-  /** 固定线是否已经写入元素仓库。 */
   lineAttached: boolean;
   /** 当前固定线动画句柄。 */
   animation: AnimationControlHandle | undefined;
@@ -457,7 +456,6 @@ interface DescriptorRecord<T = unknown> {
   pendingMutation: object | undefined;
   /** 关闭动作是否已进入处理流程。 */
   closeArmed: boolean;
-  /** 是否正在关闭 Descriptor。 */
   closing: boolean;
   /** Descriptor 事件监听器。 */
   readonly listeners: { readonly click: Set<(event: InternalDescriptorEvent<T>) => void>; readonly close: Set<(event: InternalDescriptorEvent<T>) => void> };
@@ -476,11 +474,11 @@ const positioningValues: ReadonlySet<string> = new Set([
   'top-right'
 ]);
 
-/** 统一管理普通 Overlay 与 Descriptor 的生命周期和渲染同步。 */
+/** 统一管理 Overlay 与 Descriptor 的 DOM 所有权、原子更新和全生命周期清理。 */
 export class OverlayService {
-  /** 底层 Overlay 端口。 */
+  /** 隔离 OpenLayers Overlay Adapter 的渲染 Port。 */
   readonly #port: OverlayPort;
-  /** 元素状态仓库。 */
+  /** Element 状态真源，Descriptor 固定线通过它提交。 */
   readonly #store: ElementStore;
   /** 固定线动画控制端口。 */
   readonly #animations: AnimationControlPort;
@@ -498,7 +496,7 @@ export class OverlayService {
   readonly #descriptorByLine = new Map<string, DescriptorRecord>();
   /** 需要布局同步的 Descriptor ID。 */
   readonly #layoutIds = new Set<string>();
-  /** 元素仓库订阅释放函数。 */
+  /** ElementStore 订阅的释放函数。 */
   readonly #storeDisposer: () => void;
   /** Overlay 布局订阅释放函数。 */
   #layoutDisposer: (() => void) | undefined;
@@ -506,7 +504,6 @@ export class OverlayService {
   #nextId = 0;
   /** 服务是否已销毁。 */
   #disposed = false;
-  /** 是否正在执行不可重入的变更。 */
   #mutating = false;
   /** 自定义选择器断言的调用深度。 */
   #selectorDepth = 0;
@@ -637,7 +634,7 @@ export class OverlayService {
         try {
           runFinalizers(finalizers);
         } catch {
-          // 尝试全部回滚后仍保留创建阶段的原始异常。
+          // 回滚失败不能掩盖创建阶段最先抛出的异常。
         }
         record.phase = 'destroyed';
         record.lineAttached = false;
@@ -707,7 +704,7 @@ export class OverlayService {
     runFinalizers(handles.map((handle) => () => handle.destroy()));
   }
 
-  /** 销毁服务并释放全部底层资源。 */
+  /** 销毁服务并按所有权规则释放全部 Port 侧资源。 */
   destroy(): void {
     if (this.#disposed) return;
     this.#assertCanMutate();
@@ -895,7 +892,7 @@ export class OverlayService {
     return this.#mutation(() => this.#prepareDescriptorUpdateCore(this.#requireDescriptor<T>(id, generation), patch));
   }
 
-  /** 计算 Descriptor 更新涉及的底层资源变更。 */
+  /** 计算 Descriptor 更新涉及的 DOM、Element 与 Port 资源变更。 */
   #prepareDescriptorUpdateCore<T>(record: DescriptorRecord<T>, patch: InternalDescriptorPatch<T>): import('./DescriptorHandle.js').DescriptorUpdateReceipt {
     const normalized = applyDescriptorPatch(record.state, record.callbacks, patch);
     const beforeState = record.state;
@@ -990,7 +987,7 @@ export class OverlayService {
       try {
         runFinalizers(rollback);
       } catch {
-        // 保留适配器或元素仓库触发的原始异常。
+        // 清理失败不能掩盖 Adapter 或 ElementStore 抛出的原始异常。
       }
       throw error;
     }
@@ -1117,7 +1114,7 @@ export class OverlayService {
       try {
         runFinalizers(rollback);
       } catch {
-        // 保留布局订阅、适配器或元素仓库触发的原始异常。
+        // 清理失败不能掩盖布局订阅、Adapter 或 ElementStore 抛出的原始异常。
       }
       throw error;
     }
@@ -1172,7 +1169,7 @@ export class OverlayService {
     };
   }
 
-  /** 处理底层 Descriptor 点击或关闭动作。 */
+  /** 处理 OverlayPort 发出的 Descriptor 点击或关闭动作。 */
   #onDescriptorAction(id: string, generation: object, action: DescriptorPortAction): void {
     const record = this.#descriptors.get(id);
     if (record === undefined || record.generation !== generation || record.phase !== 'active') return;
@@ -1200,7 +1197,7 @@ export class OverlayService {
     }
   }
 
-  /** 处理底层 Descriptor 拖动事件。 */
+  /** 处理 OverlayPort 发出的 Descriptor 拖动事件。 */
   #onDescriptorDrag(id: string, generation: object, event: OverlayDragEvent): void {
     const record = this.#descriptors.get(id);
     if (record === undefined || record.generation !== generation || record.phase !== 'active' || !record.state.draggable || !record.state.visible) return;
@@ -1317,7 +1314,7 @@ export class OverlayService {
     this.#layoutDisposer = undefined;
   }
 
-  /** 响应底层布局变化并同步相关 Descriptor。 */
+  /** 响应 OverlayPort 布局变化并同步相关 Descriptor。 */
   #onLayout(): void {
     for (const id of [...this.#layoutIds]) {
       const record = this.#descriptors.get(id);
@@ -1346,7 +1343,7 @@ export class OverlayService {
     this.#syncDescriptorLine(record, record.state);
   }
 
-  /** 按目标 Descriptor 状态同步固定线，供布局帧与显示交接共享。 */
+  /** 按同一份 Descriptor 状态同步固定线，供布局帧与显隐切换共用。 */
   #syncDescriptorLine<T>(record: DescriptorRecord<T>, state: Readonly<InternalDescriptorState<T>>): void {
     if (!state.fixedLine) return;
     const anchorPixel = this.#port.coordinateToPixel(state.position);
@@ -1374,7 +1371,7 @@ export class OverlayService {
     }
   }
 
-  /** 根据元素仓库变化维护 Descriptor 固定线。 */
+  /** 根据 ElementStore 变化维护 Descriptor 固定线。 */
   #onElementChanges(changes: ElementChangeSet): void {
     for (const change of changes.changes) {
       if (change.kind !== 'remove') continue;
@@ -1437,7 +1434,7 @@ export class OverlayService {
       const result = this.#errorReporter(error, { source: 'OverlayService', operation });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // 错误报告器与服务状态相互隔离。
+      // 报告错误只是旁路行为，不得改变 OverlayService 的状态。
     }
   }
 }
@@ -1526,7 +1523,7 @@ function assertDestructiveSelector(selector: InternalOverlaySelector): void {
   }
 }
 
-/** 将内部 Overlay 状态转换为底层渲染状态。 */
+/** 将内部 Overlay 状态转换为 OverlayPort 渲染状态。 */
 function toRenderState(state: Readonly<InternalOverlayState>): Readonly<OverlayRenderState> {
   return state;
 }
@@ -1536,7 +1533,7 @@ function sameState(left: Readonly<InternalOverlayState>, right: Readonly<Interna
   return sameRenderState(left, right) && left.module === right.module && left.data === right.data && left.kind === right.kind;
 }
 
-/** 比较两个底层 Overlay 渲染状态是否一致。 */
+/** 比较两个 OverlayPort 渲染状态是否一致。 */
 function sameRenderState(left: Readonly<OverlayRenderState>, right: Readonly<OverlayRenderState>): boolean {
   return (
     left.id === right.id &&

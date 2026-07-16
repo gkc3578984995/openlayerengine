@@ -3,129 +3,121 @@ import type { RenderGeometryState, ShapeType } from '../shape/types.js';
 import type { ElementStyleState, StyleSpec } from '../style/types.js';
 import type { EditControlAnchor, EditInsertionAnchor, EditInteractionAnchor } from './EditInteractionPort.js';
 
-/** 内部类型。描述 TransformOperation 的可用数据。 */
 export type TransformOperation = 'translate' | 'rotate' | 'scale' | 'stretch' | 'vertex';
 
-/** 内部类型。描述一次顶点编辑产生的语义操作。 */
 export type TransformEditOperation = 'vertex' | 'insert' | 'remove';
 
-/** 内部类型。描述 TransformInteractionMode 的可用数据。 */
 export type TransformInteractionMode = 'transform' | 'edit';
 
-/** 内部类型。描述 TransformDelta 的可用数据。 */
 export type TransformDelta =
   | Readonly<{ type: 'translate'; x: number; y: number }>
   | Readonly<{ type: 'rotate'; angle: number; center: Coordinate }>
   | Readonly<{ type: 'scale' | 'stretch'; scaleX: number; scaleY: number; center: Coordinate }>
   | Readonly<{ type: 'vertex'; index: number; coordinate: Coordinate }>;
 
-/** 内部接口。约定 TransformInteractionOptions 使用的数据和操作。 */
 export interface TransformInteractionOptions {
-  /** 命中范围。保存点击允许的像素误差。 */
+  /** 手柄命中的 CSS 像素容差。 */
   readonly hitTolerance: number;
-  /** 平移方式。控制允许的平移操作。 */
+  /** 允许的平移命中方式。 */
   readonly translate: 'none' | 'center' | 'feature';
-  /** 是否缩放。控制是否允许等比缩放。 */
+  /** 是否启用缩放手柄。 */
   readonly scale: boolean;
-  /** 是否拉伸。控制是否允许单轴缩放。 */
+  /** 是否启用单轴拉伸手柄。 */
   readonly stretch: boolean;
-  /** 是否旋转。控制是否允许旋转。 */
+  /** 是否启用旋转手柄。 */
   readonly rotate: boolean;
-  /** 控制框平移。控制是否允许拖动控制框。 */
+  /** 是否允许拖动选中框平移。 */
   readonly translateBBox: boolean;
-  /** 禁止翻转。控制缩放时能否翻转图形。 */
+  /** 是否禁止缩放越过中心后翻转图形。 */
   readonly noFlip: boolean;
-  /** 保持矩形。控制矩形缩放时是否保持比例。 */
+  /** 矩形缩放时是否保持宽高比。 */
   readonly keepRectangle: boolean;
-  /** 外边距。保存控制框扩展的像素。 */
+  /** 选中框外扩的 CSS 像素。 */
   readonly buffer: number;
-  /** 点半径。保存点元素控制区的像素半径。 */
+  /** Point 控制区的 CSS 像素半径。 */
   readonly pointRadius: number;
-  /** 手柄样式。保存自定义控制手柄样式。 */
+  /** 自定义手柄样式。 */
   readonly handleStyle?: StyleSpec;
-  /** 手柄中心。保存自定义变换中心。 */
+  /** 自定义变换中心。 */
   readonly handleCenter?: Coordinate;
 }
 
-/** 内部接口。约定 TransformInteractionTarget 使用的数据和操作。 */
 export interface TransformInteractionTarget {
-  /** 元素 ID。标识关联的元素。 */
+  /** 目标 Element ID。 */
   readonly elementId: string;
-  /** 类型。标识当前数据或事件的类型。 */
+  /** 目标图形类型。 */
   readonly type: ShapeType;
-  /** 图层 ID。标识关联的图层。 */
+  /** 目标所在的渲染图层 ID。 */
   readonly layerId: string;
-  /** 几何。保存本次渲染使用的几何。 */
+  /** 当前工作几何的渲染快照。 */
   readonly geometry: RenderGeometryState;
-  /** 样式。保存本次渲染使用的样式。 */
+  /** 目标 Element 的样式快照。 */
   readonly style: ElementStyleState;
-  /** 模式。区分变换和顶点编辑。 */
+  /** 区分 Transform 与 Edit 模式。 */
   readonly mode: TransformInteractionMode;
-  /** 控制点。保存可编辑的图形控制点。 */
+  /** 当前工作状态的控制点。 */
   readonly controlPoints: readonly Coordinate[];
-  /** 编辑锚点。完整保留可移动控制点和可插入中点的语义。 */
+  /** ShapeDefinition 声明的控制点与合法插入候选。 */
   readonly editAnchors: readonly EditInteractionAnchor[];
   /** 当前展示世界中的自定义变换中心。 */
   readonly handleCenter?: Coordinate;
-  /** 可平移。表示当前图形是否支持平移。 */
+  /** 图形是否声明平移能力。 */
   readonly canTranslate: boolean;
-  /** 可旋转。表示当前图形是否支持旋转。 */
+  /** 图形是否声明旋转能力。 */
   readonly canRotate: boolean;
-  /** 可缩放。表示当前图形是否支持缩放。 */
+  /** 图形是否声明缩放能力。 */
   readonly canScale: boolean;
-  /** 可拉伸。表示当前图形是否支持拉伸。 */
+  /** 图形是否声明拉伸能力。 */
   readonly canStretch: boolean;
-  /** 可编辑顶点。表示当前图形是否支持顶点编辑。 */
+  /** 图形是否声明控制点编辑能力。 */
   readonly canEditVertices: boolean;
 }
 
-/** 内部接口。约定 TransformCopyPreview 使用的数据和操作。 */
 export interface TransformCopyPreview {
-  /** 几何。保存本次渲染使用的几何。 */
+  /** 复制预览几何。 */
   readonly geometry: RenderGeometryState;
-  /** 样式。保存本次渲染使用的样式。 */
+  /** 复制预览样式。 */
   readonly style: ElementStyleState;
 }
 
-/** 内部类型。描述 TransformInteractionEvent 的可用数据。 */
 export type TransformInteractionEvent =
   | Readonly<{ type: 'select-request'; pixel: Pixel; coordinate?: Coordinate; candidateIds: readonly string[] }>
   | Readonly<{ type: 'pointer-move'; pixel: Pixel; coordinate: Coordinate }>
   | Readonly<{ type: 'bounds-change'; topRight: Coordinate }>
   | Readonly<{
-      /** 类型。标识当前数据或事件的类型。 */
+      /** 进入手柄事件。 */
       type: 'enter-handle';
-      /** 键。保存项目或按键的标识。 */
+      /** 手柄稳定键。 */
       key: string;
-      /** 操作。保存当前内部操作。 */
+      /** 手柄对应的操作。 */
       operation?: TransformOperation;
-      /** 方向。保存手柄控制的坐标轴。 */
+      /** 手柄控制的坐标轴。 */
       axis?: 'x' | 'y' | 'xy';
-      /** 像素。保存当前屏幕像素位置。 */
+      /** 当前屏幕像素。 */
       pixel?: Pixel;
-      /** 坐标。保存当前地图坐标。 */
+      /** 当前地图坐标。 */
       coordinate?: Coordinate;
-      /** 鼠标样式。保存手柄建议使用的光标。 */
+      /** 手柄建议使用的 CSS cursor。 */
       cursor?: string;
-      /** 编辑锚点。编辑模式下提供当前命中的控制点或插入点。 */
+      /** 编辑模式下提供当前命中的控制点或插入点。 */
       anchor?: EditInteractionAnchor;
     }>
   | Readonly<{
-      /** 类型。标识当前数据或事件的类型。 */
+      /** 离开手柄事件。 */
       type: 'leave-handle';
-      /** 键。保存项目或按键的标识。 */
+      /** 手柄稳定键。 */
       key: string;
-      /** 操作。保存当前内部操作。 */
+      /** 手柄对应的操作。 */
       operation?: TransformOperation;
-      /** 方向。保存手柄控制的坐标轴。 */
+      /** 手柄控制的坐标轴。 */
       axis?: 'x' | 'y' | 'xy';
-      /** 像素。保存当前屏幕像素位置。 */
+      /** 当前屏幕像素。 */
       pixel?: Pixel;
-      /** 坐标。保存当前地图坐标。 */
+      /** 当前地图坐标。 */
       coordinate?: Coordinate;
-      /** 鼠标样式。保存手柄建议使用的光标。 */
+      /** 手柄建议使用的 CSS cursor。 */
       cursor?: string;
-      /** 编辑锚点。编辑模式下提供刚离开的控制点或插入点。 */
+      /** 编辑模式下提供刚离开的控制点或插入点。 */
       anchor?: EditInteractionAnchor;
     }>
   | Readonly<{
@@ -143,11 +135,10 @@ export type TransformInteractionEvent =
   | Readonly<{ type: 'copy-preview-confirm'; delta: Readonly<{ x: number; y: number }> }>
   | Readonly<{ type: 'copy-preview-cancel' }>;
 
-/** 内部接口。约定 TransformInteractionHandle 使用的数据和操作。 */
 export interface TransformInteractionHandle {
-  /** 渲染图层 ID。标识临时内容所在图层。 */
+  /** 临时内容所在的渲染图层 ID。 */
   readonly renderLayerId: string;
-  /** 渲染目标 ID。标识临时渲染目标。 */
+  /** 临时渲染目标 ID。 */
   readonly renderTargetId: string;
   /** 设置当前变换目标。 */
   setTarget(target: TransformInteractionTarget): void;
@@ -159,12 +150,11 @@ export interface TransformInteractionHandle {
   startCopyPreview(preview: TransformCopyPreview): void;
   /** 取消复制预览。 */
   cancelCopyPreview(): void;
-  /** 释放当前对象占用的资源。 */
+  /** 释放交互、临时图层和监听器。 */
   destroy(): void;
 }
 
-/** 内部接口。约定 TransformInteractionPort 使用的数据和操作。 */
 export interface TransformInteractionPort {
-  /** 打开一个内部交互或视图。 */
+  /** 打开由 Session 独占的 Transform 交互。 */
   open(sessionId: string, options: TransformInteractionOptions, listener: (event: TransformInteractionEvent) => void): TransformInteractionHandle;
 }

@@ -5,9 +5,7 @@ import type { ContextMenuViewEvent, ContextMenuViewItem, ContextMenuViewModel, C
 
 /** 右键菜单定位时需要的地图事件能力。 */
 interface EventedMap {
-  /** 监听地图渲染完成事件。 */
   on(type: 'postrender', listener: () => void): unknown;
-  /** 移除地图渲染完成事件。 */
   un(type: 'postrender', listener: () => void): void;
 }
 
@@ -40,22 +38,14 @@ const isolatedMenuEventTypes = [
 
 /** 使用 DOM 渲染并定位地图右键菜单。 */
 export class ContextMenuViewAdapter implements ContextMenuViewPort {
-  /** 菜单所属的 OpenLayers 地图。 */
   readonly #map: OLMap;
-  /** 接收菜单选择和关闭事件的监听器。 */
   #listener: ((event: ContextMenuViewEvent) => void) | undefined;
-  /** 菜单根元素。 */
   #root: HTMLDivElement | undefined;
-  /** 菜单当前对应的地图坐标。 */
   #coordinate: readonly number[] | undefined;
-  /** 当前菜单主题。 */
   #theme: 'light' | 'dark' = 'light';
-  /** 是否正在跟踪地图和页面事件。 */
   #tracking = false;
-  /** 适配器是否已经销毁。 */
   #disposed = false;
 
-  /** 保存菜单所属的地图。 */
   constructor(map: OLMap) {
     this.#map = map;
   }
@@ -244,7 +234,7 @@ export class ContextMenuViewAdapter implements ContextMenuViewPort {
     this.#root?.classList.toggle('ol-context-menu--light', this.#theme === 'light');
   }
 
-  /** 确认适配器仍可使用。 */
+  /** 已销毁后拒绝继续使用。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('ContextMenuViewAdapter has been destroyed');
   }

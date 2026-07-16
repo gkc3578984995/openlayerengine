@@ -604,7 +604,7 @@ function render(current: Runtime): void {
   current.earth.map.renderSync();
 }
 
-/** 记录绘制会话开始前的原生要素，供浏览器回归只命中本次新增的预览。 */
+/** 记录绘制前已有的原生 Feature，使浏览器回归只命中本次新增预览。 */
 function nativeFeatureBaseline(current: Runtime): WeakSet<object> {
   const baseline = new WeakSet<object>();
   for (const layer of current.earth.map.getAllLayers()) {
@@ -615,7 +615,7 @@ function nativeFeatureBaseline(current: Runtime): WeakSet<object> {
   return baseline;
 }
 
-/** 检查本次 Draw 新增的临时要素是否真正进入当前地图的可命中渲染结果。 */
+/** 确认本次 Draw 的临时 Feature 已进入地图的可命中渲染结果。 */
 function drawPreviewProbe(current: Runtime, pixel: readonly [number, number]): Readonly<{ featureCount: number; hit: boolean }> {
   const baseline = current.drawNativeBaseline;
   if (baseline === undefined) return Object.freeze({ featureCount: 0, hit: false });
@@ -938,7 +938,7 @@ function isMultiPointGeometryProbe(value: unknown): value is MultiPointGeometryP
   return typeof probe.getType === 'function' && probe.getType() === 'MultiPoint' && typeof probe.getCoordinates === 'function';
 }
 
-/** 读取编辑临时图层中的控制点或插入点像素。 */
+/** 读取编辑临时图层内控制点或插入点的屏幕像素。 */
 function editAnchorPixel(current: Runtime, index: number, renderer: unknown, label: 'control' | 'insertion'): readonly [number, number] {
   if (!Number.isSafeInteger(index) || index < 0) throw new Error(`Edit ${label}-point index must be a non-negative safe integer.`);
   current.earth.map.renderSync();
@@ -960,7 +960,7 @@ function editAnchorPixel(current: Runtime, index: number, renderer: unknown, lab
   return pixelOf(current, coordinate);
 }
 
-/** 读取独立 Edit 当前 hover 反馈点的像素，不触发额外指针事件。 */
+/** 读取独立 Edit 的当前 hover 反馈像素，且不触发额外指针事件。 */
 function editFeedbackPixel(current: Runtime): readonly [number, number] | undefined {
   current.earth.map.renderSync();
   for (const layer of current.earth.map.getLayers().getArray()) {

@@ -9,23 +9,20 @@ import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.j
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { RenderGeometryState, ShapeInput, ShapeState } from '../../core/shape/types.js';
 
-/** OpenLayers 最终需要渲染的几何类型。 */
+/** OpenLayers 接收的渲染几何类型。 */
 export type RenderGeometryKind = RenderGeometryState['type'];
 
-/** 在核心图形状态和 OpenLayers Geometry 之间做转换。 */
+/** 在 Core 图形状态与 OpenLayers Geometry 之间建立单向投影。 */
 export class GeometryCodec {
-  /** 提供各图形的渲染规则。 */
   readonly #shapes: ShapeRegistry;
-  /** 将元素规范状态转换为 View 工作状态。 */
   readonly #projection: ShapeProjectionPort;
 
-  /** 保存图形定义注册表和实例级投影转换端口。 */
   constructor(shapes: ShapeRegistry, projection: ShapeProjectionPort) {
     this.#shapes = shapes;
     this.#projection = projection;
   }
 
-  /** 把图形状态投影到要素现有或新建的 Geometry。 */
+  /** 把规范状态投影到 Feature；几何类型未变时复用原对象。 */
   project(feature: Feature<Geometry>, state: ShapeState): Geometry {
     const rendered = this.#render(state);
     const current = feature.getGeometry();
@@ -58,26 +55,23 @@ export class GeometryCodec {
     return geometry;
   }
 
-  /** 返回图形最终使用的渲染类型。 */
+  /** 规范化输入后返回其实际渲染类型。 */
   renderKind(input: ShapeInput): RenderGeometryKind {
     const definition = this.#shapes.get(input.type);
     const state = definition.normalize(input);
     return definition.toRenderGeometry(this.#projection.toViewState(state) as never).type;
   }
 
-  /** 调用图形定义生成渲染状态。 */
   #render(state: ShapeState): RenderGeometryState {
     const definition = this.#shapes.get(state.type);
     return definition.toRenderGeometry(this.#projection.toViewState(state) as never);
   }
 }
 
-/** 复制一个坐标供 OpenLayers 使用。 */
 function copyCoordinate(coordinate: Coordinate): number[] {
   return [...coordinate];
 }
 
-/** 复制一组坐标供 OpenLayers 使用。 */
 function copyCoordinates(coordinates: readonly Coordinate[]): number[][] {
   return coordinates.map(copyCoordinate);
 }

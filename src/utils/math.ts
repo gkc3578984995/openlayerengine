@@ -1,6 +1,6 @@
 import type { Coordinate } from '../core/common/types.js';
 
-/** 复制一个坐标，避免和原数组共享数据。 */
+/** 返回坐标副本，避免共享原数组。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
 }
@@ -11,10 +11,10 @@ function coordinatesEqual(left: Coordinate, right: Coordinate): boolean {
 }
 
 /**
- * 把二维坐标数组展开成一维数组。
+ * 将二维坐标数组依次展开为一维数组。
  *
- * @param coordinates 坐标。需要依次展开的二维数组。
- * @returns 新的一维数组，不会修改原数组。
+ * @param coordinates 待展开的二维坐标数组。
+ * @returns 新的一维数组；原数组保持不变。
  *
  * @example
  * ```ts
@@ -31,10 +31,10 @@ export function toFlatCoordinates(coordinates: readonly (readonly number[])[]): 
 }
 
 /**
- * 把角度转换为弧度。
+ * 将角度换算为弧度。
  *
- * @param degrees 角度。要转换的角度值。
- * @returns 对应的弧度值。
+ * @param degrees 待换算的角度值。
+ * @returns 对应的弧度。
  *
  * @example
  * ```ts
@@ -48,10 +48,10 @@ export function degToRad(degrees: number): number {
 }
 
 /**
- * 把弧度转换为 `0` 到 `360` 之间的角度。
+ * 将弧度换算为 `0`（含）到 `360`（不含）之间的角度。
  *
- * @param radians 弧度。要转换的弧度值。
- * @returns 规范到一圈范围内的角度值。
+ * @param radians 待换算的弧度值。
+ * @returns 归一化到一圈以内的角度。
  *
  * @example
  * ```ts
@@ -68,9 +68,9 @@ export function radToDeg(radians: number): number {
 /**
  * 按倍数缩放二维向量。
  *
- * @param vector 向量。要缩放的二维坐标。
- * @param factor 倍数。横纵分量共同使用的缩放倍数。
- * @returns 缩放后的新二维坐标。
+ * @param vector 待缩放的二维向量。
+ * @param factor 横纵分量共用的缩放倍数。
+ * @returns 缩放后的新向量。
  *
  * @example
  * ```ts
@@ -84,11 +84,11 @@ export function scale2(vector: Coordinate, factor: number): Coordinate {
 }
 
 /**
- * 把两个二维向量相加。
+ * 将两个二维向量相加。
  *
- * @param left 左侧向量。相加时使用的第一个坐标。
- * @param right 右侧向量。相加时使用的第二个坐标。
- * @returns 两个向量相加后的新二维坐标。
+ * @param left 第一个向量。
+ * @param right 第二个向量。
+ * @returns 相加后的新向量。
  *
  * @example
  * ```ts
@@ -104,10 +104,10 @@ export function add2(left: Coordinate, right: Coordinate): Coordinate {
 /**
  * 计算两个坐标之间的线性插值。
  *
- * @param start 起点。插值开始的坐标。
- * @param end 终点。插值结束的坐标。
- * @param ratio 比例。`0` 返回起点，`1` 返回终点。
- * @returns 插值得到的新二维坐标。
+ * @param start 插值起点。
+ * @param end 插值终点。
+ * @param ratio 插值比例；`0` 返回起点，`1` 返回终点。
+ * @returns 插值得到的新坐标。
  *
  * @example
  * ```ts
@@ -123,11 +123,11 @@ export function lerp2(start: Coordinate, end: Coordinate, ratio: number): Coordi
 /**
  * 计算二次贝塞尔曲线上的坐标。
  *
- * @param start 起点。曲线开始的坐标。
- * @param control 控制点。控制曲线弯曲方向的坐标。
- * @param end 终点。曲线结束的坐标。
- * @param ratio 比例。曲线上的取值位置，通常为 `0` 到 `1`。
- * @returns 曲线上对应位置的新二维坐标。
+ * @param start 曲线起点。
+ * @param control 决定曲线弯曲方向的控制点。
+ * @param end 曲线终点。
+ * @param ratio 曲线上的取值比例，通常为 `0` 到 `1`。
+ * @returns 曲线上对应位置的新坐标。
  *
  * @example
  * ```ts
@@ -142,10 +142,10 @@ export function quadraticBezier2(start: Coordinate, control: Coordinate, end: Co
 }
 
 /**
- * 闭合一组环坐标。
+ * 闭合一组环坐标，必要时在末尾补上首坐标。
  *
- * @param coordinates 坐标。需要闭合的坐标列表。
- * @returns 独立的新坐标列表，末项会和首项相同。
+ * @param coordinates 待闭合的坐标列表。
+ * @returns 首尾相同的新坐标列表。
  *
  * @example
  * ```ts
@@ -164,8 +164,8 @@ export function closeRing(coordinates: readonly Coordinate[]): Coordinate[] {
 /**
  * 移除环坐标末尾重复的闭合点。
  *
- * @param coordinates 坐标。可能已经闭合的坐标列表。
- * @returns 移除重复闭合点后的新坐标列表。
+ * @param coordinates 可能已经闭合的坐标列表。
+ * @returns 去除末尾重复闭合点的新列表。
  *
  * @example
  * ```ts

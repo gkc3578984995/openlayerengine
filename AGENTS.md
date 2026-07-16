@@ -21,6 +21,8 @@
 
 使用 TypeScript，并保持 `strict` 兼容。格式遵循 Prettier：2 空格缩进、单引号、分号、无尾随逗号、`printWidth` 为 160。类和主要功能模块使用 PascalCase，例如 `PointLayer`、`TransformInteraction`；函数、变量和方法使用 camelCase；枚举和类型名沿用现有领域命名，例如 `DrawType`。导出 API 应优先提供清晰的类型或接口。
 
+中文注释应自然、简洁，重点说明代码无法直接表达的设计意图、业务约束和取舍，不逐字翻译实现过程，也不复述变量名、类型或语句本身。避免“用于实现……”“执行以下操作……”等模板化措辞；能从代码直接看出的内容不写注释。OpenLayers、Feature、Element、Session 等领域术语保留准确的英文写法，不为追求全中文而生硬翻译。修改既有注释时应保持原有技术含义，不借注释润色改变公共契约或运行行为。
+
 ## 2.0 系统设计规范
 
 凡涉及 2.0 的系统设计、实现、重构或评审，必须先阅读并遵循 `docs/superpowers/specs/` 中已批准的对应设计文档；当前架构总纲为 `2026-07-13-v2-element-kernel-architecture-design.md`，Draw / Edit / Transform 的光标、预览、编辑锚点与 Tooltip 还必须遵循 `2026-07-16-v2-interaction-visual-design.md`。实现必须保持 Core、Services、Public Facade 与 OpenLayers Adapter 的依赖边界，遵守 Element 状态真源、EngineContext 显式依赖、交互互斥、资源所有权和全生命周期清理等约束，不得因局部实现便利引入重复内核、隐式全局依赖、OL 私有 API 或扩大公共导出面。若需求需要改变已批准的公共契约，必须先补充设计并获得确认，再实施代码与测试。

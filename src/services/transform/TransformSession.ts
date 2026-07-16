@@ -59,17 +59,17 @@ import type {
 export interface TransformSessionDependencies {
   /** 会话 ID。 */
   readonly id: string;
-  /** 元素状态仓库。 */
+  /** Element 状态真源；Session 完成时才提交最终工作态。 */
   readonly store: ElementStore;
-  /** 图形定义注册表。 */
+  /** Shape 能力、拓扑与几何规则真源。 */
   readonly shapes: ShapeRegistry;
   /** 内部样式服务。 */
   readonly styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 协调指针交互互斥，并在替换前清理旧 Session。 */
   readonly coordinator: InteractionCoordinator;
-  /** 底层变换交互端口。 */
+  /** 隔离 Transform Adapter 的交互 Port。 */
   readonly interaction: TransformInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly animations: TransformAnimationPort;
@@ -106,21 +106,21 @@ const emptyEditAnchors = Object.freeze([]) as readonly EditInteractionAnchor[];
 /** 无控制点时复用的不可变空快照。 */
 const emptyControlPoints = Object.freeze([]) as readonly Coordinate[];
 
-/** 管理元素选择、变换、历史、复制和交互视图的状态机。 */
+/** 维护 Element 选择、规范工作态、历史和临时视图的 Transform Session。 */
 export class TransformSession<T = unknown> implements InternalTransformSession<T> {
   /** 会话 ID。 */
   readonly id: string;
-  /** 元素状态仓库。 */
+  /** Element 状态真源；Session 完成时才提交最终工作态。 */
   readonly #store: ElementStore;
-  /** 图形定义注册表。 */
+  /** Shape 能力、拓扑与几何规则真源。 */
   readonly #shapes: ShapeRegistry;
   /** 内部样式服务。 */
   readonly #styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 协调指针交互互斥，并在替换前清理旧 Session。 */
   readonly #coordinator: InteractionCoordinator;
-  /** 底层变换交互端口。 */
+  /** 隔离 Transform Adapter 的交互 Port。 */
   readonly #interaction: TransformInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
   readonly #animations: TransformAnimationPort;
@@ -148,7 +148,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #onTerminal: () => void;
   /** 当前元素的撤销重做历史。 */
   readonly #history: TransformHistory<T>;
-  /** 判断元素是否处于会话选择范围的函数。 */
+  /** 判断 Element 是否落在本 Session 选择范围内。 */
   readonly #matches: (state: Readonly<ElementState>) => boolean;
   /** 按事件类型保存的监听器。 */
   readonly #listeners = new Map<keyof InternalTransformEventMap<T>, Map<number, Listener>>();
@@ -158,13 +158,13 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #tooltipCleanup = new Set<TransformTooltipViewHandle>();
   /** 会话当前状态。 */
   #status: InteractionStatus = 'active';
-  /** 底层变换交互句柄。 */
+  /** TransformInteractionPort 返回的交互句柄。 */
   #handle: TransformInteractionHandle | undefined;
   /** 当前工具栏句柄。 */
   #toolbar: TransformToolbarViewHandle | undefined;
   /** 当前鼠标提示句柄。 */
   #tooltip: TransformTooltipViewHandle | undefined;
-  /** 当前 Tooltip 对应的原始纯文本行，用于剪贴板状态变化时仅刷新语义色调。 */
+  /** Tooltip 的原始纯文本行；剪贴板变化时只需重算语义色调。 */
   #tooltipSourceLines: readonly string[] = Object.freeze([]);
   /** 当前 viewport 光标所有权句柄。 */
   #cursor: CursorViewHandle | undefined;
@@ -176,15 +176,15 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #hoverAxis: 'x' | 'y' | 'xy' | undefined;
   /** 最近悬停的编辑锚点。 */
   #hoverAnchor: EditInteractionAnchor | undefined;
-  /** 已确认选中的元素快照。 */
+  /** 当前选中 Element 在 Session 激活时的规范快照。 */
   #selected: ElementSnapshot<T> | undefined;
-  /** 当前预览中的工作快照。 */
+  /** Session 当前规范工作态；预览期间不写入 Store。 */
   #working: ElementSnapshot<T> | undefined;
-  /** 当前变换开始时的快照。 */
+  /** 本次连续操作开始前的工作态，也是单条历史命令的边界。 */
   #operationOrigin: ElementSnapshot<T> | undefined;
-  /** 目标元素预期代次。 */
+  /** 打开选择时记录的 Element 代次；变化即说明实例已被替换。 */
   #expectedGeneration: ElementGeneration | undefined;
-  /** 目标元素预期修订号。 */
+  /** 打开选择时记录的 Element 修订号；变化即说明发生了外部修改。 */
   #expectedRevision: ElementRevision | undefined;
   /** 当前操作的临时动画句柄。 */
   #transient: TransientAnimationHandle | undefined;
@@ -196,31 +196,24 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #toolbarAnchor: Coordinate | undefined;
   /** 当前元素动画是否已暂停。 */
   #animationsPaused = false;
-  /** 是否正在显示复制预览。 */
   #copyPreview = false;
-  /** 元素仓库订阅释放函数。 */
+  /** ElementStore 订阅的释放函数。 */
   #unsubscribeStore: (() => void) | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
   /** 下一个监听器 ID。 */
   #nextListenerId = 0;
-  /** 是否正在打开底层交互。 */
+  /** 防止交互 Port 的打开流程重入。 */
   #opening = false;
-  /** 是否正在提交自身变换。 */
   #ownCommit = false;
-  /** 是否正在删除自身目标。 */
   #ownRemove = false;
-  /** 是否正在清理会话资源。 */
   #cleanupRunning = false;
-  /** 是否正在清理工具栏资源。 */
   #toolbarCleanupRunning = false;
-  /** 是否正在清理鼠标提示资源。 */
   #tooltipCleanupRunning = false;
   /** 是否已释放交互协调器。 */
   #coordinatorReleased = false;
   /** 是否已通知会话终止。 */
   #terminalNotified = false;
-  /** 是否正在执行完成流程。 */
   #finishing = false;
 
   /** 创建 Transform 会话并初始化选择条件与历史。 */
@@ -270,7 +263,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return this.#toolbar;
   }
 
-  /** 打开底层变换交互并订阅仓库和键盘事件。 */
+  /** 打开 Transform 交互 Port，并接入 Store 与键盘事件。 */
   open(): void {
     this.#assertActive();
     if (this.#handle !== undefined || this.#opening) throw new InvalidArgumentError('Transform session is already open');
@@ -329,7 +322,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#setTooltipLines(this.#baseTooltipLines());
   }
 
-  /** 提交当前工作状态并结束会话。 */
+  /** 把最终工作态一次性提交到 Store，并结束 Session。 */
   finish(): void {
     if (this.#status !== 'active' || this.#finishing) return;
     this.#finishing = true;
@@ -475,7 +468,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     return 'consume';
   }
 
-  /** 将会话配置转换为底层交互配置。 */
+  /** 将 Session 配置收窄为 TransformInteractionPort 配置。 */
   #interactionOptions(): TransformInteractionOptions {
     return Object.freeze({
       hitTolerance: this.#options.hitTolerance,
@@ -559,7 +552,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
-  /** 将元素快照转换为底层交互目标。 */
+  /** 将 ElementSnapshot 转换为 TransformInteractionPort 的临时目标。 */
   #presentation(state: ElementSnapshot<T>, activeEditAnchor?: EditControlAnchor): TransformInteractionTarget {
     const definition = this.#shapes.get(state.type);
     const topology = definition.editTopology;
@@ -600,7 +593,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     });
   }
 
-  /** 将底层变换事件分派到会话操作。 */
+  /** 将 Adapter 发出的变换事件分派为 Session 语义操作。 */
   #handleInteractionEvent(event: TransformInteractionEvent): void {
     if (this.#status !== 'active' || this.#finishing) return;
     try {
@@ -692,7 +685,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
-  /** 将变换增量应用到工作快照。 */
+  /** 将一次变换增量应用到 Session 工作态，不创建 Store 事务。 */
   #applyOperation(operation: TransformOperation, delta: TransformDelta, end: boolean, anchor?: EditControlAnchor): void {
     const origin = this.#operationOrigin;
     if (origin === undefined) throw new InvalidArgumentError('Transform operation did not start');
@@ -789,7 +782,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
-  /** 应用撤销或重做得到的历史快照。 */
+  /** 用撤销或重做得到的快照替换 Session 工作态。 */
   #applyHistory(snapshot: ElementSnapshot<T>): void {
     if (snapshot.id !== this.#selected?.id) {
       const current = this.#requireSelectable(snapshot.id);
@@ -887,7 +880,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
-  /** 监测目标元素的外部修改或删除。 */
+  /** 监测目标 Element 的外部修改、替换或删除，失效时结束 Session。 */
   #handleStoreChanges(changes: ElementChangeSet): void {
     if (this.#status !== 'active' || this.#selected === undefined) return;
     const change = changes.changes.find(({ id }) => id === this.#selected?.id);
@@ -1274,7 +1267,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
-  /** 释放会话交互、订阅、视图和动画资源。 */
+  /** 幂等释放交互句柄、订阅、Tooltip、光标、工具栏和动画资源。 */
   #cleanupSession(): void {
     if (this.#cleanupRunning) return;
     this.#cleanupRunning = true;
@@ -1353,7 +1346,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     }
   }
 
-  /** 获取当前底层变换交互句柄。 */
+  /** 读取当前 TransformInteractionPort 句柄；尚未打开时抛错。 */
   #requireHandle(): TransformInteractionHandle {
     if (this.#handle === undefined) throw new ObjectDisposedError('Transform interaction is not open');
     return this.#handle;
@@ -1507,7 +1500,7 @@ function transformShape(definition: ShapeDefinition, shapeProjection: ShapeProje
   );
 }
 
-/** 冻结刚创建的控制点状态，供受信快照直接复用。 */
+/** 冻结刚创建的控制点状态，后续可信快照可直接复用。 */
 function freezeControlPointState(type: Exclude<ShapeState['type'], 'circle'>, controlPoints: Coordinate[]): ShapeState {
   return Object.freeze({ type, controlPoints: Object.freeze(controlPoints) }) as ShapeState;
 }
@@ -1594,7 +1587,7 @@ function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]];
 }
 
-/** 校验适配器传入的编辑锚点，避免无效索引或坐标进入图形拓扑。 */
+/** 校验 Adapter 传入的编辑锚点，避免无效索引或坐标进入 Shape 拓扑。 */
 function assertEditAnchor(anchor: EditInteractionAnchor): void {
   if (anchor === null || typeof anchor !== 'object') throw new InvalidArgumentError('Transform edit anchor must be an object');
   if (!Number.isSafeInteger(anchor.index) || anchor.index < 0) {

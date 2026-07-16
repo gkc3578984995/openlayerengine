@@ -25,7 +25,7 @@ export interface OverlayHandleController<T> {
   destroy(): void;
 }
 
-/** 表示一次可提交或回滚的 Overlay 更新。 */
+/** 一次等待确认、可提交或回滚的 Overlay 更新。 */
 export interface OverlayUpdateReceipt {
   /** 提交更新。 */
   commit(): void;
@@ -33,7 +33,7 @@ export interface OverlayUpdateReceipt {
   rollback(): void;
 }
 
-/** 提供带过期检查的 Overlay 操作句柄。 */
+/** 操作 Overlay 的稳定句柄；每次调用都会检查代次和销毁状态。 */
 export class OverlayHandle<T = unknown> {
   /** OverlayService 提供的控制器。 */
   readonly #controller: OverlayHandleController<T>;

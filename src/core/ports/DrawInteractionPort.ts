@@ -4,7 +4,7 @@ import type { RenderGeometryState } from '../shape/types.js';
 import type { ElementStyleState } from '../style/types.js';
 
 /**
- * 语义绘制会话要求的原生输入模式。`vertices` 覆盖全部非点图形，具体控制点数量仍由图形定义负责。
+ * Draw Session 要求的原生输入模式。`vertices` 覆盖全部非点图形，具体控制点数量仍由 ShapeDefinition 负责。
  *
  * @internal
  */
@@ -25,7 +25,7 @@ export interface DrawInteractionSpec {
 }
 
 /**
- * 适配器发出的脱离原生对象的输入快照。坐标使用当前用户投影；未设置用户投影时使用地图活动投影。
+ * Adapter 发出的纯输入快照。坐标使用当前用户投影；未设置用户投影时使用地图活动投影。
  *
  * 自由绘制手势严格发出一次开始、零到多次采样，以及一次完成或取消；同一手势不会额外发出普通点击事件。
  *
@@ -74,14 +74,14 @@ export type DrawInteractionEvent =
     };
 
 /**
- * 纯绘制预览数据，永远不会作为持久元素状态发布。
+ * 纯绘制预览数据，永远不会作为持久 Element 状态发布。
  *
  * @internal
  */
 export interface DrawInteractionRenderState {
   /** 已脱离调用方所有权的渲染几何快照。 */
   readonly geometry: RenderGeometryState;
-  /** 已脱离调用方所有权的元素样式快照。 */
+  /** 已脱离调用方所有权的 Element 样式快照。 */
   readonly style: ElementStyleState;
 }
 
@@ -100,7 +100,6 @@ export interface DrawInteractionHandle {
    * 原子替换临时预览；传入 `undefined` 时清空。失败替换必须保留此前仍可用的完整预览。
    *
    * @param state 新的几何与样式快照；`undefined` 表示清空预览。
-   * @returns 无返回值。
    * @throws 预览准备、安装或回滚失败时抛出对应错误。
    */
   render(state: Readonly<DrawInteractionRenderState> | undefined): void;
@@ -108,7 +107,6 @@ export interface DrawInteractionHandle {
   /**
    * 停止事件并释放全部原生监听器和预览资源。成功后幂等；清理失败时仍尝试其他步骤，并允许后续调用只重试未完成工作。
    *
-   * @returns 无返回值。
    * @throws 任一清理步骤失败时抛出首个错误。
    */
   destroy(): void;

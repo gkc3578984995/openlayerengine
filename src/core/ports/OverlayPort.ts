@@ -1,92 +1,84 @@
 import type { Coordinate, Pixel } from '../common/types.js';
 import type { NativeRef } from '../native/types.js';
 
-/** 内部类型。描述 CoreOverlayOwnership 的可用数据。 */
 export type CoreOverlayOwnership = 'external' | 'earth';
-/** 内部类型。描述 CoreOverlayPositioning 的可用数据。 */
 export type CoreOverlayPositioning =
   'bottom-left' | 'bottom-center' | 'bottom-right' | 'center-left' | 'center-center' | 'center-right' | 'top-left' | 'top-center' | 'top-right';
 
-/** 内部接口。约定 CorePanIntoViewSpec 使用的数据和操作。 */
 export interface CorePanIntoViewSpec {
-  /** 边距。保存视图需要预留的像素。 */
+  /** Overlay 与视口边缘预留的像素。 */
   readonly margin?: number;
-  /** 时长。保存动画持续的毫秒数。 */
+  /** 平移动画时长，单位为毫秒。 */
   readonly duration?: number;
-  /** 缓动函数。控制动画的变化速度。 */
+  /** 平移动画的缓动函数。 */
   readonly easing?: (progress: number) => number;
 }
 
-/** 内部接口。约定 OverlayRenderState 使用的数据和操作。 */
 export interface OverlayRenderState {
-  /** 标识。保存当前对象的唯一 ID。 */
+  /** 当前 Earth 内唯一的 Overlay ID。 */
   readonly id: string;
-  /** 元素引用。指向覆盖物使用的原生元素。 */
+  /** Overlay 使用的原生 DOM 元素引用。 */
   readonly elementRef: NativeRef<'element'>;
-  /** 位置。保存当前地图坐标。 */
+  /** 地图坐标；`undefined` 表示暂不定位。 */
   readonly position: Coordinate | undefined;
-  /** 偏移。保存界面的像素偏移。 */
+  /** 相对定位坐标的像素偏移。 */
   readonly offset: Pixel;
-  /** 定位方式。控制元素相对坐标的方向。 */
+  /** DOM 元素相对坐标的定位方向。 */
   readonly positioning: CoreOverlayPositioning;
-  /** 是否阻止事件。控制事件是否继续传给地图。 */
+  /** 是否阻止 DOM 事件继续传给地图。 */
   readonly stopEvent: boolean;
-  /** 是否前插。控制元素插入容器的位置。 */
+  /** 是否插到 Overlay 容器最前方。 */
   readonly insertFirst: boolean;
-  /** 自动平移。控制覆盖物是否自动进入视口。 */
+  /** 自动移入视口的配置；`false` 表示关闭。 */
   readonly autoPan: false | CorePanIntoViewSpec;
-  /** 类名。保存界面使用的 CSS 类名。 */
+  /** 附加到 Overlay 的 CSS 类名。 */
   readonly className: string | undefined;
-  /** 是否显示。控制内容是否可见。 */
+  /** Overlay 可见状态。 */
   readonly visible: boolean;
-  /** 归属。决定资源由谁负责释放。 */
+  /** 原生 DOM 元素的生命周期所有权。 */
   readonly ownership: CoreOverlayOwnership;
 }
 
-/** 内部接口。约定 PixelBounds 使用的数据和操作。 */
 export interface PixelBounds {
-  /** 左边界。保存矩形左侧像素。 */
+  /** 左边界像素。 */
   readonly left: number;
-  /** 上边界。保存矩形顶部像素。 */
+  /** 上边界像素。 */
   readonly top: number;
-  /** 右边界。保存矩形右侧像素。 */
+  /** 右边界像素。 */
   readonly right: number;
-  /** 下边界。保存矩形底部像素。 */
+  /** 下边界像素。 */
   readonly bottom: number;
 }
 
-/** 内部类型。描述 DescriptorPortAction 的可用数据。 */
 export type DescriptorPortAction =
   | {
-      /** 类型。表示用户关闭了描述框。 */
+      /** 用户关闭 Descriptor。 */
       readonly type: 'close';
     }
   | {
-      /** 类型。表示用户选择了列表项。 */
+      /** 用户选择 Descriptor 列表项。 */
       readonly type: 'item';
-      /** 索引。保存被选择项目的位置。 */
+      /** 被选择项的索引。 */
       readonly index: number;
     };
 
-/** 内部接口。约定 OverlayDragEvent 使用的数据和操作。 */
 export interface OverlayDragEvent {
-  /** 类型。标识当前数据或事件的类型。 */
+  /** 拖拽阶段。 */
   readonly type: 'start' | 'move' | 'end' | 'cancel';
-  /** 指针 ID。标识当前拖拽指针。 */
+  /** 当前拖拽指针 ID。 */
   readonly pointerId: number;
-  /** 像素。保存当前屏幕像素位置。 */
+  /** 当前屏幕像素。 */
   readonly pixel: Pixel;
 }
 
-/** 内部接口。约定 OverlayPort 使用的数据和操作。 */
 export interface OverlayPort {
-  /** 挂载一个底层对象。 */
+  /** 挂载 Overlay 的原生投影。 */
   attach(state: Readonly<OverlayRenderState>): void;
-  /** 更新已经挂载的对象。 */
+  /** 更新已挂载的 Overlay。 */
   update(before: Readonly<OverlayRenderState>, after: Readonly<OverlayRenderState>): void;
-  /** 卸载指定对象。 */
+  /** 解绑指定 Overlay。 */
   detach(id: string): void;
-  /** 把覆盖物平移到可视区域。 */
+  /** 把 Overlay 平移到可视区域。 */
   panIntoView(id: string, options?: CorePanIntoViewSpec): void;
   /** 按归属释放原生元素。 */
   releaseElement(ref: NativeRef<'element'>, ownership: CoreOverlayOwnership): void;
@@ -94,12 +86,12 @@ export interface OverlayPort {
   coordinateToPixel(coordinate: Coordinate): Pixel | undefined;
   /** 把像素转换为地图坐标。 */
   pixelToCoordinate(pixel: Pixel): Coordinate | undefined;
-  /** 读取覆盖物的像素边界。 */
+  /** 读取 Overlay 的像素边界。 */
   getBounds(id: string): PixelBounds | undefined;
   /** 订阅界面布局变化。 */
   subscribeLayout(listener: () => void): () => void;
-  /** 订阅描述框操作。 */
+  /** 订阅 Descriptor 操作。 */
   subscribeDescriptorActions(id: string, listener: (action: DescriptorPortAction) => void): () => void;
-  /** 绑定描述框拖拽事件。 */
+  /** 绑定 Descriptor 拖拽事件。 */
   bindDrag(id: string, listener: (event: OverlayDragEvent) => void): () => void;
 }

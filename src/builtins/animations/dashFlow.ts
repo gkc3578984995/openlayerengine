@@ -5,10 +5,8 @@ import type { StyleSpec } from '../../core/style/types.js';
 import type { AnimationDefinition, AnimationFrameResult } from '../../services/animation/types.js';
 import { animationRecord, arrayValues, channel, finite, optionalColor } from './validation.js';
 
-/** 内部常量。保存 dashFlowAnimationDefinition 使用的数据。 */
 export const dashFlowAnimationDefinition = Object.freeze({
   type: 'dash-flow',
-  /** 校验并整理输入数据。 */
   normalize(input) {
     const record = animationRecord(input, 'dash-flow', ['type', 'channel', 'speed', 'lineDash', 'color']);
     if (record.type !== 'dash-flow') throw new CapabilityError('Dash-flow animation type must be dash-flow');
@@ -22,11 +20,9 @@ export const dashFlowAnimationDefinition = Object.freeze({
     };
     return Object.freeze(animation);
   },
-  /** 检查动画和图形是否兼容。 */
   assertCompatible(_state, geometry) {
     if (geometry.type !== 'polyline') throw new CapabilityError('Dash-flow animation requires polyline render geometry');
   },
-  /** 计算当前动画帧。 */
   frame(context, input): AnimationFrameResult {
     const spec = input as DashFlowAnimationSpec;
     const base = cloneCoreState(context.style) as StyleSpec;
@@ -45,7 +41,6 @@ export const dashFlowAnimationDefinition = Object.freeze({
   }
 } satisfies AnimationDefinition);
 
-/** 内部方法。处理 normalizeLineDash 相关数据。 */
 function normalizeLineDash(value: unknown): readonly number[] | undefined {
   if (value === undefined) return undefined;
   const parts = arrayValues(value, 'Dash-flow lineDash');

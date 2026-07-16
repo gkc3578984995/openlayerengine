@@ -17,75 +17,49 @@ import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/Error
 import type { LayerPort } from '../../core/ports/LayerPort.js';
 import type { NativeRefRegistry } from './NativeRefRegistry.js';
 
-/** 矢量图层使用的要素数据源。 */
 type VectorFeatureSource = VectorSource<Feature<Geometry>>;
-/** 公开瓦片地址回调的签名。 */
 type PublicTileUrlFunction = (coordinate: [z: number, x: number, y: number]) => string;
 
 /** 图层适配器的可选配置。 */
 export interface LayerAdapterOptions {
-  /** 接收适配器内部非致命错误。 */
+  /** 接收资源清理与监听器中的非致命错误。 */
   readonly errorReporter?: ErrorReporter;
 }
 
 /** 单个已挂载图层及其资源所有权信息。 */
 interface AdapterRecord {
-  /** 核心图层 ID。 */
   readonly id: string;
-  /** 图层类型。 */
   readonly kind: CoreLayerState['kind'];
-  /** 实际 OpenLayers 图层。 */
   readonly layer: BaseLayer;
-  /** 图层是否由 Earth 负责销毁。 */
   readonly layerOwned: boolean;
-  /** 图层是否由适配器创建。 */
   readonly adapterCreatedLayer: boolean;
-  /** 外部资源的所有权是否已经完成交接。 */
   resourceOwnershipActive: boolean;
-  /** 图层使用的数据源。 */
   readonly source?: TileSource | VectorFeatureSource;
-  /** 数据源是独占使用还是可共享。 */
   readonly sourceMode?: 'exclusive' | 'shared';
-  /** 数据源的销毁责任。 */
   readonly sourceOwnership?: LayerOwnership;
-  /** 矢量图层的数据源。 */
   readonly vectorSource?: VectorFeatureSource;
-  /** 图层挂载后的展示状态。 */
   readonly presentation: LayerPresentation;
 }
 
-/** 共享瓦片数据源的引用计数和所有权状态。 */
+/** 共享瓦片 Source 的引用计数和所有权状态。 */
 interface SharedSourceRecord {
-  /** 数据源的销毁责任。 */
   readonly ownership: LayerOwnership;
-  /** 当前使用该数据源的图层数量。 */
   count: number;
-  /** Earth 是否已经接管数据源所有权。 */
   ownershipTransferred: boolean;
 }
 
-/** 将核心图层配置映射为 OpenLayers 图层和数据源。 */
+/** 将 Core 图层配置映射为 OpenLayers 图层，并执行明确的资源所有权规则。 */
 export class LayerAdapter implements LayerPort {
-  /** 图层所属的地图。 */
   readonly #map: OlMap;
-  /** 地图根图层集合。 */
   readonly #rootLayers: Collection<BaseLayer>;
-  /** 解析外部传入的原生资源引用。 */
   readonly #nativeRefs: NativeRefRegistry;
-  /** 接收非致命清理和监听器错误。 */
   readonly #errorReporter: ErrorReporter;
-  /** 按 ID 保存已挂载图层。 */
   readonly #records = new Map<string, AdapterRecord>();
-  /** 从任意已注册图层反查图层 ID。 */
   readonly #layerIds = new WeakMap<BaseLayer, string>();
-  /** 从已注册矢量图层反查图层 ID。 */
   readonly #vectorLayerIds = new WeakMap<BaseLayer, string>();
-  /** 跟踪共享瓦片数据源的使用情况。 */
   readonly #sharedSources = new Map<TileSource, SharedSourceRecord>();
-  /** 适配器是否已经销毁。 */
   #disposed = false;
 
-  /** 保存地图、原生引用注册表和错误上报器。 */
   constructor(map: OlMap, nativeRefs: NativeRefRegistry, options: LayerAdapterOptions = {}) {
     this.#map = map;
     this.#rootLayers = map.getLayers();
@@ -93,7 +67,7 @@ export class LayerAdapter implements LayerPort {
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
   }
 
-  /** 创建或解析图层，并将其挂到地图。 */
+  /** 准备并挂载图层；监听器抛错时以地图集合中的实际状态为准。 */
   attach(spec: Readonly<CoreLayerSpec>): LayerPresentation {
     this.#assertActive();
     if (this.#records.has(spec.id)) throw new InvalidArgumentError(`Layer adapter id already exists: ${spec.id}`);
@@ -135,7 +109,7 @@ export class LayerAdapter implements LayerPort {
     return prepared.presentation;
   }
 
-  /** 标记指定图层的原生资源已经完成所有权交接。 */
+  /** 确认外部原生资源已完成所有权交接。 */
   completeResourceHandoff(id: string): void {
     const record = this.#records.get(id);
     if (record === undefined || record.resourceOwnershipActive) return;
@@ -146,7 +120,7 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
-  /** 将核心图层展示状态同步到 OpenLayers 图层。 */
+  /** 只同步可见性、不透明度和层级，不改变图层身份。 */
   update(before: Readonly<CoreLayerState>, after: Readonly<CoreLayerState>): void {
     this.#assertActive();
     if (before.id !== after.id || before.kind !== after.kind) throw new InvalidArgumentError('Layer adapter update cannot change id or kind');
@@ -155,7 +129,7 @@ export class LayerAdapter implements LayerPort {
     this.#applyPresentation(record.layer, after);
   }
 
-  /** 从地图移除图层并按所有权清理资源。 */
+  /** 从地图移除图层，并按独占、共享及所有权规则清理资源。 */
   detach(id: string): void {
     this.#assertActive();
     const record = this.#records.get(id);
@@ -182,7 +156,7 @@ export class LayerAdapter implements LayerPort {
     this.#releaseSource(record);
   }
 
-  /** 获取指定 ID 对应的 OpenLayers 图层。 */
+  /** 取得当前已挂载的 OpenLayers 图层。 */
   requireLayer(id: string): BaseLayer {
     this.#assertActive();
     const layer = this.#records.get(id)?.layer;
@@ -190,7 +164,7 @@ export class LayerAdapter implements LayerPort {
     return layer;
   }
 
-  /** 获取指定矢量图层的数据源。 */
+  /** 取得已注册矢量图层的 Source。 */
   requireVectorSource(id: string): VectorFeatureSource {
     this.#assertActive();
     const source = this.#records.get(id)?.vectorSource;
@@ -198,38 +172,35 @@ export class LayerAdapter implements LayerPort {
     return source;
   }
 
-  /** 从已注册图层反查核心图层 ID。 */
   layerIdFor(layer: BaseLayer): string | undefined {
     this.#assertActive();
     return this.#layerIds.get(layer);
   }
 
-  /** 从已注册矢量图层反查核心图层 ID。 */
   vectorLayerIdFor(layer: BaseLayer): string | undefined {
     this.#assertActive();
     return this.#vectorLayerIds.get(layer);
   }
 
-  /** 判断图层是否是当前适配器管理的矢量图层。 */
   isRegisteredVectorLayer(layer: BaseLayer): boolean {
     this.#assertActive();
     return this.#vectorLayerIds.has(layer);
   }
 
-  /** 返回当前全部矢量数据源。 */
+  /** 返回当前所有矢量 Source 的不可变快照。 */
   vectorSources(): readonly VectorFeatureSource[] {
     this.#assertActive();
     return Object.freeze([...this.#records.values()].flatMap(({ vectorSource }) => (vectorSource === undefined ? [] : [vectorSource])));
   }
 
-  /** 移除全部图层并销毁适配器。 */
+  /** 按各自所有权规则移除全部图层。 */
   destroy(): void {
     if (this.#disposed) return;
     for (const id of [...this.#records.keys()]) this.detach(id);
     this.#disposed = true;
   }
 
-  /** 根据核心配置准备一个尚未挂载的图层记录。 */
+  /** 根据 Core 配置准备一个尚未挂载的图层记录。 */
   #prepare(spec: Readonly<CoreLayerSpec>): AdapterRecord {
     if (spec.kind === 'vector') {
       const source = new VectorSource<Feature<Geometry>>({ wrapX: spec.wrapX });
@@ -311,7 +282,7 @@ export class LayerAdapter implements LayerPort {
     };
   }
 
-  /** 确认共享数据源没有混用不同所有权。 */
+  /** 确认共享 Source 没有混用不同所有权。 */
   #assertSourceOwnership(source: TileSource, ownership: LayerOwnership): void {
     const existing = this.#sharedSources.get(source);
     if (existing !== undefined && existing.ownership !== ownership) {
@@ -346,7 +317,7 @@ export class LayerAdapter implements LayerPort {
     }
   }
 
-  /** 按独占、共享和所有权规则释放数据源。 */
+  /** 按独占、共享和所有权规则释放 Source。 */
   #releaseSource(record: AdapterRecord): void {
     const source = record.source;
     if (source === undefined) return;
@@ -363,7 +334,7 @@ export class LayerAdapter implements LayerPort {
     if (shared.ownership === 'earth' && shared.ownershipTransferred) this.#attempt(() => source.dispose(), 'dispose-source');
   }
 
-  /** 回滚尚未挂载成功的图层和独占数据源。 */
+  /** 回滚尚未挂载成功的图层和独占 Source。 */
   #rollbackPrepared(record: AdapterRecord): void {
     if (record.adapterCreatedLayer) this.#disposeRollback(record.layer);
     if (record.sourceMode === 'exclusive' && record.source !== undefined) this.#disposeRollback(record.source);
@@ -435,7 +406,7 @@ export function createCallbackImageTileSource(callback: PublicTileUrlFunction, a
   });
 }
 
-/** 根据内置瓦片配置创建数据源。 */
+/** 根据内置瓦片配置创建 Source。 */
 function createPresetSource(source: TileSourcePresetState): TileSource {
   if (source.preset === 'osm') return new OSM();
   if (source.preset === 'xyz') {
