@@ -12,7 +12,7 @@ import type { TransformService } from '../facade/transformTypes.js';
 import type { ElementService, LayerService } from '../facade/types.js';
 import type { ViewService } from '../facade/ViewService.js';
 
-/** 汇集单个 Earth 实例运行期间使用的地图对象与服务。 */
+/** 单个 Earth 显式持有的运行上下文，也是地图资源的生命周期边界。 */
 export interface EngineContext {
   /** OpenLayers 地图实例。 */
   readonly map: Map;
@@ -20,9 +20,9 @@ export interface EngineContext {
   readonly olView: View;
   /** 地图视口元素。 */
   readonly viewport: HTMLElement;
-  /** 创建地图时传入的挂载目标。 */
+  /** 创建地图时确定的挂载目标。 */
   readonly target: string | HTMLElement;
-  /** 元素服务。 */
+  /** Element 服务。 */
   readonly elements: ElementService;
   /** 图层服务。 */
   readonly layers: LayerService;
@@ -46,6 +46,6 @@ export interface EngineContext {
   readonly view: ViewService;
   /** 地图控件服务。 */
   readonly controls: ControlService;
-  /** 销毁上下文持有的地图资源与服务。 */
+  /** 按依赖关系释放上下文内的服务和地图资源。 */
   destroy(): void;
 }

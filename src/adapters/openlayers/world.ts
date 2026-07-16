@@ -3,24 +3,18 @@ import type View from 'ol/View.js';
 import type { Coordinate, Pixel } from '../../core/common/types.js';
 import { InvalidArgumentError } from '../../core/errors.js';
 
-/** 一条坐标线。 */
 type CoordinateLine = readonly Coordinate[];
-/** 多组坐标环。 */
 type CoordinateRings = readonly CoordinateLine[];
-/** 本模块支持的坐标层级。 */
 type Coordinates = Coordinate | CoordinateLine | CoordinateRings;
 
-/** 校验后的坐标结构及其扁平视图。 */
+/** 同时保留输入层级和扁平视图，避免转换逻辑重复遍历。 */
 interface ParsedCoordinates {
-  /** 坐标数组的嵌套层级。 */
   readonly depth: 0 | 1 | 2;
-  /** 保留原层级的坐标值。 */
   readonly value: Coordinates;
-  /** 便于统一计算的坐标列表。 */
   readonly flat: readonly Coordinate[];
 }
 
-/** 获取当前投影单个世界的水平宽度。 */
+/** 返回当前投影单个世界的水平宽度；投影没有有效范围时返回 `undefined`。 */
 export function getWorldWidth(view: View): number | undefined {
   const extent = view.getProjection().getExtent();
   if (extent === undefined || extent.length < 4) return undefined;
@@ -28,14 +22,14 @@ export function getWorldWidth(view: View): number | undefined {
   return Number.isFinite(width) && width > 0 ? width : undefined;
 }
 
-/** 计算横坐标所在的世界索引。 */
+/** 返回横坐标所在的循环世界索引。 */
 export function getWorldIndex(view: View, x: number): number | undefined {
   requireFinite(x, 'World x');
   const width = getWorldWidth(view);
   return width === undefined ? undefined : Math.floor(x / width);
 }
 
-/** 把坐标移动到当前视图中心所在的世界副本。 */
+/** 把坐标移到离当前 View 中心最近的世界副本。 */
 export function normalizeCoordinatesToViewWorld(view: View, coordinates: Coordinate): Coordinate;
 export function normalizeCoordinatesToViewWorld(view: View, coordinates: CoordinateLine): CoordinateLine;
 export function normalizeCoordinatesToViewWorld(view: View, coordinates: CoordinateRings): CoordinateRings;
@@ -53,7 +47,7 @@ export function normalizeCoordinatesToViewWorld(view: View, coordinates: Coordin
   });
 }
 
-/** 把坐标恢复到指定世界索引。 */
+/** 把坐标移回指定的世界索引。 */
 export function restoreCoordinatesToWorld(view: View, coordinates: Coordinate, index: number | undefined): Coordinate;
 export function restoreCoordinatesToWorld(view: View, coordinates: CoordinateLine, index: number | undefined): CoordinateLine;
 export function restoreCoordinatesToWorld(view: View, coordinates: CoordinateRings, index: number | undefined): CoordinateRings;
@@ -69,7 +63,7 @@ export function restoreCoordinatesToWorld(view: View, coordinates: Coordinates, 
   });
 }
 
-/** 获取屏幕像素对应的地图坐标。 */
+/** 解析屏幕像素对应的地图坐标；地图未返回坐标时保留 `undefined`。 */
 export function getCoordinateAtPixel(map: Map, pixel: Pixel): Coordinate | undefined {
   const inspectedPixel = parsePixel(pixel);
   const coordinate = map.getCoordinateFromPixel([...inspectedPixel]);
@@ -101,7 +95,7 @@ export function translateCoordinatesToPixel(map: Map, view: View, pixel: Pixel, 
   });
 }
 
-/** 校验坐标输入并识别其嵌套层级。 */
+/** 校验坐标输入，并记录其嵌套层级。 */
 function parseCoordinates(value: unknown): ParsedCoordinates {
   const outer = readArray(value, 'Coordinates');
   if (isCoordinateValues(outer)) {
@@ -125,23 +119,19 @@ function parseCoordinates(value: unknown): ParsedCoordinates {
   return { depth: 2, value: rings, flat: Object.freeze(rings.flat()) };
 }
 
-/** 校验并复制单个坐标。 */
 function parseCoordinate(value: unknown, label: string): Coordinate {
   return parseCoordinateValues(readArray(value, label), label);
 }
 
-/** 从数组值中读取单个坐标。 */
 function parseCoordinateValues(values: readonly unknown[], label: string): Coordinate {
   if (!isCoordinateValues(values)) throw new InvalidArgumentError(`${label} must contain two or three finite numbers`);
   return Object.freeze(values.length === 2 ? [values[0], values[1]] : [values[0], values[1], values[2]]) as Coordinate;
 }
 
-/** 判断数组是否是有效的二维或三维坐标。 */
 function isCoordinateValues(values: readonly unknown[]): values is readonly [number, number] | readonly [number, number, number] {
   return (values.length === 2 || values.length === 3) && values.every((item) => typeof item === 'number' && Number.isFinite(item));
 }
 
-/** 校验并复制屏幕像素。 */
 function parsePixel(value: unknown): Pixel {
   const values = readArray(value, 'Pixel');
   if (values.length !== 2 || values.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
@@ -150,7 +140,7 @@ function parsePixel(value: unknown): Pixel {
   return Object.freeze([values[0], values[1]]) as Pixel;
 }
 
-/** 安全读取只含普通索引项的数组。 */
+/** 只接受普通索引数据属性，避免校验过程触发 accessor。 */
 function readArray(value: unknown, label: string): readonly unknown[] {
   if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be an array`);
   const length = value.length;
@@ -167,43 +157,37 @@ function readArray(value: unknown, label: string): readonly unknown[] {
   return result;
 }
 
-/** 判断字段名是否是数组范围内的标准索引。 */
 function isArrayIndex(key: string, length: number): boolean {
   if (!/^(0|[1-9]\d*)$/.test(key)) return false;
   const index = Number(key);
   return Number.isSafeInteger(index) && index >= 0 && index < length && String(index) === key;
 }
 
-/** 保持坐标层级并逐个转换坐标。 */
+/** 逐个转换坐标，同时保持原有嵌套层级。 */
 function mapParsed(parsed: ParsedCoordinates, mapper: (coordinate: Coordinate) => Coordinate): Coordinates {
   if (parsed.depth === 0) return mapper(parsed.value as Coordinate);
   if (parsed.depth === 1) return Object.freeze((parsed.value as CoordinateLine).map(mapper));
   return Object.freeze((parsed.value as CoordinateRings).map((ring) => Object.freeze(ring.map(mapper))));
 }
 
-/** 复制已解析的完整坐标结构。 */
 function cloneParsed(parsed: ParsedCoordinates): Coordinates {
   return mapParsed(parsed, cloneCoordinate);
 }
 
-/** 复制并冻结单个坐标。 */
 function cloneCoordinate(coordinate: Coordinate): Coordinate {
   return Object.freeze(coordinate.length === 2 ? [coordinate[0], coordinate[1]] : [coordinate[0], coordinate[1], coordinate[2]]) as Coordinate;
 }
 
-/** 按水平和垂直距离平移坐标。 */
 function shiftCoordinate(coordinate: Coordinate, dx: number, dy: number): Coordinate {
   return Object.freeze(
     coordinate.length === 2 ? [coordinate[0] + dx, coordinate[1] + dy] : [coordinate[0] + dx, coordinate[1] + dy, coordinate[2]]
   ) as Coordinate;
 }
 
-/** 替换坐标的横坐标值。 */
 function replaceX(coordinate: Coordinate, x: number): Coordinate {
   return Object.freeze(coordinate.length === 2 ? [x, coordinate[1]] : [x, coordinate[1], coordinate[2]]) as Coordinate;
 }
 
-/** 计算一组坐标外接范围的中心。 */
 function coordinateCenter(coordinates: readonly Coordinate[]): Coordinate {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -233,7 +217,6 @@ function normalizeX(x: number, minX: number, maxX: number, width: number): numbe
   return x;
 }
 
-/** 读取有限数值。 */
 function requireFinite(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new InvalidArgumentError(`${label} must be finite`);
   return value;

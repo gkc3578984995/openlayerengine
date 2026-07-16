@@ -1,7 +1,7 @@
 import type { Coordinate } from '../../../core/common/types.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 
-/** Transform 预览几何的二维范围。 */
+/** Transform 预览几何的二维外接范围。 */
 export type TransformExtent = readonly [number, number, number, number];
 
 /** 计算渲染几何的外接范围。 */
@@ -59,7 +59,7 @@ export function translateRenderGeometry(geometry: RenderGeometryState, x: number
   });
 }
 
-/** 平移单个坐标并保留高度值。 */
+/** 平移平面坐标，同时原样保留可选高度。 */
 function translate(coordinate: Coordinate, x: number, y: number): Coordinate {
   return coordinate.length === 3 ? [coordinate[0] + x, coordinate[1] + y, coordinate[2]] : [coordinate[0] + x, coordinate[1] + y];
 }

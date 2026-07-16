@@ -1,10 +1,9 @@
-/** 参数错误。传入的参数不符合接口要求时抛出。 */
+/** 参数不符合接口契约。 */
 export class InvalidArgumentError extends Error {
   /**
-   * 创建一个参数错误。
+   * 创建参数契约错误，并保留具体说明。
    *
-   * @param message 错误信息。说明哪个参数不正确。
-   * @returns 新的参数错误实例。
+   * @param message 具体的参数错误说明。
    *
    * @example
    * ```ts
@@ -19,19 +18,18 @@ export class InvalidArgumentError extends Error {
   }
 }
 
-/** 元素 ID 重复错误。添加同名元素时抛出。 */
+/** 当前 Earth 内已存在相同 Element ID。 */
 export class DuplicateElementIdError extends Error {
   /**
-   * 创建一个元素 ID 重复错误。
+   * 创建 Element ID 冲突错误。
    *
-   * @param message 错误信息。说明哪个元素 ID 已经存在。
-   * @returns 新的元素 ID 重复错误实例。
+   * @param message 已冲突的 Element ID 说明。
    *
    * @example
    * ```ts
    * import { DuplicateElementIdError } from '@vrsim/earth-engine-ol';
    *
-   * throw new DuplicateElementIdError('元素 marker 已经存在');
+   * throw new DuplicateElementIdError('Element marker 已存在');
    * ```
    */
   constructor(message = 'Element id already exists') {
@@ -40,19 +38,18 @@ export class DuplicateElementIdError extends Error {
   }
 }
 
-/** 选择器错误。危险操作没有给出明确选择条件时抛出。 */
+/** 破坏性操作缺少明确的 ElementSelector 条件。 */
 export class InvalidSelectorError extends Error {
   /**
-   * 创建一个选择器错误。
+   * 创建缺少明确选择条件的错误。
    *
-   * @param message 错误信息。说明选择条件哪里不正确。
-   * @returns 新的选择器错误实例。
+   * @param message 具体的选择条件错误说明。
    *
    * @example
    * ```ts
    * import { InvalidSelectorError } from '@vrsim/earth-engine-ol';
    *
-   * throw new InvalidSelectorError('删除元素时必须指定选择条件');
+   * throw new InvalidSelectorError('删除 Element 时必须指定选择条件');
    * ```
    */
   constructor(message = 'A destructive operation requires an explicit selector') {
@@ -61,13 +58,12 @@ export class InvalidSelectorError extends Error {
   }
 }
 
-/** 对象已销毁错误。继续使用已经失效的对象时抛出。 */
+/** 调用了已失效对象的非清理操作。 */
 export class ObjectDisposedError extends Error {
   /**
-   * 创建一个对象已销毁错误。
+   * 创建对象已失效错误。
    *
-   * @param message 错误信息。说明哪个对象已经失效。
-   * @returns 新的对象已销毁错误实例。
+   * @param message 已失效对象的说明。
    *
    * @example
    * ```ts
@@ -82,13 +78,12 @@ export class ObjectDisposedError extends Error {
   }
 }
 
-/** 能力不可用错误。目标不支持请求的能力时抛出。 */
+/** 目标没有声明请求的能力。 */
 export class CapabilityError extends Error {
   /**
-   * 创建一个能力不可用错误。
+   * 创建目标能力不可用错误。
    *
-   * @param message 错误信息。说明当前缺少哪项能力。
-   * @returns 新的能力不可用错误实例。
+   * @param message 缺失能力的说明。
    *
    * @example
    * ```ts
@@ -103,13 +98,12 @@ export class CapabilityError extends Error {
   }
 }
 
-/** 交互冲突错误。互斥交互无法同时运行时抛出。 */
+/** 互斥交互在 `reject` 策略下发生冲突。 */
 export class InteractionConflictError extends Error {
   /**
-   * 创建一个交互冲突错误。
+   * 创建互斥交互冲突错误。
    *
-   * @param message 错误信息。说明哪些交互发生了冲突。
-   * @returns 新的交互冲突错误实例。
+   * @param message 冲突交互的说明。
    *
    * @example
    * ```ts
@@ -124,19 +118,18 @@ export class InteractionConflictError extends Error {
   }
 }
 
-/** 操作不支持错误。接口存在但当前场景不能执行时抛出。 */
+/** 当前场景无法执行已定义的操作。 */
 export class UnsupportedOperationError extends Error {
   /**
-   * 创建一个操作不支持错误。
+   * 创建当前场景不支持操作的错误。
    *
-   * @param message 错误信息。说明当前不能执行什么操作。
-   * @returns 新的操作不支持错误实例。
+   * @param message 不受支持操作的说明。
    *
    * @example
    * ```ts
    * import { UnsupportedOperationError } from '@vrsim/earth-engine-ol';
    *
-   * throw new UnsupportedOperationError('当前元素不能缩放');
+   * throw new UnsupportedOperationError('当前 Element 不能缩放');
    * ```
    */
   constructor(message = 'The requested operation is unsupported') {

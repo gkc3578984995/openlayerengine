@@ -12,21 +12,21 @@ import { EditSessionFacade } from './EditSessionFacade.js';
 import type { DrawOptions, DrawService, DrawSession, EditOptions, EditSession } from './drawTypes.js';
 
 /**
- * 将内部绘制服务映射为公开元素句柄 API，并负责原生样式引用的所有权校验。
+ * 将内部 Draw 服务映射为公共 Element 句柄 API，并校验原生样式引用的所有权。
  *
  * @internal
  */
 export class DrawFacade implements DrawService {
   /** 执行实际绘制和编辑工作的内部服务。 */
   readonly #service: InternalDrawService;
-  /** 将内部元素状态转换为公开元素句柄。 */
+  /** 将内部 Element 状态转换为公共句柄。 */
   readonly #elements: ElementServiceImpl;
   /** 管理原生样式引用。 */
   readonly #nativeRefs: NativeRefRegistry;
 
   /**
-   * @param service 仅使用元素状态和 ID 的内部绘制服务。
-   * @param elements 当前 Earth 的公开元素服务。
+   * @param service 只使用 Element 状态和 ID 的内部 Draw 服务。
+   * @param elements 当前 Earth 的公共 Element 服务。
    * @param nativeRefs 当前 Earth 的原生对象引用注册表。
    */
   constructor(service: InternalDrawService, elements: ElementServiceImpl, nativeRefs: NativeRefRegistry) {
@@ -35,7 +35,7 @@ export class DrawFacade implements DrawService {
     this.#nativeRefs = nativeRefs;
   }
 
-  /** 校验绘制参数并启动绘制会话。 */
+  /** 校验参数并启动 Draw Session。 */
   start<T>(input: DrawOptions<T>): DrawSession<T> {
     const options = inspectDrawOptions(input);
     let provisional: NativeStyleRef | undefined;
@@ -56,13 +56,13 @@ export class DrawFacade implements DrawService {
     }
   }
 
-  /** 校验元素归属并启动编辑会话。 */
+  /** 校验 Element 归属并启动 Edit Session。 */
   edit<T>(element: Element<T>, options?: EditOptions): EditSession<T> {
     const id = currentElementId(element, this.#elements);
     return new EditSessionFacade(this.#service.edit<T>(id, options), element, this.#elements);
   }
 
-  /** 查询绘制模块管理的元素，并返回公开句柄。 */
+  /** 查询 Draw 服务管理的 Element，并返回公共句柄。 */
   query<T>(selector?: ElementSelector<T>): readonly Element<T>[] {
     return Object.freeze(
       this.#service.query<T>(selector).flatMap(({ id }) => {
@@ -72,7 +72,7 @@ export class DrawFacade implements DrawService {
     );
   }
 
-  /** 清理绘制模块中匹配的元素。 */
+  /** 清理 Draw 服务中匹配的 Element。 */
   clear(selector?: ElementSelector): number {
     return this.#service.clear(selector);
   }
@@ -91,12 +91,12 @@ export class DrawFacade implements DrawService {
     try {
       this.#nativeRefs.discardProvisionalStyle(reference);
     } catch {
-      // 成功提交或注册表销毁已经终结该临时引用的所有权。
+      // 引用已经提交，或注册表销毁时已统一终结，无需再次处理。
     }
   }
 }
 
-/** 确认编辑目标属于当前 Earth，并返回元素 ID。 */
+/** 确认编辑目标属于当前 Earth，并返回 Element ID。 */
 function currentElementId<T>(element: Element<T>, elements: ElementServiceImpl): string {
   const feature = elementHandleFeature(element);
   if (feature === undefined) throw new InvalidArgumentError('Draw edit target must be an Element');
@@ -108,7 +108,7 @@ function currentElementId<T>(element: Element<T>, elements: ElementServiceImpl):
   return id;
 }
 
-/** 安全复制并校验绘制参数对象。 */
+/** 安全读取并校验 Draw 参数对象。 */
 function inspectDrawOptions(input: unknown): Record<string, unknown> {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Draw options must be a plain object');
   try {

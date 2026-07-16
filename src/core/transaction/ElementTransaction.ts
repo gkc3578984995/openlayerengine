@@ -8,83 +8,61 @@ import { assertDestructiveSelector, compileSelector } from '../element/selector.
 import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState, ElementStateInput } from '../element/types.js';
 import type { ElementChange, ElementChangeSet } from './types.js';
 
-/** 内部类型。描述 StoredElement 使用的数据。 */
 type StoredElement = ElementSnapshot<unknown>;
-/** 内部常量。保存 deletedElement 使用的数据。 */
 const deletedElement = Symbol('deleted element');
-/** 内部类型。描述 OverlayElement 使用的数据。 */
 type OverlayElement = StoredElement | typeof deletedElement;
-/** 内部类型。描述 ElementIdFactory 使用的数据。 */
 type ElementIdFactory = (isOccupied: (id: string) => boolean) => string;
 
-/** 内部接口。约定 TransactionState 的数据结构。 */
 interface TransactionState {
-  /** 图形注册表。用于校验元素几何。 */
   readonly shapeRegistry: ShapeRegistry;
-  /** 基础数据。保存事务开始时的数据。 */
   readonly base: Map<string, StoredElement>;
-  /** 覆盖数据。保存事务中的临时修改。 */
   readonly overlay: Map<string, OverlayElement>;
-  /** 内部字段。保存 appendOrder 相关状态。 */
   readonly appendOrder: string[];
-  /** 内部字段。保存 appendedAt 相关状态。 */
   readonly appendedAt: Map<string, number>;
-  /** ID 工厂。用于创建新元素 ID。 */
   readonly createId: ElementIdFactory;
-  /** 原始状态。保存修改前的数据。 */
   readonly before: Map<string, StoredElement | undefined>;
-  /** 顺序。保存元素排列顺序。 */
   readonly order: string[];
-  /** 内部字段。保存 isSelectorEvaluationActive 相关状态。 */
   readonly isSelectorEvaluationActive: () => boolean;
-  /** 内部字段。保存 validateElement 相关状态。 */
   readonly validateElement: (state: Readonly<ElementState>) => void;
-  /** 活动状态。表示对象是否仍可使用。 */
   active: boolean;
-  /** 内部字段。保存 evaluatingSelector 相关状态。 */
   evaluatingSelector: boolean;
 }
 
-/** 内部常量。保存 transactionStates 使用的数据。 */
 const transactionStates = new WeakMap<ElementTransactionImpl, TransactionState>();
-/** 内部常量。保存 patchFields 使用的数据。 */
 const patchFields: ReadonlySet<string> = new Set(['geometry', 'style', 'data', 'module', 'layerId', 'visible']);
 
-/** 内部接口。约定 ElementTransaction 的数据结构。 */
+/** 同步 ElementStore 事务中的操作门面。 */
 export interface ElementTransaction {
-  /** 添加一个元素。 */
+  /** 添加 Element。 */
   add<T>(input: ElementStateInput<T>): Readonly<ElementState<T>>;
-  /** 读取指定对象。 */
+  /** 按 ID 读取 Element。 */
   get<T>(id: string): Readonly<ElementState<T>> | undefined;
-  /** 查询匹配的数据。 */
+  /** 查询匹配的 Element。 */
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[];
-  /** 更新匹配的数据。 */
+  /** 更新匹配的 Element。 */
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Readonly<ElementState<T>>[];
-  /** 移除匹配的数据。 */
+  /** 移除匹配的 Element，并返回被移除的 ID。 */
   remove(selector: ElementSelector): readonly string[];
-  /** 隐藏匹配的元素。 */
+  /** 隐藏匹配的 Element。 */
   hide(selector: ElementSelector): readonly Readonly<ElementState>[];
-  /** 显示匹配的元素。 */
+  /** 显示匹配的 Element。 */
   show(selector: ElementSelector): readonly Readonly<ElementState>[];
-  /** 复制指定元素。 */
+  /** 复制指定 Element。 */
   copy<T>(id: string, overrides?: ElementCopyOptions<T>): Readonly<ElementState<T>>;
-  /** 清空当前数据。 */
+  /** 移除事务视图中的全部 Element。 */
   clear(): readonly string[];
 }
 
-/** 内部接口。约定 ElementTransactionScope 的数据结构。 */
+/** ElementTransaction 的内部提交与回滚句柄。 */
 export interface ElementTransactionScope {
-  /** 内部字段。保存 transaction 相关状态。 */
   readonly transaction: ElementTransaction;
   /** 完成当前事务。 */
   complete(): ElementChangeSet;
   /** 中止当前事务。 */
   abort(): void;
-  /** 内部方法。处理 isEvaluatingSelector 相关数据。 */
   isEvaluatingSelector(): boolean;
 }
 
-/** 内部方法。处理 createElementTransactionScope 相关数据。 */
 export function createElementTransactionScope(
   shapeRegistry: ShapeRegistry,
   base: Map<string, StoredElement>,
@@ -101,9 +79,7 @@ export function createElementTransactionScope(
   });
 }
 
-/** 内部类。管理 ElementTransactionImpl 相关状态。 */
 class ElementTransactionImpl implements ElementTransaction {
-  /** 创建一个元素事务实现。 */
   constructor(
     shapeRegistry: ShapeRegistry,
     base: Map<string, StoredElement>,
@@ -127,7 +103,6 @@ class ElementTransactionImpl implements ElementTransaction {
     });
   }
 
-  /** 添加一个元素。 */
   add<T>(input: ElementStateInput<T>): Readonly<ElementState<T>> {
     const transaction = writableState(this);
     const state = createElementSnapshot(transaction.shapeRegistry, input);
@@ -138,14 +113,12 @@ class ElementTransactionImpl implements ElementTransaction {
     return snapshot(transaction, state);
   }
 
-  /** 读取指定对象。 */
   get<T>(id: string): Readonly<ElementState<T>> | undefined {
     const transaction = activeState(this);
     const state = getElement(transaction, id);
     return state === undefined ? undefined : snapshot<T>(transaction, state);
   }
 
-  /** 查询匹配的数据。 */
   query<T>(selector?: ElementSelector<T>): readonly Readonly<ElementState<T>>[] {
     const transaction = selectableState(this);
     return withSelectorEvaluation(transaction, () =>
@@ -153,7 +126,6 @@ class ElementTransactionImpl implements ElementTransaction {
     );
   }
 
-  /** 更新匹配的数据。 */
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Readonly<ElementState<T>>[] {
     const transaction = writableState(this);
     return withSelectorEvaluation(transaction, () => {
@@ -174,7 +146,6 @@ class ElementTransactionImpl implements ElementTransaction {
     });
   }
 
-  /** 移除匹配的数据。 */
   remove(selector: ElementSelector): readonly string[] {
     const transaction = writableState(this);
     const matches = matchingEntries(transaction, selector, true);
@@ -185,17 +156,14 @@ class ElementTransactionImpl implements ElementTransaction {
     return Object.freeze(matches.map(([id]) => id));
   }
 
-  /** 隐藏匹配的元素。 */
   hide(selector: ElementSelector): readonly Readonly<ElementState>[] {
     return this.update(selector, { visible: false });
   }
 
-  /** 显示匹配的元素。 */
   show(selector: ElementSelector): readonly Readonly<ElementState>[] {
     return this.update(selector, { visible: true });
   }
 
-  /** 复制指定元素。 */
   copy<T>(id: string, overrides: ElementCopyOptions<T> = {}): Readonly<ElementState<T>> {
     const transaction = writableState(this);
     const source = getElement(transaction, id);
@@ -211,7 +179,6 @@ class ElementTransactionImpl implements ElementTransaction {
     return snapshot<T>(transaction, copied);
   }
 
-  /** 清空当前数据。 */
   clear(): readonly string[] {
     const transaction = writableState(this);
     const entries = currentEntries(transaction);
@@ -223,7 +190,6 @@ class ElementTransactionImpl implements ElementTransaction {
   }
 }
 
-/** 内部方法。处理 completeElementTransaction 相关数据。 */
 function completeElementTransaction(transaction: ElementTransactionImpl): ElementChangeSet {
   const state = activeState(transaction);
   state.active = false;
@@ -267,20 +233,17 @@ function completeElementTransaction(transaction: ElementTransactionImpl): Elemen
   return frozenChanges;
 }
 
-/** 内部方法。处理 abortElementTransaction 相关数据。 */
 function abortElementTransaction(transaction: ElementTransactionImpl): void {
   const state = transactionStates.get(transaction);
   if (state !== undefined) state.active = false;
 }
 
-/** 内部方法。处理 activeState 相关数据。 */
 function activeState(transaction: ElementTransactionImpl): TransactionState {
   const state = transactionStates.get(transaction);
   if (state === undefined || !state.active) throw new ObjectDisposedError('Element transaction is no longer active');
   return state;
 }
 
-/** 内部方法。处理 selectableState 相关数据。 */
 function selectableState(transaction: ElementTransactionImpl): TransactionState {
   const state = activeState(transaction);
   if (state.evaluatingSelector || state.isSelectorEvaluationActive()) {
@@ -289,19 +252,16 @@ function selectableState(transaction: ElementTransactionImpl): TransactionState 
   return state;
 }
 
-/** 内部方法。处理 writableState 相关数据。 */
 function writableState(transaction: ElementTransactionImpl): TransactionState {
   return selectableState(transaction);
 }
 
-/** 内部方法。处理 remember 相关数据。 */
 function remember(transaction: TransactionState, id: string, before: StoredElement | undefined): void {
   if (transaction.before.has(id)) return;
   transaction.before.set(id, before);
   transaction.order.push(id);
 }
 
-/** 内部方法。处理 matchingEntries 相关数据。 */
 function matchingEntries<T>(transaction: TransactionState, selector?: ElementSelector<T>, destructive = false): Array<readonly [string, StoredElement]> {
   return withSelectorEvaluation(transaction, () => {
     if (destructive) assertDestructiveSelector(selector as ElementSelector);
@@ -322,7 +282,6 @@ function matchingEntries<T>(transaction: TransactionState, selector?: ElementSel
   });
 }
 
-/** 内部方法。处理 withSelectorEvaluation 相关数据。 */
 function withSelectorEvaluation<T>(transaction: TransactionState, work: () => T): T {
   const wasEvaluatingSelector = transaction.evaluatingSelector;
   transaction.evaluatingSelector = true;
@@ -333,19 +292,16 @@ function withSelectorEvaluation<T>(transaction: TransactionState, work: () => T)
   }
 }
 
-/** 内部方法。处理 getElement 相关数据。 */
 function getElement(transaction: TransactionState, id: string): StoredElement | undefined {
   const overlaid = transaction.overlay.get(id);
   if (overlaid === deletedElement) return undefined;
   return overlaid ?? transaction.base.get(id);
 }
 
-/** 内部方法。处理 hasElement 相关数据。 */
 function hasElement(transaction: TransactionState, id: string): boolean {
   return getElement(transaction, id) !== undefined;
 }
 
-/** 内部方法。处理 setElement 相关数据。 */
 function setElement(transaction: TransactionState, id: string, state: StoredElement): void {
   const wasPresent = hasElement(transaction, id);
   transaction.overlay.set(id, state);
@@ -355,13 +311,11 @@ function setElement(transaction: TransactionState, id: string, state: StoredElem
   transaction.appendedAt.set(id, appendIndex);
 }
 
-/** 内部方法。处理 deleteElement 相关数据。 */
 function deleteElement(transaction: TransactionState, id: string): void {
   transaction.overlay.set(id, deletedElement);
   transaction.appendedAt.delete(id);
 }
 
-/** 内部方法。处理 currentEntries 相关数据。 */
 function currentEntries(transaction: TransactionState): Array<readonly [string, StoredElement]> {
   const result: Array<readonly [string, StoredElement]> = [];
   for (const [id] of transaction.base) {
@@ -378,14 +332,12 @@ function currentEntries(transaction: TransactionState): Array<readonly [string, 
   return result;
 }
 
-/** 内部方法。处理 selectorIds 相关数据。 */
 function selectorIds<T>(selector?: ElementSelector<T>): readonly string[] | undefined {
   if (selector === undefined || selector === null || typeof selector !== 'object' || Array.isArray(selector)) return undefined;
   if (selector.id !== undefined) return [selector.id];
   return selector.ids === undefined ? undefined : [...new Set(selector.ids)];
 }
 
-/** 内部方法。处理 clonePatch 相关数据。 */
 function clonePatch<T>(patch: ElementPatch<T> | ElementCopyOptions<T>): ElementPatch<T> {
   const cloned = cloneCoreState(patch) as ElementPatch<T>;
   if (cloned === null || typeof cloned !== 'object' || Array.isArray(cloned) || Object.getPrototypeOf(cloned) !== Object.prototype) {
@@ -397,7 +349,6 @@ function clonePatch<T>(patch: ElementPatch<T> | ElementCopyOptions<T>): ElementP
   return cloned;
 }
 
-/** 内部方法。处理 mergeState 相关数据。 */
 function mergeState<T>(source: StoredElement, patch: ElementPatch<T>, id: string): ElementStateInput<T> {
   const has = (key: keyof ElementPatch<T>): boolean => Object.prototype.hasOwnProperty.call(patch, key);
   return {
@@ -412,12 +363,10 @@ function mergeState<T>(source: StoredElement, patch: ElementPatch<T>, id: string
   };
 }
 
-/** 内部方法。处理 snapshot 相关数据。 */
 function snapshot<T>(transaction: TransactionState, state: StoredElement): ElementSnapshot<T> {
   return cloneElementSnapshot(transaction.shapeRegistry, state as ElementState<T>);
 }
 
-/** 内部方法。处理 equalCoreState 相关数据。 */
 function equalCoreState(left: unknown, right: unknown, seen = new WeakMap<object, WeakSet<object>>()): boolean {
   if (Object.is(left, right)) return true;
   if (isNativeRef(left) || isNativeRef(right) || isNativeStyleRef(left) || isNativeStyleRef(right)) return false;

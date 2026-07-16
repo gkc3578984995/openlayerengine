@@ -1,4 +1,4 @@
-/** 生成 16 个随机字节，缺少 Web Crypto 时使用普通随机数兜底。 */
+/** 生成 16 个随机字节；运行环境没有 Web Crypto 时退回普通随机数。 */
 function randomBytes(): Uint8Array {
   const bytes = new Uint8Array(16);
   const crypto = globalThis.crypto;
@@ -11,9 +11,9 @@ function randomBytes(): Uint8Array {
 }
 
 /**
- * 创建一个 UUID 格式的随机 ID。
+ * 创建 UUID 格式的随机 ID。
  *
- * @returns 新生成的随机 ID。
+ * @returns 每次调用新生成的 ID。
  *
  * @example
  * ```ts

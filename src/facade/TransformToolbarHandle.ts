@@ -1,12 +1,12 @@
 import type { TransformToolbarViewHandle } from '../core/ports/TransformToolbarPort.js';
 import type { TransformToolbarHandle, TransformToolbarItemPatch, TransformToolbarOptionsPatch } from './transformTypes.js';
 
-/** 将内部工具栏视图句柄映射为公开控制句柄。 */
+/** 将内部工具栏视图句柄包装为公共控制句柄。 */
 export class TransformToolbarHandleImpl implements TransformToolbarHandle {
   /** 实际控制工具栏视图的内部句柄。 */
   readonly #handle: TransformToolbarViewHandle;
 
-  /** 保存内部工具栏视图句柄。 */
+  /** 绑定内部工具栏视图句柄。 */
   constructor(handle: TransformToolbarViewHandle) {
     this.#handle = handle;
   }

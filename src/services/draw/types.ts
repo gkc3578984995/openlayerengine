@@ -16,7 +16,7 @@ export interface SessionKeyboardInput {
 }
 
 /**
- * 经过 Facade 处理后传入内部绘制服务的配置。
+ * Public Facade 校验后交给 DrawService 的内部配置。
  *
  * @typeParam T 元素附加业务数据的类型。
  * @internal
@@ -34,19 +34,19 @@ export interface InternalDrawOptions<T = unknown> {
   readonly data?: T;
   /** 本次会话允许保留的结果数量。 */
   readonly limit?: number;
-  /** 会话结束时是否保留图形。 */
+  /** Session 结束时是否保留已经提交的绘制结果。 */
   readonly keepGraphics?: boolean;
   /** 与其他交互冲突时采用的策略。 */
   readonly policy?: InteractionPolicy;
 }
 
 /**
- * 传入内部编辑服务的配置。
+ * Public Facade 校验后交给 EditSession 的内部配置。
  *
  * @internal
  */
 export interface InternalEditOptions {
-  /** 编辑时是否显示原图作为底图。 */
+  /** 是否显式显示中性的原始几何 underlay；默认不叠加。 */
   readonly underlay?: boolean;
   /** 与其他交互冲突时采用的策略。 */
   readonly policy?: InteractionPolicy;
@@ -105,7 +105,7 @@ export interface InternalEditSessionEventMap<T = unknown> {
 }
 
 /**
- * 仅在服务与 Facade 之间传递元素状态的绘制会话契约。
+ * Public Facade 与 DrawService 之间传递 Element 状态的 Session 契约。
  *
  * @typeParam T 元素附加业务数据的类型。
  * @internal
@@ -132,7 +132,7 @@ export interface InternalDrawSession<T = unknown> {
 }
 
 /**
- * 仅在服务与 Facade 之间传递元素 ID 和状态的编辑会话契约。
+ * Public Facade 与 DrawService 之间传递 Element ID 和状态的 Edit Session 契约。
  *
  * @typeParam T 元素附加业务数据的类型。
  * @internal

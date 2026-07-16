@@ -44,17 +44,12 @@ import { extentCenter, renderExtent, type TransformExtent } from './PreviewTrans
 
 /** 命中的 Transform 控制手柄信息。 */
 export interface TransformHandleHit {
-  /** 手柄的唯一键。 */
   readonly key: string;
-  /** 手柄触发的操作类型。 */
   readonly operation?: 'translate' | 'rotate' | 'scale' | 'stretch' | 'vertex';
-  /** 操作影响的坐标轴。 */
   readonly axis?: 'x' | 'y' | 'xy';
-  /** 顶点手柄对应的控制点索引。 */
   readonly index?: number;
   /** 编辑模式下命中的完整语义锚点。 */
   readonly anchor?: EditInteractionAnchor;
-  /** 手柄所在的地图坐标。 */
   readonly coordinate: Coordinate;
 }
 
@@ -63,9 +58,7 @@ export type EditAnchorHitMode = 'all' | 'control' | 'structural';
 
 /** 控制手柄图层的内部创建配置。 */
 interface HandleLayerOptions {
-  /** 当前 Transform 会话 ID。 */
   readonly sessionId: string;
-  /** 当前会话使用的交互配置。 */
   readonly interaction: TransformInteractionOptions;
   /** 选中框右上角变化时同步界面锚点。 */
   readonly onExtentChange?: (topRight: Coordinate) => void;
@@ -83,13 +76,10 @@ interface EditAnchorIndexEntry {
   internalCoordinate: readonly [number, number];
 }
 
-/** 写入手柄要素的元数据字段名。 */
 const handleMetadata = 'ol-engine-transform-handle';
 
-/** 标记使用 MultiPoint 统一渲染的大顶点要素。 */
 const vertexBatchMetadata = 'ol-engine-transform-vertex-batch';
 
-/** 标记使用 MultiPoint 统一渲染的大插入点要素。 */
 const insertionBatchMetadata = 'ol-engine-transform-insertion-batch';
 
 /** 默认统一样式超过该数量后切换为 MultiPoint 批次。 */
@@ -103,11 +93,8 @@ const bulkResetRemovalThreshold = 256;
 
 /** 管理 Transform 预览、边框和控制手柄图层。 */
 export class HandleLayer {
-  /** 控制手柄图层的渲染 ID。 */
   readonly renderLayerId: string;
-  /** 选中框在渲染通道中的目标 ID。 */
   readonly renderTargetId: string;
-  /** 手柄图层所属的地图。 */
   readonly #map: Map;
   /** 控制目标要素的投影抑制。 */
   readonly #binding: FeatureBinding;
@@ -115,31 +102,21 @@ export class HandleLayer {
   readonly #styles: StyleCompiler;
   /** 接收选中框闪烁等渲染状态。 */
   readonly #render: LayerRenderPort;
-  /** 当前 Transform 交互配置。 */
   readonly #options: TransformInteractionOptions;
-  /** 选中框右上角变化时的通知函数。 */
   readonly #onExtentChange: ((topRight: Coordinate) => void) | undefined;
-  /** 保存预览、边框和手柄要素。 */
   readonly #source: VectorSource<Feature<Geometry>>;
-  /** 显示控制要素的顶层矢量图层。 */
   readonly #layer: VectorLayer<VectorSource<Feature<Geometry>>>;
-  /** 视图分辨率和旋转事件的取消键。 */
   readonly #viewKeys: EventsKey[] = [];
-  /** 当前操作目标。 */
   #target: TransformInteractionTarget | undefined;
   /** 当前目标从规范世界移动到唯一展示世界的水平偏移。 */
   #worldOffset = 0;
-  /** 当前目标的缓冲外接范围。 */
   #extent: TransformExtent | undefined;
   /** 上一次通知界面的选中框右上角。 */
   #notifiedTopRight: Coordinate | undefined;
   /** 当前目标的投影抑制租约。 */
   #suppression: ProjectionSuppressionLease | undefined;
-  /** 当前目标的预览要素。 */
   #preview: Feature<Geometry> | undefined;
-  /** 当前选中框要素。 */
   #bbox: Feature<Geometry> | undefined;
-  /** 旋转操作显示的中心点要素。 */
   #rotationCenter: Feature<Geometry> | undefined;
   /** 按逻辑键复用同一目标的控制手柄要素。 */
   readonly #handleFeatures = new globalThis.Map<string, Feature<Geometry>>();
@@ -147,15 +124,11 @@ export class HandleLayer {
   #vertexHandleCount = 0;
   /** 插入点手柄池当前保留的连续顺序数量。 */
   #insertionHandleCount = 0;
-  /** 默认样式的大顶点 MultiPoint 要素。 */
   #vertexBatch: Feature<Geometry> | undefined;
-  /** 默认样式的大插入点 MultiPoint 要素。 */
   #insertionBatch: Feature<Geometry> | undefined;
   /** 悬停或按下锚点使用的单个 Point 反馈覆盖物。 */
   #editAnchorFeedback: Feature<Geometry> | undefined;
-  /** 当前反馈覆盖物绑定的语义锚点。 */
   #editAnchorFeedbackAnchor: EditInteractionAnchor | undefined;
-  /** 当前反馈覆盖物的交互阶段。 */
   #editAnchorFeedbackPhase: EditAnchorFeedbackPhase | undefined;
   /** 当前反馈锚点在完整语义索引中的稳定顺序。 */
   #editAnchorFeedbackOrder: number | undefined;
@@ -165,38 +138,23 @@ export class HandleLayer {
   #editAnchorEntries: EditAnchorIndexEntry[] = [];
   /** 由语义身份直接定位完整锚点顺序，避免 hover / active 状态切换线性扫描。 */
   readonly #editAnchorOrderByIdentity = new globalThis.Map<string, number>();
-  /** 当前已经加入数据源的目标相关要素。 */
   readonly #activeTargetFeatures = new Set<Feature<Geometry>>();
-  /** 上一次编译的目标样式状态。 */
   #previewStyleState: ElementStyleState | undefined;
-  /** 上一次编译得到的目标样式。 */
   #previewStyle: ReturnType<StyleCompiler['compile']> | undefined;
-  /** 自定义手柄样式是否已经编译。 */
   #handleStyleCompiled = false;
-  /** 复用的自定义手柄样式。 */
   #compiledHandleStyle: ReturnType<StyleCompiler['compile']> | undefined;
-  /** 当前复制预览要素。 */
   #copy: Feature<Geometry> | undefined;
-  /** 复制预览当前已经应用的水平位移。 */
   #copyOffsetX = 0;
-  /** 复制预览当前已经应用的垂直位移。 */
   #copyOffsetY = 0;
-  /** 选中框对应的渲染目标句柄。 */
   #renderTarget: LayerRenderTargetHandle | undefined;
   /** 渲染目标当前绑定的业务图层 ID。 */
   #renderTargetLayerId: string | undefined;
-  /** 是否正在执行一次变换操作。 */
   #operationActive = false;
-  /** 当前变换操作类型。 */
   #activeOperation: TransformOperation | undefined;
-  /** 闪烁阶段中选中框是否可见。 */
   #blinkVisible = true;
-  /** 手柄图层是否已经销毁。 */
   #destroyed = false;
-  /** 手柄图层是否正在销毁。 */
   #destroying = false;
 
-  /** 创建顶层手柄图层并监听视图变化。 */
   constructor(map: Map, binding: FeatureBinding, styles: StyleCompiler, render: LayerRenderPort, options: HandleLayerOptions) {
     this.#map = map;
     this.#binding = binding;
@@ -213,17 +171,14 @@ export class HandleLayer {
     this.#viewKeys.push(view.on('change:resolution', this.#refreshForView), view.on('change:rotation', this.#refreshForView));
   }
 
-  /** 返回当前操作目标。 */
   get target(): TransformInteractionTarget | undefined {
     return this.#target;
   }
 
-  /** 返回当前接收渲染效果的图层 ID。 */
   get activeRenderLayerId(): string {
     return this.#target?.layerId ?? this.renderLayerId;
   }
 
-  /** 返回当前目标的缓冲外接范围。 */
   get extent(): TransformExtent | undefined {
     return this.#extent;
   }

@@ -126,7 +126,7 @@ export function prepareWorldEdit(
  *
  * @param coordinate 要放置的坐标；函数会创建独立副本。
  * @param referenceX 当前编辑几何的有限参考 X。
- * @param handoff 编辑会话的世界交接信息。
+ * @param handoff Edit Session 的世界交接信息。
  * @returns 放置后的坐标副本。
  * @throws `InvalidArgumentError` 坐标、参考 X 或世界配置无效时抛出。
  * @internal

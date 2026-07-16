@@ -1,16 +1,16 @@
 /**
- * 节流函数。除了正常调用，还可以取消或立即执行待处理任务。
+ * 带取消和立即刷新能力的节流函数。
  *
- * @typeParam This 调用上下文。原函数使用的 `this` 类型。
- * @typeParam Args 参数。原函数接收的参数列表类型。
- * @typeParam Result 返回值。原函数的返回值类型。
+ * @typeParam This 原函数的 `this` 类型。
+ * @typeParam Args 原函数的参数列表类型。
+ * @typeParam Result 原函数的返回值类型。
  */
 export interface ThrottledFunction<This, Args extends unknown[], Result> {
   /**
    * 调用节流函数。
    *
-   * @param this 调用上下文。传给原函数的 `this`。
-   * @param args 参数。传给原函数的参数。
+   * @param this 传给原函数的调用上下文。
+   * @param args 传给原函数的参数。
    * @returns 本次执行结果；没有立即执行时返回上次结果或 `undefined`。
    *
    * @example
@@ -23,9 +23,8 @@ export interface ThrottledFunction<This, Args extends unknown[], Result> {
    */
   (this: This, ...args: Args): Result | undefined;
   /**
-   * 取消还没有执行的尾调用，并清空节流状态。
+   * 取消尚未执行的尾调用，并清空节流状态。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -53,23 +52,23 @@ export interface ThrottledFunction<This, Args extends unknown[], Result> {
   flush(): Result | undefined;
 }
 
-/** 节流配置。控制第一次和最后一次调用是否执行。 */
+/** 控制一轮节流等待的首、尾调用。 */
 export interface ThrottleOptions {
-  /** 是否立即执行。控制等待开始时是否执行第一次调用。 */
+  /** 是否在等待开始时立即执行第一次调用。 */
   leading?: boolean;
-  /** 是否执行尾调用。控制等待结束时是否执行最后一次调用。 */
+  /** 是否在等待结束时执行最后一次调用。 */
   trailing?: boolean;
 }
 
 /**
  * 创建一个节流函数，限制原函数在指定时间内的执行次数。
  *
- * @typeParam This 调用上下文。原函数使用的 `this` 类型。
- * @typeParam Args 参数。原函数接收的参数列表类型。
- * @typeParam Result 返回值。原函数的返回值类型。
- * @param fn 函数。需要限制执行频率的原函数。
- * @param wait 等待时间。两次执行之间至少间隔的毫秒数。
- * @param options 配置。控制第一次和最后一次调用是否执行。
+ * @typeParam This 原函数的 `this` 类型。
+ * @typeParam Args 原函数的参数列表类型。
+ * @typeParam Result 原函数的返回值类型。
+ * @param fn 需要限制执行频率的函数。
+ * @param wait 两次执行之间的最短间隔，单位为毫秒。
+ * @param options 首、尾调用配置。
  * @returns 带有取消和立即执行能力的节流函数。
  *
  * @example
@@ -95,7 +94,7 @@ export function throttle<This, Args extends unknown[], Result>(
   let result: Result | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  /** 使用最后一次参数执行原函数。 */
+  /** 使用最近一次调用的上下文和参数执行原函数。 */
   const invoke = (time: number): Result => {
     const argumentsToUse = lastArguments as Args;
     const contextToUse = lastContext as This;
@@ -106,7 +105,7 @@ export function throttle<This, Args extends unknown[], Result>(
     return result;
   };
 
-  /** 判断当前调用是否已经满足执行间隔。 */
+  /** 判断当前调用是否满足执行间隔。 */
   const shouldInvoke = (time: number): boolean => {
     if (lastCallTime === undefined) return true;
     const sinceLastCall = time - lastCallTime;
@@ -114,7 +113,7 @@ export function throttle<This, Args extends unknown[], Result>(
     return sinceLastCall >= delay || sinceLastCall < 0 || sinceLastInvoke >= delay;
   };
 
-  /** 计算距离下次允许执行还需要等待多久。 */
+  /** 计算下一次允许执行前的剩余等待时间。 */
   const remainingWait = (time: number): number => {
     const sinceLastCall = time - (lastCallTime as number);
     const sinceLastInvoke = time - lastInvokeTime;
@@ -130,7 +129,7 @@ export function throttle<This, Args extends unknown[], Result>(
     return result;
   };
 
-  /** 处理等待计时结束。 */
+  /** 计时结束后执行尾调用，或继续等待剩余间隔。 */
   const timerExpired = (): void => {
     const time = Date.now();
     if (shouldInvoke(time)) {
@@ -140,14 +139,14 @@ export function throttle<This, Args extends unknown[], Result>(
     timer = setTimeout(timerExpired, Math.max(0, remainingWait(time)));
   };
 
-  /** 开始新一轮等待，并按配置执行首次调用。 */
+  /** 开始新一轮等待，并按配置处理首次调用。 */
   const leadingEdge = (time: number): Result | undefined => {
     lastInvokeTime = time;
     timer = setTimeout(timerExpired, delay);
     return leading ? invoke(time) : result;
   };
 
-  /** 记录一次调用，并决定立即执行还是等待。 */
+  /** 记录最新调用，并决定立即执行还是等待。 */
   const call = (context: This, args: Args): Result | undefined => {
     const time = Date.now();
     const invokeNow = shouldInvoke(time);

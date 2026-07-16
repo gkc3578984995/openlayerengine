@@ -13,9 +13,9 @@ interface TransformHistoryEntry<T> {
   readonly command: TransformCommandMetadata;
 }
 
-/** 管理 Transform 会话的撤销与重做快照。 */
+/** 仅管理 Transform Session 工作态的撤销与重做，不直接提交 Store。 */
 export class TransformHistory<T = unknown> {
-  /** 用于克隆图形状态的图形注册表。 */
+  /** 按 ShapeDefinition 规则克隆图形状态的注册表。 */
   readonly #shapes: ShapeRegistry;
   /** 最多保留的历史条数。 */
   readonly #limit: number;
@@ -93,7 +93,7 @@ export class TransformHistory<T = unknown> {
     this.#index = -1;
   }
 
-  /** 克隆快照，避免历史记录被外部修改。 */
+  /** 按 ShapeDefinition 克隆快照，隔离历史记录与外部可变值。 */
   #clone(snapshot: ElementSnapshot<T>): ElementSnapshot<T> {
     return cloneElementSnapshot(this.#shapes, snapshot);
   }

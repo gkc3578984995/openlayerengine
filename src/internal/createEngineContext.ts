@@ -56,12 +56,12 @@ import { assertStructuredStyleSpec, StyleService } from '../services/style/Style
 import { TransformService } from '../services/transform/TransformService.js';
 import type { EngineContext } from './EngineContext.js';
 
-/** 默认地图中心坐标。 */
+/** 默认地图中心，使用当前默认 View 的投影坐标。 */
 const homeCenter = Object.freeze(fromLonLat([119, 39]));
 /** 使用线样式预设的图形类型。 */
 const lineShapes = new Set(['polyline', 'lune-polyline', 'curve-polyline']);
 
-/** 装配单个 Earth 实例需要的地图对象、适配器与服务。 */
+/** 装配单个 Earth 的地图对象、Adapter 与服务，并建立统一销毁边界。 */
 export function createEngineContext(options: EarthOptions = {}): EngineContext {
   const target = options.target ?? 'olContainer';
   const olView = new View({ center: [...homeCenter], zoom: 4, ...options.view });
@@ -277,20 +277,20 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     try {
       runFinalizers([...rollback].reverse());
     } catch {
-      // 保留装配阶段的原始异常。
+      // 回滚失败不应掩盖最先发生的装配异常。
     }
     throw error;
   }
 }
 
-/** 按图形类型返回内置默认样式。 */
+/** 为基础线型和面型图形选择内置默认样式。 */
 function defaultStyle(state: ShapeState): ElementStyleState {
   if (state.type === 'point') return stylePresets['point-default'];
   if (lineShapes.has(state.type)) return stylePresets['line-default'];
   return stylePresets['polygon-default'];
 }
 
-/** 清理 OpenLayers 地图持有的集合与挂载目标。 */
+/** 解除 OpenLayers 地图持有的集合、挂载目标和内部资源。 */
 function cleanupMap(map: Map): void {
   map.getOverlays().clear();
   map.getInteractions().clear();

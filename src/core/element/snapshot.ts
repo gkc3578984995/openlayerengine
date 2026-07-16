@@ -6,18 +6,18 @@ import type { ShapeState } from '../shape/types.js';
 import { isNativeStyleRef } from '../style/types.js';
 import type { ElementState, ElementStateInput } from './types.js';
 
-/** 元素快照。保存经过校验和冻结的元素状态。 */
+/** 经过校验并递归冻结的 Element 状态。 */
 export type ElementSnapshot<T = unknown> = Readonly<ElementState<T>>;
 
-/** 由快照工厂创建且可由内部热路径按身份信任的元素状态。 */
+/** 记录由本模块创建、可供内部热路径按身份信任的快照。 */
 const elementSnapshots = new WeakSet<object>();
 
-/** 判断状态是否由本模块创建并已经递归深冻结。 @internal */
+/** 判断值是否为本模块创建并递归冻结的 ElementSnapshot。 @internal */
 export function isElementSnapshot(value: unknown): value is ElementSnapshot {
   return value !== null && typeof value === 'object' && elementSnapshots.has(value);
 }
 
-/** 校验状态并创建一个新的元素快照。 */
+/** 校验输入并创建新的 Element 快照。 */
 export function createElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: ElementStateInput<T>): ElementSnapshot<T> {
   const cloned = cloneCoreState(state);
   assertCanonicalFields(cloned);
@@ -42,7 +42,7 @@ export function createElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: El
   return freezeElementState(cloned, geometry);
 }
 
-/** 复制一个现有元素快照。 */
+/** 复制现有 Element 快照。 */
 export function cloneElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: Readonly<ElementState<T>>): ElementSnapshot<T> {
   const definition = shapeRegistry.get(state.type);
   const geometry = definition.clone(state.geometry as never) as ShapeState;
@@ -51,9 +51,9 @@ export function cloneElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: Rea
 }
 
 /**
- * 从已有快照派生只替换几何或样式的新快照。
+ * 从已有快照派生仅替换几何或样式的新快照。
  *
- * 该函数只供已经完成输入校验、且自行创建替换值的内部热路径使用。它复用来源快照中已经隔离并冻结的数据，避免再次复制整个元素状态。
+ * 仅供已完成输入校验、且自行创建替换值的内部热路径使用。来源快照中已经隔离并冻结的数据会直接复用，避免再次复制整个 Element 状态。
  * @internal
  */
 export function deriveElementSnapshot<T>(source: ElementSnapshot<T>, geometry: ShapeState, style: ElementState<T>['style'] = source.style): ElementSnapshot<T> {
@@ -76,7 +76,7 @@ export function deriveElementSnapshot<T>(source: ElementSnapshot<T>, geometry: S
   return snapshot;
 }
 
-/** 冻结已经整理好的元素状态。 */
+/** 冻结已经整理好的 Element 状态。 */
 function freezeElementState<T>(state: Readonly<ElementStateInput<T>>, geometry: ShapeState): ElementSnapshot<T> {
   const projected: ElementState<T> = {
     id: state.id,
@@ -93,10 +93,10 @@ function freezeElementState<T>(state: Readonly<ElementStateInput<T>>, geometry: 
   return snapshot;
 }
 
-/** 元素状态允许出现的字段。 */
+/** Element 状态允许出现的字段。 */
 const canonicalElementFields: ReadonlySet<string> = new Set(['id', 'type', 'geometry', 'style', 'data', 'module', 'layerId', 'visible']);
 
-/** 检查元素对象只包含允许的字段。 */
+/** 检查 Element 对象只包含允许的字段。 */
 function assertCanonicalFields(state: object): void {
   if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Element state must be a plain object');
   for (const key of Reflect.ownKeys(state)) {
@@ -112,7 +112,7 @@ function assertNonEmptyString(value: unknown, label: string): asserts value is s
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
 }
 
-/** 检查元素样式是否是支持的样式状态。 */
+/** 检查 Element 样式是否属于支持的状态。 */
 function assertElementStyle(value: unknown): void {
   if (isNativeStyleRef(value)) return;
   if (value === null || typeof value !== 'object' || Array.isArray(value) || isNativeRef(value)) {

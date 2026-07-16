@@ -28,17 +28,17 @@ import type { DrawCancelReason, InternalDrawOptions, InternalDrawSession, Intern
  * @internal
  */
 export interface DrawSessionDependencies<T> {
-  /** 元素状态仓库。 */
+  /** Element 状态真源；草稿完成前不写入。 */
   readonly store: ElementStore;
-  /** 当前图形类型定义。 */
+  /** 当前 Shape 的业务规则真源。 */
   readonly definition: ShapeDefinition;
   /** 内部样式服务。 */
   readonly styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 协调指针交互互斥，并在替换前清理旧 Session。 */
   readonly coordinator: InteractionCoordinator;
-  /** 底层绘制交互端口。 */
+  /** 隔离绘制 Adapter 的交互 Port。 */
   readonly port: DrawInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 规范化后的绘制配置。 */
   readonly options: Readonly<Required<Pick<InternalDrawOptions<T>, 'type' | 'layerId' | 'limit' | 'keepGraphics'>> & InternalDrawOptions<T>>;
@@ -64,23 +64,23 @@ export interface DrawSessionDependencies<T> {
 type CompletionOutcome = 'committed' | 'incomplete' | 'failed';
 
 /**
- * 独立于 OpenLayers 的语义绘制状态机。
+ * 维护控制点、预览和历史的语义 Draw Session；OpenLayers 只存在于 Adapter 边界。
  *
  * @typeParam T 元素附加业务数据的类型。
  * @internal
  */
 export class DrawSession<T = unknown> implements InternalDrawSession<T>, ExclusiveInteractionSession {
-  /** 元素状态仓库。 */
+  /** Element 状态真源；草稿完成前不写入。 */
   readonly #store: ElementStore;
-  /** 当前图形类型定义。 */
+  /** 当前 Shape 的业务规则真源。 */
   readonly #definition: ShapeDefinition;
   /** 内部样式服务。 */
   readonly #styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 协调指针交互互斥，并在替换前清理旧 Session。 */
   readonly #coordinator: InteractionCoordinator;
-  /** 底层绘制交互端口。 */
+  /** 隔离绘制 Adapter 的交互 Port。 */
   readonly #port: DrawInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 规范化后的绘制配置。 */
   readonly #options: DrawSessionDependencies<T>['options'];
@@ -104,7 +104,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   readonly #listeners = new Map<keyof InternalDrawSessionEventMap<T>, Map<number, (event: never) => void>>();
   /** 已提交结果的 ID 与代次。 */
   readonly #results: Array<Readonly<{ id: string; generation: ElementGeneration }>> = [];
-  /** 用于结束 finished Promise。 */
+  /** `finished` Promise 的兑现函数。 */
   #resolveFinished!: (states: readonly Readonly<ElementState<T>>[]) => void;
   /** 会话结束后完成的 Promise。 */
   readonly finished: Promise<readonly Readonly<ElementState<T>>[]>;
@@ -112,7 +112,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #nextListenerId = 0;
   /** 会话当前状态。 */
   #status: InteractionStatus = 'active';
-  /** 底层绘制交互句柄。 */
+  /** DrawInteractionPort 返回的交互句柄。 */
   #handle: DrawInteractionHandle | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
@@ -120,28 +120,24 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #tooltip: TooltipViewHandle | undefined;
   /** 当前绘制光标句柄。 */
   #cursor: CursorViewHandle | undefined;
-  /** 当前草稿控制点。 */
+  /** 已确认写入 Session 工作历史的草稿控制点。 */
   #controlPoints: Coordinate[] = [];
-  /** 当前指针坐标。 */
+  /** 只参与预览、不进入历史的当前指针坐标。 */
   #pointer: Coordinate | undefined;
-  /** 控制点历史快照。 */
+  /** 撤销后可重做的控制点栈。 */
   #redoControlPoints: Coordinate[] = [];
-  /** 当前历史索引。 */
-  /** 正在执行的完成操作数量。 */
+  /** 尚未结束的草稿完成操作数量。 */
   #completionCount = 0;
-  /** 是否正在自由绘制。 */
   #freehandActive = false;
-  /** 仅供可信 built-in policy 使用的会话私有 O(1) 采样累加器。 */
+  /** 内置 freehand policy 可安全复用的 O(1) 采样器；custom policy 仍逐点生成快照。 */
   #freehandAccumulator: ShapeFreehandAccumulator | undefined;
-  /** 是否正在提交草稿。 */
+  /** 防止同一草稿重复提交。 */
   #completionActive = false;
-  /** 是否正在执行 finish。 */
   #finishActive = false;
   /** 是否在完成草稿后结束会话。 */
   #finishRequested = false;
-  /** 是否正在打开底层交互。 */
+  /** 防止交互 Port 的打开流程重入。 */
   #opening = false;
-  /** 是否正在清理资源。 */
   #cleanupRunning = false;
   /** 是否已释放交互协调器。 */
   #coordinatorReleased = false;
@@ -149,13 +145,12 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #terminalNotified = false;
   /** 本会话解析后的绘制样式。 */
   #resolvedStyle: ElementStyleState | undefined;
-  /** 绘制样式是否已经解析。 */
   #resolvedStyleSet = false;
 
   /**
    * 创建语义绘制会话。
    *
-   * @param dependencies 元素事务、图形定义、样式、交互端口、输入和生命周期回调。
+   * @param dependencies ElementStore、ShapeDefinition、样式、交互 Port、输入和生命周期回调。
    */
   constructor(dependencies: DrawSessionDependencies<T>) {
     this.#store = dependencies.store;
@@ -194,7 +189,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     );
   }
 
-  /** 打开底层绘制交互和键盘订阅。 */
+  /** 打开绘制交互 Port，并接入键盘输入。 */
   open(): void {
     this.#assertActive();
     if (this.#handle !== undefined || this.#opening) throw new InvalidArgumentError('Draw session is already open');
@@ -331,7 +326,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     return 'consume';
   }
 
-  /** 将底层绘制事件分派到语义操作。 */
+  /** 将 Adapter 发出的绘制事件分派为 Session 语义操作。 */
   #handlePortEvent(event: Readonly<DrawInteractionEvent>): void {
     if (this.#status !== 'active' || this.#completionActive) return;
     try {
@@ -423,7 +418,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#renderFreehand('preview');
   }
 
-  /** 使用 trusted built-in 快路或保持 custom policy 的逐点快照语义。 */
+  /** 内置 policy 走可信快路，custom policy 保持逐点快照语义。 */
   #appendFreehandSample(policy: NonNullable<ShapeDefinition['freehand']>, coordinate: Coordinate): void {
     if (this.#freehandAccumulator !== undefined) {
       this.#freehandAccumulator.append(this.#controlPoints, coordinate);
@@ -482,7 +477,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     return draft === undefined ? 'incomplete' : this.#completeDraft(draft, continueSession);
   }
 
-  /** 将有效图形草稿提交到元素仓库。 */
+  /** 将有效图形草稿提交到 ElementStore。 */
   #completeDraft(draft: ShapeState, continueSession: boolean): CompletionOutcome {
     if (this.#completionActive) return 'failed';
     this.#completionActive = true;
@@ -579,7 +574,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#showPreview(draft, coordinate);
   }
 
-  /** 将草稿、样式和光标位置发送到底层端口。 */
+  /** 通过交互 Port 原子发布草稿、样式和光标位置。 */
   #showPreview(draft: ShapeState, coordinate: Coordinate | undefined): void {
     const geometry = this.#definition.clone(draft as never) as ShapeState;
     const renderGeometry = this.#definition.toRenderGeometry(geometry as never);
@@ -592,7 +587,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     }
   }
 
-  /** 安全更新底层绘制预览。 */
+  /** 更新 Adapter 预览，并把失败纳入 Session 错误通道。 */
   #setPreview(preview: Readonly<DrawInteractionRenderState> | undefined): void {
     const handle = this.#handle;
     if (handle === undefined) throw new ObjectDisposedError('Draw interaction is not open');
@@ -687,7 +682,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#listeners.clear();
   }
 
-  /** 释放底层交互、输入订阅和协调器。 */
+  /** 幂等释放交互句柄、输入订阅、Tooltip、光标所有权和协调器。 */
   #cleanup(): void {
     if (this.#cleanupRunning) return;
     this.#cleanupRunning = true;

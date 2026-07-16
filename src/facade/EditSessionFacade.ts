@@ -5,25 +5,25 @@ import type { EditSession, EditSessionEventMap } from './drawTypes.js';
 import type { ElementService } from './types.js';
 
 /**
- * 将内部编辑状态映射到启动编辑时原始公开元素句柄的会话实现。
+ * 把内部编辑状态映射回启动编辑时的公共 Element 句柄。
  *
- * @typeParam T 元素附加业务数据的类型。
+ * @typeParam T Element 携带的业务数据类型。
  * @internal
  */
 export class EditSessionFacade<T = unknown> implements EditSession<T> {
-  /** 执行实际编辑工作的内部会话。 */
+  /** 执行实际编辑工作的内部 Session。 */
   readonly #session: InternalEditSession<T>;
-  /** 用于确认元素仍属于当前 Earth。 */
+  /** 用来确认 Element 仍属于当前 Earth。 */
   readonly #elements: ElementService;
-  /** 启动编辑时使用的公开元素句柄。 */
+  /** 启动编辑时传入的公共 Element 句柄。 */
   readonly element: Element<T>;
-  /** 会话结束后仍有效的元素，取消时为空。 */
+  /** Session 结束后仍有效的 Element；取消时为 `undefined`。 */
   readonly finished: Promise<Element<T> | undefined>;
 
   /**
-   * @param session 内部编辑会话。
-   * @param element 启动编辑时的公开元素句柄。
-   * @param elements 当前 Earth 的公开元素服务。
+   * @param session 待包装的内部编辑 Session。
+   * @param element 启动编辑时的公共 Element 句柄。
+   * @param elements 当前 Earth 的公共 Element 服务。
    */
   constructor(session: InternalEditSession<T>, element: Element<T>, elements: ElementService) {
     this.#session = session;
@@ -39,7 +39,7 @@ export class EditSessionFacade<T = unknown> implements EditSession<T> {
     });
   }
 
-  /** 返回当前编辑会话状态。 */
+  /** 当前 Session 状态。 */
   get status(): EditSession<T>['status'] {
     return this.#session.status;
   }
@@ -54,7 +54,7 @@ export class EditSessionFacade<T = unknown> implements EditSession<T> {
     this.#session.cancel();
   }
 
-  /** 销毁会话并释放交互资源。 */
+  /** 销毁 Session 并释放交互资源。 */
   destroy(): void {
     this.#session.destroy();
   }
@@ -69,7 +69,7 @@ export class EditSessionFacade<T = unknown> implements EditSession<T> {
     return this.#session.redo();
   }
 
-  /** 监听编辑事件，并把内部状态转换为公开元素事件。 */
+  /** 监听编辑事件，并把内部状态转换为公共 Element 事件。 */
   on<K extends keyof EditSessionEventMap<T>>(type: K, listener: (event: EditSessionEventMap<T>[K]) => void): () => void {
     if (typeof listener !== 'function') throw new InvalidArgumentError('Edit session listener must be a function');
     if (type === 'modifying') {

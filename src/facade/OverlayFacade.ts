@@ -20,11 +20,11 @@ import type {
   PanIntoViewSpec
 } from './overlayTypes.js';
 
-/** 描述牌当前用于渲染的视图状态。 */
+/** Descriptor 当前的渲染状态。 */
 interface DescriptorViewState {
-  /** 描述牌的内容类型。 */
+  /** Descriptor 内容类型。 */
   readonly type: 'list' | 'custom';
-  /** 已校验的列表或自定义内容。 */
+  /** 校验后的列表或自定义内容。 */
   readonly content: DescriptorContent;
   /** 可选的头部文字。 */
   readonly header: string | undefined;
@@ -34,26 +34,26 @@ interface DescriptorViewState {
   readonly close: boolean;
 }
 
-/** 连接公开覆盖物 API、内部服务和 DOM 引用的门面。 */
+/** 连接公共 Overlay API、内部服务与 DOM 引用。 */
 export class OverlayFacade implements OverlayService {
-  /** 执行实际覆盖物操作的内部服务。 */
+  /** 执行实际 Overlay 操作的内部服务。 */
   readonly #service: InternalOverlayService;
-  /** 管理覆盖物使用的 DOM 元素引用。 */
+  /** 管理 Overlay 使用的 DOM 元素引用。 */
   readonly #refs: NativeRefRegistry;
-  /** 缓存普通覆盖物的公开句柄。 */
+  /** 缓存普通 Overlay 的公共句柄。 */
   readonly #handles = new WeakMap<InternalOverlayHandle, OverlayHandle>();
-  /** 缓存描述牌的公开句柄。 */
+  /** 缓存 Descriptor 的公共句柄。 */
   readonly #descriptorHandles = new WeakMap<object, unknown>();
-  /** 保存描述牌对应的渲染状态。 */
+  /** 保存 Descriptor 的渲染状态。 */
   readonly #descriptorViews = new WeakMap<object, DescriptorViewState>();
 
-  /** 保存内部覆盖物服务和 DOM 引用注册表。 */
+  /** 绑定内部 Overlay 服务和当前 Earth 的 DOM 引用注册表。 */
   constructor(service: InternalOverlayService, refs: NativeRefRegistry) {
     this.#service = service;
     this.#refs = refs;
   }
 
-  /** 校验配置、登记 DOM 元素并新增覆盖物。 */
+  /** 校验配置、登记 DOM 元素并创建 Overlay。 */
   add<T>(spec: OverlaySpec<T>): OverlayHandle<T> {
     const record = inspectRecord(spec, 'Overlay spec');
     assertFields(
@@ -86,7 +86,7 @@ export class OverlayFacade implements OverlayService {
         try {
           internal.destroy();
         } catch {
-          // 保留最初的资源交接错误。
+          // 清理失败不应掩盖最先发生的资源交接错误。
         }
       }
       discard(this.#refs, reference);
@@ -94,29 +94,29 @@ export class OverlayFacade implements OverlayService {
     }
   }
 
-  /** 按 ID 获取普通覆盖物句柄。 */
+  /** 按 ID 获取普通 Overlay 句柄。 */
   get<T>(id: string): OverlayHandle<T> | undefined {
     const handle = this.#service.get<T>(id);
     return handle === undefined ? undefined : this.#wrap(handle);
   }
 
-  /** 按条件查询普通覆盖物句柄。 */
+  /** 按条件查询普通 Overlay 句柄。 */
   query<T>(selector?: OverlaySelector<T>): readonly OverlayHandle<T>[] {
     const internalSelector = selector === undefined ? undefined : this.#selector(selector);
     return Object.freeze(this.#service.query<T>(internalSelector).map((handle) => this.#wrap(handle)));
   }
 
-  /** 删除匹配的普通覆盖物。 */
+  /** 删除匹配的普通 Overlay。 */
   remove(selector: OverlaySelector): number {
     return this.#service.remove(this.#selector(selector));
   }
 
-  /** 清空所有普通覆盖物和描述牌。 */
+  /** 清空所有普通 Overlay 和 Descriptor。 */
   clear(): void {
     this.#service.clear();
   }
 
-  /** 创建带内置结构和交互的描述牌。 */
+  /** 创建带内置结构和交互的 Descriptor。 */
   createDescriptor<T>(spec: DescriptorSpec<T>): DescriptorHandle<T> {
     const record = inspectRecord(spec, 'Descriptor spec');
     assertFields(
@@ -183,7 +183,7 @@ export class OverlayFacade implements OverlayService {
         try {
           internal.destroy();
         } catch {
-          // 保留最初的创建或资源交接错误。
+          // 清理失败不应掩盖最先发生的创建或资源交接错误。
         }
       }
       discard(this.#refs, reference);
@@ -192,7 +192,7 @@ export class OverlayFacade implements OverlayService {
     }
   }
 
-  /** 将公开查询条件转换为内部查询条件。 */
+  /** 将公共查询条件转换为内部选择器。 */
   #selector<T>(selector: OverlaySelector<T>): InternalOverlaySelector<T> {
     const record = inspectRecord(selector, 'Overlay selector');
     assertFields(record, new Set(['id', 'ids', 'module', 'visible', 'predicate']), 'Overlay selector');
@@ -212,20 +212,20 @@ export class OverlayFacade implements OverlayService {
     };
   }
 
-  /** 获取普通覆盖物对应的稳定公开句柄。 */
+  /** 获取普通 Overlay 对应的稳定公共句柄。 */
   #wrap<T>(internal: InternalOverlayHandle<T>): OverlayHandle<T> {
     const cached = this.#handles.get(internal);
     if (cached !== undefined) return cached as OverlayHandle<T>;
     const handle: OverlayHandle<T> = Object.freeze({
-      /** 返回内部覆盖物 ID。 */
+      /** 当前内部 Overlay ID。 */
       get id() {
         return internal.id;
       },
-      /** 返回内部覆盖物位置。 */
+      /** 当前内部 Overlay 位置。 */
       get position() {
         return internal.position;
       },
-      /** 返回内部覆盖物可见状态。 */
+      /** 当前内部 Overlay 可见状态。 */
       get visible() {
         return internal.visible;
       },
@@ -240,16 +240,16 @@ export class OverlayFacade implements OverlayService {
     return handle;
   }
 
-  /** 获取描述牌对应的稳定公开句柄。 */
+  /** 获取 Descriptor 对应的稳定公共句柄。 */
   #wrapDescriptor<T>(internal: InternalDescriptorHandle<T>): DescriptorHandle<T> {
     const cached = this.#descriptorHandles.get(internal) as DescriptorHandle<T> | undefined;
     if (cached !== undefined) return cached as DescriptorHandle<T>;
     const handle: DescriptorHandle<T> = Object.freeze({
-      /** 返回内部描述牌 ID。 */
+      /** 当前内部 Descriptor ID。 */
       get id() {
         return internal.id;
       },
-      /** 返回内部描述牌可见状态。 */
+      /** 当前内部 Descriptor 可见状态。 */
       get visible() {
         return internal.visible;
       },
@@ -265,7 +265,7 @@ export class OverlayFacade implements OverlayService {
     return handle;
   }
 
-  /** 校验并更新描述牌，DOM 变化时安全替换元素引用。 */
+  /** 校验并更新 Descriptor，DOM 变化时安全交接元素引用。 */
   #updateDescriptor<T>(internal: InternalDescriptorHandle<T>, patch: DescriptorPatch<T>): void {
     const record = inspectRecord(patch, 'Descriptor patch');
     assertFields(
@@ -349,7 +349,7 @@ export class OverlayFacade implements OverlayService {
           receipt.rollback();
           rolledBack = true;
         } catch {
-          // 原生回滚失败时保留新引用，避免悬空资源。
+          // 原生回滚失败后新引用仍可能在用，保留它以免形成悬空资源。
         }
         if (rolledBack) {
           discard(this.#refs, reference);
@@ -370,13 +370,13 @@ export class OverlayFacade implements OverlayService {
           receipt.rollback();
           rolledBack = true;
         } catch {
-          // 原生回滚不完整时保留已经提交的引用。
+          // 原生回滚不完整时，已提交的引用仍归当前 Overlay 所有。
         }
         if (rolledBack) {
           try {
             this.#refs.revoke('element', reference);
           } catch {
-            // 保留最初的 DOM 挂载错误。
+            // 回滚失败不应掩盖最先发生的 DOM 挂载错误。
           }
           wrapper.remove();
         }
@@ -387,7 +387,7 @@ export class OverlayFacade implements OverlayService {
     receipt.commit();
   }
 
-  /** 将内部描述牌事件转换为公开事件。 */
+  /** 将内部 Descriptor 事件转换为公共事件。 */
   #toDescriptorEvent<T>(event: InternalDescriptorEvent<T>): DescriptorEvent<T> {
     return Object.freeze({
       type: event.type,
@@ -397,7 +397,7 @@ export class OverlayFacade implements OverlayService {
     });
   }
 
-  /** 校验并更新普通覆盖物，必要时替换 DOM 元素引用。 */
+  /** 校验并更新普通 Overlay，必要时交接 DOM 元素引用。 */
   #update<T>(internal: InternalOverlayHandle<T>, patch: OverlayPatch<T>): void {
     const record = inspectRecord(patch, 'Overlay patch');
     const publicFields = new Set(['element', 'position', 'offset', 'positioning', 'visible', 'data', 'ownership']);
@@ -430,7 +430,7 @@ export class OverlayFacade implements OverlayService {
           receipt.rollback();
           rolledBack = true;
         } catch {
-          // 原生回滚失败时，新引用仍保持有效的临时状态。
+          // 原生回滚失败后新引用仍可能在用，继续保持临时引用有效。
         }
         if (rolledBack) discard(this.#refs, reference);
       } else {
@@ -438,12 +438,12 @@ export class OverlayFacade implements OverlayService {
       }
       throw error;
     }
-    // 注册表提交成功后，新元素就是当前元素；旧元素清理失败也不回退。
+    // 新引用一旦提交便成为当前元素；旧元素清理失败不再回退这次交接。
     receipt.commit();
   }
 }
 
-/** 安全读取一个只含数据字段的普通对象。 */
+/** 从普通对象中安全读取数据属性。 */
 function inspectRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {
@@ -462,7 +462,7 @@ function inspectRecord(value: unknown, label: string): Record<PropertyKey, unkno
   }
 }
 
-/** 确认输入是可用的 DOM 元素。 */
+/** 确认输入是当前运行环境可用的 DOM 元素。 */
 function requireElement(value: unknown, label: string): HTMLElement {
   if (value === null || typeof value !== 'object' || typeof (value as { remove?: unknown }).remove !== 'function') {
     throw new InvalidArgumentError(`${label} must be an HTMLElement`);
@@ -470,7 +470,7 @@ function requireElement(value: unknown, label: string): HTMLElement {
   return value as HTMLElement;
 }
 
-/** 根据视图状态创建描述牌 DOM。 */
+/** 根据渲染状态创建 Descriptor DOM。 */
 function renderDescriptor(view: DescriptorViewState, attachCustomElement = true): HTMLElement {
   const wrapper = document.createElement('div');
   wrapper.className = `earth-engine-component-descriptor ol-engine-descriptor descriptor ${view.type === 'list' ? 'descriptor-list' : 'descriptor-custom'}`;
@@ -534,7 +534,7 @@ function renderDescriptor(view: DescriptorViewState, attachCustomElement = true)
   return wrapper;
 }
 
-/** 创建描述牌使用的关闭按钮。 */
+/** 创建 Descriptor 的内置关闭按钮。 */
 function createCloseButton(): HTMLButtonElement {
   const close = document.createElement('button');
   close.className = 'close';
@@ -545,18 +545,18 @@ function createCloseButton(): HTMLButtonElement {
   return close;
 }
 
-/** 读取描述牌类型。 */
+/** 读取并校验 Descriptor 内容类型。 */
 function descriptorType(value: unknown): 'list' | 'custom' {
   if (value !== 'list' && value !== 'custom') throw new InvalidArgumentError('Descriptor type must be list or custom');
   return value;
 }
 
-/** 根据内容形状推断描述牌类型。 */
+/** 根据内容形状推断 Descriptor 类型。 */
 function inferDescriptorType(value: unknown): 'list' | 'custom' {
   return Array.isArray(value) ? 'list' : 'custom';
 }
 
-/** 校验并整理描述牌内容。 */
+/** 校验并整理 Descriptor 内容。 */
 function descriptorContent(type: 'list' | 'custom', value: unknown, label: string): DescriptorContent {
   if (type === 'list') {
     if (!Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a list for a list descriptor`);
@@ -566,7 +566,7 @@ function descriptorContent(type: 'list' | 'custom', value: unknown, label: strin
   return requireElement(value, label);
 }
 
-/** 校验并冻结一条描述牌列表项。 */
+/** 校验并冻结一条 Descriptor 列表项。 */
 function descriptorItem(value: unknown, index: number): Readonly<DescriptorListItem> {
   const record = inspectRecord(value, `Descriptor item ${index}`);
   assertFields(record, new Set(['label', 'value', 'color', 'className']), `Descriptor item ${index}`);
@@ -614,12 +614,12 @@ function optionalFunction<T>(value: unknown, label: string): ((event: Descriptor
   return value as (event: DescriptorEvent<T>) => void;
 }
 
-/** 尽力释放尚未提交的 DOM 元素引用。 */
+/** 尽力释放尚未提交、且不再归任何 Overlay 所有的 DOM 引用。 */
 function discard(refs: NativeRefRegistry, reference: NativeRef<'element'>): void {
   try {
     refs.discardProvisional('element', reference);
   } catch {
-    // 引用已经提交或注册表已经销毁，无需再次处理。
+    // 引用已经提交，或注册表销毁时已统一终结，无需再次处理。
   }
 }
 

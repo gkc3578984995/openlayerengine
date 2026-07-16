@@ -27,7 +27,6 @@ import { HandleLayer, type TransformHandleHit } from '../transform/HandleLayer.j
 import { extentCenter, renderExtent, translateRenderGeometry } from '../transform/PreviewTransform.js';
 import type { TransformHitTest } from '../transform/HitTest.js';
 
-/** Transform 交互适配器的可选配置。 */
 export interface TransformInteractionAdapterOptions {
   /** 接收监听器和原生资源清理错误。 */
   readonly errorReporter?: ErrorReporter;
@@ -35,9 +34,7 @@ export interface TransformInteractionAdapterOptions {
 
 /** 创建并安装 OpenLayers Transform 交互句柄。 */
 export class TransformInteractionAdapter implements TransformInteractionPort {
-  /** 交互所属的地图。 */
   readonly #map: Map;
-  /** 查询可选择的业务元素。 */
   readonly #hitTest: TransformHitTest;
   /** 控制目标要素的投影抑制。 */
   readonly #binding: FeatureBinding;
@@ -45,10 +42,8 @@ export class TransformInteractionAdapter implements TransformInteractionPort {
   readonly #styles: StyleCompiler;
   /** 提供选中框闪烁等图层渲染通道。 */
   readonly #render: LayerRenderPort;
-  /** 接收监听器和清理错误。 */
   readonly #errorReporter: ErrorReporter;
 
-  /** 保存 Transform 交互所需的地图和适配器。 */
   constructor(
     map: Map,
     hitTest: TransformHitTest,
@@ -90,14 +85,11 @@ export class TransformInteractionAdapter implements TransformInteractionPort {
   }
 }
 
-/** 一次手柄拖拽的起点、中心和当前增量。 */
 type ActiveTransformHandleHit = TransformHandleHit & Readonly<{ operation: TransformOperation }>;
 
 /** 一次手柄拖拽的起点、中心和当前增量。 */
 interface DragState {
-  /** 被拖拽的控制手柄。 */
   readonly hit: ActiveTransformHandleHit;
-  /** 拖拽起始坐标。 */
   readonly start: Coordinate;
   /** 缩放和旋转使用的中心。 */
   readonly center: Coordinate;
@@ -107,7 +99,6 @@ interface DragState {
   readonly world?: HorizontalWorld;
   /** 计算视图整数世界偏移时使用的固定规范坐标。 */
   readonly worldReferenceX: number;
-  /** 最近一次计算出的变换增量。 */
   delta: TransformDelta;
 }
 
@@ -118,36 +109,25 @@ interface PendingDragSample {
   readonly keepAspectRatio: boolean;
 }
 
-/** Transform 交互处理的地图浏览器事件。 */
 type PointerMapEvent = MapBrowserEvent<PointerEvent | KeyboardEvent | WheelEvent>;
 
 /** 管理一次 OpenLayers Transform 会话的交互和控制图层。 */
 class OpenLayersTransformHandle implements TransformInteractionHandle {
-  /** 交互所属的地图。 */
   readonly #map: Map;
-  /** 查询可选择的业务元素。 */
   readonly #hitTest: TransformHitTest;
   /** 查询目标图层的环绕语义。 */
   readonly #binding: FeatureBinding;
-  /** 已校验的 Transform 配置。 */
   readonly #options: TransformInteractionOptions;
-  /** 接收语义 Transform 事件。 */
   readonly #listener: (event: TransformInteractionEvent) => void;
-  /** 接收监听器和清理错误。 */
   readonly #errorReporter: ErrorReporter;
   /** 管理目标预览、选中框和控制手柄。 */
   readonly #handles: HandleLayer;
-  /** 接收指针拖拽事件的 OpenLayers 交互。 */
   readonly #interaction: PointerInteraction;
   /** 地图和视图事件的取消键。 */
   readonly #keys: EventsKey[] = [];
-  /** click 事件去重监听器。 */
   #clickListener: ((event: PointerMapEvent) => void) | undefined;
-  /** singleclick 选择监听器。 */
   #singleClickListener: ((event: PointerMapEvent) => void) | undefined;
-  /** 是否已经尝试把交互装到地图。 */
   #interactionInstallAttempted = false;
-  /** 当前操作目标。 */
   #target: TransformInteractionTarget | undefined;
   /** 当前 Core 规范世界中的操作目标。 */
   #canonicalTarget: TransformInteractionTarget | undefined;
@@ -157,30 +137,22 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   #worldRepositionPending = false;
   /** 当前选择请求使用的一次性世界参考坐标。 */
   #selectionReferenceX: number | undefined;
-  /** 当前手柄拖拽状态。 */
   #drag: DragState | undefined;
   /** 等待在下一绘制帧处理的最后一次拖拽采样。 */
   #pendingDrag: PendingDragSample | undefined;
   /** 已登记的拖拽绘制帧。 */
   #dragFrame: number | undefined;
-  /** 鼠标当前悬停的手柄。 */
   #hover: TransformHandleHit | undefined;
   /** 最近一次有效指针坐标。 */
   #lastCoordinate: Coordinate | undefined;
   /** 复制预览开始时的参考坐标。 */
   #copyAnchor: Coordinate | undefined;
-  /** 当前复制预览位移。 */
   #copyDelta: Readonly<{ x: number; y: number }> = Object.freeze({ x: 0, y: 0 });
-  /** 是否处于复制预览状态。 */
   #copyActive = false;
-  /** 交互是否已经成功打开。 */
   #opened = false;
-  /** 句柄是否已经销毁。 */
   #destroyed = false;
-  /** 句柄是否正在销毁。 */
   #destroying = false;
 
-  /** 创建尚未安装的指针交互和控制图层。 */
   constructor(
     map: Map,
     hitTest: TransformHitTest,
@@ -212,12 +184,10 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     });
   }
 
-  /** 返回当前实际接收渲染效果的图层 ID。 */
   get renderLayerId(): string {
     return this.#handles.activeRenderLayerId;
   }
 
-  /** 返回选中框的渲染目标 ID。 */
   get renderTargetId(): string {
     return this.#handles.renderTargetId;
   }
@@ -279,7 +249,6 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#handles.clearTarget();
   }
 
-  /** 通知控制图层当前操作是否活动。 */
   setOperationActive(active: boolean, operation?: TransformOperation): void {
     if (this.#destroyed) return;
     this.#handles.setOperationActive(active, operation);
@@ -626,7 +595,6 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     }
   }
 
-  /** 屏蔽右键菜单并结束或取消当前交互状态。 */
   readonly #onContextMenu = (event: MouseEvent): void => {
     if (this.#destroying || !this.#copyActive) return;
     event.preventDefault();
@@ -706,13 +674,11 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     }
   }
 
-  /** 确认交互已经打开且仍可使用。 */
   #assertOpen(): void {
     this.#assertActive();
     if (!this.#opened) throw new ObjectDisposedError('Transform interaction is not open');
   }
 
-  /** 确认句柄尚未销毁。 */
   #assertActive(): void {
     if (this.#destroyed) throw new ObjectDisposedError('Transform interaction has been destroyed');
   }
@@ -790,7 +756,6 @@ function shiftCoordinate(value: Coordinate, x: number): Coordinate {
   return Object.freeze(value.length === 3 ? [value[0] + x, value[1], value[2]] : [value[0] + x, value[1]]) as Coordinate;
 }
 
-/** 判断目标是否允许指定手柄操作。 */
 function operationAllowed(target: TransformInteractionTarget, operation: TransformOperation): boolean {
   if (operation === 'vertex') return target.mode === 'edit' && target.canEditVertices;
   if (target.mode !== 'transform') return false;
@@ -833,7 +798,6 @@ function ratio(numerator: number, denominator: number): number {
   return Math.abs(denominator) < Number.EPSILON ? 1 : numerator / denominator;
 }
 
-/** 判断事件是否来自主指针。 */
 function isPrimary(event: PointerMapEvent): boolean {
   const native = event.originalEvent as Partial<PointerEvent>;
   return native.isPrimary !== false && native.button === 0;
@@ -844,12 +808,10 @@ function isPointerCancel(event: PointerMapEvent): boolean {
   return event.type === 'pointercancel' || (event.originalEvent as Readonly<{ type?: unknown }>).type === 'pointercancel';
 }
 
-/** 判断命中项是否可启动一次连续 Transform 操作。 */
 function hasTransformOperation(hit: TransformHandleHit | undefined): hit is ActiveTransformHandleHit {
   return hit?.operation !== undefined;
 }
 
-/** 判断两个悬停命中是否指向同一手柄。 */
 function sameHit(left: TransformHandleHit | undefined, right: TransformHandleHit | undefined): boolean {
   if (left?.key !== right?.key || left?.operation !== right?.operation) return false;
   const leftAnchor = left?.anchor;

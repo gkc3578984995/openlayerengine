@@ -24,7 +24,7 @@ export interface InternalContextMenuItemSpec {
   readonly children?: readonly InternalContextMenuItemSpec[];
 }
 
-/** 执行菜单回调时提供的上下文。 */
+/** 菜单回调收到的命中信息与作用范围。 */
 export interface InternalContextMenuItemContext {
   /** 当前菜单项目。 */
   readonly item: InternalContextMenuItemSpec;
@@ -60,7 +60,7 @@ export interface InternalContextMenuItemState {
   readonly disabled: boolean;
 }
 
-/** 用于注销一次右键菜单注册。 */
+/** 一次右键菜单注册的幂等注销句柄。 */
 export interface ContextMenuRegistrationHandle {
   /** 销毁注册并释放状态。 */
   destroy(): void;

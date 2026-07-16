@@ -6,135 +6,134 @@ import type { Element } from './Element.js';
 import type { StyleInput } from './styleTypes.js';
 
 /**
- * 绘制会话的启动配置。
+ * Draw Session 的启动配置。
  *
- * @typeParam T 业务数据。表示元素附加数据的类型。
+ * @typeParam T 完成后的 Element 携带的业务数据类型。
  */
 export interface DrawOptions<T = unknown> {
-  /** 图形类型。指定已注册且支持绘制的图形类型。 */
+  /** 已注册且支持绘制的图形类型。 */
   type: ShapeType;
-  /** 目标图层。指定承载预览和完成元素的矢量图层 ID。 */
+  /** 承载预览和完成结果的矢量图层 ID。 */
   layerId: string;
-  /** 业务模块。写入完成元素的可选模块标识。 */
+  /** 写入完成结果的业务模块标识。 */
   module?: string;
-  /** 元素样式。接受结构化样式或属于当前 Earth 的原生样式。 */
+  /** 结构化样式，或属于当前 Earth 的原生 OpenLayers 样式。 */
   style?: StyleInput;
-  /** 业务数据。写入每个完成元素并在启动时保存独立副本。 */
+  /** 写入每个完成结果的业务数据；启动 Session 时会保存独立副本。 */
   data?: T;
-  /** 完成数量。达到该数量后自动结束，省略或设为 `0` 时持续绘制。 */
+  /** 自动结束前的完成数量；省略或设为 `0` 时持续绘制。 */
   limit?: number;
-  /** 保留元素。设为 `false` 时仅在同步 `complete` 监听期间提供临时元素。 */
+  /** 是否保留完成的 Element；设为 `false` 时只在同步 `complete` 回调期间提供临时句柄。 */
   keepGraphics?: boolean;
-  /** 冲突策略。使用 `replace` 替换旧交互，使用 `reject` 拒绝新交互。 */
+  /** 交互冲突策略：`replace` 替换旧交互，`reject` 拒绝新交互。 */
   policy?: InteractionPolicy;
 }
 
-/** 编辑会话的启动配置。 */
+/** Edit Session 的启动配置。 */
 export interface EditOptions {
-  /** 原始底图。控制临时编辑图层是否绘制进入编辑时的原始几何。 */
+  /** 是否在临时编辑图层中保留进入编辑时的原始几何。 */
   underlay?: boolean;
-  /** 冲突策略。使用 `replace` 替换旧交互，使用 `reject` 拒绝新交互。 */
+  /** 交互冲突策略：`replace` 替换旧交互，`reject` 拒绝新交互。 */
   policy?: InteractionPolicy;
 }
 
 /**
- * 绘制会话的事件载荷映射。
+ * Draw Session 的事件载荷映射。
  *
- * @typeParam T 业务数据。表示元素附加数据的类型。
+ * @typeParam T 完成后的 Element 携带的业务数据类型。
  */
 export interface DrawSessionEventMap<T = unknown> {
   /** 开始事件。首个控制点或自由绘制手势开始时触发。 */
   readonly start: Readonly<{
-    /** 事件类型。固定为 `start`。 */
+    /** 固定为 `start`。 */
     type: 'start';
-    /** 起始坐标。提供触发绘制的坐标快照。 */
+    /** 触发绘制的坐标快照。 */
     coordinate: Coordinate;
   }>;
   /** 变化事件。当前草图的预览几何变化时触发。 */
   readonly change: Readonly<{
-    /** 事件类型。固定为 `change`。 */
+    /** 固定为 `change`。 */
     type: 'change';
-    /** 草图几何。提供当前预览几何的只读快照。 */
+    /** 当前预览几何的只读快照。 */
     geometry: ShapeState;
-    /** 指针坐标。提供触发本次变化的可选坐标快照。 */
+    /** 触发本次变化的指针坐标快照。 */
     coordinate?: Coordinate;
   }>;
   /** 点击事件。一个控制点被当前草图接受后触发。 */
   readonly click: Readonly<{
-    /** 事件类型。固定为 `click`。 */
+    /** 固定为 `click`。 */
     type: 'click';
-    /** 控制点坐标。提供新增控制点的坐标快照。 */
+    /** 新增控制点的坐标快照。 */
     coordinate: Coordinate;
-    /** 控制点数量。表示当前草图已经接受的控制点总数。 */
+    /** 当前草图已接受的控制点总数。 */
     controlPointCount: number;
   }>;
-  /** 完成事件。元素成功提交到元素存储后触发。 */
+  /** 完成事件。Element 成功提交到 Store 后触发。 */
   readonly complete: Readonly<{
-    /** 事件类型。固定为 `complete`。 */
+    /** 固定为 `complete`。 */
     type: 'complete';
-    /** 完成元素。提供本次创建的实时元素句柄。 */
+    /** 本次创建的实时 Element 句柄。 */
     element: Element<T>;
   }>;
-  /** 取消事件。当前草图或整个会话被取消时触发。 */
+  /** 取消事件。当前草图或整个 Session 被取消时触发。 */
   readonly cancel: Readonly<{
-    /** 事件类型。固定为 `cancel`。 */
+    /** 固定为 `cancel`。 */
     type: 'cancel';
-    /** 取消原因。说明会话被替换、销毁、主动取消或异常终止的原因。 */
+    /** Session 被替换、销毁、主动取消或异常终止的具体原因。 */
     reason: 'replaced' | 'destroyed' | 'cancelled' | 'incomplete' | 'native' | 'error';
   }>;
 }
 
 /**
- * 编辑会话的事件载荷映射。
+ * Edit Session 的事件载荷映射。
  *
- * @typeParam T 业务数据。表示元素附加数据的类型。
+ * @typeParam T 目标 Element 携带的业务数据类型。
  */
 export interface EditSessionEventMap<T = unknown> {
   /** 修改事件。工作几何发生变化且尚未提交时触发。 */
   readonly modifying: Readonly<{
-    /** 事件类型。固定为 `modifying`。 */
+    /** 固定为 `modifying`。 */
     type: 'modifying';
-    /** 目标元素。提供启动编辑时传入的元素句柄。 */
+    /** 启动编辑时传入的 Element 句柄。 */
     element: Element<T>;
-    /** 工作几何。提供当前编辑结果的只读快照。 */
+    /** 当前工作几何的只读快照，尚未提交到 Store。 */
     geometry: ShapeState;
-    /** 编辑操作。说明本次变化来自移动、插入、删除、撤销或重做。 */
+    /** 引发本次变化的编辑操作。 */
     operation: 'move' | 'insert' | 'remove' | 'undo' | 'redo';
-    /** 操作坐标。提供移动、插入或删除操作涉及的可选坐标快照。 */
+    /** 移动、插入或删除涉及的坐标快照。 */
     coordinate?: Coordinate;
   }>;
-  /** 完成事件。编辑结果成功提交到元素存储后触发。 */
+  /** 完成事件。编辑结果成功提交到 Store 后触发。 */
   readonly complete: Readonly<{
-    /** 事件类型。固定为 `complete`。 */
+    /** 固定为 `complete`。 */
     type: 'complete';
-    /** 目标元素。提供仍代表同一元素实例的实时句柄。 */
+    /** 仍指向同一 Element 的实时句柄。 */
     element: Element<T>;
   }>;
-  /** 取消事件。编辑会话未提交结果而结束时触发。 */
+  /** 取消事件。Edit Session 未提交结果而结束时触发。 */
   readonly cancel: Readonly<{
-    /** 事件类型。固定为 `cancel`。 */
+    /** 固定为 `cancel`。 */
     type: 'cancel';
-    /** 取消原因。说明会话终止或目标元素被外部改变的原因。 */
+    /** Session 终止或目标 Element 被外部改变的具体原因。 */
     reason: 'replaced' | 'destroyed' | 'cancelled' | 'external-change' | 'external-remove' | 'error';
   }>;
 }
 
 /**
- * 一次绘制交互的公开会话句柄。
+ * 一次 Draw 交互的公共 Session 句柄。
  *
- * @typeParam T 业务数据。表示元素附加数据的类型。
+ * @typeParam T 绘制结果携带的业务数据类型。
  */
 export interface DrawSession<T = unknown> {
-  /** 会话状态。表示会话当前处于活动、完成或取消状态。 */
+  /** Session 当前处于活动、完成或取消状态。 */
   readonly status: InteractionStatus;
-  /** 绘制结果。包含本会话已完成、选择保留且仍然有效的元素。 */
+  /** 本次 Session 已完成、选择保留且仍有效的 Element。 */
   readonly results: readonly Element<T>[];
-  /** 完成结果。会话进入终态后解析为最终绘制结果。 */
+  /** Session 进入终态后解析为最终绘制结果。 */
   readonly finished: Promise<readonly Element<T>[]>;
   /**
-   * 完成当前草图并结束绘制会话。
+   * 完成当前草图并结束 Draw Session。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -147,9 +146,8 @@ export interface DrawSession<T = unknown> {
    */
   finish(): void;
   /**
-   * 取消当前会话并丢弃尚未完成的草图。
+   * 取消当前 Session，并丢弃尚未完成的草图。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -162,9 +160,8 @@ export interface DrawSession<T = unknown> {
    */
   cancel(): void;
   /**
-   * 销毁会话并释放其交互资源。
+   * 销毁 Session 并释放其交互资源。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -207,11 +204,11 @@ export interface DrawSession<T = unknown> {
    */
   redo(): boolean;
   /**
-   * 订阅指定的绘制会话事件。
+   * 订阅指定的 Draw Session 事件。
    *
-   * @typeParam K 事件类型。表示订阅事件名称的类型。
-   * @param type 事件名称。指定要订阅的事件。
-   * @param listener 监听函数。接收对应的只读事件载荷。
+   * @typeParam K 要订阅的事件名称类型。
+   * @param type 事件名称。
+   * @param listener 接收对应只读载荷的监听函数。
    * @returns 用于取消本次订阅的幂等函数。
    *
    * @example
@@ -228,21 +225,20 @@ export interface DrawSession<T = unknown> {
 }
 
 /**
- * 一次动态编辑交互的公开会话句柄。
+ * 一次动态编辑交互的公共 Session 句柄。
  *
- * @typeParam T 业务数据。表示元素附加数据的类型。
+ * @typeParam T 目标 Element 携带的业务数据类型。
  */
 export interface EditSession<T = unknown> {
-  /** 目标元素。提供启动编辑时传入的实时元素句柄。 */
+  /** 启动编辑时传入的实时 Element 句柄。 */
   readonly element: Element<T>;
-  /** 会话状态。表示会话当前处于活动、完成或取消状态。 */
+  /** Session 当前处于活动、完成或取消状态。 */
   readonly status: InteractionStatus;
-  /** 完成结果。成功提交时解析为目标元素，取消时解析为 `undefined`。 */
+  /** 成功提交时解析为目标 Element，取消时解析为 `undefined`。 */
   readonly finished: Promise<Element<T> | undefined>;
   /**
    * 原子提交当前工作几何并结束编辑。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -257,7 +253,6 @@ export interface EditSession<T = unknown> {
   /**
    * 取消编辑且不提交当前工作几何。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -270,9 +265,8 @@ export interface EditSession<T = unknown> {
    */
   cancel(): void;
   /**
-   * 销毁编辑会话并释放其交互资源。
+   * 销毁 Edit Session 并释放其交互资源。
    *
-   * @returns 无返回值。
    *
    * @example
    * ```ts
@@ -315,11 +309,11 @@ export interface EditSession<T = unknown> {
    */
   redo(): boolean;
   /**
-   * 订阅指定的编辑会话事件。
+   * 订阅指定的 Edit Session 事件。
    *
-   * @typeParam K 事件类型。表示订阅事件名称的类型。
-   * @param type 事件名称。指定要订阅的事件。
-   * @param listener 监听函数。接收对应的只读事件载荷。
+   * @typeParam K 要订阅的事件名称类型。
+   * @param type 事件名称。
+   * @param listener 接收对应只读载荷的监听函数。
    * @returns 用于取消本次订阅的幂等函数。
    *
    * @example
@@ -334,14 +328,14 @@ export interface EditSession<T = unknown> {
   on<K extends keyof EditSessionEventMap<T>>(type: K, listener: (event: EditSessionEventMap<T>[K]) => void): () => void;
 }
 
-/** 绘制和动态编辑能力的公开入口。 */
+/** 绘制图形和启动动态 Edit Session 的公开服务。 */
 export interface DrawService {
   /**
-   * 启动一个绘制会话。
+   * 启动 Draw Session。
    *
-   * @typeParam T 业务数据。表示元素附加数据的类型。
-   * @param options 绘制配置。指定图形类型、目标图层、样式、业务数据和冲突策略。
-   * @returns 已打开并处于活动状态的绘制会话。
+   * @typeParam T 完成后的 Element 携带的业务数据类型。
+   * @param options 图形类型、目标图层、样式、业务数据和冲突策略。
+   * @returns 已打开且处于活动状态的 Draw Session。
    *
    * @example
    * ```ts
@@ -353,12 +347,12 @@ export interface DrawService {
    */
   start<T>(options: DrawOptions<T>): DrawSession<T>;
   /**
-   * 为当前 Earth 中仍然有效的元素启动动态编辑。
+   * 为当前 Earth 中仍有效的 Element 启动动态编辑。
    *
-   * @typeParam T 业务数据。表示元素附加数据的类型。
-   * @param element 元素句柄。指定要编辑且属于当前 Earth 的实时元素。
-   * @param options 编辑配置。指定临时底图和交互冲突策略。
-   * @returns 已打开并处于活动状态的编辑会话。
+   * @typeParam T 目标 Element 携带的业务数据类型。
+   * @param element 属于当前 Earth、且仍有效的 Element 句柄。
+   * @param options 临时底图和交互冲突策略。
+   * @returns 已打开且处于活动状态的 Edit Session。
    *
    * @example
    * ```ts
@@ -371,11 +365,11 @@ export interface DrawService {
    */
   edit<T>(element: Element<T>, options?: EditOptions): EditSession<T>;
   /**
-   * 查询由绘制服务创建且仍然存在的元素。
+   * 查询由绘制服务创建且仍然存在的 Element。
    *
-   * @typeParam T 业务数据。表示元素附加数据的类型。
-   * @param selector 元素选择器。省略时查询当前服务拥有的全部元素。
-   * @returns 匹配条件且仍然有效的实时元素只读列表。
+   * @typeParam T Element 携带的业务数据类型。
+   * @param selector 查询条件；省略时返回当前服务拥有的全部 Element。
+   * @returns 匹配条件且仍有效的实时 Element 只读列表。
    *
    * @example
    * ```ts
@@ -387,10 +381,10 @@ export interface DrawService {
    */
   query<T>(selector?: ElementSelector<T>): readonly Element<T>[];
   /**
-   * 移除由绘制服务创建且匹配条件的元素。
+   * 移除由绘制服务创建且匹配条件的 Element。
    *
-   * @param selector 元素选择器。省略时清除当前服务拥有的全部元素。
-   * @returns 实际移除的元素数量。
+   * @param selector 移除条件；省略时清除当前服务拥有的全部 Element。
+   * @returns 实际移除的 Element 数量。
    *
    * @example
    * ```ts

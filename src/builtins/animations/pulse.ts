@@ -3,10 +3,8 @@ import { CapabilityError } from '../../core/errors.js';
 import type { AnimationDefinition, AnimationFrameResult } from '../../services/animation/types.js';
 import { animationRecord, boolean, channel, color, colorWithOpacity, positive } from './validation.js';
 
-/** 内部常量。保存 pulseAnimationDefinition 使用的数据。 */
 export const pulseAnimationDefinition = Object.freeze({
   type: 'pulse',
-  /** 校验并整理输入数据。 */
   normalize(input) {
     const record = animationRecord(input, 'pulse', ['type', 'channel', 'periodMs', 'color', 'repeat', 'radius']);
     if (record.type !== 'pulse') throw new CapabilityError('Pulse animation type must be pulse');
@@ -19,11 +17,9 @@ export const pulseAnimationDefinition = Object.freeze({
       radius: positive(record.radius, 6, 'Pulse radius')
     }) satisfies PulseAnimationSpec;
   },
-  /** 检查动画和图形是否兼容。 */
   assertCompatible(_state, geometry) {
     if (geometry.type !== 'point') throw new CapabilityError('Pulse animation requires point render geometry');
   },
-  /** 计算当前动画帧。 */
   frame(context, input): AnimationFrameResult {
     const spec = input as Required<PulseAnimationSpec>;
     const complete = !spec.repeat && context.elapsedMs >= spec.periodMs;
@@ -51,7 +47,6 @@ export const pulseAnimationDefinition = Object.freeze({
   }
 } satisfies AnimationDefinition);
 
-/** 内部方法。处理 easeOut 相关数据。 */
 function easeOut(value: number): number {
   return 1 - Math.pow(1 - value, 3);
 }

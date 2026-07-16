@@ -378,7 +378,7 @@ test('万顶点 Edit 反复跨 world 时避免重建全部锚点索引', async (
   expectResources(await snapshot(page), baseline);
 });
 
-/** 在 window 捕获与冒泡阶段之间测量本次 pointerdown 的同步引擎处理耗时。 */
+/** 以 window 捕获和冒泡阶段为边界，测量 pointerdown 的同步处理耗时。 */
 async function armPointerDownLatency(page: Page): Promise<void> {
   await page.evaluate(() => {
     delete document.documentElement.dataset.editPointerDownLatency;
@@ -400,13 +400,13 @@ async function armPointerDownLatency(page: Page): Promise<void> {
   });
 }
 
-/** 读取浏览器内 pointerdown 捕获到冒泡的同步处理耗时。 */
+/** 读取浏览器记录的 pointerdown 同步处理耗时。 */
 async function readPointerDownLatency(page: Page): Promise<number> {
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.editPointerDownLatency)).not.toBeUndefined();
   return page.evaluate(() => Number(document.documentElement.dataset.editPointerDownLatency));
 }
 
-/** 在 window 捕获与冒泡阶段之间测量本次 pointerup 的同步引擎处理耗时。 */
+/** 以 window 捕获和冒泡阶段为边界，测量 pointerup 的同步处理耗时。 */
 async function armPointerUpLatency(page: Page): Promise<void> {
   await page.evaluate(() => {
     delete document.documentElement.dataset.editPointerUpLatency;
@@ -428,7 +428,7 @@ async function armPointerUpLatency(page: Page): Promise<void> {
   });
 }
 
-/** 读取浏览器内 pointerup 捕获到冒泡的同步处理耗时。 */
+/** 读取浏览器记录的 pointerup 同步处理耗时。 */
 async function readPointerUpLatency(page: Page): Promise<number> {
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.editPointerUpLatency)).not.toBeUndefined();
   return page.evaluate(() => Number(document.documentElement.dataset.editPointerUpLatency));

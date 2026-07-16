@@ -1,63 +1,56 @@
 import type { RenderGeometryState } from '../shape/types.js';
 import type { StyleSpec } from '../style/types.js';
 
-/** 内部接口。约定 LayerRenderFrame 使用的数据和操作。 */
 export interface LayerRenderFrame {
-  /** 图层 ID。标识关联的图层。 */
+  /** 当前渲染图层 ID。 */
   readonly layerId: string;
-  /** 时间。保存当前帧的时间。 */
+  /** 当前帧时间。 */
   readonly time: number;
-  /** 分辨率。保存当前视图分辨率。 */
+  /** 当前 View 分辨率。 */
   readonly resolution: number;
 }
 
-/** 内部接口。约定 LayerRenderPrimitive 使用的数据和操作。 */
 export interface LayerRenderPrimitive {
-  /** 几何。保存本次渲染使用的几何。 */
+  /** 本次渲染的几何快照。 */
   readonly geometry: RenderGeometryState;
-  /** 样式。保存本次渲染使用的样式。 */
+  /** 本次渲染的结构化样式。 */
   readonly style: StyleSpec;
 }
 
-/** 内部接口。约定 LayerRenderValue 使用的数据和操作。 */
 export interface LayerRenderValue {
-  /** 是否显示。控制内容是否可见。 */
+  /** 此渲染值是否可见。 */
   readonly visible?: boolean;
-  /** 图元。保存需要绘制的内容。 */
+  /** 需要绘制的图元。 */
   readonly primitives?: readonly LayerRenderPrimitive[];
 }
 
-/** 内部接口。约定 LayerRenderContribution 使用的数据和操作。 */
 export interface LayerRenderContribution {
-  /** 目标 ID。标识渲染目标。 */
+  /** 渲染目标 ID。 */
   readonly targetId: string;
-  /** 通道。区分同一目标的多组内容。 */
+  /** 同一目标内的渲染通道。 */
   readonly channel: string;
-  /** 内容。保存当前渲染结果。 */
+  /** 当前通道的渲染结果。 */
   readonly value: LayerRenderValue;
 }
 
-/** 内部接口。约定 LayerRenderBatch 使用的数据和操作。 */
 export interface LayerRenderBatch {
-  /** 贡献项。保存各目标的渲染内容。 */
+  /** 本帧各目标的渲染贡献。 */
   readonly contributions: readonly LayerRenderContribution[];
-  /** 继续渲染。表示是否需要下一帧。 */
+  /** 是否继续请求下一帧。 */
   readonly requestNextFrame: boolean;
 }
 
-/** 内部接口。约定 LayerRenderLoopHandle 使用的数据和操作。 */
 export interface LayerRenderLoopHandle {
   /** 请求重新渲染一帧。 */
   requestRender(): void;
-  /** 释放当前对象占用的资源。 */
+  /** 停止循环并释放渲染资源。 */
   destroy(): void;
 }
 
-/** 内部接口。约定 LayerRenderTargetSpec 使用的数据和操作。 */
 export interface LayerRenderTargetSpec {
-  /** 图层 ID。标识关联的图层。 */
+  /** 临时目标所在的图层 ID。 */
   readonly layerId: string;
-  /** 目标 ID。标识渲染目标。 */
+  /** 临时渲染目标 ID。 */
   readonly targetId: string;
   /** 应用一份渲染结果。 */
   apply(value: LayerRenderValue, frame: LayerRenderFrame): void;
@@ -65,15 +58,13 @@ export interface LayerRenderTargetSpec {
   clear(channel: string): void;
 }
 
-/** 内部接口。约定 LayerRenderTargetHandle 使用的数据和操作。 */
 export interface LayerRenderTargetHandle {
-  /** 释放当前对象占用的资源。 */
+  /** 注销临时渲染目标。 */
   destroy(): void;
 }
 
-/** 内部接口。约定 LayerRenderPort 使用的数据和操作。 */
 export interface LayerRenderPort {
-  /** 打开一个内部交互或视图。 */
+  /** 为图层打开共享渲染循环。 */
   open(layerId: string, render: (frame: LayerRenderFrame) => LayerRenderBatch): LayerRenderLoopHandle;
   /** 注册临时渲染目标。 */
   registerTarget(spec: LayerRenderTargetSpec): LayerRenderTargetHandle;

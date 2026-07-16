@@ -1,35 +1,35 @@
 import type Earth from './Earth.js';
 import type { EarthOptions } from './Earth.js';
 
-/** 无 ID 实例使用的内部注册键。 */
+/** 默认 Earth 在注册表中的内部键。 */
 const defaultEarthKey = Symbol('default-earth');
 /** 保存默认实例和命名实例。 */
 const earthRegistry = new Map<string | symbol, RegisteredEarthEntry>();
 
 /** 可用于冲突比较的配置快照。 */
 type ComparableOption = unknown;
-/** 首次创建后不能再次生效的配置字段。 */
+/** 仅在首次创建时生效的配置字段。 */
 type EarthOptionKey = 'target' | 'view' | 'controls';
 /** 开发环境警告的输出函数。 */
 type EarthWarningReporter = (message: string) => void;
 
-/** 注册表中的 Earth 实例及其首次创建配置。 */
+/** 已注册的 Earth 及其首次创建配置快照。 */
 export interface RegisteredEarthEntry {
-  /** 已注册的 Earth 实例。 */
+  /** 当前注册的 Earth。 */
   readonly earth: Earth;
   /** 首次创建时保存的配置快照。 */
   readonly options: Readonly<Record<EarthOptionKey, ComparableOption>>;
 }
 
-/** 当前使用的开发环境警告输出函数。 */
+/** 可由测试替换的开发环境警告出口。 */
 let warningReporter: EarthWarningReporter = (message) => console.warn(message);
 
-/** 按可选 ID 查找已注册的 Earth。 */
+/** 按 ID 查找 Earth；省略 ID 时查找默认实例。 */
 export function lookupRegisteredEarth(id?: string): RegisteredEarthEntry | undefined {
   return earthRegistry.get(registryKey(id));
 }
 
-/** 注册 Earth，并保存首次创建配置的可比较快照。 */
+/** 注册 Earth，并冻结一份可用于后续冲突检查的创建配置。 */
 export function registerEarth(earth: Earth, id: string | undefined, options: EarthOptions): void {
   earthRegistry.set(
     registryKey(id),
@@ -44,14 +44,14 @@ export function registerEarth(earth: Earth, id: string | undefined, options: Ear
   );
 }
 
-/** 删除指定 Earth 占用的所有注册键。 */
+/** 移除指定 Earth 占用的全部注册键。 */
 export function unregisterEarth(earth: Earth): void {
   for (const [key, entry] of earthRegistry) {
     if (entry.earth === earth) earthRegistry.delete(key);
   }
 }
 
-/** 找出再次调用时与首次创建不同的配置字段。 */
+/** 找出重复获取实例时与首次创建不一致的显式配置。 */
 export function conflictingEarthOptions(entry: RegisteredEarthEntry, requested: EarthOptions, fields: ReadonlySet<EarthOptionKey>): readonly EarthOptionKey[] {
   const conflicts: EarthOptionKey[] = [];
   for (const field of fields) {
@@ -60,7 +60,7 @@ export function conflictingEarthOptions(entry: RegisteredEarthEntry, requested: 
   return Object.freeze(conflicts);
 }
 
-/** 仅在开发环境输出 Earth 使用警告。 */
+/** 只在开发环境报告 Earth 使用警告。 */
 export function reportEarthWarning(message: string): void {
   if (isProduction()) return;
   try {
@@ -70,7 +70,7 @@ export function reportEarthWarning(message: string): void {
   }
 }
 
-/** 测试时临时替换警告输出函数，并返回恢复函数。 */
+/** 为测试临时替换警告出口，并返回恢复函数。 */
 export function setEarthWarningReporterForTests(reporter: EarthWarningReporter): () => void {
   if (typeof reporter !== 'function') throw new TypeError('Earth warning reporter must be a function.');
   const previous = warningReporter;
@@ -85,7 +85,7 @@ export function resetEarthRegistryForTests(): void {
   earthRegistry.clear();
 }
 
-/** 将可选实例 ID 转换为注册表键。 */
+/** 将可选实例 ID 归一为注册表键。 */
 function registryKey(id?: string): string | symbol {
   return id ?? defaultEarthKey;
 }
@@ -98,7 +98,7 @@ function isProduction(): boolean {
   return environment?.PROD !== false;
 }
 
-/** 复制普通对象和数组，供后续安全比较。 */
+/** 复制普通对象和数组，避免后续比较受外部修改影响。 */
 function captureComparable(value: unknown, seen = new WeakMap<object, object>()): ComparableOption {
   if (value === null || typeof value !== 'object') return value;
   const cached = seen.get(value);
@@ -135,7 +135,7 @@ function captureComparable(value: unknown, seen = new WeakMap<object, object>())
   return copy;
 }
 
-/** 递归比较两个配置快照是否相同。 */
+/** 递归比较两个配置快照，循环引用按已比较处理。 */
 function sameComparable(left: unknown, right: unknown, seen = new WeakMap<object, WeakSet<object>>()): boolean {
   if (Object.is(left, right)) return true;
   if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false;

@@ -5,57 +5,41 @@ import type { HitTestPort } from '../../core/ports/HitTestPort.js';
 import type { InputEventMap, InputPort, InputType, PointerInputType } from '../../core/ports/InputPort.js';
 import type { NativeRefRegistry } from './NativeRefRegistry.js';
 
-/** 统一保存各类输入事件监听器。 */
 type InputListener = (event: InputEventMap[InputType]) => void;
 
 /** 本适配器关心的 OpenLayers 指针事件字段。 */
 interface OpenLayersInputEvent {
-  /** 事件发生的地图坐标。 */
   readonly coordinate: readonly number[];
-  /** 事件发生的屏幕像素。 */
   readonly pixel: readonly number[];
-  /** 浏览器原始事件。 */
   readonly originalEvent: Event;
-  /** OpenLayers 正在平移地图。 */
   readonly dragging?: boolean;
 }
 
 /** 输入适配器使用的地图事件能力。 */
 interface EventedMap {
-  /** 监听 OpenLayers 事件。 */
   on(type: string, listener: (event: OpenLayersInputEvent) => void): unknown;
-  /** 移除 OpenLayers 事件。 */
   un(type: string, listener: (event: OpenLayersInputEvent) => void): void;
 }
 
-/** 支持的指针输入类型。 */
 const pointerTypes: readonly PointerInputType[] = ['pointermove', 'click', 'leftdown', 'leftup', 'doubleclick', 'rightclick'];
-/** 支持的全部输入类型。 */
 const inputTypes: readonly InputType[] = [...pointerTypes, 'keydown'];
 
-/** 将 OpenLayers 和 DOM 输入事件转换为统一事件。 */
+/** 把 OpenLayers 与 DOM 输入归一为 Core 事件，并隔离原生事件引用。 */
 export class InputAdapter implements InputPort {
-  /** 输入事件所属的地图。 */
   readonly #map: OLMap;
-  /** 为指针事件补充命中的元素。 */
   readonly #hitTest: HitTestPort;
-  /** 临时保存浏览器原始事件引用。 */
   readonly #nativeRefs: NativeRefRegistry;
-  /** 按类型保存业务监听器。 */
   readonly #listeners = new Map<InputType, InputListener>();
-  /** 按类型保存原生事件清理函数。 */
   readonly #nativeDisposers = new Map<InputType, () => void>();
-  /** 适配器是否已经销毁。 */
   #disposed = false;
 
-  /** 保存地图、命中服务和原生引用注册表。 */
   constructor(map: OLMap, hitTest: HitTestPort, nativeRefs: NativeRefRegistry) {
     this.#map = map;
     this.#hitTest = hitTest;
     this.#nativeRefs = nativeRefs;
   }
 
-  /** 为指定输入类型安装唯一监听器，并返回取消函数。 */
+  /** 每种输入只允许一个业务监听器；取消函数同时移除对应原生监听。 */
   listen<T extends InputType>(type: T, listener: (event: InputEventMap[T]) => void): () => void {
     this.#assertActive();
     assertInputType(type);
@@ -79,13 +63,13 @@ export class InputAdapter implements InputPort {
     };
   }
 
-  /** 将键盘焦点交给当前地图容器。 */
+  /** 把键盘焦点交给当前地图容器，且不滚动页面。 */
   focus(): void {
     this.#assertActive();
     focusWithoutScrolling(this.#map.getTargetElement() ?? this.#map.getViewport());
   }
 
-  /** 移除全部原生事件和业务监听器。 */
+  /** 幂等移除全部原生事件与业务监听器。 */
   destroy(): void {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -95,7 +79,7 @@ export class InputAdapter implements InputPort {
     runFinalizers(disposers);
   }
 
-  /** 按输入类型安装对应的 OpenLayers 或 DOM 事件。 */
+  /** 按输入语义选择 OpenLayers 或 viewport 原生事件。 */
   #install(type: InputType): () => void {
     if (type === 'pointermove' || type === 'click' || type === 'doubleclick') {
       const nativeType = type === 'doubleclick' ? 'dblclick' : type;
@@ -156,7 +140,6 @@ export class InputAdapter implements InputPort {
     return () => runFinalizers([() => keyboardTarget.removeEventListener('keydown', listener), releaseKeyboardScope]);
   }
 
-  /** 转换由 OpenLayers 提供坐标和像素的指针事件。 */
   #routeMapPointer(type: 'pointermove' | 'click' | 'doubleclick', event: OpenLayersInputEvent): void {
     this.#withNativeEvent(event.originalEvent, (nativeEventRef) => {
       const coordinate = safeCoordinate(() => event.coordinate);
@@ -167,7 +150,6 @@ export class InputAdapter implements InputPort {
     });
   }
 
-  /** 转换直接来自地图视口的指针事件。 */
   #routeViewportPointer(type: 'leftdown' | 'leftup' | 'rightclick', event: Event): void {
     this.#withNativeEvent(event, (nativeEventRef) => {
       const pixel = safePixel(() => this.#map.getEventPixel(event as UIEvent));
@@ -179,7 +161,6 @@ export class InputAdapter implements InputPort {
     });
   }
 
-  /** 转换键盘事件。 */
   #routeKeyboard(event: KeyboardEvent): void {
     this.#withNativeEvent(event, (nativeEventRef) => {
       this.#listeners.get('keydown')?.(
@@ -197,7 +178,7 @@ export class InputAdapter implements InputPort {
     });
   }
 
-  /** 在事件派发期间临时注册浏览器原始事件。 */
+  /** 原生事件引用只在同步派发期间有效。 */
   #withNativeEvent(event: Event, dispatch: (reference: InputEventMap[InputType]['nativeEventRef']) => void): void {
     const reference = this.#nativeRefs.registerTransient('input-event', event);
     try {
@@ -207,7 +188,7 @@ export class InputAdapter implements InputPort {
     }
   }
 
-  /** 确认适配器仍可使用。 */
+  /** 销毁后拒绝继续安装监听。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('InputAdapter has been destroyed');
   }
@@ -276,7 +257,7 @@ function assertInputType(value: unknown): asserts value is InputType {
   if (!inputTypes.includes(value as InputType)) throw new InvalidArgumentError('Unknown input type');
 }
 
-/** 安全读取并冻结地图坐标。 */
+/** 读取失败或值非法时丢弃该地图坐标。 */
 function safeCoordinate(read: () => unknown): InputEventMap['click']['coordinate'] | undefined {
   let value: unknown;
   try {
@@ -290,7 +271,7 @@ function safeCoordinate(read: () => unknown): InputEventMap['click']['coordinate
   return Object.freeze([...value]) as InputEventMap['click']['coordinate'];
 }
 
-/** 安全读取并冻结屏幕像素。 */
+/** 读取失败或值非法时丢弃该屏幕像素。 */
 function safePixel(read: () => unknown): InputEventMap['click']['pixel'] | undefined {
   let value: unknown;
   try {

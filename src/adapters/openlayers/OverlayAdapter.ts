@@ -17,60 +17,43 @@ import type { NativeRefRegistry } from './NativeRefRegistry.js';
 
 /** 描述牌动作监听及其 DOM 绑定。 */
 interface ActionSubscription {
-  /** 接收描述牌动作的监听器。 */
   readonly listener: (action: DescriptorPortAction) => void;
-  /** 移除当前 DOM 绑定的函数。 */
   bindingDisposer: () => void;
 }
 
 /** 覆盖物拖拽监听及其 DOM 绑定。 */
 interface DragSubscription {
-  /** 接收拖拽阶段事件的监听器。 */
   readonly listener: (event: OverlayDragEvent) => void;
-  /** 移除当前 DOM 绑定的函数。 */
   bindingDisposer: () => void;
 }
 
 /** 单个已挂载覆盖物的原生状态和事件绑定。 */
 interface OverlayAdapterRecord {
-  /** 最近一次同步的核心渲染状态。 */
   state: Readonly<OverlayRenderState>;
-  /** 实际 OpenLayers Overlay。 */
   readonly overlay: Overlay;
-  /** Overlay 是否当前挂在地图集合中。 */
   mounted: boolean;
-  /** 最近一次挂载状态是否已由成功交接或失败补偿后的集合读取得到确认。 */
+  /** `false` 表示上次补偿后无法确认地图集合中的真实挂载状态。 */
   mountStateKnown: boolean;
-  /** Overlay 当前使用的 DOM 元素。 */
   element: HTMLElement;
-  /** 可选的描述牌动作绑定。 */
   action: ActionSubscription | undefined;
-  /** 可选的拖拽绑定。 */
   drag: DragSubscription | undefined;
 }
 
-/** 将核心覆盖物状态映射为 OpenLayers Overlay 和 DOM 事件。 */
+/** 将 Core Overlay 状态映射到 OpenLayers Overlay 与 DOM 事件。 */
 export class OverlayAdapter implements OverlayPort {
-  /** 覆盖物所属的地图。 */
   readonly #map: OlMap;
-  /** 解析和释放 DOM 元素引用。 */
   readonly #refs: NativeRefRegistry;
-  /** 按 ID 保存已挂载覆盖物。 */
   readonly #records = new Map<string, OverlayAdapterRecord>();
-  /** 保存布局监听的清理函数。 */
   readonly #layoutDisposers = new Set<() => void>();
-  /** 当前 postrender 批次共享的视口范围。 */
   #layoutViewportBounds: DOMRect | undefined;
-  /** 适配器是否已经销毁。 */
   #disposed = false;
 
-  /** 保存地图和原生引用注册表。 */
   constructor(map: OlMap, refs: NativeRefRegistry) {
     this.#map = map;
     this.#refs = refs;
   }
 
-  /** 创建 OpenLayers Overlay 并挂到地图。 */
+  /** 创建 Overlay；仅可见状态会立即挂到地图。 */
   attach(state: Readonly<OverlayRenderState>): void {
     this.#assertActive();
     if (this.#records.has(state.id)) throw new InvalidArgumentError(`Overlay adapter id already exists: ${state.id}`);
@@ -101,7 +84,7 @@ export class OverlayAdapter implements OverlayPort {
     this.#records.set(state.id, { state, overlay, mounted: state.visible, mountStateKnown: true, element, action: undefined, drag: undefined });
   }
 
-  /** 将新的核心状态同步到已有 Overlay。 */
+  /** 原子同步新状态；写入失败时补偿原生属性、挂载关系和 DOM 绑定。 */
   update(before: Readonly<OverlayRenderState>, after: Readonly<OverlayRenderState>): void {
     this.#assertActive();
     if (before.id !== after.id) throw new InvalidArgumentError('Overlay adapter update cannot change id');
@@ -180,7 +163,7 @@ export class OverlayAdapter implements OverlayPort {
     record.state = after;
   }
 
-  /** 从地图移除覆盖物及其事件绑定。 */
+  /** 移除 Overlay 及其描述牌、拖拽事件绑定。 */
   detach(id: string): void {
     this.#assertActive();
     const record = this.#records.get(id);
@@ -197,13 +180,12 @@ export class OverlayAdapter implements OverlayPort {
     ]);
   }
 
-  /** 请求 OpenLayers 将覆盖物平移到视图内。 */
   panIntoView(id: string, options?: CorePanIntoViewSpec): void {
     this.#assertActive();
     this.#requireRecord(id).overlay.panIntoView(options === undefined ? undefined : toPanIntoViewOptions(options));
   }
 
-  /** 撤销 DOM 引用，并按所有权决定是否移除元素。 */
+  /** 撤销 DOM 引用；只有 Earth 独占且已交接的节点才从页面移除。 */
   releaseElement(ref: NativeRef<'element'>, ownership: CoreOverlayOwnership): void {
     this.#assertActive();
     const element = this.#refs.require<HTMLElement>('element', ref);
@@ -225,14 +207,12 @@ export class OverlayAdapter implements OverlayPort {
     if (failure !== undefined) throw failure;
   }
 
-  /** 将地图坐标转换为屏幕像素。 */
   coordinateToPixel(coordinate: Coordinate): Pixel | undefined {
     this.#assertActive();
     const value = this.#map.getPixelFromCoordinate([...coordinate]);
     return value === null ? undefined : toPixel(value);
   }
 
-  /** 将屏幕像素转换为地图坐标。 */
   pixelToCoordinate(pixel: Pixel): Coordinate | undefined {
     this.#assertActive();
     const value = this.#map.getCoordinateFromPixel([...pixel]);
@@ -493,7 +473,7 @@ export class OverlayAdapter implements OverlayPort {
   }
 }
 
-/** 将核心自动平移配置转换为 OpenLayers 配置。 */
+/** 将 Core 自动平移配置转换为 OpenLayers 配置。 */
 function toPanIntoViewOptions(spec: CorePanIntoViewSpec): PanIntoViewOptions {
   const animation = spec.duration === undefined && spec.easing === undefined ? undefined : { duration: spec.duration, easing: spec.easing };
   return {

@@ -27,9 +27,9 @@ import {
 
 /** 构造测量会话所需的依赖。 */
 export interface MeasureSessionDependencies {
-  /** 底层语义绘制会话。 */
+  /** 复用的 DrawSession；测量只消费其语义事件。 */
   readonly drawSession: InternalDrawSession;
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly store: ElementStore;
   /** 内部样式服务。 */
   readonly styles: StyleService;
@@ -65,11 +65,11 @@ interface TooltipLabel {
   readonly position: Coordinate;
 }
 
-/** 将绘制几何转换为测量结果、样式与提示的状态机。 */
+/** 把 DrawSession 工作态派生为测量结果、临时 Element 和 Overlay 的状态机。 */
 export class MeasureSession implements InternalMeasureSession {
-  /** 底层语义绘制会话。 */
+  /** 复用的 DrawSession；Measure 不直接接触绘制 Adapter。 */
   readonly #drawSession: InternalDrawSession;
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly #store: ElementStore;
   /** 内部样式服务。 */
   readonly #styles: StyleService;
@@ -89,11 +89,11 @@ export class MeasureSession implements InternalMeasureSession {
   readonly #onTerminal: () => void;
   /** 按事件类型保存的监听器。 */
   readonly #listeners = new Map<keyof InternalMeasureSessionEventMap, Map<number, (event: never) => void>>();
-  /** 底层绘制会话订阅释放函数。 */
+  /** DrawSession 事件订阅的释放函数。 */
   readonly #subscriptions: Array<() => void> = [];
   /** 按标签索引保存的提示记录。 */
   readonly #tooltipsByIndex: TooltipRecord[] = [];
-  /** 当前预览元素 ID。 */
+  /** 当前 Session 拥有的临时测量 Element ID。 */
   readonly #previewIds = new Set<string>();
   /** 下一个监听器 ID。 */
   #nextListenerId = 0;
@@ -101,7 +101,7 @@ export class MeasureSession implements InternalMeasureSession {
   #status: InteractionStatus = 'active';
   /** 是否已通知会话终止。 */
   #terminalNotified = false;
-  /** 用于结束 finished Promise。 */
+  /** `finished` Promise 的兑现函数。 */
   #resolveFinished!: (result: InternalMeasureResult | undefined) => void;
   /** 会话结束后完成的 Promise。 */
   readonly finished: Promise<InternalMeasureResult | undefined>;
@@ -142,7 +142,7 @@ export class MeasureSession implements InternalMeasureSession {
     return this.#status;
   }
 
-  /** 请求底层绘制完成当前测量。 */
+  /** 请求复用的 DrawSession 完成当前测量。 */
   finish(): void {
     if (this.#status !== 'active') return;
     this.#drawSession.finish();
@@ -188,7 +188,7 @@ export class MeasureSession implements InternalMeasureSession {
     };
   }
 
-  /** 根据绘制预览变化重新计算测量结果。 */
+  /** 根据 DrawSession 工作态重新计算结果并刷新临时资源。 */
   #handleChange(event: InternalDrawSessionEventMap['change']): void {
     if (this.#status !== 'active') return;
     try {
@@ -224,7 +224,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
-  /** 结束取消流程并清理预览资源。 */
+  /** 进入取消终态，并清理 Session 拥有的临时 Element 与 Overlay。 */
   #handleCancel(reason: InternalMeasureSessionEventMap['cancel']['reason']): void {
     if (this.#status !== 'active') return;
     this.#status = 'cancelled';
@@ -288,7 +288,7 @@ export class MeasureSession implements InternalMeasureSession {
     });
   }
 
-  /** 将底层分段计算转换为公开分段结果。 */
+  /** 将 MeasurementPort 的分段计算转换为测量结果。 */
   #segmentResult(segment: MeasurementSegment, unit: 'm' | 'km'): InternalMeasureSegmentResult {
     const value = convertAndRound(segment.meters, unit, this.#options.precision);
     return freezeDeep({
@@ -303,7 +303,7 @@ export class MeasureSession implements InternalMeasureSession {
     });
   }
 
-  /** 用当前测量结果同步图形和提示预览。 */
+  /** 用同一份测量结果同步临时 Element 与 Overlay，避免两套派生状态。 */
   #syncPreview(result: InternalMeasureResult): void {
     const states = this.#geometryStates(result, false);
     const previous = [...this.#previewIds];
@@ -315,7 +315,7 @@ export class MeasureSession implements InternalMeasureSession {
     for (const state of states) this.#previewIds.add(state.id);
   }
 
-  /** 将最终测量结果写入元素仓库。 */
+  /** 将最终测量结果写入 ElementStore。 */
   #commitResult(result: InternalMeasureResult): void {
     const states = [...this.#geometryStates(result, true), ...this.#pointStates(result.coordinates)];
     const previous = [...this.#previewIds];
@@ -442,7 +442,7 @@ export class MeasureSession implements InternalMeasureSession {
     }
   }
 
-  /** 释放底层绘制事件订阅。 */
+  /** 释放全部 DrawSession 事件订阅。 */
   #cleanupSubscriptions(): void {
     const subscriptions = this.#subscriptions.splice(0);
     if (subscriptions.length === 0) return;

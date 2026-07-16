@@ -20,7 +20,6 @@ export const EDIT_CONTROL_ANCHOR_Z_INDEX = EDIT_PREVIEW_ACCENT_Z_INDEX;
 export const EDIT_ANCHOR_HOVER_Z_INDEX = EDIT_PREVIEW_ACCENT_Z_INDEX;
 export const EDIT_ANCHOR_ACTIVE_Z_INDEX = EDIT_PREVIEW_ACCENT_Z_INDEX;
 
-/** 单个锚点反馈覆盖物的状态。 */
 export type EditAnchorFeedbackPhase = 'hover' | 'active';
 
 /** 一类批量编辑锚点的 Canvas 视觉参数。 */
@@ -216,7 +215,6 @@ export function editAnchorFeedbackStyle(kind: 'control' | 'insertion', phase: Ed
   return phase === 'active' ? editControlAnchorActiveStyle : editControlAnchorHoverStyle;
 }
 
-/** 静态业务样式与编辑强调组合的缓存记录。 */
 type EditPreviewStyleCacheEntry =
   | Readonly<{ kind: 'style'; visible: boolean; composed: StyleLike }>
   | Readonly<{ kind: 'array'; visible: boolean; snapshot: readonly Style[]; composed: StyleLike }>
@@ -300,12 +298,10 @@ function styleHasVisual(style: Style): boolean {
   return textValue !== undefined && textValue !== null && String(textValue).length > 0 && scaleIsVisible(text?.getScale());
 }
 
-/** 判断填充是否会产生可见像素。 */
 function fillIsVisible(fill: Fill | null): boolean {
   return fill !== null && colorIsVisible(fill.getColor());
 }
 
-/** 判断描边是否会产生可见像素。 */
 function strokeIsVisible(stroke: Stroke | null): boolean {
   return stroke !== null && (stroke.getWidth() ?? 1) > 0 && colorIsVisible(stroke.getColor());
 }
@@ -387,7 +383,6 @@ function createEditPreviewRenderer(visual: EditPreviewVisual): RenderFunction {
   };
 }
 
-/** 将折线或多边形环追加到当前 Canvas 路径。 */
 function traceEditPath(context: CanvasRenderingContext2D, points: readonly (readonly number[])[], close: boolean): void {
   const first = points[0];
   if (first === undefined) return;

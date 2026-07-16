@@ -30,37 +30,28 @@ import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 
-/** 绘制预览使用的 OpenLayers 要素。 */
 type PreviewFeature = Feature<Geometry>;
-/** 存放绘制预览要素的矢量数据源。 */
 type PreviewSource = VectorSource<PreviewFeature>;
-/** 承载唯一绘制预览的数据源隔离图层。 */
 type PreviewLayer = VectorLayer<PreviewSource>;
-/** StyleCompiler 编译后的 OpenLayers 样式。 */
 type CompiledPreviewStyle = ReturnType<StyleCompiler['compile']>;
 
-/** 已校验并脱离调用方所有权、但尚未写入 OpenLayers 对象的预览快照。 */
+/** 写入 OpenLayers 前已经完成校验、复制和样式编译的预览快照。 */
 interface PreparedPreview {
   readonly geometry: RenderGeometryState;
   readonly styleIdentity: object;
   readonly compiledStyle: CompiledPreviewStyle;
 }
 
-/** 单个预览要素分步清理的进度。 */
+/** 单个预览 Feature 的分步清理进度。 */
 interface FeatureCleanupProgress {
-  /** 待清理的预览要素。 */
   readonly feature: PreviewFeature;
-  /** 是否已经从数据源移除。 */
   sourceDetached: boolean;
-  /** 是否已经清除几何。 */
   geometryCleared: boolean;
-  /** 是否已经清除样式。 */
   styleCleared: boolean;
-  /** 是否已经销毁要素。 */
   disposed: boolean;
 }
 
-/** 可取消的浏览器动画帧；保存调度时的 cancel 引用以便测试和销毁可靠取消。 */
+/** 可取消的浏览器动画帧；保留调度时的取消函数，确保测试和销毁使用同一引用。 */
 interface AnimationFrameRegistration {
   id: number | undefined;
   readonly cancel: (id: number) => void;
@@ -87,20 +78,16 @@ export interface DrawInteractionAdapterOptions {
  * @internal
  */
 export class DrawInteractionAdapter implements DrawInteractionPort {
-  /** 交互所属的地图。 */
   readonly #map: OlMap;
-  /** 提供目标矢量图层和数据源。 */
   readonly #layers: LayerAdapter;
-  /** 编译绘制预览样式。 */
   readonly #styles: StyleCompiler;
-  /** 接收监听器和清理过程中的错误。 */
   readonly #errorReporter: ErrorReporter;
 
   /**
    * 创建绘制交互适配器。
    *
    * @param map 承载交互和预览图层的 OpenLayers 地图。
-   * @param layers 用于解析目标图层及其矢量数据源的适配器。
+   * @param layers 解析目标图层及其矢量 Source 的适配器。
    * @param styles 用于把语义样式编译为 OpenLayers 样式的编译器。
    * @param options 错误报告等可选配置。
    */
@@ -199,7 +186,6 @@ export class DrawInteractionAdapter implements DrawInteractionPort {
  * @internal
  */
 class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
-  /** 交互所属的地图。 */
   readonly #map: OlMap;
   /** 目标业务图层直属的图层集合；临时预览必须在该集合中与目标层保持相邻。 */
   readonly #layerCollection: Collection<BaseLayer>;
@@ -207,83 +193,50 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   readonly #targetLayer: VectorLayer;
   /** 隔离绘制预览、避免使业务图层逐帧失效的临时图层。 */
   readonly #layer: PreviewLayer;
-  /** 存放唯一绘制预览的临时数据源。 */
+  /** 存放唯一绘制预览的临时 Source。 */
   readonly #source: PreviewSource;
-  /** 编译绘制预览样式。 */
   readonly #styles: StyleCompiler;
-  /** 接收地图浏览器事件的 OpenLayers 交互。 */
   readonly #interaction: Interaction;
-  /** 已校验的绘制交互配置。 */
   readonly #spec: Readonly<DrawInteractionSpec>;
-  /** 接收语义绘制事件。 */
   readonly #listener: (event: DrawInteractionEvent) => void;
-  /** 接收监听器和清理错误。 */
   readonly #errorReporter: ErrorReporter;
   /**
    * 当前交互使用的水平世界范围快照；目标投影不支持水平环绕时为 `undefined`。
    */
   readonly world: HorizontalWorld | undefined;
-  /** 当前显示的预览要素。 */
   #preview: PreviewFeature | undefined;
   /** 当前 Feature 对应的完整语义快照，用于同类型原位更新和异常回滚。 */
   #previewState: PreparedPreview | undefined;
   /** 按稳定语义 style 身份缓存编译结果。 */
   readonly #compiledStyles = new WeakMap<object, CompiledPreviewStyle>();
-  /** 句柄是否已经允许派发事件。 */
   #published = false;
-  /** 句柄是否正在关闭。 */
   #closing = false;
-  /** 原生交互是否已经停用。 */
   #deactivated = false;
-  /** 原生交互是否已经从地图移除。 */
   #interactionRemoved = false;
-  /** 临时预览图层是否已经从地图移除。 */
   #layerRemoved = false;
-  /** 临时图层是否已经解除数据源引用。 */
   #layerSourceCleared = false;
-  /** 临时数据源是否已经销毁。 */
   #sourceDisposed = false;
-  /** 临时图层是否已经销毁。 */
   #layerDisposed = false;
   /** 目标图层展示属性监听键；销毁后清空。 */
   #targetPresentationKey: EventsKey | undefined;
-  /** 是否正在执行销毁。 */
   #destroyRunning = false;
-  /** 是否正在自由绘制。 */
   #freehandActive = false;
   /** 当前动画帧内尚未按顺序发布的自由绘制采样。 */
   readonly #pendingFreehandSamples: Coordinate[] = [];
   /** 当前自由绘制批次对应的浏览器动画帧。 */
   #freehandFrame: AnimationFrameRegistration | undefined;
-  /** 是否需要忽略自由绘制后的下一次点击。 */
+  /** 自由绘制结束会产生浏览器 click；该标志避免把它重复计为输入点。 */
   #suppressNextClick = false;
-  /** 是否正在处理预览渲染队列。 */
   #rendering = false;
   /** 等待按顺序提交的预览快照。 */
   readonly #renderQueue: Array<PreparedPreview | undefined> = [];
   /** 下一个待处理队列索引，避免 Array.shift 的线性搬移。 */
   #renderQueueHead = 0;
-  /** 等待继续清理的旧预览要素。 */
+  /** 等待继续清理的旧预览 Feature。 */
   readonly #retired = new Map<PreviewFeature, FeatureCleanupProgress>();
-  /** 已经完成清理的预览要素。 */
   readonly #released = new WeakSet<PreviewFeature>();
 
-  /**
-   * 创建尚未对外发布的原生交互句柄。
-   *
-   * @param map 承载原生交互的地图。
-   * @param layerCollection 目标业务图层直属的图层集合。
-   * @param targetLayer 提供可见性、透明度、范围和层级等展示属性的业务图层。
-   * @param layer 承载唯一临时预览 Feature 的隔离图层。
-   * @param source 存放唯一临时预览 Feature 的隔离数据源。
-   * @param styles 编译预览样式的编译器。
-   * @param interaction 转发浏览器地图事件的 OpenLayers 交互。
-   * @param spec 已校验并冻结的交互配置。
-   * @param listener 接收语义输入事件的监听器。
-   * @param world 水平环绕世界范围的稳定快照。
-   * @param errorReporter 接收监听器及清理异常的报告器。
-   * @internal
-   */
+  /** 建立尚未发布的资源句柄；调用 `publish()` 前不会向 Core 派发输入。 */
   constructor(
     map: OlMap,
     layerCollection: Collection<BaseLayer>,
@@ -318,23 +271,12 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     });
   }
 
-  /**
-   * 标记安装已完成，允许后续原生输入向语义监听器发布。
-   *
-   * @returns 无返回值。
-   * @internal
-   */
+  /** 完成安装交接，允许后续原生输入向 Core 发布。 */
   publish(): void {
     this.#published = true;
   }
 
-  /**
-   * 将 OpenLayers 地图浏览器事件转换为语义绘制事件。
-   *
-   * @param event OpenLayers 分发的地图浏览器事件。
-   * @returns `false` 表示事件已由绘制交互消费，`true` 表示允许后续交互继续处理。
-   * @internal
-   */
+  /** 把地图浏览器事件转换成绘制语义；返回 `false` 表示本交互已消费事件。 */
   handleEvent(event: MapBrowserEvent): boolean {
     if (!this.#published || this.#closing) return true;
     const type = event.type;
@@ -414,7 +356,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     });
   }
 
-  /** 取消待执行帧并按采样顺序一次发布给语义核心。 */
+  /** 取消待执行帧并按采样顺序一次发布给 Core。 */
   #flushPendingFreehandSamples(): void {
     const frame = this.#freehandFrame;
     this.#freehandFrame = undefined;
@@ -434,16 +376,8 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   }
 
   /**
-   * 原子替换当前预览快照；传入 `undefined` 时清空预览。
-   *
-   * 同步数据源监听器触发的重入渲染会进入队列，并在当前快照事务完成后按顺序执行。
-   *
-   * @param state 完整的预览几何与样式；`undefined` 表示清空。
-   * @returns 无返回值。
-   * @throws {@link ObjectDisposedError} 当句柄已进入销毁流程时抛出。
-   * @throws {@link InvalidArgumentError} 当几何数据无效或 OpenLayers 未满足预览后置条件时抛出。
-   * @throws {@link AggregateError} 当替换失败且无法恢复先前快照时抛出。
-   * @internal
+   * 原子替换完整预览；同步监听器引发的重入请求排队处理，`undefined` 表示清空。
+   * 替换和回滚均失败时抛出 `AggregateError`，避免暴露归属不明的 Feature。
    */
   render(state: Readonly<DrawInteractionRenderState> | undefined): void {
     if (this.#closing) throw new ObjectDisposedError('Draw interaction has been destroyed');
@@ -475,7 +409,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     if (failed) throw firstFailure;
   }
 
-  /** 校验、复制 geometry 并按 style 身份复用编译结果。 */
+  /** 复制 Geometry，并按稳定的 StyleSpec 身份复用编译结果。 */
   #preparePreview(state: Readonly<DrawInteractionRenderState>): PreparedPreview {
     const styleIdentity = state.style as object;
     let compiledStyle = this.#compiledStyles.get(styleIdentity);
@@ -486,13 +420,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     return Object.freeze({ geometry: copyRenderGeometryState(state.geometry, this.world), styleIdentity, compiledStyle });
   }
 
-  /**
-   * 应用一个已经完成几何和样式编译的预览快照。
-   *
-   * @param prepared 待安装的完整 Feature；`undefined` 表示清空当前预览。
-   * @returns 无返回值。
-   * @internal
-   */
+  /** 应用已准备的快照；优先复用同类型、同样式的现有 Feature。 */
   #renderPrepared(prepared: PreparedPreview | undefined): void {
     if (prepared === undefined) {
       this.#clearPreviewAtomically();
@@ -512,13 +440,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
   }
 
   /**
-   * 停止事件并释放交互、队列和全部预览 Feature。
-   *
-   * 各清理步骤独立执行；若本次存在失败，会在尝试其余步骤后抛出首个异常，后续调用只重试尚未满足后置条件的步骤。
-   *
-   * @returns 无返回值。
-   * @throws 清理原生资源时遇到的首个异常。
-   * @internal
+   * 停止输入并分步释放全部原生资源。单次失败不会阻断其余步骤，后续调用只重试未完成部分。
    */
   destroy(): void {
     if (this.#destroyComplete() || this.#destroyRunning) return;
@@ -624,13 +546,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     if (failures.length > 0) throw failures[0];
   }
 
-  /**
-   * 回滚尚未发布或发布过程中失败的安装。
-   *
-   * @returns 无返回值。
-   * @throws {@link CapabilityError} 当有限次回滚后仍有原生资源未释放时抛出。
-   * @internal
-   */
+  /** 回滚失败的安装；有限次重试后仍有资源残留则抛出 `CapabilityError`。 */
   rollbackOpen(): void {
     this.#closing = true;
     this.#published = false;
@@ -675,13 +591,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     throw firstFailure ?? new CapabilityError('Draw interaction open rollback did not complete');
   }
 
-  /**
-   * 安全调用语义监听器，并把监听器异常交给错误报告器。
-   *
-   * @param event 待冻结并发布的绘制事件。
-   * @returns 无返回值。
-   * @internal
-   */
+  /** 冻结语义事件；监听器异常只进入错误通道。 */
   #emit(event: DrawInteractionEvent): void {
     try {
       this.#listener(freezeEvent(event));
@@ -690,14 +600,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     }
   }
 
-  /**
-   * 安装首次预览，并在同步监听器抛错时恢复明确的所有权状态。
-   *
-   * @param feature 已准备完成的首次预览 Feature。
-   * @returns 无返回值。
-   * @throws 安装预览或验证安装后置条件时产生的异常。
-   * @internal
-   */
+  /** 安装首个预览；同步监听器抛错时仍要收敛 Feature 所有权。 */
   #addInitialPreview(feature: PreviewFeature, state: PreparedPreview): void {
     try {
       this.#source.addFeature(feature);
@@ -724,10 +627,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     }
   }
 
-  /**
-   * 同类型同 style 快路：保持 Feature、Geometry 和 source membership，仅原位替换坐标。
-   * setter 或同步 changefeature 监听器抛错时恢复上一完整快照。
-   */
+  /** 同类型、同样式时原位更新坐标；setter 或同步监听器抛错则恢复上一完整快照。 */
   #updatePreviewGeometryAtomically(current: PreviewFeature, previous: PreparedPreview, next: PreparedPreview): void {
     const geometry = current.getGeometry();
     if (geometry === undefined || !geometrySupportsState(geometry, next.geometry)) {
@@ -769,15 +669,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     }
   }
 
-  /**
-   * 用完整 Feature 快照替换现有预览；失败时优先恢复原快照。
-   *
-   * @param current 当前由句柄拥有的预览 Feature。
-   * @param prepared 待发布的完整替换 Feature。
-   * @returns 无返回值。
-   * @throws {@link AggregateError} 当替换和恢复均未得到原快照时抛出。
-   * @internal
-   */
+  /** 以完整 Feature 替换当前预览；替换失败时优先恢复旧快照。 */
   #replacePreviewAtomically(current: PreviewFeature, prepared: PreviewFeature, state: PreparedPreview): void {
     try {
       this.#source.removeFeature(current);
@@ -835,14 +727,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     }
   }
 
-  /**
-   * 从数据源清空当前预览；同步监听器抛错时尝试恢复原快照。
-   *
-   * @returns 无返回值。
-   * @throws {@link AggregateError} 当清空失败且无法恢复原快照时抛出。
-   * @throws 清空失败但原快照已经恢复时产生的原始异常。
-   * @internal
-   */
+  /** 清空当前预览；同步监听器抛错时尝试恢复旧快照。 */
   #clearPreviewAtomically(): void {
     const current = this.#preview;
     if (current === undefined) return;
@@ -882,15 +767,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     }
   }
 
-  /**
-   * 登记退休 Feature、立即尝试清理，并报告本次清理异常。
-   *
-   * @param feature 不再作为当前预览使用的 Feature。
-   * @param sourceDetached 调用前该 Feature 是否已脱离目标数据源。
-   * @param operation 错误报告中使用的操作名称。
-   * @returns 无返回值。
-   * @internal
-   */
+  /** 登记不再使用的 Feature，立即推进清理并报告非致命失败。 */
   #retire(feature: PreviewFeature, sourceDetached: boolean, operation: string): void {
     this.#enqueueRetirement(feature, sourceDetached);
     const failures: unknown[] = [];
@@ -898,14 +775,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     for (const failure of failures) report(this.#errorReporter, failure, operation);
   }
 
-  /**
-   * 为退休 Feature 建立或合并幂等清理进度。
-   *
-   * @param feature 需要释放的 Feature。
-   * @param sourceDetached 已知的数据源脱离状态。
-   * @returns 无返回值。
-   * @internal
-   */
+  /** 为待清理 Feature 建立或合并幂等进度。 */
   #enqueueRetirement(feature: PreviewFeature, sourceDetached: boolean): void {
     if (this.#released.has(feature)) return;
     const existing = this.#retired.get(feature);
@@ -922,13 +792,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     });
   }
 
-  /**
-   * 尝试推进全部退休 Feature，并移除已经完全清理的记录。
-   *
-   * @param failures 收集本轮所有互不阻断的清理异常。
-   * @returns 无返回值。
-   * @internal
-   */
+  /** 推进全部待清理 Feature，并移除已完成记录。 */
   #cleanupRetired(failures: unknown[]): void {
     for (const progress of [...this.#retired.values()]) {
       this.#cleanupRetiredFeature(progress, failures);
@@ -939,14 +803,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     }
   }
 
-  /**
-   * 独立推进单个 Feature 的数据源脱离、几何清空、样式清空和释放步骤。
-   *
-   * @param progress 当前 Feature 的持久清理进度。
-   * @param failures 收集本轮清理异常。
-   * @returns 无返回值。
-   * @internal
-   */
+  /** 分别推进 Source 脱离、Geometry 清空、样式清空和 Feature 释放。 */
   #cleanupRetiredFeature(progress: FeatureCleanupProgress, failures: unknown[]): void {
     const feature = progress.feature;
     if (!progress.sourceDetached) {
@@ -998,12 +855,7 @@ class OpenLayersDrawInteractionHandle implements DrawInteractionHandle {
     }
   }
 
-  /**
-   * 判断句柄拥有的所有原生资源是否均已完成清理。
-   *
-   * @returns 全部清理完成时返回 `true`。
-   * @internal
-   */
+  /** 所有清理后置条件均满足时才视为销毁完成。 */
   #destroyComplete(): boolean {
     return (
       this.#deactivated &&
@@ -1040,7 +892,6 @@ function worldFor(map: OlMap, source: VectorSource): HorizontalWorld | undefined
   return horizontalWorldFromExtent(projection.getExtent(), source.getWrapX() === true && projection.canWrapX());
 }
 
-/** 判断地图是否仍包含指定交互。 */
 function containsInteraction(map: OlMap, interaction: Interaction): boolean {
   return map.getInteractions().getArray().includes(interaction);
 }
@@ -1056,7 +907,7 @@ function findLayerCollection(collection: Collection<BaseLayer>, target: BaseLaye
   return undefined;
 }
 
-/** 将预览插入目标之后；真实 OL Collection 使用公开 API，并兼容仓库既有的最小 Map 测试替身。 */
+/** 将预览插入目标之后；真实 OpenLayers Collection 使用公开 API，并兼容仓库已有的最小 Map 测试替身。 */
 function insertLayerAfter(collection: Collection<BaseLayer>, target: BaseLayer, preview: PreviewLayer): void {
   const targetIndex = collection.getArray().indexOf(target);
   if (targetIndex < 0) throw new InvalidArgumentError('OpenLayers detached the draw target layer during installation');
@@ -1068,7 +919,6 @@ function insertLayerAfter(collection: Collection<BaseLayer>, target: BaseLayer, 
   collection.getArray().splice(targetIndex + 1, 0, preview);
 }
 
-/** 判断目标直属集合是否仍包含指定临时预览图层。 */
 function containsLayer(collection: Collection<BaseLayer>, layer: PreviewLayer): boolean {
   return collection.getArray().includes(layer);
 }
@@ -1096,7 +946,6 @@ function syncPreviewLayerPresentation(target: VectorLayer, preview: PreviewLayer
   }
 }
 
-/** 根据渲染状态创建完整的预览要素快照。 */
 function createPreviewFeature(state: PreparedPreview): PreviewFeature {
   const geometry = createGeometry(state.geometry);
   const feature = new Feature<Geometry>(geometry);
@@ -1126,7 +975,7 @@ function copyRenderGeometryState(state: RenderGeometryState, world?: HorizontalW
   return Object.freeze({ type: state.type, center: copyFrozenCoordinate(state.center, worldOffset), radius: state.radius });
 }
 
-/** 使用首个坐标计算整幅草稿回到规范世界所需的统一水平偏移，避免破坏跨日期变更线的连续几何。 */
+/** 使用首个坐标计算整幅草稿回到规范世界所需的统一水平偏移，避免破坏跨越日期变更线的连续几何。 */
 function previewWorldOffset(state: RenderGeometryState, world: HorizontalWorld | undefined): number {
   if (world === undefined) return 0;
   const anchor = previewAnchor(state);
@@ -1148,7 +997,6 @@ function previewAnchor(state: RenderGeometryState): Coordinate | undefined {
   return undefined;
 }
 
-/** 判断现有 OpenLayers Geometry 是否能安全走原位更新快路。 */
 function geometrySupportsState(geometry: Geometry, state: RenderGeometryState): boolean {
   if (state.type === 'point') return geometry instanceof Point;
   if (state.type === 'polyline') return geometry instanceof LineString;
@@ -1156,7 +1004,7 @@ function geometrySupportsState(geometry: Geometry, state: RenderGeometryState): 
   return geometry instanceof Circle;
 }
 
-/** 只通过 OpenLayers 公共 setter 原子发布一种完整 geometry 状态。 */
+/** 只通过 OpenLayers 公共 setter 原子发布一种完整 Geometry 状态。 */
 function applyGeometryState(geometry: Geometry, state: RenderGeometryState): void {
   if (state.type === 'point' && geometry instanceof Point) {
     geometry.setCoordinates(copyCoordinate(state.coordinates));
@@ -1177,7 +1025,6 @@ function applyGeometryState(geometry: Geometry, state: RenderGeometryState): voi
   throw new InvalidArgumentError('Draw preview geometry type changed during in-place update');
 }
 
-/** 将渲染几何状态转换为 OpenLayers Geometry。 */
 function createGeometry(state: RenderGeometryState): Geometry {
   if (state.type === 'point') return new Point(copyCoordinate(state.coordinates));
   if (state.type === 'polyline') return new LineString(state.coordinates.map(copyCoordinate));
@@ -1186,14 +1033,12 @@ function createGeometry(state: RenderGeometryState): Geometry {
   return new Circle(copyCoordinate(state.center), state.radius);
 }
 
-/** 复制坐标供 OpenLayers 使用。 */
 function copyCoordinate(value: Coordinate): number[] {
   const coordinate = safeCoordinate(value);
   if (coordinate === undefined) throw new InvalidArgumentError('Draw preview coordinate must contain two or three finite numbers');
   return [...coordinate];
 }
 
-/** 安全读取二维或三维地图坐标。 */
 function safeCoordinate(value: unknown): Coordinate | undefined {
   if (!Array.isArray(value) || (value.length !== 2 && value.length !== 3) || value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
     return undefined;
@@ -1201,29 +1046,25 @@ function safeCoordinate(value: unknown): Coordinate | undefined {
   return Object.freeze([...value]) as Coordinate;
 }
 
-/** 判断原始事件是否按下 Shift。 */
 function isShift(event: MapBrowserEvent): boolean {
   return field(event.originalEvent, 'shiftKey') === true;
 }
 
-/** 判断事件是否是指针取消。 */
 function isPointerCancel(event: MapBrowserEvent): boolean {
   return event.type === 'pointercancel' || field(event.originalEvent, 'type') === 'pointercancel';
 }
 
-/** 判断事件是否来自主指针和允许的鼠标按键。 */
 function isPrimary(event: MapBrowserEvent, requireLeftButton: boolean): boolean {
   if (field(event.originalEvent, 'isPrimary') === false) return false;
   const button = field(event.originalEvent, 'button');
   return !requireLeftButton || typeof button !== 'number' || button === 0;
 }
 
-/** 安全读取未知对象的字段。 */
 function field(value: unknown, key: string): unknown {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
 }
 
-/** 复制并冻结语义绘制事件。 */
+/** 冻结事件快照，避免监听器修改 Session 即将消费的数据。 */
 function freezeEvent(event: DrawInteractionEvent): DrawInteractionEvent {
   if (event.type === 'freehand-cancel') return Object.freeze({ type: event.type });
   if (event.type === 'freehand-samples') {
@@ -1245,7 +1086,7 @@ function copyFrozenCoordinate(value: Coordinate, xOffset = 0): Coordinate {
   return Object.freeze(coordinate.length === 3 ? [x, coordinate[1], coordinate[2]] : [x, coordinate[1]]);
 }
 
-/** 安全上报绘制交互内部错误。 */
+/** 错误报告器失败时保持原生资源状态不受影响。 */
 function report(errorReporter: ErrorReporter, error: unknown, operation: string): void {
   try {
     const result = (errorReporter as (reportedError: unknown, context: object) => unknown)(error, {
@@ -1258,7 +1099,6 @@ function report(errorReporter: ErrorReporter, error: unknown, operation: string)
   }
 }
 
-/** 执行清理步骤并收集失败。 */
 function capture(failures: unknown[], work: () => void): void {
   try {
     work();
@@ -1267,7 +1107,6 @@ function capture(failures: unknown[], work: () => void): void {
   }
 }
 
-/** 安全读取状态，并把成功结果交给回调。 */
 function inspect<T>(failures: unknown[], read: () => T, accept: (value: T) => void): void {
   try {
     accept(read());

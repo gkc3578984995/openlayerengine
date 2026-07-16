@@ -32,60 +32,41 @@ import type { StyleCompiler } from '../style/StyleCompiler.js';
 
 /** 图层渲染通道的可选配置。 */
 export interface LayerRenderPassOptions {
-  /** 接收单帧渲染中的非致命错误。 */
+  /** 接收单帧批次或绘制过程中的非致命错误。 */
   readonly errorReporter?: ErrorReporter;
 }
 
 /** 已应用到渲染目标的一条通道记录。 */
 interface AppliedTarget {
-  /** 目标注册配置。 */
   readonly spec: LayerRenderTargetSpec;
-  /** 已应用的通道名。 */
   readonly channel: string;
 }
 
 /** 单个图层渲染循环的运行状态。 */
 interface LoopRecord {
-  /** 业务图层 ID。 */
   readonly layerId: string;
-  /** 实际 OpenLayers 矢量图层。 */
   readonly layer: VectorLayer;
-  /** 每帧生成渲染批次的回调。 */
   readonly render: (frame: LayerRenderFrame) => LayerRenderBatch;
-  /** 图层 postrender 事件键。 */
   key: EventsKey | undefined;
-  /** 当前已经应用的目标通道。 */
   readonly applied: Map<string, AppliedTarget>;
-  /** 循环是否已经销毁。 */
   destroyed: boolean;
-  /** 循环是否正在销毁。 */
   destroying: boolean;
-  /** 是否仍订阅图层渲染事件。 */
   subscribed: boolean;
 }
 
-/** 在 OpenLayers 图层 postrender 阶段执行统一渲染批次。 */
+/** 在图层 `postrender` 阶段统一消费动画通道和直接绘制图元。 */
 export class LayerRenderPass implements LayerRenderPort {
   /** 仅调度地图帧，不改变业务图层 revision。 */
   readonly #map: OlMap;
-  /** 提供受管理的 OpenLayers 图层。 */
   readonly #layers: LayerAdapter;
-  /** 识别默认元素渲染目标。 */
   readonly #binding: FeatureBinding;
-  /** 编译渲染图元样式。 */
   readonly #styles: StyleCompiler;
-  /** 接收单帧渲染错误。 */
   readonly #errorReporter: ErrorReporter;
-  /** 按图层 ID 保存活动渲染循环。 */
   readonly #loops = new Map<string, LoopRecord>();
-  /** 保存显式注册的渲染目标。 */
   readonly #targets = new Map<string, LayerRenderTargetSpec>();
-  /** 渲染通道是否已经销毁。 */
   #disposed = false;
-  /** 渲染通道是否正在销毁。 */
   #destroying = false;
 
-  /** 保存图层、要素绑定、样式和错误上报依赖。 */
   constructor(map: OlMap, layers: LayerAdapter, binding: FeatureBinding, styles: StyleCompiler, options: LayerRenderPassOptions = {}) {
     if (options.errorReporter !== undefined && typeof options.errorReporter !== 'function') {
       throw new InvalidArgumentError('LayerRenderPass errorReporter must be a function');
@@ -97,17 +78,17 @@ export class LayerRenderPass implements LayerRenderPort {
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
   }
 
-  /** 返回当前活动渲染循环数量。 */
+  /** 当前活动的图层渲染循环数。 */
   get activeLoopCount(): number {
     return this.#loops.size;
   }
 
-  /** 返回当前显式渲染目标数量。 */
+  /** 当前显式注册的渲染目标数。 */
   get registeredTargetCount(): number {
     return this.#targets.size;
   }
 
-  /** 为矢量图层打开一个 postrender 渲染循环。 */
+  /** 为矢量图层打开唯一的 `postrender` 循环。 */
   open(layerId: string, render: (frame: LayerRenderFrame) => LayerRenderBatch): LayerRenderLoopHandle {
     this.#assertActive();
     const safeLayerId = nonEmptyString(layerId, 'Render layer id');
@@ -140,7 +121,7 @@ export class LayerRenderPass implements LayerRenderPort {
     };
   }
 
-  /** 注册一个可接收渲染通道值的目标。 */
+  /** 注册可接收通道值的目标，并在句柄销毁时清除已应用通道。 */
   registerTarget(spec: LayerRenderTargetSpec): LayerRenderTargetHandle {
     this.#assertActive();
     const safe = normalizeTarget(spec);
@@ -180,7 +161,7 @@ export class LayerRenderPass implements LayerRenderPort {
     };
   }
 
-  /** 判断图层上是否存在显式或元素渲染目标。 */
+  /** 同时检查显式目标和 FeatureBinding 提供的默认 Element 目标。 */
   hasTarget(layerId: string, targetId: string): boolean {
     if (this.#disposed) return false;
     const safeLayerId = nonEmptyString(layerId, 'Render layer id');
@@ -194,7 +175,7 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
-  /** 销毁全部渲染循环和目标注册。 */
+  /** 移除全部 `postrender` 监听并注销渲染目标。 */
   destroy(): void {
     if (this.#disposed || this.#destroying) return;
     this.#destroying = true;
@@ -208,7 +189,7 @@ export class LayerRenderPass implements LayerRenderPort {
     }
   }
 
-  /** 处理单帧批次、目标通道和直接绘制图元。 */
+  /** 单帧内先应用目标通道，再通过同一矢量上下文绘制图元。 */
   #renderFrame(record: LoopRecord, event: RenderEvent): void {
     if (this.#disposed || this.#destroying || record.destroyed || this.#loops.get(record.layerId) !== record) return;
     const frameState = event.frameState;

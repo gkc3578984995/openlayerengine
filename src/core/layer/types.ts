@@ -1,81 +1,81 @@
 import type { NativeRef } from '../native/types.js';
 
-/** 图层类型。用于区分矢量、瓦片和原生图层。 */
+/** Core 支持的图层类别。 */
 export type LayerKind = 'vector' | 'tile' | 'native';
 
-/** 资源所有权。`external` 只解绑资源，`earth` 还会负责释放资源。 */
+/** `external` 仅解绑资源；`earth` 由 Earth 接管释放。 */
 export type LayerOwnership = 'external' | 'earth';
 
-/** 瓦片源预设。保存内置瓦片源所需的参数。 */
+/** 内置瓦片源的判别式配置。 */
 export type TileSourcePresetState =
   | { readonly preset: 'osm' }
   | { readonly preset: 'xyz'; readonly url: string; readonly attributions?: string | readonly string[] }
   | { readonly preset: 'compact-xyz'; readonly baseUrl: string };
 
-/** 核心图层配置。供引擎内部统一保存不同图层。 */
+/** Core 内统一保存的图层配置。 */
 export type CoreLayerSpec =
   | {
-      /** 类型。固定为矢量图层。 */
+      /** 固定为矢量图层。 */
       readonly kind: 'vector';
-      /** 图层 ID。当前 Earth 中唯一的图层标识。 */
+      /** 当前 Earth 内唯一的图层 ID。 */
       readonly id: string;
-      /** 是否显示。控制图层是否可见。 */
+      /** 图层可见状态。 */
       readonly visible: boolean;
-      /** 透明度。取值范围为 `0` 到 `1`。 */
+      /** 取值范围为 `0` 到 `1`。 */
       readonly opacity: number;
-      /** 层级。数值越大越靠上显示。 */
+      /** 数值越大越靠上显示。 */
       readonly zIndex?: number;
-      /** 是否横向重复。控制跨世界范围时是否重复显示。 */
+      /** 是否横向重复世界副本。 */
       readonly wrapX: boolean;
-      /** 是否避让。控制重叠内容是否自动避让。 */
+      /** 是否启用重叠内容避让。 */
       readonly declutter: boolean;
     }
   | {
-      /** 类型。固定为瓦片图层。 */
+      /** 固定为瓦片图层。 */
       readonly kind: 'tile';
-      /** 图层 ID。当前 Earth 中唯一的图层标识。 */
+      /** 当前 Earth 内唯一的图层 ID。 */
       readonly id: string;
-      /** 瓦片源。可以使用预设或原生源引用。 */
+      /** 内置预设或受控原生 Source 引用。 */
       readonly source: TileSourcePresetState | NativeRef<'source'>;
-      /** 瓦片源归属。决定销毁时是否清理原生源。 */
+      /** Source 的生命周期所有权。 */
       readonly sourceOwnership: LayerOwnership;
-      /** 是否显示。控制图层是否可见。 */
+      /** 图层可见状态。 */
       readonly visible: boolean;
-      /** 透明度。取值范围为 `0` 到 `1`。 */
+      /** 取值范围为 `0` 到 `1`。 */
       readonly opacity: number;
-      /** 层级。数值越大越靠上显示。 */
+      /** 数值越大越靠上显示。 */
       readonly zIndex?: number;
     }
   | {
-      /** 类型。固定为原生图层。 */
+      /** 固定为原生图层。 */
       readonly kind: 'native';
-      /** 图层 ID。当前 Earth 中唯一的图层标识。 */
+      /** 当前 Earth 内唯一的图层 ID。 */
       readonly id: string;
-      /** 原生引用。指向传入的 OpenLayers 图层。 */
+      /** 调用方传入的 OpenLayers Layer 引用。 */
       readonly ref: NativeRef<'layer'>;
-      /** 图层归属。决定销毁时是否清理原生图层。 */
+      /** 原生 Layer 的生命周期所有权。 */
       readonly ownership: LayerOwnership;
     };
 
-/** 图层显示状态。保存所有图层共有的显示参数。 */
+/** 各类图层共用的显示状态。 */
 export interface LayerPresentation {
-  /** 是否显示。控制图层是否可见。 */
+  /** 图层可见状态。 */
   readonly visible: boolean;
-  /** 透明度。取值范围为 `0` 到 `1`。 */
+  /** 取值范围为 `0` 到 `1`。 */
   readonly opacity: number;
-  /** 层级。数值越大越靠上显示。 */
+  /** 数值越大越靠上显示。 */
   readonly zIndex?: number;
 }
 
-/** 核心图层状态。供引擎内部读取完整图层信息。 */
+/** LayerManager 持有的完整图层状态。 */
 export type CoreLayerState = Extract<CoreLayerSpec, { kind: 'vector' | 'tile' }> | (Extract<CoreLayerSpec, { kind: 'native' }> & LayerPresentation);
 
-/** 图层更新参数。只填写需要修改的显示字段。 */
+/** 图层显示状态的局部更新。 */
 export interface LayerPatch {
-  /** 是否显示。控制图层是否可见。 */
+  /** 图层可见状态。 */
   visible?: boolean;
-  /** 透明度。取值范围为 `0` 到 `1`。 */
+  /** 取值范围为 `0` 到 `1`。 */
   opacity?: number;
-  /** 层级。传入 `undefined` 可清除已有层级。 */
+  /** 传入 `undefined` 可清除已有层级。 */
   zIndex?: number | undefined;
 }

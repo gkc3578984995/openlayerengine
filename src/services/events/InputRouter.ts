@@ -2,7 +2,7 @@ import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js'
 import { runFinalizers } from '../../core/common/dispose.js';
 import type { InputEventMap, InputPort, InputType } from '../../core/ports/InputPort.js';
 
-/** 决定右键事件由活动交互消费还是继续分发。 */
+/** 由活动 Session 决定右键事件是被消费还是继续分发。 */
 export type ContextMenuArbiter = (event: InputEventMap['rightclick']) => 'consume' | 'pass';
 
 /** 保存一个输入事件监听器及其内部 ID。 */
@@ -13,22 +13,22 @@ interface ListenerRecord {
   readonly listener: (event: InputEventMap[InputType]) => void;
 }
 
-/** 复用底层输入订阅并统一分发地图输入事件。 */
+/** 每类 InputPort 输入只安装一套订阅，再统一分发给上层服务。 */
 export class InputRouter {
-  /** 底层输入端口。 */
+  /** 隔离具体输入 Adapter 的 InputPort。 */
   readonly #port: InputPort;
   /** 按事件类型保存的监听器。 */
   readonly #listeners = new Map<InputType, Map<number, ListenerRecord>>();
-  /** 各底层事件订阅的释放函数。 */
+  /** 各 InputPort 订阅的释放函数。 */
   readonly #portDisposers = new Map<InputType, () => void>();
   /** 下一个监听器 ID。 */
   #nextListenerId = 0;
-  /** 当前右键事件仲裁器。 */
+  /** 当前唯一的右键事件仲裁器。 */
   #contextMenuArbiter: ContextMenuArbiter | undefined;
   /** 路由器是否已销毁。 */
   #disposed = false;
 
-  /** 创建路由器并预先监听右键事件。 */
+  /** 创建路由器；右键监听立即安装，不依赖 ContextMenuService 是否启用。 */
   constructor(port: InputPort) {
     this.#port = port;
     this.#install('rightclick');
@@ -86,7 +86,7 @@ export class InputRouter {
     };
   }
 
-  /** 释放全部监听器和底层订阅。 */
+  /** 释放全部监听器和 InputPort 订阅。 */
   destroy(): void {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -97,7 +97,7 @@ export class InputRouter {
     runFinalizers(disposers);
   }
 
-  /** 确保指定底层事件已安装订阅。 */
+  /** 确保指定 InputPort 事件只安装一次订阅。 */
   #install(type: InputType): void {
     if (this.#portDisposers.has(type)) return;
     const dispose = this.#port.listen(type, (event) => this.#dispatch(type, event));
@@ -105,7 +105,7 @@ export class InputRouter {
     this.#portDisposers.set(type, once(dispose));
   }
 
-  /** 移除指定底层事件订阅。 */
+  /** 移除指定 InputPort 事件订阅。 */
   #uninstall(type: InputType): void {
     const dispose = this.#portDisposers.get(type);
     if (dispose === undefined) return;
@@ -113,7 +113,7 @@ export class InputRouter {
     dispose();
   }
 
-  /** 将底层事件分发给当前监听器。 */
+  /** 将 InputPort 快照分发给当前监听器。 */
   #dispatch<T extends InputType>(type: T, event: InputEventMap[T]): void {
     if (this.#disposed) return;
     const ids = [...(this.#listeners.get(type)?.keys() ?? [])];

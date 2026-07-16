@@ -11,10 +11,10 @@ export interface ShapeFreehandAccumulator {
   append(samples: Coordinate[], coordinate: Coordinate): void;
 }
 
-/** 以 ShapeRegistry 生成快照后仍保持稳定的公开函数身份索引内部能力。 */
+/** 以 `appendSample` 函数身份关联累加器，ShapeRegistry 生成快照后仍可查询。 */
 const accumulators = new WeakMap<ShapeFreehandPolicy['appendSample'], ShapeFreehandAccumulator>();
 
-/** 为可信内置策略注册会话私有累加器。 */
+/** 为可信内置策略注册 DrawSession 私有累加器。 */
 export function registerShapeFreehandAccumulator(appendSample: ShapeFreehandPolicy['appendSample'], accumulator: ShapeFreehandAccumulator): void {
   accumulators.set(appendSample, Object.freeze(accumulator));
 }

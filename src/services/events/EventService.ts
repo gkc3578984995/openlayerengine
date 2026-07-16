@@ -13,9 +13,9 @@ import type { RoutedEventMap, RoutedPointerEvent } from './types.js';
 export interface InternalEventSubscriptionOptions {
   /** 元素选择范围。 */
   readonly selector?: ElementSelector;
-  /** 用于生成元素选择范围的业务模块。 */
+  /** 作为 Element 过滤条件的业务模块。 */
   readonly module?: string;
-  /** 用于管理订阅的模块键。 */
+  /** 批量清理订阅时使用的模块键。 */
   readonly moduleKey?: string;
   /** 是否只触发一次。 */
   readonly once?: boolean;
@@ -39,21 +39,21 @@ interface SubscriptionRecord {
   readonly scope: SubscriptionScope;
   /** 编译后的元素匹配函数。 */
   readonly matches?: (state: Readonly<ElementState>) => boolean;
-  /** 用于批量清理的模块键。 */
+  /** 批量清理订阅时使用的模块键。 */
   readonly moduleKey?: string;
   /** 是否在首次触发后移除。 */
   readonly once: boolean;
   /** 当前悬停的元素状态。 */
   hover: Readonly<ElementState> | undefined;
-  /** 用于识别悬停分发重入的修订号。 */
+  /** 悬停分发修订号，防止回调重入后继续发送过期事件。 */
   hoverRevision: number;
 }
 
-/** 将底层输入事件转换为按元素和模块过滤的业务事件。 */
+/** 把 InputRouter 快照转换为按 Element 和业务模块过滤的事件。 */
 export class EventService {
   /** 统一输入路由器。 */
   readonly #router: InputRouter;
-  /** 用于读取命中元素状态的仓库。 */
+  /** 读取命中 Element 规范状态的仓库。 */
   readonly #store: ElementStore;
   /** 事件回调错误报告器。 */
   readonly #errorReporter: ErrorReporter;
@@ -65,7 +65,7 @@ export class EventService {
   #nextId = 0;
   /** 服务是否已销毁。 */
   #disposed = false;
-  /** 最近命中元素的版本化快照，避免连续移动时重复深复制。 */
+  /** 最近命中 Element 的版本化快照，连续移动时可按版本复用。 */
   #cachedElement: Readonly<{ id: string; revision: unknown; state: Readonly<ElementState> }> | undefined;
 
   /** 创建事件服务。 */
@@ -125,7 +125,7 @@ export class EventService {
     return this.on(type, listener, { ...options, once: true });
   }
 
-  /** 判断全局或指定模块是否存在订阅。 */
+  /** 检查全局或指定订阅模块是否仍有监听器。 */
   has(type: InputType, module?: string): boolean {
     this.#assertActive();
     const records = this.#records.get(type);
@@ -291,7 +291,7 @@ export class EventService {
     };
   }
 
-  /** 移除订阅，并在无监听器时释放底层路由。 */
+  /** 移除订阅；该类型无人监听后同时断开 InputRouter。 */
   #remove(type: InputType, id: number): void {
     const records = this.#records.get(type);
     if (records === undefined || !records.delete(id)) return;
@@ -308,7 +308,7 @@ export class EventService {
       const result = (this.#errorReporter as (reportedError: unknown, context: object) => unknown)(error, { source: 'EventService', operation });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // 错误上报失败不能中断后续监听器。
+      // 报告错误只是旁路行为，失败时仍要继续通知其他监听器。
     }
   }
 
@@ -318,7 +318,7 @@ export class EventService {
   }
 }
 
-/** 将底层指针事件转换为冻结的内部事件。 */
+/** 将 InputPort 指针快照转换为冻结的路由事件。 */
 function routedPointer(
   event: InputEventMap[Exclude<InputType, 'keydown'>],
   element?: Readonly<ElementState>,

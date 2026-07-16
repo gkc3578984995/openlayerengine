@@ -2,13 +2,13 @@ import { InteractionConflictError, InvalidArgumentError, ObjectDisposedError } f
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ContextMenuDecision, ExclusiveInteractionSession, InteractionCancelReason, InteractionPolicy, RoutedPointerEvent } from './types.js';
 
-/** 协调绘制、编辑和变换等互斥交互会话。 */
+/** 统一仲裁 Draw、Edit、Transform、Measure 等互斥 Session。 */
 export class InteractionCoordinator {
-  /** 用于隔离上报失败的错误报告器。 */
+  /** 错误报告器；其自身异常也必须与输入路由隔离。 */
   readonly #errorReporter: ErrorReporter;
-  /** 当前占用地图输入的会话。 */
+  /** 当前占用地图指针输入的 Session。 */
   #active: ExclusiveInteractionSession | undefined;
-  /** 是否正在切换会话。 */
+  /** 防止 Session 切换流程重入。 */
   #transitioning = false;
   /** 协调器是否已销毁。 */
   #disposed = false;
@@ -24,7 +24,7 @@ export class InteractionCoordinator {
     return this.#active;
   }
 
-  /** 按冲突策略激活交互会话。 */
+  /** 按冲突策略取得交互所有权，并在 replace 时先清理旧 Session。 */
   activate(session: ExclusiveInteractionSession, policy: InteractionPolicy = 'replace'): void {
     this.#assertActive();
     this.#assertNotTransitioning();
@@ -47,7 +47,7 @@ export class InteractionCoordinator {
     this.#active = session;
   }
 
-  /** 在会话结束时释放其活动状态。 */
+  /** Session 结束时释放它持有的交互所有权。 */
   release(session: ExclusiveInteractionSession): void {
     if (this.#active === session) this.#active = undefined;
   }
@@ -60,7 +60,7 @@ export class InteractionCoordinator {
     this.#cancelCurrent(reason);
   }
 
-  /** 让活动会话优先处理右键事件。 */
+  /** 先让活动 Session 决定是否消费右键事件。 */
   handleContextMenu(event: RoutedPointerEvent<'rightclick'>): ContextMenuDecision {
     const active = this.#active;
     if (active === undefined || this.#disposed) return 'pass';
@@ -112,7 +112,7 @@ export class InteractionCoordinator {
       });
       void Promise.resolve(result).catch(() => undefined);
     } catch {
-      // 错误上报不能影响输入路由。
+      // 报告错误只是旁路行为，不能反过来打断输入路由。
     }
   }
 }

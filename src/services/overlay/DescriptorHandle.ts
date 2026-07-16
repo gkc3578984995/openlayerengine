@@ -2,7 +2,7 @@ import type { Coordinate } from '../../core/common/types.js';
 import { ObjectDisposedError } from '../../core/errors.js';
 import type { InternalDescriptorEvent, InternalDescriptorPatch, InternalDescriptorState } from './types.js';
 
-/** 表示一次可提交或回滚的 Descriptor 更新。 */
+/** 一次等待确认、可提交或回滚的 Descriptor 更新。 */
 export interface DescriptorUpdateReceipt {
   /** 提交更新。 */
   commit(): void;
@@ -34,7 +34,7 @@ export interface DescriptorHandleController<T> {
   destroy(): void;
 }
 
-/** 提供带过期检查的 Descriptor 操作句柄。 */
+/** 操作 Descriptor 的稳定句柄；每次调用都会检查代次和销毁状态。 */
 export class DescriptorHandle<T = unknown> {
   /** OverlayService 提供的控制器。 */
   readonly #controller: DescriptorHandleController<T>;

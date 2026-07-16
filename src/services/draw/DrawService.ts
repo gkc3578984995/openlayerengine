@@ -26,19 +26,19 @@ import type { InternalDrawOptions, InternalDrawService, InternalEditOptions, Int
  * @internal
  */
 export interface DrawServiceDependencies {
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly store: ElementStore;
   /** 图形定义注册表。 */
   readonly shapes: ShapeRegistry;
   /** 内部样式服务。 */
   readonly styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 保证 Draw、Edit、Transform、Measure 互斥的协调器。 */
   readonly coordinator: InteractionCoordinator;
-  /** 底层绘制交互端口。 */
+  /** 隔离绘制 Adapter 的交互 Port。 */
   readonly drawPort: DrawInteractionPort;
-  /** 底层编辑交互端口。 */
+  /** 隔离编辑 Adapter 的交互 Port。 */
   readonly editPort: EditInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 可选的键盘输入。 */
   readonly input?: SessionKeyboardInput;
@@ -55,24 +55,24 @@ export interface DrawServiceDependencies {
 }
 
 /**
- * 统一管理语义绘制、动态编辑、元素所有权范围和互斥交互的内部服务。
+ * 统一创建 Draw/Edit Session，并管理其 Element 归属与交互互斥。
  *
  * @internal
  */
 export class DrawService implements InternalDrawService {
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly #store: ElementStore;
   /** 图形定义注册表。 */
   readonly #shapes: ShapeRegistry;
   /** 内部样式服务。 */
   readonly #styles: StyleService;
-  /** 互斥交互协调器。 */
+  /** 保证 Draw、Edit、Transform、Measure 互斥的协调器。 */
   readonly #coordinator: InteractionCoordinator;
-  /** 底层绘制交互端口。 */
+  /** 隔离绘制 Adapter 的交互 Port。 */
   readonly #drawPort: DrawInteractionPort;
-  /** 底层编辑交互端口。 */
+  /** 隔离编辑 Adapter 的交互 Port。 */
   readonly #editPort: EditInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 可选的键盘输入。 */
   readonly #input: SessionKeyboardInput | undefined;
@@ -86,23 +86,22 @@ export class DrawService implements InternalDrawService {
   readonly #providedCreateId: (() => string) | undefined;
   /** 会话错误报告器。 */
   readonly #errorReporter: ErrorReporter;
-  /** 由绘制服务创建且仍存在的元素 ID。 */
+  /** DrawService 创建且仍存在的 Element ID；query/clear 只在这组 ID 内生效。 */
   readonly #ownedIds = new Set<string>();
-  /** 当前活动的绘制与编辑会话。 */
+  /** 仍未进入终态的 Draw/Edit Session。 */
   readonly #sessions = new Set<DrawSession | EditSession>();
-  /** 元素仓库订阅释放函数。 */
+  /** ElementStore 订阅的释放函数。 */
   #unsubscribe: (() => void) | undefined;
   /** 下一个自动生成的元素 ID。 */
   #nextId = 0;
-  /** 是否已经请求销毁。 */
   #destroyRequested = false;
   /** 服务是否已完全销毁。 */
   #disposed = false;
 
   /**
-   * 创建绘制服务并订阅元素仓库变化。
+   * 创建绘制服务并订阅 ElementStore 变化。
    *
-   * @param dependencies 元素存储、图形注册表、样式服务、交互端口和生命周期回调。
+   * @param dependencies ElementStore、ShapeRegistry、样式服务、交互 Port 和生命周期回调。
    * @throws `InvalidArgumentError` 必需回调或可选回调的类型无效时抛出。
    */
   constructor(dependencies: DrawServiceDependencies) {

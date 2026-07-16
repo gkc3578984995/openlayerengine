@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CursorAdapter } from '../src/adapters/dom/CursorAdapter.js';
 
-/** 创建只实现 CursorAdapter 所需 style 契约的视口。 */
+/** 构造满足 CursorAdapter 最小样式契约的测试视口。 */
 function viewport(cursor: string): HTMLElement {
   return { style: { cursor } } as HTMLElement;
 }

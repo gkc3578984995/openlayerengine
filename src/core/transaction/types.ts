@@ -1,63 +1,63 @@
 import type { ElementSnapshot } from '../element/snapshot.js';
 
-/** 元素变更的操作类型。 */
+/** Element 变更类型。 */
 export type ElementChangeKind = 'add' | 'update' | 'remove';
 
-/** 一次元素变更的前后快照。 */
+/** 单个 Element 变更及其前后快照。 */
 export interface ElementChange {
   /** 变更类型。 */
   readonly kind: ElementChangeKind;
-  /** 元素 ID。 */
+  /** Element ID。 */
   readonly id: string;
-  /** 变更前的元素快照。 */
+  /** 变更前的 Element 快照。 */
   readonly before?: ElementSnapshot;
-  /** 变更后的元素快照。 */
+  /** 变更后的 Element 快照。 */
   readonly after?: ElementSnapshot;
 }
 
-/** 一次事务提交产生的元素变更集合。 */
+/** 一次事务提交产生的 Element 变更集。 */
 export interface ElementChangeSet {
-  /** 按执行顺序记录的元素变更。 */
+  /** 按执行顺序记录的 Element 变更。 */
   readonly changes: readonly ElementChange[];
 }
 
-/** 元素实例令牌使用的类型标记。 */
+/** Element 实例令牌的类型标记。 */
 declare const elementGenerationBrand: unique symbol;
 
 /**
- * 元素 ID 单次实例生命周期的不透明身份令牌。
+ * 同一 Element ID 在一次实例生命周期内保持不变的身份令牌。
  *
  * @internal
  */
 export interface ElementGeneration {
-  /** 防止普通对象被当作元素实例令牌。 */
+  /** 不允许普通对象伪装成实例令牌。 */
   readonly [elementGenerationBrand]: true;
 }
 
-/** 元素版本令牌使用的类型标记。 */
+/** Element 版本令牌的类型标记。 */
 declare const elementRevisionBrand: unique symbol;
 
 /**
- * 元素单次已提交内容版本的不透明令牌。
+ * Element 每次提交后更新的内容版本令牌。
  *
  * @internal
  */
 export interface ElementRevision {
-  /** 防止普通对象被当作元素版本令牌。 */
+  /** 不允许普通对象伪装成版本令牌。 */
   readonly [elementRevisionBrand]: true;
 }
 
-/** 元素事务的返回值和变更结果。 */
+/** Element 事务的返回值与变更结果。 */
 export interface TransactionResult<T> {
   /** 事务回调返回的值。 */
   readonly value: T;
-  /** 本次事务提交的元素变更。 */
+  /** 本次事务提交的 Element 变更。 */
   readonly changes: ElementChangeSet;
   /**
-   * 读取本次事务在同步通知监听器之前提交的实例令牌快照。
+   * 读取本次事务提交后、同步通知监听器前捕获的实例令牌。
    *
-   * @param id 本次事务涉及的元素 ID。
-   * @returns 元素在本次提交后仍存在时返回实例令牌，否则返回 `undefined`。
+   * @param id 本次事务涉及的 Element ID。
+   * @returns Element 提交后仍存在时返回实例令牌，否则返回 `undefined`。
    * @internal
    */
   generation(id: string): ElementGeneration | undefined;

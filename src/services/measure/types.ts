@@ -17,7 +17,7 @@ export type InternalMeasureType = 'distance-segments' | 'distance-total' | 'dist
 /** 内部支持的测量单位。 */
 export type InternalMeasureUnit = 'm' | 'km' | 'm²' | 'km²';
 
-/** 启动测量会话时使用的内部配置。 */
+/** Public Facade 校验后交给 MeasureService 的内部配置。 */
 export interface InternalMeasureOptions {
   /** 测量方式。 */
   readonly type: InternalMeasureType;
@@ -31,7 +31,7 @@ export interface InternalMeasureOptions {
   readonly formatter?: (value: number, unit: InternalMeasureUnit) => string;
   /** 测量线样式。 */
   readonly line?: StrokeSpec;
-  /** 测量控制点样式，传入 false 时隐藏。 */
+  /** 控制点样式；设为 `false` 时不显示控制点。 */
   readonly point?: CircleSymbolSpec | false;
   /** 测量文字样式。 */
   readonly text?: Omit<TextSpec, 'text'>;
@@ -146,13 +146,13 @@ export interface InternalMeasureService {
   destroy(): void;
 }
 
-/** 创建并更新测量提示元素的端口。 */
+/** 隔离测量提示 DOM 创建、更新与释放的 Port。 */
 export interface MeasurementTooltipPort {
-  /** 创建提示元素引用。 */
+  /** 创建由 Port 管理生命周期的提示元素引用。 */
   create(style: Readonly<Omit<TextSpec, 'text'>>): NativeRef<'element'>;
   /** 更新提示文本。 */
   setText(reference: NativeRef<'element'>, text: string): void;
-  /** 释放提示元素引用。 */
+  /** 释放提示元素引用及其 Port 侧资源。 */
   release(reference: NativeRef<'element'>): void;
 }
 
@@ -163,15 +163,15 @@ export type MeasurementOverlayService = Pick<OverlayService, 'add' | 'remove'>;
 export interface MeasureServiceDependencies {
   /** 内部绘制服务。 */
   readonly draw: InternalDrawService;
-  /** 元素状态仓库。 */
+  /** Element 状态真源。 */
   readonly store: ElementStore;
   /** 样式服务。 */
   readonly styles: StyleService;
   /** 测量标签使用的 Overlay 服务。 */
   readonly overlays: MeasurementOverlayService;
-  /** 负责测量计算的端口。 */
+  /** 隔离距离、面积计算实现的 Port。 */
   readonly measurement: MeasurementPort;
-  /** 负责创建测量提示的端口。 */
+  /** 隔离提示 DOM 实现的 Port。 */
   readonly tooltips: MeasurementTooltipPort;
   /** 默认测量图层 ID。 */
   readonly defaultLayerId: string;

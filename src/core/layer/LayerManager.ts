@@ -5,37 +5,26 @@ import { isNativeRef, type NativeRef } from '../native/types.js';
 import type { LayerPort } from '../ports/LayerPort.js';
 import type { CoreLayerSpec, CoreLayerState, LayerPatch, LayerPresentation, TileSourcePresetState } from './types.js';
 
-/** 内部常量。保存 vectorFields 使用的数据。 */
 const vectorFields = new Set(['kind', 'id', 'visible', 'opacity', 'zIndex', 'wrapX', 'declutter']);
-/** 内部常量。保存 tileFields 使用的数据。 */
 const tileFields = new Set(['kind', 'id', 'source', 'sourceOwnership', 'visible', 'opacity', 'zIndex']);
-/** 内部常量。保存 nativeFields 使用的数据。 */
 const nativeFields = new Set(['kind', 'id', 'ref', 'ownership']);
-/** 内部常量。保存 patchFields 使用的数据。 */
 const patchFields = new Set(['visible', 'opacity', 'zIndex']);
 
-/** 内部类。管理 LayerManager 相关状态。 */
+/** 管理 Core 图层状态，并通过 LayerPort 投影到 Adapter。 */
 export class LayerManager {
-  /** 内部字段。保存 #store 相关状态。 */
   readonly #store: ElementStore;
-  /** 内部字段。保存 #port 相关状态。 */
   readonly #port: LayerPort;
-  /** 内部字段。保存 #states 相关状态。 */
   readonly #states = new Map<string, Readonly<CoreLayerState>>();
-  /** 内部字段。保存 #detachingIds 相关状态。 */
   readonly #detachingIds = new Set<string>();
-  /** 内部字段。保存 #disposed 相关状态。 */
   #disposed = false;
-  /** 内部字段。保存 #mutating 相关状态。 */
   #mutating = false;
 
-  /** 创建一个图层管理器。 */
+  /** 创建与 ElementStore 和 LayerPort 绑定的管理器。 */
   constructor(store: ElementStore, port: LayerPort) {
     this.#store = store;
     this.#port = port;
   }
 
-  /** 内部方法。处理 ensureDefaultVector 相关数据。 */
   ensureDefaultVector(): Readonly<CoreLayerState> {
     this.#assertActive();
     const existing = this.#states.get('default');
@@ -46,7 +35,7 @@ export class LayerManager {
     return this.add({ kind: 'vector', id: 'default', visible: true, opacity: 1, wrapX: true, declutter: false });
   }
 
-  /** 添加一个元素。 */
+  /** 挂载并保存一个图层。 */
   add(spec: CoreLayerSpec): Readonly<CoreLayerState> {
     return this.#mutation(() => {
       const safeSpec = normalizeSpec(spec);
@@ -67,7 +56,7 @@ export class LayerManager {
     });
   }
 
-  /** 读取指定对象。 */
+  /** 按 ID 读取图层快照。 */
   get(id: string): Readonly<CoreLayerState> | undefined {
     this.#assertActive();
     assertId(id);
@@ -75,13 +64,13 @@ export class LayerManager {
     return state === undefined ? undefined : snapshot(state);
   }
 
-  /** 查询匹配的数据。 */
+  /** 按注册顺序读取全部图层快照。 */
   query(): readonly Readonly<CoreLayerState>[] {
     this.#assertActive();
     return Object.freeze([...this.#states.values()].map(snapshot));
   }
 
-  /** 更新匹配的数据。 */
+  /** 更新指定图层的显示状态。 */
   update(id: string, patch: LayerPatch): Readonly<CoreLayerState> {
     return this.#mutation(() => {
       assertId(id);
@@ -97,7 +86,7 @@ export class LayerManager {
     });
   }
 
-  /** 移除匹配的数据。 */
+  /** 移除没有 Element 占用的图层。 */
   remove(id: string): boolean {
     return this.#mutation(() => {
       assertId(id);
@@ -115,7 +104,7 @@ export class LayerManager {
     });
   }
 
-  /** 清空当前数据。 */
+  /** 移除全部未被 Element 占用的图层。 */
   clear(): void {
     this.#mutation(() => {
       for (const id of this.#states.keys()) this.#assertUnoccupied(id);
@@ -130,7 +119,7 @@ export class LayerManager {
     });
   }
 
-  /** 释放当前对象的资源。 */
+  /** 解绑所有图层并使管理器失效。 */
   destroy(): void {
     if (this.#disposed) return;
     if (this.#mutating) throw new InvalidArgumentError('Reentrant layer mutations are not supported');
@@ -147,7 +136,6 @@ export class LayerManager {
     }
   }
 
-  /** 内部方法。处理 requireVector 相关数据。 */
   requireVector(id: string): Readonly<Extract<CoreLayerState, { kind: 'vector' }>> {
     this.#assertActive();
     assertId(id);
@@ -158,12 +146,10 @@ export class LayerManager {
     return snapshot(state) as Readonly<Extract<CoreLayerState, { kind: 'vector' }>>;
   }
 
-  /** 内部方法。处理 #assertUnoccupied 相关数据。 */
   #assertUnoccupied(id: string): void {
     if (this.#store.query({ layerId: id }).length > 0) throw new InvalidArgumentError(`Layer contains elements: ${id}`);
   }
 
-  /** 内部方法。处理 #mutation 相关数据。 */
   #mutation<T>(work: () => T): T {
     this.#assertActive();
     if (this.#mutating) throw new InvalidArgumentError('Reentrant layer mutations are not supported');
@@ -175,13 +161,11 @@ export class LayerManager {
     }
   }
 
-  /** 内部方法。处理 #assertActive 相关数据。 */
   #assertActive(): void {
     if (this.#disposed) throw new ObjectDisposedError('LayerManager has been destroyed');
   }
 }
 
-/** 内部方法。处理 normalizeSpec 相关数据。 */
 function normalizeSpec(input: CoreLayerSpec): Readonly<CoreLayerSpec> {
   const spec = clonePlainRecord(input, 'Layer spec');
   const kind = ownValue(spec, 'kind');
@@ -227,7 +211,6 @@ function normalizeSpec(input: CoreLayerSpec): Readonly<CoreLayerSpec> {
   throw new InvalidArgumentError('Unknown layer kind');
 }
 
-/** 内部方法。处理 normalizePreset 相关数据。 */
 function normalizePreset(value: unknown): TileSourcePresetState {
   const preset = clonePlainRecord(value, 'Tile source preset');
   const kind = ownValue(preset, 'preset');
@@ -248,7 +231,6 @@ function normalizePreset(value: unknown): TileSourcePresetState {
   throw new InvalidArgumentError('Unknown tile source preset');
 }
 
-/** 内部方法。处理 normalizePresentation 相关数据。 */
 function normalizePresentation(input: LayerPresentation): Readonly<LayerPresentation> {
   const value = clonePlainRecord(input, 'Layer presentation');
   assertFields(value, new Set(['visible', 'opacity', 'zIndex']), 'layer presentation');
@@ -260,7 +242,6 @@ function normalizePresentation(input: LayerPresentation): Readonly<LayerPresenta
   });
 }
 
-/** 内部方法。处理 normalizePatch 相关数据。 */
 function normalizePatch(input: LayerPatch): LayerPatch {
   const patch = clonePlainRecord(input, 'Layer patch');
   assertFields(patch, patchFields, 'layer patch');
@@ -271,7 +252,6 @@ function normalizePatch(input: LayerPatch): LayerPatch {
   return result;
 }
 
-/** 内部方法。处理 stateFromAttachment 相关数据。 */
 function stateFromAttachment(spec: Readonly<CoreLayerSpec>, presentation: Readonly<LayerPresentation>): Readonly<CoreLayerState> {
   return freeze({
     ...spec,
@@ -281,7 +261,6 @@ function stateFromAttachment(spec: Readonly<CoreLayerSpec>, presentation: Readon
   } as CoreLayerState);
 }
 
-/** 内部方法。处理 applyPatch 相关数据。 */
 function applyPatch(before: Readonly<CoreLayerState>, patch: LayerPatch): Readonly<CoreLayerState> {
   const hasZIndex = hasOwn(patch, 'zIndex');
   const after = {
@@ -294,12 +273,10 @@ function applyPatch(before: Readonly<CoreLayerState>, patch: LayerPatch): Readon
   return freeze(after);
 }
 
-/** 内部方法。处理 samePresentation 相关数据。 */
 function samePresentation(left: Readonly<CoreLayerState>, right: Readonly<CoreLayerState>): boolean {
   return left.visible === right.visible && left.opacity === right.opacity && left.zIndex === right.zIndex;
 }
 
-/** 内部方法。处理 clonePlainRecord 相关数据。 */
 function clonePlainRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   const cloned = cloneCoreState(value);
   if (cloned === null || typeof cloned !== 'object' || Array.isArray(cloned) || Object.getPrototypeOf(cloned) !== Object.prototype) {
@@ -308,43 +285,36 @@ function clonePlainRecord(value: unknown, label: string): Record<PropertyKey, un
   return cloned as Record<PropertyKey, unknown>;
 }
 
-/** 内部方法。处理 assertFields 相关数据。 */
 function assertFields(value: Record<PropertyKey, unknown>, allowed: ReadonlySet<string>, label: string): void {
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string' || !allowed.has(key)) throw new InvalidArgumentError(`Unknown ${label} field: ${String(key)}`);
   }
 }
 
-/** 内部方法。处理 ownValue 相关数据。 */
 function ownValue(value: Record<PropertyKey, unknown>, key: string): unknown {
   if (!hasOwn(value, key)) throw new InvalidArgumentError(`Layer record requires ${key}`);
   return value[key];
 }
 
-/** 内部方法。处理 requireId 相关数据。 */
 function requireId(value: Record<PropertyKey, unknown>): string {
   return requireNonEmptyString(ownValue(value, 'id'), 'Layer id');
 }
 
-/** 内部方法。处理 assertId 相关数据。 */
 function assertId(value: unknown): asserts value is string {
   requireNonEmptyString(value, 'Layer id');
 }
 
-/** 内部方法。处理 requireNonEmptyString 相关数据。 */
 function requireNonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
   return value;
 }
 
-/** 内部方法。处理 requireBoolean 相关数据。 */
 function requireBoolean(value: Record<PropertyKey, unknown>, key: string): boolean {
   const result = ownValue(value, key);
   if (typeof result !== 'boolean') throw new InvalidArgumentError(`Layer ${key} must be a boolean`);
   return result;
 }
 
-/** 内部方法。处理 requireOpacity 相关数据。 */
 function requireOpacity(value: Record<PropertyKey, unknown>): number {
   const opacity = ownValue(value, 'opacity');
   if (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) {
@@ -353,7 +323,6 @@ function requireOpacity(value: Record<PropertyKey, unknown>): number {
   return opacity;
 }
 
-/** 内部方法。处理 optionalZIndex 相关数据。 */
 function optionalZIndex(value: Record<PropertyKey, unknown>): number | undefined {
   if (!hasOwn(value, 'zIndex')) return undefined;
   const zIndex = value.zIndex;
@@ -362,14 +331,12 @@ function optionalZIndex(value: Record<PropertyKey, unknown>): number | undefined
   return zIndex;
 }
 
-/** 内部方法。处理 requireOwnership 相关数据。 */
 function requireOwnership(value: Record<PropertyKey, unknown>, key: string): 'external' | 'earth' {
   const ownership = ownValue(value, key);
   if (ownership !== 'external' && ownership !== 'earth') throw new InvalidArgumentError(`Layer ${key} must be external or earth`);
   return ownership;
 }
 
-/** 内部方法。处理 optionalAttributions 相关数据。 */
 function optionalAttributions(value: Record<PropertyKey, unknown>): string | readonly string[] | undefined {
   if (!hasOwn(value, 'attributions')) return undefined;
   const attributions = value.attributions;
@@ -380,17 +347,14 @@ function optionalAttributions(value: Record<PropertyKey, unknown>): string | rea
   return Object.freeze([...attributions]);
 }
 
-/** 内部方法。处理 hasOwn 相关数据。 */
 function hasOwn(value: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-/** 内部方法。处理 snapshot 相关数据。 */
 function snapshot<T extends CoreLayerState>(state: Readonly<T>): Readonly<T> {
   return freeze(cloneCoreState(state) as T);
 }
 
-/** 内部方法。处理 freeze 相关数据。 */
 function freeze<T>(value: T, seen = new WeakSet<object>()): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value) || seen.has(value)) return value;
   seen.add(value);

@@ -1,7 +1,7 @@
 /**
- * 基于 OpenLayers 的 TypeScript 地图能力库。
+ * 面向 OpenLayers 的 TypeScript 地图能力库。
  *
- * 标准用法从 `useEarth` 开始，再通过 Earth 上的服务管理图层、元素和交互。
+ * 通常从 `useEarth` 获取地图实例，再通过 Earth 暴露的服务管理图层、Element 和交互。
  *
  * @packageDocumentation
  */

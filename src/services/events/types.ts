@@ -24,17 +24,17 @@ export type PointerPhase = 'enter' | 'move' | 'leave';
  * @typeParam T 指针输入事件的类型。
  */
 export interface RoutedPointerEvent<T extends PointerInputType = PointerInputType> {
-  /** 事件类型。表示本次路由的指针输入名称。 */
+  /** 本次路由的指针输入类型。 */
   readonly type: T;
-  /** 地图坐标。保存事件发生位置的只读坐标。 */
+  /** 事件发生处的只读地图坐标。 */
   readonly coordinate: Coordinate;
-  /** 屏幕像素。保存事件相对地图视口的位置。 */
+  /** 事件相对地图 viewport 的像素位置。 */
   readonly pixel: Pixel;
-  /** 命中元素。保存输入时命中的可选元素状态。 */
+  /** 输入发生时命中的 Element 状态。 */
   readonly element?: Readonly<ElementState>;
-  /** 原生引用。仅允许在同步路由期间解析原始浏览器事件。 */
+  /** 原始浏览器事件的临时引用，仅可在同步路由期间解析。 */
   readonly nativeEventRef: TransientNativeRef<'input-event'>;
-  /** 指针阶段。记录指针进入、移动或离开元素的可选阶段。 */
+  /** 指针相对命中 Element 的进入、移动或离开阶段。 */
   readonly phase?: PointerPhase;
 }
 
@@ -43,19 +43,19 @@ export type RoutedKeyboardEvent = InputKeyboardEvent;
 
 /** 内部路由事件名称与载荷的映射。 */
 export interface RoutedEventMap {
-  /** 指针移动事件。映射到内部指针移动载荷。 */
+  /** 地图指针移动。 */
   readonly pointermove: RoutedPointerEvent<'pointermove'>;
-  /** 单击事件。映射到内部地图单击载荷。 */
+  /** 地图单击。 */
   readonly click: RoutedPointerEvent<'click'>;
-  /** 左键按下事件。映射到内部主按钮按下载荷。 */
+  /** 主按钮按下。 */
   readonly leftdown: RoutedPointerEvent<'leftdown'>;
-  /** 左键抬起事件。映射到内部主按钮抬起载荷。 */
+  /** 主按钮抬起。 */
   readonly leftup: RoutedPointerEvent<'leftup'>;
-  /** 双击事件。映射到内部地图双击载荷。 */
+  /** 地图双击。 */
   readonly doubleclick: RoutedPointerEvent<'doubleclick'>;
-  /** 右键事件。映射到内部地图右键载荷。 */
+  /** 地图右键输入。 */
   readonly rightclick: RoutedPointerEvent<'rightclick'>;
-  /** 键盘事件。映射到内部键盘输入载荷。 */
+  /** 键盘按键输入。 */
   readonly keydown: RoutedKeyboardEvent;
 }
 
@@ -64,9 +64,9 @@ export type RoutedEventType = keyof RoutedEventMap;
 
 /** 内部事件路由使用的过滤条件。 */
 export interface EventRouteOptions {
-  /** 元素选择器。限制只路由命中匹配元素的事件。 */
+  /** 只路由命中匹配 Element 的事件。 */
   readonly selector?: ElementSelector;
-  /** 业务模块。记录订阅所属模块以支持批量清理。 */
+  /** 订阅所属的业务模块，也作为批量清理键。 */
   readonly module?: string;
 }
 

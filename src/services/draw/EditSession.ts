@@ -32,15 +32,15 @@ import type { EditCancelReason, InternalEditOptions, InternalEditSession, Intern
  * @internal
  */
 export interface EditSessionDependencies {
-  /** 元素状态仓库。 */
+  /** Element 状态真源；Session 完成时才提交工作态。 */
   readonly store: ElementStore;
-  /** 当前图形类型定义。 */
+  /** 当前 Shape 的拓扑与几何规则真源。 */
   readonly definition: ShapeDefinition;
-  /** 互斥交互协调器。 */
+  /** 协调指针交互互斥，并在替换前清理旧 Session。 */
   readonly coordinator: InteractionCoordinator;
-  /** 底层编辑交互端口。 */
+  /** 隔离编辑 Adapter 的交互 Port。 */
   readonly port: EditInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 目标元素 ID。 */
   readonly elementId: string;
@@ -61,21 +61,21 @@ export interface EditSessionDependencies {
 }
 
 /**
- * 独立于 OpenLayers 的语义动态编辑状态机。
+ * 维护规范工作态、预览和历史的语义 Edit Session；OpenLayers 只存在于 Adapter 边界。
  *
  * @typeParam T 元素附加业务数据的类型。
  * @internal
  */
 export class EditSession<T = unknown> implements InternalEditSession<T>, ExclusiveInteractionSession {
-  /** 元素状态仓库。 */
+  /** Element 状态真源；Session 完成时才提交工作态。 */
   readonly #store: ElementStore;
-  /** 当前图形类型定义。 */
+  /** 当前 Shape 的拓扑与几何规则真源。 */
   readonly #definition: ShapeDefinition;
-  /** 互斥交互协调器。 */
+  /** 协调指针交互互斥，并在替换前清理旧 Session。 */
   readonly #coordinator: InteractionCoordinator;
-  /** 底层编辑交互端口。 */
+  /** 隔离编辑 Adapter 的交互 Port。 */
   readonly #port: EditInteractionPort;
-  /** 在元素规范状态和 View 工作状态之间转换图形。 */
+  /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 目标元素预期代次。 */
   readonly #expectedGeneration: ElementGeneration;
@@ -93,7 +93,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   readonly #onTerminal: () => void;
   /** 按事件类型保存的监听器。 */
   readonly #listeners = new Map<keyof InternalEditSessionEventMap<T>, Map<number, (event: never) => void>>();
-  /** 用于结束 finished Promise。 */
+  /** `finished` Promise 的兑现函数。 */
   #resolveFinished!: (state: Readonly<ElementState<T>> | undefined) => void;
   /** 会话结束后完成的 Promise。 */
   readonly finished: Promise<Readonly<ElementState<T>> | undefined>;
@@ -101,9 +101,9 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #nextListenerId = 0;
   /** 会话当前状态。 */
   #status: InteractionStatus = 'active';
-  /** 底层编辑交互句柄。 */
+  /** EditInteractionPort 返回的交互句柄。 */
   #handle: EditInteractionHandle | undefined;
-  /** 元素仓库订阅释放函数。 */
+  /** ElementStore 订阅的释放函数。 */
   #unsubscribeStore: (() => void) | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
@@ -113,33 +113,31 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #cursor: CursorViewHandle | undefined;
   /** 最近一次命中的编辑锚点。 */
   #hoverAnchor: EditInteractionAnchor | undefined;
-  /** 会话开始时的元素状态。 */
+  /** Session 打开时读取的 Element 规范状态。 */
   #entryState: Readonly<ElementState<T>> | undefined;
-  /** 会话开始时的元素修订号。 */
+  /** Session 打开时的 Element 修订号；变化即说明发生了外部修改。 */
   #entryRevision: ElementRevision | undefined;
-  /** 当前编辑中的图形状态。 */
+  /** 供 Adapter 预览和命中的 View 投影工作态。 */
   #workingState: ShapeState | undefined;
-  /** 当前编辑中的元素规范状态。 */
+  /** Session 维护的 Element 规范工作态，完成前不写入 Store。 */
   #workingElementState: ShapeState | undefined;
   /** 最近一次成功渲染对应的控制点拓扑。 */
   #renderedTopology: ControlPointTopology | undefined;
-  /** 拖动开始时的元素规范状态。 */
+  /** 本次拖拽开始前的 Element 规范工作态。 */
   #dragOrigin: ShapeState | undefined;
   /** 当前拖动控制点索引。 */
   #dragIndex: number | undefined;
   /** 当前拖拽控制点最近一次完成世界放置的坐标。 */
   #dragCoordinate: Coordinate | undefined;
-  /** 元素规范状态的编辑历史快照。 */
+  /** 按完整编辑操作记录的 Element 规范工作态历史。 */
   #history: ShapeState[] = [];
   /** 当前历史索引。 */
   #historyIndex = 0;
-  /** 是否正在提交仓库事务。 */
   #committing = false;
   /** 是否等待自身提交产生的仓库通知。 */
   #ownCommitNotificationPending = false;
-  /** 是否正在打开底层交互。 */
+  /** 防止交互 Port 的打开流程重入。 */
   #opening = false;
-  /** 是否正在清理资源。 */
   #cleanupRunning = false;
   /** 是否已释放交互协调器。 */
   #coordinatorReleased = false;
@@ -149,7 +147,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   /**
    * 创建动态编辑会话。
    *
-   * @param dependencies 元素事务、图形定义、原生端口、目标实例身份和生命周期回调。
+   * @param dependencies ElementStore、ShapeDefinition、交互 Port、目标身份和生命周期回调。
    * @throws `InvalidArgumentError` 目标元素不存在或实例身份无效时抛出。
    */
   constructor(dependencies: EditSessionDependencies) {
@@ -181,7 +179,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return this.#status;
   }
 
-  /** 读取目标并打开底层编辑交互。 */
+  /** 读取目标 Element，并打开编辑交互 Port。 */
   open(): void {
     this.#assertActive();
     if (this.#handle !== undefined || this.#opening) throw new InvalidArgumentError('Edit session is already open');
@@ -242,7 +240,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     }
   }
 
-  /** 提交当前编辑结果并结束会话。 */
+  /** 把最终工作态一次性提交到 Store，并结束 Session。 */
   finish(): void {
     if (this.#status !== 'active' || this.#committing) return;
     let committed: Readonly<ElementState<T>>;
@@ -383,7 +381,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return 'consume';
   }
 
-  /** 将底层编辑事件分派到语义操作。 */
+  /** 将 Adapter 发出的编辑事件分派为 Session 语义操作。 */
   #handlePortEvent(event: Readonly<EditInteractionEvent>): void {
     if (this.#status !== 'active') return;
     try {
@@ -457,7 +455,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#dragCoordinate = anchor.coordinate;
   }
 
-  /** 根据拖动坐标更新控制点。 */
+  /** 根据拖拽坐标更新 Session 工作态，不创建 Store 事务。 */
   #move(anchor: EditControlAnchor, input: Coordinate, end: boolean): void {
     if (this.#dragOrigin === undefined || this.#dragIndex !== anchor.index) throw new InvalidArgumentError('Edit move sequence is not active');
     const state = this.#requireWorkingState();
@@ -511,7 +509,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#emit('modifying', modifyingEvent(this.#requireWorkingElementState(), 'remove', cloneCoordinate(anchor.coordinate)));
   }
 
-  /** 将当前编辑状态发送到底层端口。 */
+  /** 通过交互 Port 原子发布工作图形、强调层和锚点。 */
   #render(activeMove?: Readonly<{ anchor: EditControlAnchor; coordinate: Coordinate }>): void {
     const handle = this.#handle;
     const state = this.#requireWorkingState();
@@ -639,7 +637,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     return this.#workingElementState;
   }
 
-  /** 获取当前底层编辑句柄。 */
+  /** 读取当前 EditInteractionPort 句柄；尚未打开时抛错。 */
   #requireHandle(): EditInteractionHandle {
     if (this.#handle === undefined) throw new ObjectDisposedError('Edit interaction is not open');
     return this.#handle;
@@ -655,7 +653,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#listeners.clear();
   }
 
-  /** 释放底层交互、订阅和协调器。 */
+  /** 幂等释放交互句柄、订阅、Tooltip、光标所有权和协调器。 */
   #cleanup(): void {
     if (this.#cleanupRunning) return;
     this.#cleanupRunning = true;

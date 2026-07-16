@@ -10,50 +10,49 @@ import type { NativeRef } from '../core/native/types.js';
 import { constructLayerHandle, Layer } from './Layer.js';
 import type { LayerService, LayerState, PublicLayerSpec, TileUrlFunction } from './types.js';
 
-/** 图层门面实现使用的可选配置。 */
+/** Layer Facade 的可选配置。 */
 export interface LayerServiceOptions {
-  /** 自定义图层 ID 的生成方式。 */
+  /** 自定义图层 ID 生成器。 */
   readonly createId?: () => string;
 }
 
-/** 已解析的内部图层配置和临时原生资源。 */
+/** 归一化后的内部图层配置及待交接的原生资源。 */
 interface ParsedLayer {
-  /** 可交给核心图层管理器的配置。 */
+  /** 可提交给核心 LayerManager 的配置。 */
   readonly spec: CoreLayerSpec;
-  /** 等待提交的原生图层或数据源引用。 */
+  /** 待提交的原生图层或数据源引用。 */
   readonly provisional?: { readonly kind: 'layer' | 'source'; readonly ref: NativeRef<'layer'> | NativeRef<'source'> };
-  /** 门面为回调瓦片地址创建的数据源。 */
+  /** Facade 为瓦片地址回调创建的数据源。 */
   readonly internallyCreatedSource?: ImageTileSource;
 }
 
-/** 缓存同一代原生图层和对应的公开句柄。 */
+/** 同代原生图层与公共 Layer 句柄的缓存项。 */
 interface CachedLayer {
   /** 当前绑定的 OpenLayers 图层。 */
   readonly layer: BaseLayer;
-  /** 返回给调用方的图层句柄。 */
+  /** 返回给调用方的公共 Layer 句柄。 */
   readonly handle: Layer;
   /** 用于识别句柄代次的标记。 */
   readonly generation: object;
 }
 
-/** 连接公开图层 API、核心状态和 OpenLayers 图层的门面实现。 */
+/** 连接公共 Layer API、核心状态与 OpenLayers 图层的 Facade。 */
 export class LayerServiceImpl implements LayerService {
-  /** 保存和修改图层状态。 */
+  /** 保存并修改图层的核心状态。 */
   readonly #manager: LayerManager;
-  /** 同步核心图层与 OpenLayers。 */
+  /** 将核心图层状态同步到 OpenLayers。 */
   readonly #adapter: LayerAdapter;
   /** 管理外部传入的图层和数据源引用。 */
   readonly #nativeRefs: NativeRefRegistry;
   /** 可选的图层 ID 生成器。 */
   readonly #createId: (() => string) | undefined;
-  /** 按图层 ID 缓存当前句柄。 */
+  /** 按图层 ID 缓存当前代次的句柄。 */
   readonly #handles = new Map<string, CachedLayer>();
   /** 默认 ID 的递增序号。 */
   #nextId = 0;
-  /** 标记当前是否正在执行图层修改。 */
   #mutating = false;
 
-  /** 保存依赖并确保默认矢量图层存在。 */
+  /** 绑定依赖，并确保默认矢量图层存在。 */
   constructor(manager: LayerManager, adapter: LayerAdapter, nativeRefs: NativeRefRegistry, options: LayerServiceOptions = {}) {
     this.#manager = manager;
     this.#adapter = adapter;
@@ -62,7 +61,7 @@ export class LayerServiceImpl implements LayerService {
     this.ensureDefault();
   }
 
-  /** 校验并新增图层，完成原生资源的所有权交接。 */
+  /** 校验并新增图层，随后完成原生资源的所有权交接。 */
   add(spec: PublicLayerSpec): Layer {
     return this.#mutation(() => {
       const parsed = this.#parse(spec);
@@ -80,7 +79,7 @@ export class LayerServiceImpl implements LayerService {
           try {
             rolledBack = this.#manager.remove(parsed.spec.id);
           } catch {
-            // 清理错误由适配器记录，这里保留最初的新增错误。
+            // Adapter 已记录清理错误，此处保留最先发生的新增错误。
           }
         } else {
           rolledBack = true;
@@ -89,7 +88,7 @@ export class LayerServiceImpl implements LayerService {
           try {
             parsed.internallyCreatedSource.dispose();
           } catch {
-            // 数据源已不能继续交接，这里保留最初的挂载错误。
+            // 数据源已无法继续交接，此处保留最先发生的挂载错误。
           }
         }
         if (parsed.provisional !== undefined) this.#discard(parsed.provisional);
@@ -143,7 +142,7 @@ export class LayerServiceImpl implements LayerService {
     return this.#currentHandle(state.id);
   }
 
-  /** 获取当前一代原生图层对应的句柄。 */
+  /** 获取当前代原生图层对应的公共句柄。 */
   #currentHandle(id: string): Layer {
     const nativeLayer = this.#adapter.requireLayer(id);
     const cached = this.#handles.get(id);
@@ -167,7 +166,7 @@ export class LayerServiceImpl implements LayerService {
     return handle;
   }
 
-  /** 校验公开配置，并转换为核心图层配置。 */
+  /** 校验公共配置，并转换为核心图层配置。 */
   #parse(input: PublicLayerSpec): ParsedLayer {
     const record = inspectRecord(input, 'Layer spec');
     const kind = requireOwn(record, 'kind');
@@ -244,7 +243,7 @@ export class LayerServiceImpl implements LayerService {
         try {
           source.dispose();
         } catch {
-          // 保留最初的注册错误。
+          // 回滚失败不应掩盖最先发生的注册错误。
         }
         throw error;
       }
@@ -270,13 +269,13 @@ export class LayerServiceImpl implements LayerService {
     else this.#nativeRefs.commitProvisional('source', provisional.ref as NativeRef<'source'>);
   }
 
-  /** 尽力释放尚未提交的原生资源引用。 */
+  /** 尽力释放尚未提交、且不再归图层所有的原生资源引用。 */
   #discard(provisional: NonNullable<ParsedLayer['provisional']>): void {
     try {
       if (provisional.kind === 'layer') this.#nativeRefs.discardProvisional('layer', provisional.ref as NativeRef<'layer'>);
       else this.#nativeRefs.discardProvisional('source', provisional.ref as NativeRef<'source'>);
     } catch {
-      // 注册表销毁后，临时引用已经失效。
+      // 注册表销毁时已统一终结临时引用，无需再次处理。
     }
   }
 
@@ -289,7 +288,7 @@ export class LayerServiceImpl implements LayerService {
     return id;
   }
 
-  /** 串行执行图层修改，避免重入造成状态错乱。 */
+  /** 串行执行图层修改，防止重入破坏状态一致性。 */
   #mutation<T>(work: () => T): T {
     if (this.#mutating) throw new InvalidArgumentError('Reentrant LayerService mutations are not supported');
     this.#mutating = true;
@@ -301,7 +300,7 @@ export class LayerServiceImpl implements LayerService {
   }
 }
 
-/** 将核心图层状态转换为只读的公开状态。 */
+/** 将核心图层状态转换为公共只读状态。 */
 function toPublicState(state: Readonly<CoreLayerState>): Readonly<LayerState> {
   const presentation = {
     kind: state.kind,
@@ -318,7 +317,7 @@ function missingLayer(id: string): never {
   throw new InvalidArgumentError(`Layer does not exist: ${id}`);
 }
 
-/** 安全读取一个普通对象，并保留其数据字段。 */
+/** 从普通对象中安全读取数据属性。 */
 function inspectRecord(value: unknown, label: string): Record<PropertyKey, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new InvalidArgumentError(`${label} must be a plain object`);
   try {
@@ -349,7 +348,7 @@ function assertKeys(record: Record<PropertyKey, unknown>, allowed: ReadonlySet<s
   }
 }
 
-/** 读取必须存在的自有字段。 */
+/** 读取必须存在的自有数据字段。 */
 function requireOwn(record: Record<PropertyKey, unknown>, key: string): unknown {
   if (!hasOwn(record, key)) throw new InvalidArgumentError(`Layer spec requires ${key}`);
   return record[key];
@@ -385,7 +384,7 @@ function requireFinite(value: unknown, label: string): number {
   return value;
 }
 
-/** 读取原生资源的所有权设置。 */
+/** 读取并校验原生资源所有权。 */
 function requireOwnership(value: unknown): 'external' | 'earth' {
   if (value !== 'external' && value !== 'earth') throw new InvalidArgumentError('Layer ownership must be external or earth');
   return value;
