@@ -16,6 +16,7 @@ import type { ElementStyleState } from '../../core/style/types.js';
 import type { ElementGeneration } from '../../core/transaction/types.js';
 import type { StyleService } from '../style/StyleService.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
+import { formatTooltipLines } from '../events/TooltipFormatting.js';
 import type { ContextMenuDecision, ExclusiveInteractionSession, InteractionCancelReason, InteractionStatus } from '../events/types.js';
 import type { DrawCancelReason, InternalDrawOptions, InternalDrawSession, InternalDrawSessionEventMap, SessionKeyboardInput } from './types.js';
 
@@ -642,7 +643,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
         ownerId: `draw:${this.#options.layerId}`,
         variant: 'draw',
         position,
-        lines: this.#tooltipLines(),
+        lines: formatTooltipLines(this.#tooltipLines()),
         offset: [15, -11],
         visible: true
       });
@@ -662,7 +663,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
 
   /** 刷新当前绘制提示文字。 */
   #refreshTooltip(): void {
-    this.#tooltip?.update({ lines: this.#tooltipLines() });
+    this.#tooltip?.update({ lines: formatTooltipLines(this.#tooltipLines()) });
   }
 
   /** 将会话置为终态并发出取消事件。 */

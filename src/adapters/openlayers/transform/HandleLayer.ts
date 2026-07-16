@@ -28,11 +28,16 @@ import type { ProjectionSuppressionLease, FeatureBinding } from '../FeatureBindi
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 import {
   EDIT_CONTROL_ANCHOR_HIT_RADIUS,
+  EDIT_CONTROL_ANCHOR_Z_INDEX,
   EDIT_INSERTION_ANCHOR_HIT_RADIUS,
+  EDIT_INSERTION_ANCHOR_Z_INDEX,
+  composeEditPreviewStyle,
+  editAnchorFeedbackStyle,
   editControlAnchorBatchRenderer,
   editControlAnchorPointStyle,
   editInsertionAnchorBatchRenderer,
-  editInsertionAnchorPointStyle
+  editInsertionAnchorPointStyle,
+  type EditAnchorFeedbackPhase
 } from '../interactions/EditAnchorVisuals.js';
 import { centerImage, rotateImage, scaleImage, stretchHorizontalImage, stretchVerticalImage, translateImage } from './handleImages.js';
 import { extentCenter, renderExtent, type TransformExtent } from './PreviewTransform.js';
@@ -146,10 +151,20 @@ export class HandleLayer {
   #vertexBatch: Feature<Geometry> | undefined;
   /** 默认样式的大插入点 MultiPoint 要素。 */
   #insertionBatch: Feature<Geometry> | undefined;
+  /** 悬停或按下锚点使用的单个 Point 反馈覆盖物。 */
+  #editAnchorFeedback: Feature<Geometry> | undefined;
+  /** 当前反馈覆盖物绑定的语义锚点。 */
+  #editAnchorFeedbackAnchor: EditInteractionAnchor | undefined;
+  /** 当前反馈覆盖物的交互阶段。 */
+  #editAnchorFeedbackPhase: EditAnchorFeedbackPhase | undefined;
+  /** 当前反馈锚点在完整语义索引中的稳定顺序。 */
+  #editAnchorFeedbackOrder: number | undefined;
   /** 编辑锚点命中使用的投影坐标索引。 */
   readonly #editAnchorIndex = new RBush<EditAnchorIndexEntry>();
   /** 与完整语义锚点一一对应的稳定条目。 */
   #editAnchorEntries: EditAnchorIndexEntry[] = [];
+  /** 由语义身份直接定位完整锚点顺序，避免 hover / active 状态切换线性扫描。 */
+  readonly #editAnchorOrderByIdentity = new globalThis.Map<string, number>();
   /** 当前已经加入数据源的目标相关要素。 */
   readonly #activeTargetFeatures = new Set<Feature<Geometry>>();
   /** 上一次编译的目标样式状态。 */
@@ -357,6 +372,29 @@ export class HandleLayer {
     this.#applyBBoxStyle();
   }
 
+  /** 原位切换 Transform Edit 的单点锚点反馈，不让覆盖物参与命中。 */
+  setEditAnchorFeedback(anchor?: EditInteractionAnchor, phase: EditAnchorFeedbackPhase = 'hover'): void {
+    this.#assertActive();
+    const nextAnchor = this.#target?.mode === 'edit' ? anchor : undefined;
+    const nextPhase = nextAnchor === undefined ? undefined : phase;
+    if (
+      ((nextAnchor === undefined && this.#editAnchorFeedbackAnchor === undefined) ||
+        (nextAnchor !== undefined && sameAnchorIdentity(nextAnchor, this.#editAnchorFeedbackAnchor))) &&
+      this.#editAnchorFeedbackPhase === nextPhase
+    ) {
+      return;
+    }
+    this.#editAnchorFeedbackAnchor = nextAnchor;
+    this.#editAnchorFeedbackPhase = nextPhase;
+    this.#editAnchorFeedbackOrder = nextAnchor === undefined ? undefined : this.#editAnchorOrderByIdentity.get(editAnchorIdentityKey(nextAnchor));
+    const feedback = this.#editAnchorFeedback ?? new Feature<Geometry>();
+    this.#editAnchorFeedback = feedback;
+    this.#syncEditAnchorFeedbackFeature();
+    if (this.#activeTargetFeatures.has(feedback)) return;
+    this.#source.addFeature(feedback);
+    this.#activeTargetFeatures.add(feedback);
+  }
+
   /** 移除图层并清理全部要素、监听和租约。 */
   destroy(): void {
     if (this.#destroyed || this.#destroying) return;
@@ -387,6 +425,11 @@ export class HandleLayer {
       this.#preview = undefined;
       this.#bbox = undefined;
       this.#rotationCenter = undefined;
+      if (this.#editAnchorFeedback !== undefined) releaseFeature(this.#editAnchorFeedback);
+      this.#editAnchorFeedback = undefined;
+      this.#editAnchorFeedbackAnchor = undefined;
+      this.#editAnchorFeedbackPhase = undefined;
+      this.#editAnchorFeedbackOrder = undefined;
       for (const feature of this.#handleFeatures.values()) releaseFeature(feature);
       this.#handleFeatures.clear();
       this.#vertexHandleCount = 0;
@@ -412,10 +455,12 @@ export class HandleLayer {
     handleStyle: ReturnType<StyleCompiler['compile']> | undefined,
     worldOffset: number
   ): void {
+    if (target.mode !== 'edit') this.#releaseEditAnchorFeedback();
     const preview = this.#preview ?? new Feature<Geometry>();
     this.#preview = preview;
     updateFeatureGeometry(preview, target.geometry, worldOffset);
-    if (preview.getStyle() !== previewStyle) preview.setStyle(previewStyle);
+    const effectivePreviewStyle = target.mode === 'edit' ? composeEditPreviewStyle(previewStyle) : previewStyle;
+    if (preview.getStyle() !== effectivePreviewStyle) preview.setStyle(effectivePreviewStyle);
     const geometryExtent = presentationExtent(renderExtent(target.geometry), worldOffset);
     setHandleHit(
       preview,
@@ -434,6 +479,16 @@ export class HandleLayer {
     const batchThreshold = handleStyle === undefined ? vertexBatchThreshold : customVertexBatchThreshold;
     const useVertexBatch = vertexHandleCount >= batchThreshold;
     const useInsertionBatch = insertionHandleCount >= vertexBatchThreshold;
+    if (useInsertionBatch) {
+      features.push(this.#syncInsertionBatch(insertionAnchors, worldOffset));
+    } else if (insertionHandleCount > 0) {
+      for (let order = 0; order < insertionHandleCount; order += 1) {
+        const anchor = insertionAnchors[order];
+        features.push(
+          this.#handle(`insertion-${order}`, undefined, presentationCoordinate(anchor.coordinate, worldOffset), undefined, undefined, anchor.index, anchor)
+        );
+      }
+    }
     if (useVertexBatch) {
       features.push(this.#syncVertexBatch(controlAnchors, handleStyle, worldOffset));
     } else if (vertexHandleCount > 0) {
@@ -444,15 +499,9 @@ export class HandleLayer {
         );
       }
     }
-    if (useInsertionBatch) {
-      features.push(this.#syncInsertionBatch(insertionAnchors, worldOffset));
-    } else if (insertionHandleCount > 0) {
-      for (let order = 0; order < insertionHandleCount; order += 1) {
-        const anchor = insertionAnchors[order];
-        features.push(
-          this.#handle(`insertion-${order}`, undefined, presentationCoordinate(anchor.coordinate, worldOffset), undefined, undefined, anchor.index, anchor)
-        );
-      }
+    if (target.mode === 'edit' && this.#editAnchorFeedback !== undefined) {
+      this.#syncEditAnchorFeedbackFeature();
+      features.push(this.#editAnchorFeedback);
     }
     this.#syncSourceFeatures(features);
     this.#trimVertexHandlePool(useVertexBatch ? 0 : vertexHandleCount, this.#operationActive);
@@ -530,6 +579,8 @@ export class HandleLayer {
       return { order, anchor, coordinate: presented, internalCoordinate: coordinateForIndex(this.#map, presented) };
     });
     this.#editAnchorEntries = entries;
+    this.#editAnchorOrderByIdentity.clear();
+    for (const entry of entries) this.#editAnchorOrderByIdentity.set(editAnchorIdentityKey(entry.anchor), entry.order);
     if (entries.length > 0)
       this.#editAnchorIndex.load(
         entries.map((entry) => pointExtent(entry.internalCoordinate)),
@@ -597,6 +648,7 @@ export class HandleLayer {
     this.#clearVertexBatch();
     this.#clearInsertionBatch();
     this.#editAnchorEntries = [];
+    this.#editAnchorOrderByIdentity.clear();
     this.#editAnchorIndex.clear();
   }
 
@@ -697,7 +749,12 @@ export class HandleLayer {
     const next = new Set(features);
     const removals = [...this.#activeTargetFeatures].filter((feature) => !next.has(feature));
     const additions = features.filter((feature) => !this.#activeTargetFeatures.has(feature));
-    const bulkReset = removals.length >= bulkResetRemovalThreshold && removals.length * 2 >= this.#activeTargetFeatures.size;
+    const featureSetChanged = removals.length > 0 || additions.length > 0;
+    const projectedOrder = featureSetChanged
+      ? [...this.#source.getFeatures().filter((feature) => this.#activeTargetFeatures.has(feature) && next.has(feature)), ...additions]
+      : features;
+    const editOrderChanged = this.#target?.mode === 'edit' && !sameFeatureSequence(projectedOrder, features);
+    const bulkReset = editOrderChanged || (removals.length >= bulkResetRemovalThreshold && removals.length * 2 >= this.#activeTargetFeatures.size);
     if (bulkReset) {
       const retained = [...features];
       if (this.#copy !== undefined) retained.push(this.#copy);
@@ -748,9 +805,49 @@ export class HandleLayer {
     this.#vertexHandleCount = 0;
     this.#insertionHandleCount = 0;
     this.#clearEditAnchorBatches();
+    this.#releaseEditAnchorFeedback();
     this.#preview = undefined;
     this.#bbox = undefined;
     this.#rotationCenter = undefined;
+  }
+
+  /** 将反馈覆盖物更新到最新索引坐标；拓扑变化时只做一次身份回查。 */
+  #syncEditAnchorFeedbackFeature(): void {
+    const feature = this.#editAnchorFeedback;
+    const anchor = this.#editAnchorFeedbackAnchor;
+    const phase = this.#editAnchorFeedbackPhase;
+    if (feature === undefined) return;
+    if (anchor === undefined || phase === undefined) {
+      if (feature.getGeometry() !== undefined) feature.setGeometry(undefined);
+      return;
+    }
+    let order = this.#editAnchorFeedbackOrder;
+    let entry = order === undefined || order < 0 ? undefined : this.#editAnchorEntries[order];
+    if (entry === undefined || !sameAnchorIdentity(anchor, entry.anchor)) {
+      order = this.#editAnchorOrderByIdentity.get(editAnchorIdentityKey(anchor));
+      this.#editAnchorFeedbackOrder = order;
+      entry = order === undefined ? undefined : this.#editAnchorEntries[order];
+    }
+    if (entry === undefined) {
+      if (feature.getGeometry() !== undefined) feature.setGeometry(undefined);
+      return;
+    }
+    this.#editAnchorFeedbackAnchor = entry.anchor;
+    updatePointGeometry(feature, entry.coordinate);
+    const style = editAnchorFeedbackStyle(entry.anchor.kind, phase);
+    if (feature.getStyle() !== style) feature.setStyle(style);
+  }
+
+  /** 释放跨目标或跨模式不再适用的反馈覆盖物。 */
+  #releaseEditAnchorFeedback(): void {
+    const feature = this.#editAnchorFeedback;
+    this.#editAnchorFeedback = undefined;
+    this.#editAnchorFeedbackAnchor = undefined;
+    this.#editAnchorFeedbackPhase = undefined;
+    this.#editAnchorFeedbackOrder = undefined;
+    if (feature === undefined) return;
+    if (this.#activeTargetFeatures.delete(feature)) this.#source.removeFeature(feature);
+    releaseFeature(feature);
   }
 
   /** 仅增删旋转操作期间显示的中心点，避免为状态切换重建整组控制要素。 */
@@ -880,8 +977,16 @@ const centerHandleStyle = iconStyle(centerImage);
 
 /** MultiPoint 命中由 RBush 负责，命中画布上不重复绘制大批量圆。 */
 const renderEmptyHitBatch: RenderFunction = (): void => undefined;
-const vertexBatchStyle = new Style({ renderer: editControlAnchorBatchRenderer, hitDetectionRenderer: renderEmptyHitBatch, zIndex: 1 });
-const insertionBatchStyle = new Style({ renderer: editInsertionAnchorBatchRenderer, hitDetectionRenderer: renderEmptyHitBatch, zIndex: 0 });
+const vertexBatchStyle = new Style({
+  renderer: editControlAnchorBatchRenderer,
+  hitDetectionRenderer: renderEmptyHitBatch,
+  zIndex: EDIT_CONTROL_ANCHOR_Z_INDEX
+});
+const insertionBatchStyle = new Style({
+  renderer: editInsertionAnchorBatchRenderer,
+  hitDetectionRenderer: renderEmptyHitBatch,
+  zIndex: EDIT_INSERTION_ANCHOR_Z_INDEX
+});
 
 /** 用内置图片创建手柄图标样式。 */
 function iconStyle(src: string, displacement?: readonly [number, number]): Style {
@@ -1166,11 +1271,21 @@ function coordinatesEqual(left: readonly number[], right: readonly number[]): bo
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+/** 判断数据源按当前增删差异得到的 Feature 顺序是否满足编辑视觉层序。 */
+function sameFeatureSequence(left: readonly Feature<Geometry>[], right: readonly Feature<Geometry>[]): boolean {
+  return left.length === right.length && left.every((feature, index) => feature === right[index]);
+}
+
 /** 判断两份编辑锚点是否占据同一个语义槽位。 */
 function sameAnchorIdentity(left: EditInteractionAnchor, right: EditInteractionAnchor | undefined): boolean {
   if (right === undefined || left.kind !== right.kind || left.index !== right.index) return false;
   if (left.kind === 'insertion' || right.kind === 'insertion') return left.kind === right.kind;
   return left.role === right.role && left.removable === right.removable;
+}
+
+/** 为控制点与插入点生成与 sameAnchorIdentity 一致的稳定身份键。 */
+function editAnchorIdentityKey(anchor: EditInteractionAnchor): string {
+  return anchor.kind === 'insertion' ? `insertion:${anchor.index}` : `control:${anchor.index}:${anchor.role}:${anchor.removable ? 1 : 0}`;
 }
 
 /** 判断编辑锚点是否符合当前输入动作的语义候选集合。 */

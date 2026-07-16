@@ -158,6 +158,34 @@ describe('TransformToolbarAdapter', () => {
 });
 
 describe('TransformTooltipAdapter', () => {
+  it('rolls back Overlay and DOM when map mounting throws after a partial add', () => {
+    const documentTarget = new FakeDocument();
+    installDomGlobals(documentTarget);
+    const map = new FakeMap();
+    const root = documentTarget.createElement('div');
+    vi.spyOn(map, 'addOverlay').mockImplementation((overlay) => {
+      map.addedOverlays.push(overlay);
+      throw new Error('overlay mount failed');
+    });
+
+    expect(() =>
+      new TooltipAdapter(map as unknown as OlMap, { createElement: () => root as unknown as HTMLDivElement }).open({
+        ownerId: 'rollback-owner',
+        variant: 'edit',
+        position: [10, 20],
+        lines: ['编辑提示'],
+        offset: [15, -11],
+        visible: true
+      })
+    ).toThrowError('overlay mount failed');
+
+    const overlay = requireOverlay(0);
+    expect(map.removedOverlays).toEqual([overlay]);
+    expect(overlay.element).toBeUndefined();
+    expect(overlay.disposed).toBe(true);
+    expect(root.removeCalls).toBe(1);
+  });
+
   it('uses interaction-specific classes for Draw and Edit tooltips', () => {
     const documentTarget = new FakeDocument();
     installDomGlobals(documentTarget);
@@ -210,6 +238,99 @@ describe('TransformTooltipAdapter', () => {
     view.update({ lines: ['旋转中…当前：45°'] });
     expect(root.children[0]).toBe(line);
     expect(root.children[0]?.textContent).toBe('旋转中…当前：45°');
+
+    view.destroy();
+  });
+
+  it('使用纯文本 span 安全渲染语义片段，并在内容不变时复用行与片段 DOM', () => {
+    const documentTarget = new FakeDocument();
+    installDomGlobals(documentTarget);
+    const map = new FakeMap();
+    const view = new TooltipAdapter(map as unknown as OlMap).open({
+      ownerId: 'transform-owner',
+      variant: 'transform',
+      position: [10, 20],
+      lines: [
+        [
+          { text: 'Ctrl+Z 撤销 (1)', tone: 'undo' },
+          { text: ' | ', tone: 'muted' },
+          { text: 'Ctrl+Y 重做 (1)', tone: 'redo' }
+        ],
+        [
+          { text: 'Delete', tone: 'danger' },
+          { text: ' 删除，' },
+          { text: 'Esc', tone: 'exit' },
+          { text: ' 退出，' },
+          { text: 'Ctrl+C', tone: 'shortcut' },
+          { text: ' 复制' }
+        ]
+      ],
+      offset: [15, -11],
+      visible: true
+    });
+    const root = requireRoot(requireOverlay(0));
+    const firstRow = root.children[0];
+    const secondRow = root.children[1];
+    const firstSegments = [...(firstRow?.children ?? [])];
+    const secondSegments = [...(secondRow?.children ?? [])];
+
+    expect(firstRow?.textContent).toBe('Ctrl+Z 撤销 (1) | Ctrl+Y 重做 (1)');
+    expect(firstSegments.map(({ className, textContent }) => ({ className, textContent }))).toEqual([
+      { className: 'ol-tooltip-segment ol-tooltip-segment--undo', textContent: 'Ctrl+Z 撤销 (1)' },
+      { className: 'ol-tooltip-segment ol-tooltip-segment--muted', textContent: ' | ' },
+      { className: 'ol-tooltip-segment ol-tooltip-segment--redo', textContent: 'Ctrl+Y 重做 (1)' }
+    ]);
+    expect(secondSegments.map(({ className }) => className)).toEqual([
+      'ol-tooltip-segment ol-tooltip-segment--danger',
+      'ol-tooltip-segment',
+      'ol-tooltip-segment ol-tooltip-segment--exit',
+      'ol-tooltip-segment',
+      'ol-tooltip-segment ol-tooltip-segment--shortcut',
+      'ol-tooltip-segment'
+    ]);
+    expect([...firstSegments, ...secondSegments].every((segment) => segment.innerHTMLSetCalls === 0)).toBe(true);
+
+    view.update({ position: [11, 21] });
+    view.update({
+      lines: [
+        [
+          { text: 'Ctrl+Z 撤销 (1)', tone: 'undo' },
+          { text: ' | ', tone: 'muted' },
+          { text: 'Ctrl+Y 重做 (1)', tone: 'redo' }
+        ],
+        [
+          { text: 'Delete', tone: 'danger' },
+          { text: ' 删除，' },
+          { text: 'Esc', tone: 'exit' },
+          { text: ' 退出，' },
+          { text: 'Ctrl+C', tone: 'shortcut' },
+          { text: ' 复制' }
+        ]
+      ]
+    });
+
+    expect(root.children[0]).toBe(firstRow);
+    expect(root.children[1]).toBe(secondRow);
+    expect(firstRow?.children).toEqual(firstSegments);
+    expect(secondRow?.children).toEqual(secondSegments);
+
+    view.update({
+      lines: [
+        [{ text: 'Ctrl+Z 撤销 (2)', tone: 'undo' }],
+        [
+          { text: 'Delete', tone: 'danger' },
+          { text: ' 删除，' },
+          { text: 'Esc', tone: 'exit' },
+          { text: ' 退出，' },
+          { text: 'Ctrl+C', tone: 'shortcut' },
+          { text: ' 复制' }
+        ]
+      ]
+    });
+    expect(root.children[0]).toBe(firstRow);
+    expect(root.children[0]?.children[0]).not.toBe(firstSegments[0]);
+    expect(root.children[1]).toBe(secondRow);
+    expect(secondRow?.children).toEqual(secondSegments);
 
     view.destroy();
   });
@@ -338,8 +459,9 @@ class FakeDomElement {
   readonly listeners = new Map<string, FakeDomListener[]>();
   parent: FakeDomElement | undefined;
   className = '';
-  textContent = '';
-  innerHTML = '';
+  #textContent = '';
+  #innerHTML = '';
+  innerHTMLSetCalls = 0;
   title = '';
   type = '';
   disabled = false;
@@ -351,6 +473,29 @@ class FakeDomElement {
     readonly ownerDocument: FakeDocument
   ) {}
 
+  get textContent(): string {
+    return this.#textContent + this.children.map((child) => child.textContent).join('');
+  }
+
+  set textContent(value: string) {
+    for (const child of this.children) child.parent = undefined;
+    this.children.length = 0;
+    this.#textContent = value;
+    this.#innerHTML = '';
+  }
+
+  get innerHTML(): string {
+    return this.#innerHTML;
+  }
+
+  set innerHTML(value: string) {
+    for (const child of this.children) child.parent = undefined;
+    this.children.length = 0;
+    this.#textContent = '';
+    this.#innerHTML = value;
+    this.innerHTMLSetCalls += 1;
+  }
+
   append(...children: FakeDomElement[]): void {
     for (const child of children) {
       child.parent = this;
@@ -361,6 +506,8 @@ class FakeDomElement {
   replaceChildren(...children: FakeDomElement[]): void {
     for (const child of this.children) child.parent = undefined;
     this.children.length = 0;
+    this.#textContent = '';
+    this.#innerHTML = '';
     this.append(...children);
   }
 

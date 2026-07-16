@@ -7,6 +7,7 @@ import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { ObjectDisposedError } from '../src/core/errors.js';
 import type { InputEventMap } from '../src/core/ports/InputPort.js';
+import type { TooltipLine } from '../src/core/ports/TooltipPort.js';
 import type {
   EditInteractionEvent,
   EditInteractionHandle,
@@ -19,12 +20,21 @@ import type { ShapeDefinition, ShapeType } from '../src/core/shape/types.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
 import { EditSession } from '../src/services/draw/EditSession.js';
 import { InteractionCoordinator } from '../src/services/events/InteractionCoordinator.js';
+import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
 import type { RoutedPointerEvent } from '../src/services/events/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { FakeCursorPort } from './helpers/cursorHarness.js';
 import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
+
+function visibleTooltipLines(lines: readonly TooltipLine[] | undefined): readonly string[] {
+  return lines?.map(tooltipLineText) ?? [];
+}
+
+function tooltipTones(line: TooltipLine | undefined, text: string): readonly (string | undefined)[] {
+  return typeof line === 'string' || line === undefined ? [] : line.filter((segment) => segment.text.trim() === text).map(({ tone }) => tone);
+}
 
 class FakeEditPort implements EditInteractionPort {
   readonly renders: Readonly<EditInteractionRenderState>[] = [];
@@ -177,22 +187,37 @@ describe('EditSession', () => {
     port.emit({ type: 'pointer-move', coordinate: [10, 10] });
     const view = tooltip.views[0];
     expect(view?.spec).toMatchObject({ ownerId: 'edit:edit-polyline', variant: 'edit', offset: [15, -11] });
-    expect(view?.state.lines).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点', '右击退出编辑']);
+    expect(visibleTooltipLines(view?.state.lines)).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点', '右击退出编辑']);
+    expect(tooltipTones(view?.state.lines[1], 'Alt')).toEqual(['shortcut', 'shortcut']);
+    expect(tooltipTones(view?.state.lines[1], '|')).toEqual(['muted']);
 
     port.emit({ type: 'pointer-move', coordinate: insertion.coordinate, anchor: insertion });
-    expect(view?.state).toMatchObject({ position: insertion.coordinate, lines: ['按住 Alt 单击添加点'] });
+    expect(view?.state.position).toEqual(insertion.coordinate);
+    expect(visibleTooltipLines(view?.state.lines)).toEqual(['按住 Alt 单击添加点']);
 
     port.emit({ type: 'pointer-move', coordinate: control.coordinate, anchor: control });
-    expect(view?.state.lines).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
+    expect(visibleTooltipLines(view?.state.lines)).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
     port.emit({ type: 'move-start', anchor: control, coordinate: control.coordinate });
-    expect(view?.state.lines).toEqual(['拖拽中…']);
+    expect(visibleTooltipLines(view?.state.lines)).toEqual(['拖拽中…']);
     port.emit({ type: 'move-cancel', anchor: control });
-    expect(view?.state.lines).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点', '右击退出编辑']);
+    expect(visibleTooltipLines(view?.state.lines)).toEqual(['拖拽控制点进行编辑', '按住 Alt 单击中点添加点 | 按住 Alt 单击可删除控制点', '右击退出编辑']);
 
     port.emit({ type: 'insert', anchor: insertion });
-    expect(view?.state.lines).toContain('Ctrl+Z 撤销 (1)');
+    expect(visibleTooltipLines(view?.state.lines)).toContain('Ctrl+Z 撤销 (1)');
+    expect(
+      tooltipTones(
+        view?.state.lines.find((line) => tooltipLineText(line).startsWith('Ctrl+Z')),
+        'Ctrl+Z 撤销 (1)'
+      )
+    ).toEqual(['undo']);
     expect(session.undo()).toBe(true);
-    expect(view?.state.lines).toContain('Ctrl+Y 重做 (1)');
+    expect(visibleTooltipLines(view?.state.lines)).toContain('Ctrl+Y 重做 (1)');
+    expect(
+      tooltipTones(
+        view?.state.lines.find((line) => tooltipLineText(line).startsWith('Ctrl+Y')),
+        'Ctrl+Y 重做 (1)'
+      )
+    ).toEqual(['redo']);
 
     session.cancel();
     expect(view?.destroyed).toBe(true);

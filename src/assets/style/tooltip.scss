@@ -4,11 +4,43 @@
   border-radius: 4px;
   color: white;
   padding: 4px 8px;
-  opacity: 0.7;
   white-space: nowrap;
   font-size: 12px;
   cursor: default;
   user-select: none;
+}
+
+.ol-tooltip-segment--shortcut,
+.ol-tooltip-segment--undo,
+.ol-tooltip-segment--redo,
+.ol-tooltip-segment--danger,
+.ol-tooltip-segment--exit,
+.ol-tooltip-segment--muted {
+  font-weight: 600;
+}
+
+.ol-tooltip-segment--shortcut {
+  color: #7dd3fc;
+}
+
+.ol-tooltip-segment--undo {
+  color: #ff9800;
+}
+
+.ol-tooltip-segment--redo {
+  color: #00bfa5;
+}
+
+.ol-tooltip-segment--danger {
+  color: #d9363f;
+}
+
+.ol-tooltip-segment--exit {
+  color: #fc972b;
+}
+
+.ol-tooltip-segment--muted {
+  color: #999;
 }
 
 .ol-draw-tooltip,

@@ -3,12 +3,26 @@ import type { Coordinate } from '../common/types.js';
 /** 内部交互提示框的视觉变体。 */
 export type TooltipVariant = 'draw' | 'edit' | 'transform';
 
+/** Tooltip 文本片段的语义色调。 */
+export type TooltipSegmentTone = 'shortcut' | 'undo' | 'redo' | 'danger' | 'exit' | 'muted';
+
+/** 由 Session 显式标注语义的 Tooltip 文本片段。 */
+export interface TooltipSegment {
+  /** 安全写入 DOM textContent 的纯文本。 */
+  readonly text: string;
+  /** 可选的快捷键或状态色调。 */
+  readonly tone?: TooltipSegmentTone;
+}
+
+/** Tooltip 行可以是普通文本，也可以是已经分段的语义富文本。 */
+export type TooltipLine = string | readonly TooltipSegment[];
+
 /** 内部交互提示框的可变视图状态。 */
 export interface TooltipViewState {
   /** 提示框当前所在的地图坐标。 */
   readonly position: Coordinate;
   /** 需要显示的多行提示文字。 */
-  readonly lines: readonly string[];
+  readonly lines: readonly TooltipLine[];
   /** 相对地图坐标的像素偏移。 */
   readonly offset: readonly [number, number];
   /** 是否显示提示框。 */

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { isElementSnapshot } from '../src/core/element/snapshot.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { InteractionConflictError, InvalidArgumentError } from '../src/core/errors.js';
+import type { TooltipLine } from '../src/core/ports/TooltipPort.js';
 import type { TransformDelta } from '../src/core/ports/TransformInteractionPort.js';
 import type { TransformToolbarViewHandle } from '../src/core/ports/TransformToolbarPort.js';
 import type { Element } from '../src/facade/Element.js';
@@ -9,8 +10,17 @@ import { TransformFacade } from '../src/facade/TransformFacade.js';
 import type { ElementService } from '../src/facade/types.js';
 import type { TransformOptions } from '../src/facade/transformTypes.js';
 import { TransformSessionFacade } from '../src/facade/TransformSessionFacade.js';
+import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { addElement, createTransformHarness } from './helpers/transformHarness.js';
+
+function visibleTooltipLines(lines: readonly TooltipLine[] | undefined): readonly string[] {
+  return lines?.map(tooltipLineText) ?? [];
+}
+
+function tooltipTones(line: TooltipLine | undefined, text: string): readonly (string | undefined)[] {
+  return typeof line === 'string' || line === undefined ? [] : line.filter((segment) => segment.text.trim() === text).map(({ tone }) => tone);
+}
 
 describe('TransformSession v2', () => {
   coversCapabilities(
@@ -103,7 +113,7 @@ describe('TransformSession v2', () => {
     expect(harness.log).toContain('animation:pause:point-cancel');
     expect(harness.log).toContain('animation:resume:point-cancel');
     expect(harness.cursorPort.views[0]?.cursor).toBeUndefined();
-    expect(harness.tooltipPort.views[0]?.state.lines[0]).toBe('选择控制点进行变换操作');
+    expect(visibleTooltipLines(harness.tooltipPort.views[0]?.state.lines)[0]).toBe('选择控制点进行变换操作');
 
     session.finish();
     expect(harness.store.get('point-cancel')?.geometry).toEqual({ type: 'point', controlPoints: [[1, 2]] });
@@ -137,10 +147,52 @@ describe('TransformSession v2', () => {
     expect(harness.store.get('polygon-cancel')?.geometry).toEqual(original.geometry);
     expect(session.undo()).toBe(false);
     expect(harness.cursorPort.views[0]?.cursor).toBeUndefined();
-    expect(harness.tooltipPort.views[0]?.state.lines[0]).toBe('拖拽控制点编辑图形');
+    expect(visibleTooltipLines(harness.tooltipPort.views[0]?.state.lines)[0]).toBe('拖拽控制点编辑图形');
 
     session.finish();
     expect(harness.store.get('polygon-cancel')?.geometry).toEqual(original.geometry);
+  });
+
+  it.each(['api', 'keyboard'] as const)('refreshes the disabled Ctrl+V tone immediately after %s copy', (trigger) => {
+    const harness = createTransformHarness();
+    addElement(harness, 'copy-source', 'polygon', [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ]);
+    const session = harness.service.select('copy-source');
+    const shortcutLine = () => harness.tooltipPort.views[0]?.state.lines.find((line) => tooltipLineText(line).includes('Ctrl+V'));
+
+    expect(tooltipTones(shortcutLine(), 'Ctrl+V')).toEqual(['muted']);
+    if (trigger === 'api') session.copy();
+    else harness.input.key('c', { ctrlKey: true });
+    expect(tooltipTones(shortcutLine(), 'Ctrl+V')).toEqual(['shortcut']);
+
+    session.cancel();
+  });
+
+  it('retains a Tooltip handle whose first destroy fails and retries it during later cleanup', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'tooltip-retry', 'point', [[1, 2]]);
+    const session = harness.service.select('tooltip-retry');
+    const tooltip = harness.tooltipPort.views[0];
+    if (tooltip === undefined) throw new Error('Transform tooltip was not created');
+    const nativeDestroy = tooltip.destroy.bind(tooltip);
+    const destroy = vi
+      .spyOn(tooltip, 'destroy')
+      .mockImplementationOnce(() => {
+        throw new Error('tooltip cleanup failed');
+      })
+      .mockImplementation(() => nativeDestroy());
+
+    session.cancel();
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(tooltip.destroyed).toBe(false);
+
+    harness.service.destroy();
+    expect(destroy).toHaveBeenCalledTimes(2);
+    expect(tooltip.destroyed).toBe(true);
   });
 
   it('统一管理 Transform 与 Edit 手柄的悬停、按下和退出光标', () => {
@@ -154,6 +206,8 @@ describe('TransformSession v2', () => {
     const session = harness.service.select('polygon-a');
     const cursor = harness.cursorPort.views[0];
     if (cursor === undefined) throw new Error('Transform cursor was not opened');
+    const baseShortcutLine = harness.tooltipPort.views[0]?.state.lines.find((line) => tooltipLineText(line).includes('Ctrl+V'));
+    expect(tooltipTones(baseShortcutLine, 'Ctrl+V')).toEqual(['muted']);
 
     harness.interaction.emit({ type: 'enter-handle', key: 'scale-ne', operation: 'scale', cursor: 'nwse-resize' });
     expect(cursor.cursor).toBe('nwse-resize');
@@ -187,10 +241,13 @@ describe('TransformSession v2', () => {
     expect(cursor.cursor).toBe('move');
     expect(harness.interaction.handle?.operationActive).toBe(false);
     expect(harness.interaction.handle?.target?.editAnchors.length).toBeGreaterThan(1);
-    expect(harness.tooltipPort.views[0]?.state.lines).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
+    expect(visibleTooltipLines(harness.tooltipPort.views[0]?.state.lines)).toEqual(['拖拽控制点编辑图形', '按住 Alt 单击删除点']);
+    expect(tooltipTones(harness.tooltipPort.views[0]?.state.lines[1], 'Alt')).toEqual(['shortcut']);
     harness.interaction.emit({ type: 'leave-handle', key: `vertex-${anchor.index}`, operation: 'vertex', cursor: 'move', anchor });
     expect(cursor.cursor).toBeUndefined();
-    expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Z 撤销 (1)');
+    expect(visibleTooltipLines(harness.tooltipPort.views[0]?.state.lines)).toContain('Ctrl+Z 撤销 (1)');
+    const undoLine = harness.tooltipPort.views[0]?.state.lines.find((line) => tooltipLineText(line).startsWith('Ctrl+Z'));
+    expect(tooltipTones(undoLine, 'Ctrl+Z 撤销 (1)')).toEqual(['undo']);
 
     session.finish();
     expect(cursor.destroyed).toBe(true);

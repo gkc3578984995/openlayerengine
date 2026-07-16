@@ -3,6 +3,7 @@ import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
 import LineString from 'ol/geom/LineString.js';
 import MultiPoint from 'ol/geom/MultiPoint.js';
+import Point from 'ol/geom/Point.js';
 import type Interaction from 'ol/interaction/Interaction.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import VectorLayer from 'ol/layer/Vector.js';
@@ -15,6 +16,13 @@ import Style from 'ol/style/Style.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
+import {
+  editControlAnchorActiveStyle,
+  editControlAnchorHoverStyle,
+  editControlAnchorPointStyle,
+  editInsertionAnchorPointStyle,
+  editInsertionAnchorHoverStyle
+} from '../src/adapters/openlayers/interactions/EditAnchorVisuals.js';
 import { TransformInteractionAdapter } from '../src/adapters/openlayers/interactions/TransformInteractionAdapter.js';
 import type { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import type { TransformHitTest } from '../src/adapters/openlayers/transform/HitTest.js';
@@ -411,6 +419,119 @@ describe('TransformInteractionAdapter', () => {
     handle.destroy();
   });
 
+  it('同步切换 Transform Edit 锚点 hover/active 反馈，并在离开、取消、结构编辑和生命周期结束时清空', () => {
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-edit-anchor-feedback', options, (event) => received.push(event));
+    const target = structuralEditTarget();
+    const control = target.editAnchors.find((anchor) => anchor.kind === 'control' && anchor.removable);
+    const insertion = target.editAnchors.find((anchor) => anchor.kind === 'insertion');
+    if (control?.kind !== 'control' || insertion?.kind !== 'insertion') throw new Error('Transform Edit feedback anchors were not created.');
+    handle.setTarget(target);
+    const source = transformSource(map);
+    const expectInsertionBeforeControl = (): void => {
+      const features = source.getFeatures();
+      expect(editInsertionAnchorPointStyle.getImage()).toBeNull();
+      expect(editControlAnchorPointStyle.getImage()).toBeNull();
+      expect(editInsertionAnchorPointStyle.getRenderer()).toBeTypeOf('function');
+      expect(editControlAnchorPointStyle.getRenderer()).toBeTypeOf('function');
+      const insertionIndex = features.findIndex((feature) => feature.getStyle() === editInsertionAnchorPointStyle);
+      const controlIndex = features.findIndex((feature) => feature.getStyle() === editControlAnchorPointStyle);
+      expect(insertionIndex).toBeGreaterThanOrEqual(0);
+      expect(controlIndex).toBeGreaterThanOrEqual(0);
+      expect(insertionIndex).toBeLessThan(controlIndex);
+    };
+    expectInsertionBeforeControl();
+    const input = map.interactions.item(0);
+    if (input === null) throw new Error('Transform interaction was not installed.');
+    const move = (coordinate: readonly [number, number]): void => {
+      input.handleEvent(pointerGestureEvent('pointermove', coordinate));
+    };
+    const structuralClick = (coordinate: readonly [number, number]): void => {
+      const originalEvent = Object.assign(new Event('pointerdown'), { altKey: true });
+      map.dispatchEvent(mapPointerEvent('click', coordinate, originalEvent, coordinate));
+      map.dispatchEvent(mapPointerEvent('singleclick', coordinate, originalEvent, coordinate));
+    };
+
+    move(control.coordinate as readonly [number, number]);
+    const feedback = editAnchorFeedbackFeature(map);
+    expect(feedback.getGeometry()).toBeInstanceOf(Point);
+    expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+    expect(feedback.get(handleMetadata)).toBeUndefined();
+
+    handle.setTarget(target);
+    expect(feedback.getGeometry()).toBeUndefined();
+    move(control.coordinate as readonly [number, number]);
+    expect(feedback.getGeometry()).toBeInstanceOf(Point);
+    expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+    expect(
+      received.filter(
+        (event): event is { type: string; key?: string } =>
+          event !== null && typeof event === 'object' && 'type' in event && (event as { type?: unknown }).type === 'enter-handle'
+      )
+    ).toHaveLength(2);
+
+    input.handleEvent(pointerGestureEvent('pointerdown', control.coordinate as readonly [number, number]));
+    expect(feedback.getStyle()).toBe(editControlAnchorActiveStyle);
+    input.handleEvent(pointerGestureEvent('pointerup', control.coordinate as readonly [number, number]));
+    expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+    expect(feedback.getGeometry()).toBeInstanceOf(Point);
+
+    handle.setOperationActive(true, 'vertex');
+    handle.setTarget({ ...target, controlPoints: [control.coordinate], editAnchors: [control] });
+    handle.setTarget(target);
+    handle.setOperationActive(false);
+    expectInsertionBeforeControl();
+
+    move([1_000, 1_000]);
+    expect(feedback.getGeometry()).toBeUndefined();
+
+    move(insertion.coordinate as readonly [number, number]);
+    expect(editAnchorFeedbackFeature(map)).toBe(feedback);
+    expect(feedback.getStyle()).toBe(editInsertionAnchorHoverStyle);
+    structuralClick(insertion.coordinate as readonly [number, number]);
+    expect(structuralEvents(received)).toContainEqual({ type: 'edit-insert', anchor: insertion });
+    expect(feedback.getGeometry()).toBeUndefined();
+
+    move(control.coordinate as readonly [number, number]);
+    structuralClick(control.coordinate as readonly [number, number]);
+    expect(structuralEvents(received)).toContainEqual({ type: 'edit-remove', anchor: control });
+    expect(feedback.getGeometry()).toBeUndefined();
+
+    move(control.coordinate as readonly [number, number]);
+    input.handleEvent(pointerGestureEvent('pointerdown', control.coordinate as readonly [number, number]));
+    expect(feedback.getStyle()).toBe(editControlAnchorActiveStyle);
+    input.handleEvent(pointerGestureEvent('pointerup', control.coordinate as readonly [number, number], { nativeType: 'pointercancel' }));
+    expect(feedback.getGeometry()).toBeUndefined();
+
+    move(control.coordinate as readonly [number, number]);
+    handle.setTarget(polygonTarget());
+    expect(source.getFeatures()).not.toContain(feedback);
+    expect(feedback.getGeometry()).toBeUndefined();
+    expect(feedback.getStyle()).toBeUndefined();
+
+    handle.setTarget(target);
+    move(control.coordinate as readonly [number, number]);
+    const clearedFeedback = editAnchorFeedbackFeature(map);
+    handle.clearTarget();
+    expect(source.getFeatures()).toEqual([]);
+    expect(clearedFeedback.getGeometry()).toBeUndefined();
+    expect(clearedFeedback.getStyle()).toBeUndefined();
+
+    handle.setTarget(target);
+    move(control.coordinate as readonly [number, number]);
+    const destroyedFeedback = editAnchorFeedbackFeature(map);
+    handle.destroy();
+    expect(map.layers.getLength()).toBe(0);
+    expect(source.getFeatures()).toEqual([]);
+    expect(destroyedFeedback.getGeometry()).toBeUndefined();
+    expect(destroyedFeedback.getStyle()).toBeUndefined();
+  });
+
   it('filters overlapping Transform Edit anchors before nearest-hit selection', () => {
     const map = new MapHarness();
     const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
@@ -745,6 +866,15 @@ function transformHandleFeature(map: MapHarness, key: string): Feature<Geometry>
     .find((candidate) => (candidate.get(handleMetadata) as Readonly<{ key?: string }> | undefined)?.key === key);
   if (feature === undefined) throw new Error(`Transform handle ${key} was not found.`);
   return feature;
+}
+
+function editAnchorFeedbackFeature(map: MapHarness): Feature<Geometry> {
+  const feedbackStyles = [editControlAnchorHoverStyle, editInsertionAnchorHoverStyle, editControlAnchorActiveStyle];
+  const feedback = transformSource(map)
+    .getFeatures()
+    .find((feature) => feedbackStyles.includes(feature.getStyle() as Style));
+  if (feedback === undefined) throw new Error('Transform Edit anchor feedback feature was not found.');
+  return feedback;
 }
 
 function geometryCenterX(feature: Feature<Geometry>): number {

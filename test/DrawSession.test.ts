@@ -11,6 +11,7 @@ import type { HorizontalWorld } from '../src/core/common/worldWrap.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import { InteractionConflictError, InvalidArgumentError } from '../src/core/errors.js';
 import type { InputEventMap } from '../src/core/ports/InputPort.js';
+import type { TooltipLine } from '../src/core/ports/TooltipPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import type { ShapeDefinition } from '../src/core/shape/types.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
@@ -20,11 +21,20 @@ import { StyleService } from '../src/services/style/StyleService.js';
 import { InteractionCoordinator } from '../src/services/events/InteractionCoordinator.js';
 import { DrawService } from '../src/services/draw/DrawService.js';
 import type { RoutedPointerEvent } from '../src/services/events/types.js';
+import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { FakeCursorPort } from './helpers/cursorHarness.js';
 import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
+
+function visibleTooltipLines(lines: readonly TooltipLine[] | undefined): readonly string[] {
+  return lines?.map(tooltipLineText) ?? [];
+}
+
+function tooltipTone(line: TooltipLine | undefined, text: string): string | undefined {
+  return typeof line === 'string' || line === undefined ? undefined : line.find((segment) => segment.text.includes(text))?.tone;
+}
 
 class FakeDrawPort implements DrawInteractionPort {
   readonly previews: Array<Readonly<DrawInteractionRenderState> | undefined> = [];
@@ -146,15 +156,16 @@ describe('DrawSession', () => {
 
     const view = tooltip.views[0];
     expect(view?.spec).toMatchObject({ ownerId: 'draw:draw-layer', variant: 'draw', offset: [15, -11] });
-    expect(view?.state).toMatchObject({ position: [2, 3], lines: ['左击开始绘制，右击退出绘制', '按住 Shift 拖动可自由绘制'] });
+    expect(view?.state.position).toEqual([2, 3]);
+    expect(visibleTooltipLines(view?.state.lines)).toEqual(['左击开始绘制，右击退出绘制', '按住 Shift 拖动可自由绘制']);
+    expect(tooltipTone(view?.state.lines[1], 'Shift')).toBe('shortcut');
 
     port.emit({ type: 'move', coordinate: [4, 5] });
     port.emit({ type: 'click', coordinate: [4, 5] });
     expect(tooltip.views).toHaveLength(1);
-    expect(view?.state).toMatchObject({
-      position: [4, 5],
-      lines: ['左击开始绘制，右击退出绘制', '按住 Shift 拖动可自由绘制', 'Ctrl+Z 撤销 (1)']
-    });
+    expect(view?.state.position).toEqual([4, 5]);
+    expect(visibleTooltipLines(view?.state.lines)).toEqual(['左击开始绘制，右击退出绘制', '按住 Shift 拖动可自由绘制', 'Ctrl+Z 撤销 (1)']);
+    expect(tooltipTone(view?.state.lines[2], 'Ctrl+Z')).toBe('undo');
 
     session.cancel();
     expect(view?.destroyed).toBe(true);

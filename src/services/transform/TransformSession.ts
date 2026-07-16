@@ -40,6 +40,7 @@ import type { ControlPointHandle, ControlPointInsertion, ShapeDefinition, ShapeS
 import { isNativeStyleRef, type IconSymbolSpec, type StyleSpec, type TextSpec } from '../../core/style/types.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
+import { formatTooltipLines } from '../events/TooltipFormatting.js';
 import type { ContextMenuDecision, InteractionCancelReason, InteractionStatus, RoutedPointerEvent } from '../events/types.js';
 import type { StyleService } from '../style/StyleService.js';
 import { TransformHistory, metadata } from './TransformHistory.js';
@@ -148,6 +149,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #listeners = new Map<keyof InternalTransformEventMap<T>, Map<number, Listener>>();
   /** 等待重试销毁的工具栏句柄。 */
   readonly #toolbarCleanup = new Set<TransformToolbarViewHandle>();
+  /** 等待重试销毁的鼠标提示句柄。 */
+  readonly #tooltipCleanup = new Set<TransformTooltipViewHandle>();
   /** 会话当前状态。 */
   #status: InteractionStatus = 'active';
   /** 底层变换交互句柄。 */
@@ -156,6 +159,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #toolbar: TransformToolbarViewHandle | undefined;
   /** 当前鼠标提示句柄。 */
   #tooltip: TransformTooltipViewHandle | undefined;
+  /** 当前 Tooltip 对应的原始纯文本行，用于剪贴板状态变化时仅刷新语义色调。 */
+  #tooltipSourceLines: readonly string[] = Object.freeze([]);
   /** 当前 viewport 光标所有权句柄。 */
   #cursor: CursorViewHandle | undefined;
   /** 最近悬停手柄建议使用的光标。 */
@@ -204,6 +209,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #cleanupRunning = false;
   /** 是否正在清理工具栏资源。 */
   #toolbarCleanupRunning = false;
+  /** 是否正在清理鼠标提示资源。 */
+  #tooltipCleanupRunning = false;
   /** 是否已释放交互协调器。 */
   #coordinatorReleased = false;
   /** 是否已通知会话终止。 */
@@ -391,6 +398,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const state = this.#requireWorking();
     const copied = this.#commitCopy(state, options);
     this.#writeClipboard(cloneElementSnapshot(this.#shapes, state));
+    this.#refreshTooltipFormatting();
     this.#emit('copyPreviewConfirm', freeze({ type: 'copyPreviewConfirm', state: copied }));
     return copied;
   }
@@ -844,6 +852,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       event.preventDefault();
     } else if (command && key === 'c' && this.#working !== undefined) {
       this.#writeClipboard(cloneElementSnapshot(this.#shapes, this.#working));
+      this.#refreshTooltipFormatting();
       event.preventDefault();
     } else if (command && key === 'v') {
       this.#beginCopyPreview();
@@ -960,24 +969,38 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#destroyTooltip();
     if (this.#tooltipPort === undefined || this.#working === undefined) return;
     const position = this.#lastPointerCoordinate ?? this.#toolbarAnchor ?? toolbarPosition(this.#shapes.get(this.#working.type), this.#working.geometry);
+    const lines = this.#baseTooltipLines();
+    this.#tooltipSourceLines = Object.freeze([...lines]);
     this.#tooltip = this.#tooltipPort.open({
       ownerId: this.id,
       position,
-      lines: this.#baseTooltipLines(),
+      lines: this.#formatTooltipLines(this.#tooltipSourceLines),
       offset: [15, -11],
       visible: true
     });
   }
 
-  /** 销毁当前鼠标提示。 */
+  /** 销毁当前及此前失败后等待重试的鼠标提示。 */
   #destroyTooltip(): void {
     const tooltip = this.#tooltip;
-    this.#tooltip = undefined;
-    if (tooltip === undefined) return;
+    if (tooltip !== undefined) {
+      this.#tooltip = undefined;
+      this.#tooltipCleanup.add(tooltip);
+    }
+    this.#tooltipSourceLines = Object.freeze([]);
+    if (this.#tooltipCleanupRunning) return;
+    this.#tooltipCleanupRunning = true;
     try {
-      tooltip.destroy();
-    } catch (error) {
-      this.#report(error, 'destroy-tooltip');
+      for (const pending of [...this.#tooltipCleanup]) {
+        try {
+          pending.destroy();
+          this.#tooltipCleanup.delete(pending);
+        } catch (error) {
+          this.#report(error, 'destroy-tooltip');
+        }
+      }
+    } finally {
+      this.#tooltipCleanupRunning = false;
     }
   }
 
@@ -1008,7 +1031,20 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   /** 更新鼠标提示的文本行。 */
   #setTooltipLines(lines: readonly string[]): void {
-    this.#tooltip?.update({ lines });
+    this.#tooltipSourceLines = Object.freeze([...lines]);
+    this.#tooltip?.update({ lines: this.#formatTooltipLines(this.#tooltipSourceLines) });
+  }
+
+  /** 在不改变当前提示文案或悬停状态的前提下，刷新依赖剪贴板可用性的语义色调。 */
+  #refreshTooltipFormatting(): void {
+    if (this.#tooltipSourceLines.length === 0) return;
+    this.#tooltip?.update({ lines: this.#formatTooltipLines(this.#tooltipSourceLines) });
+  }
+
+  /** 继承旧版粘贴不可用的弱化语义，并统一生成安全分段。 */
+  #formatTooltipLines(lines: readonly string[]): ReturnType<typeof formatTooltipLines> {
+    const mutedShortcuts = lines.some((line) => line.includes('Ctrl+V')) && this.#readClipboard() === undefined ? mutedPasteShortcut : [];
+    return formatTooltipLines(lines, mutedShortcuts);
   }
 
   /** 生成当前模式的基础提示行。 */
@@ -1058,12 +1094,13 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
 
   /** 合并更新交互事件携带的提示位置和文字。 */
   #updateTooltipFromEvent(event: { readonly coordinate?: Coordinate }, lines: readonly string[]): void {
+    this.#tooltipSourceLines = Object.freeze([...lines]);
     if (event.coordinate === undefined) {
-      this.#tooltip?.update({ lines });
+      this.#tooltip?.update({ lines: this.#formatTooltipLines(this.#tooltipSourceLines) });
       return;
     }
     this.#lastPointerCoordinate = cloneCoordinate(event.coordinate);
-    this.#tooltip?.update({ position: this.#lastPointerCoordinate, lines });
+    this.#tooltip?.update({ position: this.#lastPointerCoordinate, lines: this.#formatTooltipLines(this.#tooltipSourceLines) });
   }
 
   /** 清除当前元素选择及关联视图。 */
@@ -1289,6 +1326,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         this.#unsubscribeStore === undefined &&
         this.#unsubscribeInput === undefined &&
         this.#toolbarCleanup.size === 0 &&
+        this.#tooltipCleanup.size === 0 &&
         !this.#terminalNotified
       ) {
         this.#onTerminal();
@@ -1354,6 +1392,9 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#finishing) throw new InvalidArgumentError('Transform session is finishing');
   }
 }
+
+/** 旧版在剪贴板为空时使用灰色显示粘贴快捷键。 */
+const mutedPasteShortcut: readonly string[] = Object.freeze(['Ctrl+V']);
 
 /** Transform 会话允许订阅的事件类型。 */
 const eventTypes = new Set<keyof InternalTransformEventMap>([

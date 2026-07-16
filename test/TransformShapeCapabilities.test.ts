@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { shapeTypes } from '../src/core/shape/types.js';
+import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { addElement, createTransformHarness, representativePoints } from './helpers/transformHarness.js';
 
@@ -70,11 +71,11 @@ describe('Transform shape capabilities', () => {
       expect(operations.at(-1)).toBe('insert');
       expect(harness.store.get(id)?.geometry).toEqual(original.geometry);
       expect(commits).not.toHaveBeenCalled();
-      expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Z 撤销 (1)');
+      expect(harness.tooltipPort.views[0]?.state.lines.map(tooltipLineText)).toContain('Ctrl+Z 撤销 (1)');
 
       expect(session.undo()).toBe(true);
       expect(harness.interaction.handle?.target?.controlPoints).toEqual(originalControlPoints);
-      expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Y 重做 (1)');
+      expect(harness.tooltipPort.views[0]?.state.lines.map(tooltipLineText)).toContain('Ctrl+Y 重做 (1)');
       expect(session.redo()).toBe(true);
       expect(harness.interaction.handle?.target?.controlPoints).toEqual(insertedControlPoints);
 
@@ -89,7 +90,7 @@ describe('Transform shape capabilities', () => {
       expect(operations.at(-1)).toBe('remove');
       expect(harness.store.get(id)?.geometry).toEqual(original.geometry);
       expect(commits).not.toHaveBeenCalled();
-      expect(harness.tooltipPort.views[0]?.state.lines).toContain('Ctrl+Z 撤销 (2)');
+      expect(harness.tooltipPort.views[0]?.state.lines.map(tooltipLineText)).toContain('Ctrl+Z 撤销 (2)');
 
       expect(session.undo()).toBe(true);
       expect(harness.interaction.handle?.target?.controlPoints).toEqual(insertedControlPoints);

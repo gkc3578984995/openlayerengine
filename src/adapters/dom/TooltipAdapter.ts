@@ -2,7 +2,19 @@ import type OlMap from 'ol/Map.js';
 import Overlay from 'ol/Overlay.js';
 import { runFinalizers } from '../../core/common/dispose.js';
 import { InvalidArgumentError } from '../../core/errors.js';
-import type { TooltipPort, TooltipVariant, TooltipViewHandle, TooltipViewSpec, TooltipViewState } from '../../core/ports/TooltipPort.js';
+import type {
+  TooltipLine,
+  TooltipPort,
+  TooltipSegment,
+  TooltipSegmentTone,
+  TooltipVariant,
+  TooltipViewHandle,
+  TooltipViewSpec,
+  TooltipViewState
+} from '../../core/ports/TooltipPort.js';
+
+/** DOM 类名允许使用的 Tooltip 语义色调。 */
+const tooltipSegmentTones = new Set<TooltipSegmentTone>(['shortcut', 'undo', 'redo', 'danger', 'exit', 'muted']);
 
 /** 交互提示框 DOM 适配器的可选配置。 */
 export interface TooltipAdapterOptions {
@@ -68,8 +80,17 @@ class TooltipView implements TooltipViewHandle {
     });
     overlay.setPosition([...this.#state.position]);
     this.#overlay = overlay;
-    map.addOverlay(overlay);
-    this.#applyVisibility();
+    try {
+      map.addOverlay(overlay);
+      this.#applyVisibility();
+    } catch (error) {
+      try {
+        runFinalizers([() => map.removeOverlay(overlay), () => overlay.setElement(undefined), () => overlay.dispose(), () => root.remove()]);
+      } catch {
+        // 回滚失败不能覆盖最初的挂载错误；构造失败后不向调用方暴露半成品句柄。
+      }
+      throw error;
+    }
   }
 
   /** 更新提示框内容、位置和可见性。 */
@@ -80,7 +101,7 @@ class TooltipView implements TooltipViewHandle {
     this.#state = next;
     if (!numbersEqual(previous.position, next.position)) this.#overlay?.setPosition([...next.position]);
     if (!numbersEqual(previous.offset, next.offset)) this.#overlay?.setOffset([...next.offset]);
-    if (!stringsEqual(previous.lines, next.lines)) this.#render();
+    if (!tooltipLinesEqual(previous.lines, next.lines)) this.#render(previous.lines);
     if (previous.visible !== next.visible) this.#applyVisibility();
   }
 
@@ -114,19 +135,22 @@ class TooltipView implements TooltipViewHandle {
   }
 
   /** 按当前状态渲染每一行提示文字。 */
-  #render(): void {
+  #render(previousLines?: readonly TooltipLine[]): void {
     const root = this.#root;
     if (root === undefined) return;
     const rows = Array.from(root.children) as HTMLElement[];
     for (let index = 0; index < this.#state.lines.length; index += 1) {
       const line = this.#state.lines[index];
       let row = rows[index];
+      let created = false;
       if (row === undefined) {
         row = root.ownerDocument.createElement('div');
         row.className = `ol-${this.#variant}-tooltip-line`;
         root.append(row);
+        created = true;
       }
-      if (row.textContent !== line) row.textContent = line;
+      const previousLine = previousLines?.[index];
+      if (created || previousLine === undefined || !tooltipLineEqual(previousLine, line)) renderTooltipLine(row, line);
     }
     for (let index = this.#state.lines.length; index < rows.length; index += 1) rows[index]?.remove();
   }
@@ -146,16 +170,15 @@ function copyState(state: TooltipViewState): TooltipViewState {
   ) {
     throw new InvalidArgumentError('Tooltip position must contain two or three finite numbers');
   }
-  if (!Array.isArray(state.lines) || state.lines.length === 0 || state.lines.some((line) => typeof line !== 'string' || line.length === 0)) {
-    throw new InvalidArgumentError('Tooltip lines must contain non-empty strings');
-  }
+  if (!Array.isArray(state.lines) || state.lines.length === 0) throw new InvalidArgumentError('Tooltip lines must contain non-empty text');
+  const lines = state.lines.map(copyTooltipLine);
   if (!Array.isArray(state.offset) || state.offset.length !== 2 || state.offset.some((value) => !Number.isFinite(value))) {
     throw new InvalidArgumentError('Tooltip offset must contain two finite numbers');
   }
   if (typeof state.visible !== 'boolean') throw new InvalidArgumentError('Tooltip visible must be a boolean');
   return Object.freeze({
     position: Object.freeze([...state.position]) as TooltipViewState['position'],
-    lines: Object.freeze([...state.lines]),
+    lines: Object.freeze(lines),
     offset: Object.freeze([state.offset[0], state.offset[1]]) as readonly [number, number],
     visible: state.visible
   });
@@ -173,9 +196,51 @@ function numbersEqual(left: readonly number[], right: readonly number[]): boolea
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-/** 判断两组提示文字是否逐项相同。 */
-function stringsEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+/** 安全渲染一行纯文本或由 Session 标注语义的文本片段。 */
+function renderTooltipLine(row: HTMLElement, line: TooltipLine): void {
+  if (typeof line === 'string') {
+    row.replaceChildren();
+    row.textContent = line;
+    return;
+  }
+  const spans = line.map((segment) => {
+    const span = row.ownerDocument.createElement('span');
+    span.className = segment.tone === undefined ? 'ol-tooltip-segment' : `ol-tooltip-segment ol-tooltip-segment--${segment.tone}`;
+    span.textContent = segment.text;
+    return span;
+  });
+  row.replaceChildren(...spans);
+}
+
+/** 校验并深复制单行 Tooltip 内容。 */
+function copyTooltipLine(line: TooltipLine): TooltipLine {
+  if (typeof line === 'string') {
+    if (line.length === 0) throw new InvalidArgumentError('Tooltip lines must contain non-empty text');
+    return line;
+  }
+  if (!Array.isArray(line) || line.length === 0) throw new InvalidArgumentError('Tooltip segmented lines must contain at least one segment');
+  return Object.freeze(line.map(copyTooltipSegment));
+}
+
+/** 校验并复制单个 Tooltip 文本片段。 */
+function copyTooltipSegment(segment: TooltipSegment): TooltipSegment {
+  if (typeof segment !== 'object' || segment === null || typeof segment.text !== 'string' || segment.text.length === 0) {
+    throw new InvalidArgumentError('Tooltip segments must contain non-empty text');
+  }
+  if (segment.tone !== undefined && !tooltipSegmentTones.has(segment.tone)) throw new InvalidArgumentError('Tooltip segment tone is invalid');
+  return Object.freeze({ text: segment.text, ...(segment.tone === undefined ? {} : { tone: segment.tone }) });
+}
+
+/** 判断两组 Tooltip 行是否逐项、逐片段相同。 */
+function tooltipLinesEqual(left: readonly TooltipLine[], right: readonly TooltipLine[]): boolean {
+  return left.length === right.length && left.every((line, index) => tooltipLineEqual(line, right[index]));
+}
+
+/** 判断两行纯文本或语义片段是否相同。 */
+function tooltipLineEqual(left: TooltipLine, right: TooltipLine | undefined): boolean {
+  if (right === undefined || typeof left !== typeof right) return false;
+  if (typeof left === 'string' || typeof right === 'string') return left === right;
+  return left.length === right.length && left.every((segment, index) => segment.text === right[index]?.text && segment.tone === right[index]?.tone);
 }
 
 /** 读取不能为空的字符串。 */
