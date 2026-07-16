@@ -14,7 +14,11 @@ import {
   type TransformEventMap,
   type TransformSession
 } from '../../src/index.ts';
-import { editControlAnchorBatchRenderer, editInsertionAnchorBatchRenderer } from '../../src/adapters/openlayers/interactions/EditAnchorVisuals.ts';
+import {
+  editControlAnchorBatchRenderer,
+  editControlAnchorHoverStyle,
+  editInsertionAnchorBatchRenderer
+} from '../../src/adapters/openlayers/interactions/EditAnchorVisuals.ts';
 import '../../src/assets/style/public.scss';
 
 type MapName = 'a' | 'b';
@@ -73,6 +77,11 @@ interface MultiPointGeometryProbe {
   getCoordinates(): readonly (readonly number[])[];
 }
 
+interface PointGeometryProbe {
+  getType(): string;
+  getCoordinates(): readonly number[];
+}
+
 interface BrowserFixture {
   readonly ready: boolean;
   snapshot(name: MapName): unknown;
@@ -117,6 +126,7 @@ interface BrowserFixture {
   elementPixel(elementId: string, controlPointIndex?: number): readonly [number, number];
   editControlPixel(controlPointIndex: number): readonly [number, number];
   editInsertionPixel(insertionIndex: number): readonly [number, number];
+  editFeedbackPixel(): readonly [number, number] | undefined;
   elementState(elementId: string): unknown;
   destroyA(preserveViewport?: boolean): Promise<void>;
   recreateDefaultA(): unknown;
@@ -488,6 +498,9 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   },
   editInsertionPixel(insertionIndex) {
     return editAnchorPixel(a, insertionIndex, editInsertionAnchorBatchRenderer, 'insertion');
+  },
+  editFeedbackPixel() {
+    return editFeedbackPixel(a);
   },
   elementState(elementId) {
     return cloneGeometry(requireOwnedElement(a, elementId).state.geometry);
@@ -945,6 +958,28 @@ function editAnchorPixel(current: Runtime, index: number, renderer: unknown, lab
   const coordinate = anchorCoordinates?.[index];
   if (coordinate === undefined) throw new Error(`Edit ${label} point does not exist: ${index}`);
   return pixelOf(current, coordinate);
+}
+
+/** 读取独立 Edit 当前 hover 反馈点的像素，不触发额外指针事件。 */
+function editFeedbackPixel(current: Runtime): readonly [number, number] | undefined {
+  current.earth.map.renderSync();
+  for (const layer of current.earth.map.getLayers().getArray()) {
+    const source = (layer as unknown as { getSource?: () => unknown }).getSource?.();
+    if (!isNativeSourceProbe(source)) continue;
+    for (const feature of source.getFeatures()) {
+      if (feature.getStyle?.() !== editControlAnchorHoverStyle) continue;
+      const geometry = (feature as NativeFeatureProbe & { getGeometry?: () => unknown }).getGeometry?.();
+      if (!isPointGeometryProbe(geometry)) continue;
+      return pixelOf(current, geometry.getCoordinates());
+    }
+  }
+  return undefined;
+}
+
+function isPointGeometryProbe(value: unknown): value is PointGeometryProbe {
+  if (value === null || typeof value !== 'object') return false;
+  const probe = value as Partial<PointGeometryProbe>;
+  return typeof probe.getType === 'function' && probe.getType() === 'Point' && typeof probe.getCoordinates === 'function';
 }
 
 function transformEditAnchorPixel(current: Runtime, index: number, kind: 'control' | 'insertion'): readonly [number, number] {

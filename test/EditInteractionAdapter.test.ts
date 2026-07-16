@@ -558,11 +558,69 @@ describe('EditInteractionAdapter', () => {
     expect(received).toEqual([
       expect.objectContaining({ type: 'move-start', anchor: expect.objectContaining({ index: 0, coordinate: [0, 0] }), coordinate: [0, 0] }),
       expect.objectContaining({ type: 'move', anchor: expect.objectContaining({ index: 0, coordinate: [0, 0] }), coordinate: [2, 1] }),
-      expect.objectContaining({ type: 'move-end', anchor: expect.objectContaining({ index: 0, coordinate: [0, 0] }), coordinate: [3, 2] })
+      expect.objectContaining({ type: 'move-end', anchor: expect.objectContaining({ index: 0, coordinate: [0, 0] }), coordinate: [3, 2] }),
+      {
+        type: 'pointer-move',
+        coordinate: [offset + 3, 2],
+        anchor: { kind: 'insertion', index: 1, coordinate: [4, 0] }
+      }
     ]);
 
     handle.destroy();
     expect(map.view.getListeners('change:center')?.length ?? 0).toBe(initialCenterListeners);
+  });
+
+  it('rehits the completed control in its display world while keeping emitted anchor coordinates canonical', () => {
+    const { adapter, map } = setup({ wrapX: true });
+    const received: EditInteractionEvent[] = [];
+    const owner: { handle?: ReturnType<typeof adapter.open> } = {};
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => {
+        received.push(event);
+        if (event.type !== 'move' && event.type !== 'move-end') return;
+        const completed = renderState([[0, 0], event.coordinate], [event.coordinate[0] / 2, event.coordinate[1] / 2]);
+        owner.handle?.render(
+          event.type === 'move'
+            ? {
+                ...completed,
+                anchors: [{ kind: 'control', index: 1, coordinate: event.coordinate, role: 'end', removable: true }]
+              }
+            : completed
+        );
+      }
+    );
+    owner.handle = handle;
+
+    try {
+      handle.render(renderState());
+      const offset = 50 * 360;
+      map.view.setCenter([offset, 0]);
+      const input = editInteraction(map);
+      expect(input.handleEvent(pointerEvent('pointerdown', [offset + 8, 0]))).toBe(false);
+      expect(input.handleEvent(pointerEvent('pointerdrag', [offset + 9, 1], { button: -1 }))).toBe(false);
+      expect(input.handleEvent(pointerEvent('pointerup', [offset + 10, 2], { button: -1 }))).toBe(false);
+
+      expect(received.at(-1)).toEqual({
+        type: 'pointer-move',
+        coordinate: [offset + 10, 2],
+        anchor: { kind: 'control', index: 1, coordinate: [10, 2], role: 'end', removable: true }
+      });
+      const feedback = temporaryLayer(map)
+        .getSource()
+        ?.getFeatures()
+        .find((feature) => feature.getGeometry() instanceof Point);
+      expect((feedback?.getGeometry() as Point | undefined)?.getCoordinates()).toEqual([offset + 10, 2]);
+    } finally {
+      handle.destroy();
+    }
   });
 
   it('reuses the stable anchor index across repeated world repositions and rebuilds it only for a new render plan', () => {
@@ -670,11 +728,16 @@ describe('EditInteractionAdapter', () => {
       expect.objectContaining({ type: 'move-start', coordinate: [0, 0] }),
       expect.objectContaining({ type: 'move', coordinate: [2, 1] })
     ]);
-    expect(received.at(-1)).toEqual(
-      terminal === 'pointercancel'
-        ? expect.objectContaining({ type: 'move-cancel', anchor: expect.objectContaining({ coordinate: [0, 0] }) })
-        : expect.objectContaining({ type: 'move-end', coordinate: [3, 2] })
-    );
+    if (terminal === 'pointercancel') {
+      expect(received.at(-1)).toEqual(expect.objectContaining({ type: 'move-cancel', anchor: expect.objectContaining({ coordinate: [0, 0] }) }));
+    } else {
+      expect(received.at(-2)).toEqual(expect.objectContaining({ type: 'move-end', coordinate: [3, 2] }));
+      expect(received.at(-1)).toEqual({
+        type: 'pointer-move',
+        coordinate: [offset + 3, 2],
+        anchor: { kind: 'insertion', index: 1, coordinate: [4, 0] }
+      });
+    }
     handle.destroy();
   });
 
@@ -1100,6 +1163,104 @@ describe('EditInteractionAdapter', () => {
     }
   });
 
+  it('restores hover feedback at the latest control coordinate after move-end renders the completed topology', () => {
+    const { adapter, map } = setup();
+    const owner: { handle?: ReturnType<typeof adapter.open> } = {};
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => {
+        if (event.type !== 'move' && event.type !== 'move-end') return;
+        const completed = renderState([[0, 0], event.coordinate], [event.coordinate[0] / 2, event.coordinate[1] / 2]);
+        owner.handle?.render(
+          event.type === 'move'
+            ? {
+                ...completed,
+                anchors: [{ kind: 'control', index: 1, coordinate: event.coordinate, role: 'end', removable: true }]
+              }
+            : completed
+        );
+      }
+    );
+    owner.handle = handle;
+
+    try {
+      handle.render(renderState());
+      const input = editInteraction(map);
+      expect(input.handleEvent(pointerEvent('pointerdown', [8, 0]))).toBe(false);
+      expect(input.handleEvent(pointerEvent('pointerdrag', [9, 2], { button: -1 }))).toBe(false);
+      expect(input.handleEvent(pointerEvent('pointerup', [10, 3], { button: -1 }))).toBe(false);
+
+      const source = temporaryLayer(map).getSource();
+      if (source === null) throw new Error('Missing temporary source');
+      const feedback = source.getFeatures().filter((feature) => feature.getGeometry() instanceof Point);
+      expect(feedback).toHaveLength(1);
+      expect((feedback[0]?.getGeometry() as Point).getCoordinates()).toEqual([10, 3]);
+      expect(feedback[0]?.getStyle()).toBe(editControlAnchorHoverStyle);
+
+      input.handleEvent(pointerEvent('pointermove', [10, 3], { button: -1 }));
+      expect((feedback[0]?.getGeometry() as Point).getCoordinates()).toEqual([10, 3]);
+      input.handleEvent(pointerEvent('pointermove', [40, 40], { button: -1 }));
+      expect(feedback[0]?.getGeometry()).toBeUndefined();
+    } finally {
+      handle.destroy();
+    }
+  });
+
+  it('clears hover feedback and emits the actual release hit when completed topology moves the control away from the pointer', () => {
+    const { adapter, map } = setup();
+    const received: EditInteractionEvent[] = [];
+    const owner: { handle?: ReturnType<typeof adapter.open> } = {};
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      (event) => {
+        received.push(event);
+        if (event.type === 'move-end') {
+          owner.handle?.render(
+            renderState(
+              [
+                [0, 0],
+                [100, 100]
+              ],
+              [50, 50]
+            )
+          );
+        }
+      }
+    );
+    owner.handle = handle;
+
+    try {
+      handle.render(renderState());
+      const input = editInteraction(map);
+      expect(input.handleEvent(pointerEvent('pointerdown', [8, 0]))).toBe(false);
+      expect(input.handleEvent(pointerEvent('pointerup', [20, 10], { button: -1 }))).toBe(false);
+
+      expect(received.slice(-2)).toEqual([expect.objectContaining({ type: 'move-end', coordinate: [20, 10] }), { type: 'pointer-move', coordinate: [20, 10] }]);
+      expect(
+        temporaryLayer(map)
+          .getSource()
+          ?.getFeatures()
+          .some((feature) => feature.getGeometry() instanceof Point)
+      ).toBe(false);
+    } finally {
+      handle.destroy();
+    }
+  });
+
   it('clears stale hover feedback when a non-drag render replaces topology and allows the same anchor to highlight again', () => {
     const { adapter, map } = setup();
     const listener = vi.fn();
@@ -1283,7 +1444,7 @@ describe('EditInteractionAdapter', () => {
     input.handleEvent(pointerEvent('pointerdrag', [9, 2], { button: -1 }));
     input.handleEvent(pointerEvent('pointerup', [10, 3], { button: -1 }));
     input.handleEvent(pointerEvent('click', [4, 0]));
-    expect(received).toHaveLength(6);
+    expect(received).toHaveLength(7);
     input.handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
     input.handleEvent(pointerEvent('click', [8, 0], { altKey: true }));
 
@@ -1294,6 +1455,11 @@ describe('EditInteractionAdapter', () => {
       { type: 'move-start', anchor: { kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true }, coordinate: [8, 0] },
       { type: 'move', anchor: { kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true }, coordinate: [9, 2] },
       { type: 'move-end', anchor: { kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true }, coordinate: [10, 3] },
+      {
+        type: 'pointer-move',
+        coordinate: [10, 3],
+        anchor: { kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true }
+      },
       { type: 'insert', anchor: { kind: 'insertion', index: 1, coordinate: [4, 0] } },
       { type: 'remove', anchor: { kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true } }
     ]);
@@ -1301,7 +1467,7 @@ describe('EditInteractionAdapter', () => {
     expect(reports.map((error) => (error as Error).message)).toEqual(['listener failed']);
     handle.destroy();
     input.handleEvent(pointerEvent('pointerdown', [0, 0]));
-    expect(received).toHaveLength(8);
+    expect(received).toHaveLength(9);
   });
 
   it('uses the nearest anchor when Alt insertion and removal hit tolerances overlap', () => {
@@ -1522,9 +1688,10 @@ describe('EditInteractionAdapter', () => {
 
       input.handleEvent(pointerEvent('pointerdrag', [101, 1], { button: -1 }));
       input.handleEvent(pointerEvent('pointerup', [102, 2], { button: -1 }));
-      expect(received.slice(-2).map(({ type }) => type)).toEqual(['move', 'move-end']);
-      expect((received.at(-2) as Extract<EditInteractionEvent, { type: 'move' }>).coordinate).toEqual([101, 1]);
-      expect((received.at(-1) as Extract<EditInteractionEvent, { type: 'move-end' }>).coordinate).toEqual([102, 2]);
+      expect(received.slice(-3).map(({ type }) => type)).toEqual(['move', 'move-end', 'pointer-move']);
+      expect((received.at(-3) as Extract<EditInteractionEvent, { type: 'move' }>).coordinate).toEqual([101, 1]);
+      expect((received.at(-2) as Extract<EditInteractionEvent, { type: 'move-end' }>).coordinate).toEqual([102, 2]);
+      expect(received.at(-1)).toEqual({ type: 'pointer-move', coordinate: [102, 2] });
 
       input.handleEvent(pointerEvent('pointerdown', [0, 0]));
       input.handleEvent(pointerEvent('pointerdrag', [3, 3], { button: -1 }));
@@ -1627,7 +1794,12 @@ describe('EditInteractionAdapter', () => {
       expect(received).toEqual([
         expect.objectContaining({ type: 'move-start', coordinate: [0, 0] }),
         expect.objectContaining({ type: 'move', coordinate: [2, 1] }),
-        expect.objectContaining({ type: 'move-end', coordinate: [3, 2] })
+        expect.objectContaining({ type: 'move-end', coordinate: [3, 2] }),
+        {
+          type: 'pointer-move',
+          coordinate: [offset + 3, 2],
+          anchor: { kind: 'insertion', index: 1, coordinate: [4, 0] }
+        }
       ]);
       const line = temporaryLayer(map)
         .getSource()

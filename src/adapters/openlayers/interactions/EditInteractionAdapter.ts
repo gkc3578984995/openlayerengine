@@ -442,8 +442,8 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
           if (!completed) this.#emit({ type: 'move-cancel', anchor: dragAnchor });
           else this.#emit({ type: 'move-end', anchor: dragAnchor, coordinate });
         } finally {
-          this.#setAnchorFeedback(completed ? dragAnchor : undefined, 'hover');
           this.#flushWorldReposition();
+          this.#restoreHoverAfterMove(event, completed);
         }
         return false;
       }
@@ -776,6 +776,22 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     const bundle = this.#bundle;
     if (bundle === undefined) return;
     syncAnchorFeedbackFeature(bundle, this.#worldOffset, anchor, nextPhase);
+  }
+
+  /** 拖拽结束后按释放像素重新命中，并同步校正反馈、光标与 Tooltip。 */
+  #restoreHoverAfterMove(event: MapBrowserEvent, completed: boolean): void {
+    if (!completed || this.#closing || !this.#published) {
+      this.#setAnchorFeedback(undefined);
+      return;
+    }
+    const coordinate = safeCoordinate(event.coordinate);
+    if (coordinate === undefined) {
+      this.#setAnchorFeedback(undefined);
+      return;
+    }
+    const anchor = this.#anchorAt(event);
+    this.#setAnchorFeedback(anchor, 'hover');
+    this.#emit({ type: 'pointer-move', coordinate, ...(anchor === undefined ? {} : { anchor }) });
   }
 
   /** 获取当前预览，不存在时抛出统一错误。 */
