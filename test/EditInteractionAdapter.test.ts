@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import Collection from 'ol/Collection.js';
+import Feature from 'ol/Feature.js';
 import type { FeatureLike } from 'ol/Feature.js';
 import LineString from 'ol/geom/LineString.js';
 import MultiPoint from 'ol/geom/MultiPoint.js';
+import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import type Interaction from 'ol/interaction/Interaction.js';
 import type BaseLayer from 'ol/layer/Base.js';
@@ -14,12 +16,27 @@ import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import { clearUserProjection, fromUserCoordinate, getUserProjection, setUserProjection } from 'ol/proj.js';
 import type Source from 'ol/source/Source.js';
 import VectorSource from 'ol/source/Vector.js';
-import Style from 'ol/style/Style.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
+import Style, { type StyleFunction } from 'ol/style/Style.js';
 import RBush from 'ol/structs/RBush.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import { FeatureBinding, type ProjectionSuppressionLease } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
+import {
+  composeEditPreviewStyle,
+  editControlAnchorActiveStyle,
+  editControlAnchorHoverStyle,
+  editControlAnchorPointStyle,
+  editControlAnchorStyle,
+  editInsertionAnchorHoverStyle,
+  editInsertionAnchorPointStyle,
+  editInsertionAnchorStyle,
+  editPreviewAccentStyle,
+  editPreviewHaloStyle,
+  editUnderlayReferenceStyle
+} from '../src/adapters/openlayers/interactions/EditAnchorVisuals.js';
 import { EditInteractionAdapter } from '../src/adapters/openlayers/interactions/EditInteractionAdapter.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
@@ -191,6 +208,8 @@ function fakeCanvasContext() {
     restore: vi.fn(),
     beginPath: vi.fn(),
     moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
     arc: vi.fn(),
     fill: vi.fn(),
     stroke: vi.fn(),
@@ -200,6 +219,121 @@ function fakeCanvasContext() {
     lineWidth: 0
   };
 }
+
+describe('EditAnchorVisuals', () => {
+  it('preserves Style and Style[] business order, appends the shared edit accent, and caches each composition', () => {
+    const first = new Style({ stroke: new Stroke({ color: '#111111', width: 1 }) });
+    const second = new Style({ stroke: new Stroke({ color: '#222222', width: 2 }) });
+
+    const single = composeEditPreviewStyle(first);
+    expect(single).toEqual([first, editPreviewHaloStyle, editPreviewAccentStyle]);
+    expect(composeEditPreviewStyle(first)).toBe(single);
+
+    const business = [first, second];
+    const multiple = composeEditPreviewStyle(business);
+    expect(multiple).toEqual([first, second, editPreviewHaloStyle, editPreviewAccentStyle]);
+    expect(multiple).not.toBe(business);
+    expect(business).toEqual([first, second]);
+    expect(composeEditPreviewStyle(business)).toBe(multiple);
+
+    const invisibleStyle = new Style();
+    const invisibleStyles = [new Style()];
+    const transparentStyle = new Style({ fill: new Fill({ color: 'rgba(0, 0, 0, 0)' }) });
+    expect(composeEditPreviewStyle(invisibleStyle)).toBe(invisibleStyle);
+    expect(composeEditPreviewStyle(invisibleStyles)).toBe(invisibleStyles);
+    expect(composeEditPreviewStyle(transparentStyle)).toBe(transparentStyle);
+
+    invisibleStyles.push(first);
+    const becameVisible = composeEditPreviewStyle(invisibleStyles);
+    expect(becameVisible).toEqual([invisibleStyles[0], first, editPreviewHaloStyle, editPreviewAccentStyle]);
+    expect(composeEditPreviewStyle(invisibleStyles)).toBe(becameVisible);
+    invisibleStyles.pop();
+    expect(composeEditPreviewStyle(invisibleStyles)).toBe(invisibleStyles);
+
+    expect(
+      [
+        editPreviewHaloStyle,
+        editPreviewAccentStyle,
+        editInsertionAnchorStyle,
+        editControlAnchorStyle,
+        editInsertionAnchorHoverStyle,
+        editControlAnchorHoverStyle,
+        editControlAnchorActiveStyle
+      ].every((style) => style.getZIndex() === Number.MAX_VALUE)
+    ).toBe(true);
+    for (const anchorStyle of [
+      editInsertionAnchorPointStyle,
+      editControlAnchorPointStyle,
+      editInsertionAnchorHoverStyle,
+      editControlAnchorHoverStyle,
+      editControlAnchorActiveStyle
+    ]) {
+      expect(anchorStyle.getImage()).toBeNull();
+      expect(anchorStyle.getRenderer()).toBeTypeOf('function');
+    }
+    expect(editPreviewHaloStyle.getRenderer()).toBeTypeOf('function');
+    expect(editPreviewAccentStyle.getRenderer()).toBeTypeOf('function');
+
+    const hoverContext = fakeCanvasContext();
+    editControlAnchorHoverStyle.getRenderer()?.([10, 20], {
+      context: hoverContext as unknown as CanvasRenderingContext2D,
+      pixelRatio: 2
+    } as never);
+    expect(hoverContext.arc).toHaveBeenCalledWith(10, 20, 14, 0, 2 * Math.PI);
+    expect(hoverContext.lineWidth).toBe(6);
+
+    const accentContext = fakeCanvasContext();
+    editPreviewAccentStyle.getRenderer()?.(
+      [
+        [
+          [0, 0],
+          [20, 0],
+          [20, 20],
+          [0, 0]
+        ]
+      ],
+      {
+        context: accentContext as unknown as CanvasRenderingContext2D,
+        geometry: new Polygon([
+          [
+            [0, 0],
+            [20, 0],
+            [20, 20],
+            [0, 0]
+          ]
+        ]),
+        pixelRatio: 2
+      } as never
+    );
+    expect(accentContext.closePath).toHaveBeenCalledOnce();
+    expect(accentContext.setLineDash).toHaveBeenCalledWith([12, 8]);
+    expect(accentContext.fill).toHaveBeenCalledOnce();
+    expect(accentContext.stroke).toHaveBeenCalledOnce();
+  });
+
+  it('preserves StyleFunction visibility and result order while caching visible dynamic compositions', () => {
+    const first = new Style({ stroke: new Stroke({ color: '#111111', width: 1 }) });
+    const second = new Style({ stroke: new Stroke({ color: '#222222', width: 2 }) });
+    const visible = [first, second];
+    const empty: Style[] = [];
+    let result: Style[] | undefined = visible;
+    const business: StyleFunction = vi.fn(() => (result === visible ? [...visible] : result));
+
+    const composed = composeEditPreviewStyle(business);
+    if (typeof composed !== 'function') throw new Error('Expected composed style function');
+    expect(composeEditPreviewStyle(business)).toBe(composed);
+
+    const feature = new Feature();
+    const firstVisibleResult = composed(feature, 1);
+    expect(firstVisibleResult).toEqual([first, second, editPreviewHaloStyle, editPreviewAccentStyle]);
+    expect(composed(feature, 2)).toBe(firstVisibleResult);
+
+    result = empty;
+    expect(composed(feature, 1)).toBe(empty);
+    result = undefined;
+    expect(composed(feature, 1)).toBeUndefined();
+  });
+});
 
 describe('EditInteractionAdapter', () => {
   it('hands off persistent projection suppression and renders detached preview, underlay, and anchors in the selected world copy', () => {
@@ -311,6 +445,65 @@ describe('EditInteractionAdapter', () => {
     expect(secondSource.getFeatures()).toEqual([]);
     expect(persistentSource.getFeatures()).toEqual([persistentFeature]);
     expect(store.get(entry.id)).toEqual(entry);
+  });
+
+  it('renders the frozen underlay with a neutral reference style and the working preview with the business style plus edit accent', () => {
+    const { adapter, map, styles } = setup();
+    const businessStyle = new Style({ stroke: new Stroke({ color: '#3366ff', width: 3 }) });
+    vi.spyOn(styles, 'compile').mockReturnValue(businessStyle);
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: true
+      },
+      vi.fn()
+    );
+
+    try {
+      handle.render(renderState());
+      const source = temporaryLayer(map).getSource();
+      if (source === null) throw new Error('Missing temporary source');
+      const lineFeatures = source.getFeatures().filter((feature) => feature.getGeometry() instanceof LineString);
+      const underlay = lineFeatures.find((feature) => feature.getStyle() === editUnderlayReferenceStyle);
+      const preview = lineFeatures.find((feature) => feature !== underlay);
+      if (underlay === undefined || preview === undefined) throw new Error('Missing edit underlay or preview');
+
+      expect(underlay.getStyle()).toBe(editUnderlayReferenceStyle);
+      expect(preview.getStyle()).toBe(composeEditPreviewStyle(businessStyle));
+      expect(preview.getStyle()).toEqual([businessStyle, editPreviewHaloStyle, editPreviewAccentStyle]);
+      expect(editUnderlayReferenceStyle.getStroke()?.getColor()).toBe('rgba(71,85,105,0.65)');
+      expect(editPreviewAccentStyle.getStroke()?.getColor()).toBe('#1677ff');
+
+      handle.render(
+        renderState(
+          [
+            [0, 0],
+            [12, 4]
+          ],
+          [6, 2]
+        )
+      );
+      const nextSource = temporaryLayer(map).getSource();
+      if (nextSource === null) throw new Error('Missing next temporary source');
+      const nextLines = nextSource.getFeatures().filter((feature) => feature.getGeometry() instanceof LineString);
+      const nextUnderlay = nextLines.find((feature) => feature.getStyle() === editUnderlayReferenceStyle);
+      const nextPreview = nextLines.find((feature) => feature !== nextUnderlay);
+      expect((nextUnderlay?.getGeometry() as LineString | undefined)?.getCoordinates()).toEqual([
+        [0, 0],
+        [8, 0]
+      ]);
+      expect((nextPreview?.getGeometry() as LineString | undefined)?.getCoordinates()).toEqual([
+        [0, 0],
+        [12, 4]
+      ]);
+      expect(nextPreview?.getStyle()).toBe(preview.getStyle());
+    } finally {
+      handle.destroy();
+    }
   });
 
   it.each([1, -1, 50, -50])('moves an idle edit preview to world %s while preserving canonical hit and drag events', (world) => {
@@ -833,6 +1026,235 @@ describe('EditInteractionAdapter', () => {
     handle.destroy();
   });
 
+  it('reuses one non-hittable feedback Point across hover, active, leave, cancel, insertion, and removal transitions', () => {
+    const { adapter, map } = setup();
+    const load = vi.spyOn(RBush.prototype, 'load');
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      vi.fn()
+    );
+
+    try {
+      handle.render(renderState());
+      const source = temporaryLayer(map).getSource();
+      if (source === null) throw new Error('Missing temporary source');
+      const anchorLoads = () =>
+        load.mock.calls.filter(([, values]) => values.some((value) => value !== null && typeof value === 'object' && 'anchor' in value));
+      expect(anchorLoads()).toHaveLength(1);
+      expect(anchorLoads()[0]?.[1]).toHaveLength(3);
+      expect(source.getFeatures().some((feature) => feature.getGeometry() instanceof Point)).toBe(false);
+
+      const input = editInteraction(map);
+      input.handleEvent(pointerEvent('pointermove', [4, 0], { button: -1 }));
+      const feedback = source.getFeatures().find((feature) => feature.getGeometry() instanceof Point);
+      if (feedback === undefined) throw new Error('Missing feedback feature');
+      const feedbackPoint = feedback.getGeometry();
+      expect(feedbackPoint).toBeInstanceOf(Point);
+      expect((feedbackPoint as Point).getCoordinates()).toEqual([4, 0]);
+      expect(feedback.getStyle()).toBe(editInsertionAnchorHoverStyle);
+
+      input.handleEvent(pointerEvent('pointermove', [8, 0], { button: -1 }));
+      expect(feedback.getGeometry()).toBe(feedbackPoint);
+      expect((feedback.getGeometry() as Point).getCoordinates()).toEqual([8, 0]);
+      expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+
+      expect(input.handleEvent(pointerEvent('pointerdown', [8, 0]))).toBe(false);
+      expect(feedback.getStyle()).toBe(editControlAnchorActiveStyle);
+      expect(input.handleEvent(pointerEvent('pointerup', [8, 0], { button: -1 }))).toBe(false);
+      expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+
+      input.handleEvent(pointerEvent('pointermove', [40, 40], { button: -1 }));
+      expect(feedback.getGeometry()).toBeUndefined();
+      expect(source.getFeatures()).not.toContain(feedback);
+      input.handleEvent(pointerEvent('pointerdown', [0, 0]));
+      expect(source.getFeatures()).toContain(feedback);
+      expect(feedback.getStyle()).toBe(editControlAnchorActiveStyle);
+      input.handleEvent(pointerEvent('pointercancel', [0, 0], { button: -1 }));
+      expect(feedback.getGeometry()).toBeUndefined();
+      expect(source.getFeatures()).not.toContain(feedback);
+
+      input.handleEvent(pointerEvent('pointermove', [4, 0], { button: -1 }));
+      expect(source.getFeatures().find((feature) => feature.getGeometry() instanceof Point)).toBe(feedback);
+      input.handleEvent(pointerEvent('click', [4, 0], { altKey: true }));
+      expect(feedback.getGeometry()).toBeUndefined();
+      input.handleEvent(pointerEvent('pointermove', [8, 0], { button: -1 }));
+      expect(source.getFeatures().find((feature) => feature.getGeometry() instanceof Point)).toBe(feedback);
+      input.handleEvent(pointerEvent('click', [8, 0], { altKey: true }));
+      expect(feedback.getGeometry()).toBeUndefined();
+
+      expect(source.getFeatures().filter((feature) => feature.getGeometry() instanceof Point)).toHaveLength(0);
+      expect(source.getFeatures()).not.toContain(feedback);
+      expect(anchorLoads()).toHaveLength(1);
+      expect(anchorLoads()[0]?.[1].every((value) => 'anchor' in value)).toBe(true);
+    } finally {
+      handle.destroy();
+      load.mockRestore();
+    }
+  });
+
+  it('clears stale hover feedback when a non-drag render replaces topology and allows the same anchor to highlight again', () => {
+    const { adapter, map } = setup();
+    const listener = vi.fn();
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      listener
+    );
+
+    try {
+      handle.render(renderState());
+      const input = editInteraction(map);
+      input.handleEvent(pointerEvent('pointermove', [8, 0], { button: -1 }));
+      expect(
+        temporaryLayer(map)
+          .getSource()
+          ?.getFeatures()
+          .some((feature) => feature.getGeometry() instanceof Point)
+      ).toBe(true);
+
+      handle.render(renderState());
+      expect(
+        temporaryLayer(map)
+          .getSource()
+          ?.getFeatures()
+          .some((feature) => feature.getGeometry() instanceof Point)
+      ).toBe(false);
+
+      input.handleEvent(pointerEvent('pointermove', [8, 0], { button: -1 }));
+      const feedback = temporaryLayer(map)
+        .getSource()
+        ?.getFeatures()
+        .find((feature) => feature.getGeometry() instanceof Point);
+      expect(feedback?.getStyle()).toBe(editControlAnchorHoverStyle);
+      expect(listener).toHaveBeenLastCalledWith({
+        type: 'pointer-move',
+        coordinate: [8, 0],
+        anchor: { kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true }
+      });
+    } finally {
+      handle.destroy();
+    }
+  });
+
+  it('restores insertion-before-control source order after both drag buffers temporarily hide insertion anchors', () => {
+    const { adapter, map } = setup();
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      vi.fn()
+    );
+    const full = renderState();
+    const active: EditInteractionRenderState = {
+      ...full,
+      anchors: [{ kind: 'control', index: 1, coordinate: [8, 0], role: 'end', removable: true }]
+    };
+
+    try {
+      handle.render(full);
+      const input = editInteraction(map);
+      expect(input.handleEvent(pointerEvent('pointerdown', [8, 0]))).toBe(false);
+      handle.render(active);
+      handle.render(active);
+      expect(input.handleEvent(pointerEvent('pointerup', [8, 0], { button: -1 }))).toBe(false);
+      handle.render(full);
+
+      const features = temporaryLayer(map).getSource()?.getFeatures() ?? [];
+      const insertionIndex = features.findIndex((feature) => feature.getStyle() === editInsertionAnchorStyle);
+      const controlIndex = features.findIndex((feature) => feature.getStyle() === editControlAnchorStyle);
+      expect(insertionIndex).toBeGreaterThanOrEqual(0);
+      expect(controlIndex).toBeGreaterThanOrEqual(0);
+      expect(insertionIndex).toBeLessThan(controlIndex);
+      expect(features.some((feature) => feature.getGeometry() instanceof Point)).toBe(false);
+    } finally {
+      handle.destroy();
+    }
+  });
+
+  it('keeps batched anchor geometry and styles stable while one feedback Point follows large-anchor hover across both render buffers', () => {
+    const { adapter, map } = setup();
+    const anchors: EditInteractionRenderState['anchors'] = Array.from({ length: 5_000 }, (_, index) => ({
+      kind: 'control' as const,
+      index,
+      coordinate: [index * 10, 0] as Coordinate,
+      removable: true
+    }));
+    const state: EditInteractionRenderState = {
+      ...renderState(),
+      anchors
+    };
+    const handle = adapter.open(
+      {
+        elementId: 'editable',
+        controlPoints: [
+          [0, 0],
+          [8, 0]
+        ],
+        underlay: false
+      },
+      vi.fn()
+    );
+
+    try {
+      handle.render(state);
+      const layer = temporaryLayer(map);
+      const firstSource = layer.getSource();
+      if (firstSource === null) throw new Error('Missing first render source');
+      const firstFeatures = firstSource.getFeatures();
+      const controlFeature = firstFeatures.find((feature) => feature.getGeometry() instanceof MultiPoint);
+      if (controlFeature === undefined) throw new Error('Missing batched anchors');
+      const controlGeometry = controlFeature.getGeometry();
+      if (!(controlGeometry instanceof MultiPoint)) throw new Error('Missing batched control geometry');
+      expect(controlGeometry.getCoordinates()).toHaveLength(5_000);
+      expect(controlFeature.getStyle()).toBe(editControlAnchorStyle);
+      const setCoordinates = vi.spyOn(controlGeometry, 'setCoordinates');
+      const setStyle = vi.spyOn(controlFeature, 'setStyle');
+
+      handle.render(state);
+      expect(layer.getSource()).not.toBe(firstSource);
+      handle.render(state);
+      expect(layer.getSource()).toBe(firstSource);
+      expect(firstSource.getFeatures()).toEqual(firstFeatures);
+      expect(setCoordinates).not.toHaveBeenCalled();
+      expect(setStyle).not.toHaveBeenCalled();
+
+      const input = editInteraction(map);
+      input.handleEvent(pointerEvent('pointermove', [0, 0], { button: -1 }));
+      const feedback = firstSource.getFeatures().find((feature) => feature.getGeometry() instanceof Point);
+      if (feedback === undefined) throw new Error('Missing feedback Point');
+      for (const index of [2_500, 4_999]) input.handleEvent(pointerEvent('pointermove', [index * 10, 0], { button: -1 }));
+      expect(layer.getSource()).toBe(firstSource);
+      expect(firstSource.getFeatures()).toEqual([...firstFeatures, feedback]);
+      expect(feedback.getGeometry()).toBeInstanceOf(Point);
+      expect((feedback.getGeometry() as Point).getCoordinates()).toEqual([49_990, 0]);
+      expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+      expect(firstSource.getFeatures().filter((feature) => feature.getGeometry() instanceof Point)).toEqual([feedback]);
+      expect(setCoordinates).not.toHaveBeenCalled();
+      expect(setStyle).not.toHaveBeenCalled();
+      expect(controlFeature.getStyle()).toBe(editControlAnchorStyle);
+    } finally {
+      handle.destroy();
+    }
+  });
+
   it('maps control drags and Alt topology clicks to detached semantic events while ordinary midpoint clicks do nothing', () => {
     const { adapter, map, reports } = setup();
     const received: EditInteractionEvent[] = [];
@@ -1011,15 +1433,16 @@ describe('EditInteractionAdapter', () => {
       handle.render(renderState());
       const source = temporaryLayer(map).getSource();
       if (source === null) throw new Error('Missing temporary source');
-      const batchStyles = new Map<number, Style>();
+      const batchStyles: Style[] = [];
       for (const feature of source.getFeatures()) {
         if (!(feature.getGeometry() instanceof MultiPoint)) continue;
         const featureStyle = feature.getStyle();
         if (!(featureStyle instanceof Style)) throw new Error('Missing batched anchor style');
-        batchStyles.set(featureStyle.getZIndex() ?? -1, featureStyle);
+        batchStyles.push(featureStyle);
       }
-      const controlRenderer = batchStyles.get(1)?.getRenderer();
-      const insertionRenderer = batchStyles.get(0)?.getRenderer();
+      expect(batchStyles).toEqual(expect.arrayContaining([editControlAnchorStyle, editInsertionAnchorStyle]));
+      const controlRenderer = editControlAnchorStyle.getRenderer();
+      const insertionRenderer = editInsertionAnchorStyle.getRenderer();
       if (controlRenderer === null || controlRenderer === undefined || insertionRenderer === null || insertionRenderer === undefined) {
         throw new Error('Missing batched anchor renderer');
       }

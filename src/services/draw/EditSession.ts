@@ -21,6 +21,7 @@ import type { ControlPointTopology, RenderGeometryState, ShapeDefinition, ShapeE
 import { moveTrustedShapeState, renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
+import { formatTooltipLines } from '../events/TooltipFormatting.js';
 import type { ContextMenuDecision, ExclusiveInteractionSession, InteractionCancelReason, InteractionStatus } from '../events/types.js';
 import type { EditCancelReason, InternalEditOptions, InternalEditSession, InternalEditSessionEventMap, SessionKeyboardInput } from './types.js';
 
@@ -545,13 +546,13 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
         ownerId: `edit:${this.elementId}`,
         variant: 'edit',
         position,
-        lines,
+        lines: formatTooltipLines(lines),
         offset: [15, -11],
         visible: true
       });
       return;
     }
-    this.#tooltip.update({ position, lines });
+    this.#tooltip.update({ position, lines: formatTooltipLines(lines) });
   }
 
   /** 生成基础、悬停控制点和悬停中点对应的提示文字。 */
@@ -577,7 +578,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
 
   /** 刷新当前编辑提示文字。 */
   #refreshTooltip(): void {
-    this.#tooltip?.update({ lines: this.#tooltipLines() });
+    this.#tooltip?.update({ lines: formatTooltipLines(this.#tooltipLines()) });
   }
 
   /** 清除可能已经失效的悬停锚点并恢复基础提示。 */

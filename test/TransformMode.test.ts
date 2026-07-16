@@ -3,6 +3,7 @@ import type { TransformDelta, TransformInteractionTarget } from '../src/core/por
 import type { Element } from '../src/facade/Element.js';
 import { TransformSessionFacade } from '../src/facade/TransformSessionFacade.js';
 import type { ElementService } from '../src/facade/types.js';
+import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
 import { addElement, createTransformHarness } from './helpers/transformHarness.js';
 
 describe('Transform 编辑模式', () => {
@@ -145,7 +146,7 @@ describe('Transform 编辑模式', () => {
       pixel: [20, 10]
     });
     const handleLines = tooltip.state.lines;
-    expect(handleLines.join('')).toContain('Shift');
+    expect(handleLines.map(tooltipLineText).join('')).toContain('Shift');
 
     harness.interaction.emit({ type: 'operation-start', operation: 'scale', delta: startDelta });
     expect(tooltip.state.lines).toEqual(['缩放中…']);
@@ -161,7 +162,7 @@ describe('Transform 编辑模式', () => {
       coordinate: [5, 3],
       pixel: [30, 20]
     });
-    expect(tooltip.state.lines.join('')).not.toContain('Shift');
+    expect(tooltip.state.lines.map(tooltipLineText).join('')).not.toContain('Shift');
   });
 
   it('选中框范围变化后把工具栏锚定到右上角', () => {

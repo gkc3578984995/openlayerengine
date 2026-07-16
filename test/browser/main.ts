@@ -14,6 +14,7 @@ import {
   type TransformEventMap,
   type TransformSession
 } from '../../src/index.ts';
+import { editControlAnchorBatchRenderer, editInsertionAnchorBatchRenderer } from '../../src/adapters/openlayers/interactions/EditAnchorVisuals.ts';
 import '../../src/assets/style/public.scss';
 
 type MapName = 'a' | 'b';
@@ -483,10 +484,10 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
     return pixelOf(a, coordinate);
   },
   editControlPixel(controlPointIndex) {
-    return editAnchorPixel(a, controlPointIndex, 1, 'control');
+    return editAnchorPixel(a, controlPointIndex, editControlAnchorBatchRenderer, 'control');
   },
   editInsertionPixel(insertionIndex) {
-    return editAnchorPixel(a, insertionIndex, 0, 'insertion');
+    return editAnchorPixel(a, insertionIndex, editInsertionAnchorBatchRenderer, 'insertion');
   },
   elementState(elementId) {
     return cloneGeometry(requireOwnedElement(a, elementId).state.geometry);
@@ -914,8 +915,8 @@ function isNativeSourceProbe(value: unknown): value is NativeSourceProbe {
   return value !== null && typeof value === 'object' && typeof (value as Partial<NativeSourceProbe>).getFeatures === 'function';
 }
 
-function isAnchorStyleProbe(value: unknown): value is { getZIndex(): number | undefined } {
-  return value !== null && typeof value === 'object' && typeof (value as { getZIndex?: unknown }).getZIndex === 'function';
+function isAnchorStyleProbe(value: unknown): value is { getRenderer(): unknown } {
+  return value !== null && typeof value === 'object' && typeof (value as { getRenderer?: unknown }).getRenderer === 'function';
 }
 
 function isMultiPointGeometryProbe(value: unknown): value is MultiPointGeometryProbe {
@@ -925,7 +926,7 @@ function isMultiPointGeometryProbe(value: unknown): value is MultiPointGeometryP
 }
 
 /** 读取编辑临时图层中的控制点或插入点像素。 */
-function editAnchorPixel(current: Runtime, index: number, zIndex: 0 | 1, label: 'control' | 'insertion'): readonly [number, number] {
+function editAnchorPixel(current: Runtime, index: number, renderer: unknown, label: 'control' | 'insertion'): readonly [number, number] {
   if (!Number.isSafeInteger(index) || index < 0) throw new Error(`Edit ${label}-point index must be a non-negative safe integer.`);
   current.earth.map.renderSync();
   let anchorCoordinates: readonly (readonly number[])[] | undefined;
@@ -934,7 +935,7 @@ function editAnchorPixel(current: Runtime, index: number, zIndex: 0 | 1, label: 
     if (!isNativeSourceProbe(source)) continue;
     for (const feature of source.getFeatures()) {
       const featureStyle = feature.getStyle?.();
-      if (!isAnchorStyleProbe(featureStyle) || featureStyle.getZIndex() !== zIndex) continue;
+      if (!isAnchorStyleProbe(featureStyle) || featureStyle.getRenderer() !== renderer) continue;
       const geometry = (feature as NativeFeatureProbe & { getGeometry?: () => unknown }).getGeometry?.();
       if (!isMultiPointGeometryProbe(geometry)) continue;
       const coordinates = geometry.getCoordinates();

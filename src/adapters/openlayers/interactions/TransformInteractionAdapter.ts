@@ -250,6 +250,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     const preserveDrag = this.#drag !== undefined && this.#canonicalTarget?.elementId === canonicalTarget.elementId;
     const targetChanged = this.#canonicalTarget?.elementId !== canonicalTarget.elementId;
     const previousOffset = this.#worldOffset;
+    if (!preserveDrag && this.#hover !== undefined) this.#leaveHover();
     if (!preserveDrag) {
       this.#worldOffset = worldOffsetFor(this.#map, this.#binding, canonicalTarget, targetChanged ? this.#selectionReferenceX : undefined);
       this.#worldRepositionPending = false;
@@ -375,6 +376,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     const viewWorldOffset = viewWorldOffsetFor(this.#map, world, worldReferenceX);
     this.#cancelPendingDrag();
     this.#drag = { hit, start, center, delta, viewWorldOffset, ...(world === undefined ? {} : { world }), worldReferenceX };
+    if (hit.anchor?.kind === 'control') this.#handles.setEditAnchorFeedback(hit.anchor, 'active');
     this.#emit({
       type: 'operation-start',
       operation: hit.operation,
@@ -455,6 +457,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
       });
     } finally {
       if (this.#drag === drag) this.#drag = undefined;
+      if (!this.#destroyed && drag.hit.anchor !== undefined) this.#handles.setEditAnchorFeedback(drag.hit.anchor, 'hover');
       if (this.#worldRepositionPending) this.#repositionForView();
     }
     return true;
@@ -511,6 +514,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
     this.#leaveHover(current, currentPixel);
     if (hit !== undefined) {
       this.#hover = hit;
+      this.#handles.setEditAnchorFeedback(hit.anchor, 'hover');
       this.#emit({
         type: 'enter-handle',
         key: hit.key,
@@ -607,6 +611,7 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   #leaveHover(current?: Coordinate, currentPixel?: Pixel): void {
     const hover = this.#hover;
     this.#hover = undefined;
+    this.#handles.setEditAnchorFeedback(undefined);
     if (hover !== undefined) {
       this.#emit({
         type: 'leave-handle',

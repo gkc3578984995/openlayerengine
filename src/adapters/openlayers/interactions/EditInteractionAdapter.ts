@@ -33,7 +33,16 @@ import type { ElementStyleState } from '../../../core/style/types.js';
 import type { FeatureBinding, ProjectionSuppressionLease } from '../FeatureBinding.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
-import { EDIT_CONTROL_ANCHOR_HIT_RADIUS, EDIT_INSERTION_ANCHOR_HIT_RADIUS, editControlAnchorStyle, editInsertionAnchorStyle } from './EditAnchorVisuals.js';
+import {
+  EDIT_CONTROL_ANCHOR_HIT_RADIUS,
+  EDIT_INSERTION_ANCHOR_HIT_RADIUS,
+  composeEditPreviewStyle,
+  editAnchorFeedbackStyle,
+  editControlAnchorStyle,
+  editInsertionAnchorStyle,
+  editUnderlayReferenceStyle,
+  type EditAnchorFeedbackPhase
+} from './EditAnchorVisuals.js';
 
 /** 编辑交互使用的临时 OpenLayers 要素。 */
 type EditFeature = Feature<Geometry>;
@@ -300,6 +309,10 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
   #worldRepositionPending = false;
   /** 当前正在拖拽的控制点。 */
   #dragAnchor: EditControlAnchor | undefined;
+  /** 当前由单个 Point 覆盖物强调的语义锚点。 */
+  #anchorFeedback: EditInteractionAnchor | undefined;
+  /** 当前锚点覆盖物的悬停或按下阶段。 */
+  #anchorFeedbackPhase: EditAnchorFeedbackPhase | undefined;
   /** 拖拽开始时冻结的展示世界偏移。 */
   #dragPresentationOffset: number | undefined;
   /** 等待下一动画帧发布的最新移动。 */
@@ -375,6 +388,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       if (isPointerCancel(event)) {
         const anchor = this.#dragAnchor;
         this.#cancelPendingMove();
+        this.#setAnchorFeedback(undefined);
         if (anchor === undefined) return true;
         this.#dragAnchor = undefined;
         this.#dragPresentationOffset = undefined;
@@ -390,6 +404,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
         const coordinate = safeCoordinate(event.coordinate);
         if (coordinate === undefined) return true;
         const anchor = this.#anchorAt(event);
+        this.#setAnchorFeedback(anchor, 'hover');
         this.#emit({ type: 'pointer-move', coordinate, ...(anchor === undefined ? {} : { anchor }) });
         return true;
       }
@@ -403,6 +418,7 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
           this.#cancelPendingMove();
           this.#dragAnchor = anchor;
           this.#dragPresentationOffset = this.#worldOffset;
+          this.#setAnchorFeedback(anchor, 'active');
           this.#emit({ type: 'move-start', anchor, coordinate });
         }
         return anchor === undefined;
@@ -419,12 +435,14 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
         this.#flushPendingMove();
         if (this.#closing) return false;
         const coordinate = this.#canonicalCoordinate(event.coordinate);
+        const completed = isPrimary(event, false) && coordinate !== undefined;
         this.#dragAnchor = undefined;
         this.#dragPresentationOffset = undefined;
         try {
-          if (!isPrimary(event, false) || coordinate === undefined) this.#emit({ type: 'move-cancel', anchor: dragAnchor });
+          if (!completed) this.#emit({ type: 'move-cancel', anchor: dragAnchor });
           else this.#emit({ type: 'move-end', anchor: dragAnchor, coordinate });
         } finally {
+          this.#setAnchorFeedback(completed ? dragAnchor : undefined, 'hover');
           this.#flushWorldReposition();
         }
         return false;
@@ -435,10 +453,12 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
       if (!isAlt(event)) return hovered === undefined;
       const anchor = this.#anchorAt(event, (candidate) => candidate.kind === 'insertion' || candidate.removable);
       if (anchor?.kind === 'insertion') {
+        this.#setAnchorFeedback(undefined);
         this.#emit({ type: 'insert', anchor });
         return false;
       }
       if (anchor?.kind === 'control') {
+        this.#setAnchorFeedback(undefined);
         this.#emit({ type: 'remove', anchor });
         return false;
       }
@@ -466,8 +486,13 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
         this.#spec.underlay ? this.#underlayStyle : undefined,
         this.#spec.underlay
       );
-      this.#renderPreparedPlan(plan, this.#worldOffset);
+      const preserveAnchorFeedback = this.#dragAnchor !== undefined;
+      this.#renderPreparedPlan(plan, this.#worldOffset, undefined, preserveAnchorFeedback);
       this.#currentPlan = plan;
+      if (!preserveAnchorFeedback) {
+        this.#anchorFeedback = undefined;
+        this.#anchorFeedbackPhase = undefined;
+      }
     } finally {
       this.#rendering = false;
       this.#flushWorldReposition();
@@ -475,11 +500,19 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
   }
 
   /** 把已校验计划写入屏幕外缓冲，并原子交接给临时图层。 */
-  #renderPreparedPlan(plan: RenderPlan, worldOffset: number, reusableAnchorIndex?: RBush<IndexedAnchor>): void {
+  #renderPreparedPlan(plan: RenderPlan, worldOffset: number, reusableAnchorIndex?: RBush<IndexedAnchor>, preserveAnchorFeedback = true): void {
     let prepared: RenderBundle | undefined = this.#takeStaging();
     try {
       try {
-        syncRenderBundle(prepared, plan, worldOffset, this.#map, reusableAnchorIndex);
+        syncRenderBundle(
+          prepared,
+          plan,
+          worldOffset,
+          this.#map,
+          preserveAnchorFeedback ? this.#anchorFeedback : undefined,
+          preserveAnchorFeedback ? this.#anchorFeedbackPhase : undefined,
+          reusableAnchorIndex
+        );
       } catch (error) {
         this.#retire(prepared, 'render-prepared-cleanup');
         prepared = undefined;
@@ -534,6 +567,8 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     this.#closing = true;
     this.#published = false;
     this.#dragAnchor = undefined;
+    this.#anchorFeedback = undefined;
+    this.#anchorFeedbackPhase = undefined;
     this.#dragPresentationOffset = undefined;
     this.#worldRepositionPending = false;
     this.#cancelPendingMove();
@@ -730,6 +765,17 @@ class OpenLayersEditInteractionHandle implements EditInteractionHandle {
     this.#compiledStyleState = style;
     this.#compiledStyle = compiled;
     return compiled;
+  }
+
+  /** 原位切换单个锚点反馈，不重建批量锚点或命中索引。 */
+  #setAnchorFeedback(anchor: EditInteractionAnchor | undefined, phase?: EditAnchorFeedbackPhase): void {
+    const nextPhase = anchor === undefined ? undefined : (phase ?? 'hover');
+    if (sameAnchorIdentity(this.#anchorFeedback, anchor) && this.#anchorFeedbackPhase === nextPhase) return;
+    this.#anchorFeedback = anchor;
+    this.#anchorFeedbackPhase = nextPhase;
+    const bundle = this.#bundle;
+    if (bundle === undefined) return;
+    syncAnchorFeedbackFeature(bundle, this.#worldOffset, anchor, nextPhase);
   }
 
   /** 获取当前预览，不存在时抛出统一错误。 */
@@ -1127,7 +1173,7 @@ function prepareRenderPlan(
     style,
     anchors,
     underlayGeometry: includeUnderlay ? (existingUnderlayGeometry ?? stableGeometry) : undefined,
-    underlayStyle: includeUnderlay ? (existingUnderlayStyle ?? style) : undefined
+    underlayStyle: includeUnderlay ? (existingUnderlayStyle ?? editUnderlayReferenceStyle) : undefined
   });
 }
 
@@ -1160,11 +1206,20 @@ function validateRenderGeometry(state: RenderGeometryState): RenderGeometryState
 }
 
 /** 原位更新屏幕外缓冲中的 Feature、Geometry 与数据源差异。 */
-function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: number, map: OlMap, reusableAnchorIndex?: RBush<IndexedAnchor>): void {
+function syncRenderBundle(
+  bundle: RenderBundle,
+  plan: RenderPlan,
+  worldOffset: number,
+  map: OlMap,
+  feedbackAnchor: EditInteractionAnchor | undefined,
+  feedbackPhase: EditAnchorFeedbackPhase | undefined,
+  reusableAnchorIndex?: RBush<IndexedAnchor>
+): void {
   const anchorIndex = reusableAnchorIndex ?? createAnchorIndex(plan.anchors, map);
   const preview = pooledFeature(bundle, 'preview');
   updateFeatureGeometry(preview, plan.geometry, worldOffset);
-  if (preview.getStyle() !== plan.style) preview.setStyle(plan.style);
+  const previewStyle = composeEditPreviewStyle(plan.style);
+  if (preview.getStyle() !== previewStyle) preview.setStyle(previewStyle);
 
   let underlay: EditFeature | undefined;
   if (plan.underlayGeometry !== undefined && plan.underlayStyle !== undefined) {
@@ -1181,12 +1236,14 @@ function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: n
   }
   const controlCoordinates: Coordinate[] = [];
   const insertionCoordinates: Coordinate[] = [];
+  let feedbackCoordinate: Coordinate | undefined;
   for (let order = 0; order < plan.anchors.length; order += 1) {
     const anchor = plan.anchors[order];
     if (anchor === undefined) continue;
     const coordinate = worldOffset === 0 ? anchor.coordinate : shiftCoordinate(anchor.coordinate, worldOffset);
     if (anchor.kind === 'control') controlCoordinates.push(coordinate);
     else insertionCoordinates.push(coordinate);
+    if (feedbackCoordinate === undefined && sameAnchorIdentity(anchor, feedbackAnchor)) feedbackCoordinate = coordinate;
   }
 
   let insertionAnchors: EditFeature | undefined;
@@ -1201,11 +1258,20 @@ function syncRenderBundle(bundle: RenderBundle, plan: RenderPlan, worldOffset: n
     updateMultiPointGeometry(controlAnchors, controlCoordinates);
     if (controlAnchors.getStyle() !== editControlAnchorStyle) controlAnchors.setStyle(editControlAnchorStyle);
   }
+  let feedback: EditFeature | undefined;
+  if (feedbackCoordinate !== undefined && feedbackAnchor !== undefined && feedbackPhase !== undefined) {
+    feedback = pooledFeature(bundle, 'anchors:feedback');
+    updateAnchorFeedbackFeature(feedback, feedbackCoordinate, feedbackAnchor, feedbackPhase);
+  } else {
+    const inactiveFeedback = bundle.pool.get('anchors:feedback');
+    if (inactiveFeedback?.getGeometry() !== undefined) inactiveFeedback.setGeometry(undefined);
+  }
   const features: readonly EditFeature[] = Object.freeze([
     ...(underlay === undefined ? [] : [underlay]),
     preview,
     ...(insertionAnchors === undefined ? [] : [insertionAnchors]),
-    ...(controlAnchors === undefined ? [] : [controlAnchors])
+    ...(controlAnchors === undefined ? [] : [controlAnchors]),
+    ...(feedback === undefined ? [] : [feedback])
   ]);
   syncBundleSource(bundle, features);
   bundle.features = features;
@@ -1265,15 +1331,75 @@ function pooledFeature(bundle: RenderBundle, key: string): EditFeature {
   return feature;
 }
 
+/** 在当前可见缓冲中原位同步单个锚点反馈；只在指针状态切换时执行线性身份查找。 */
+function syncAnchorFeedbackFeature(
+  bundle: RenderBundle,
+  worldOffset: number,
+  feedbackAnchor: EditInteractionAnchor | undefined,
+  feedbackPhase: EditAnchorFeedbackPhase | undefined
+): void {
+  const coordinate =
+    feedbackAnchor === undefined ? undefined : worldOffset === 0 ? feedbackAnchor.coordinate : shiftCoordinate(feedbackAnchor.coordinate, worldOffset);
+  const visible = coordinate !== undefined && feedbackPhase !== undefined;
+  const feedback = visible ? pooledFeature(bundle, 'anchors:feedback') : bundle.pool.get('anchors:feedback');
+  if (feedback === undefined) return;
+  updateAnchorFeedbackFeature(feedback, coordinate, feedbackAnchor, feedbackPhase);
+  const included = bundle.features.includes(feedback);
+  if (visible && !included) {
+    bundle.source.addFeature(feedback);
+    bundle.features = Object.freeze([...bundle.features, feedback]);
+  } else if (!visible && included) {
+    bundle.source.removeFeature(feedback);
+    bundle.features = Object.freeze(bundle.features.filter((feature) => feature !== feedback));
+  }
+}
+
+/** 更新反馈 Point 的坐标和共享样式；无有效锚点时保留空壳 Feature 以避免数据源抖动。 */
+function updateAnchorFeedbackFeature(
+  feature: EditFeature,
+  coordinate: Coordinate | undefined,
+  anchor: EditInteractionAnchor | undefined,
+  phase: EditAnchorFeedbackPhase | undefined
+): void {
+  if (coordinate === undefined || anchor === undefined || phase === undefined) {
+    if (feature.getGeometry() !== undefined) feature.setGeometry(undefined);
+    return;
+  }
+  const geometry = feature.getGeometry();
+  if (geometry instanceof Point) {
+    if (!coordinatesEqual(geometry.getCoordinates(), coordinate)) geometry.setCoordinates([...coordinate]);
+  } else {
+    feature.setGeometry(new Point([...coordinate]));
+  }
+  const style = editAnchorFeedbackStyle(anchor.kind, phase);
+  if (feature.getStyle() !== style) feature.setStyle(style);
+}
+
+/** 比较两个反馈锚点是否仍属于同一个拓扑槽位。 */
+function sameAnchorIdentity(left: EditInteractionAnchor | undefined, right: EditInteractionAnchor | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.kind === right.kind && left.index === right.index;
+}
+
 /** 只把要素集合差异写入屏幕外数据源。 */
 function syncBundleSource(bundle: RenderBundle, features: readonly EditFeature[]): void {
   const previous = new Set(bundle.features);
   const next = new Set(features);
-  for (const feature of previous) {
-    if (!next.has(feature)) bundle.source.removeFeature(feature);
-  }
+  const removals = [...previous].filter((feature) => !next.has(feature));
   const additions = features.filter((feature) => !previous.has(feature));
+  const projectedOrder = [...bundle.source.getFeatures().filter((feature) => next.has(feature)), ...additions];
+  if (!sameFeatureSequence(projectedOrder, features)) {
+    bundle.source.clear(true);
+    if (features.length > 0) bundle.source.addFeatures([...features]);
+    return;
+  }
+  if (removals.length > 0) bundle.source.removeFeatures(removals);
   if (additions.length > 0) bundle.source.addFeatures(additions);
+}
+
+/** 比较双缓冲 Source 的实际 Feature 顺序，确保同一 Default Builder 内严格遵守设计层序。 */
+function sameFeatureSequence(left: readonly EditFeature[], right: readonly EditFeature[]): boolean {
+  return left.length === right.length && left.every((feature, index) => feature === right[index]);
 }
 
 /** 判断渲染几何是否可以由当前计划长期安全复用。 */

@@ -15,6 +15,14 @@ import Style from 'ol/style/Style.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
+import {
+  composeEditPreviewStyle,
+  editControlAnchorActiveStyle,
+  editControlAnchorHoverStyle,
+  editInsertionAnchorHoverStyle,
+  editPreviewAccentStyle,
+  editPreviewHaloStyle
+} from '../src/adapters/openlayers/interactions/EditAnchorVisuals.js';
 import type { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import {
   centerImage,
@@ -88,6 +96,84 @@ class MapHarness {
 }
 
 describe('Transform 默认视觉', () => {
+  it('仅在 Transform Edit 预览保留业务样式并叠加复用的 edit accent', () => {
+    const previewStyle = new Style({ stroke: new Stroke({ color: '#111827', width: 5 }) });
+    const harness = createHarness(previewStyle, interactionOptions());
+    const editTarget = polygonTarget({
+      mode: 'edit',
+      canTranslate: false,
+      canRotate: false,
+      canScale: false,
+      canStretch: false,
+      canEditVertices: true
+    });
+
+    harness.handles.setTarget(editTarget);
+    const preview = previewFeature(harness.map, previewStyle);
+    const editStyle = preview.getStyle();
+    expect(editStyle).toBe(composeEditPreviewStyle(previewStyle));
+    expect(editStyle).toEqual([previewStyle, editPreviewHaloStyle, editPreviewAccentStyle]);
+
+    harness.handles.setTarget({ ...editTarget, geometry: { type: 'polygon', coordinates: [translatedRing(2, 3)] } });
+    expect(previewFeature(harness.map, previewStyle)).toBe(preview);
+    expect(preview.getStyle()).toBe(editStyle);
+
+    harness.handles.setTarget(polygonTarget());
+    expect(previewFeature(harness.map, previewStyle)).toBe(preview);
+    expect(preview.getStyle()).toBe(previewStyle);
+    expect(preview.getStyle()).not.toBe(composeEditPreviewStyle(previewStyle));
+    harness.handles.destroy();
+  });
+
+  it('控制点和插入点共用单个反馈 Point，且反馈不携带手柄元数据或改变 RBush 命中', () => {
+    const previewStyle = new Style({ stroke: new Stroke({ color: '#000000' }) });
+    const harness = createHarness(previewStyle, interactionOptions());
+    const control = Object.freeze({ kind: 'control' as const, index: 0, coordinate: Object.freeze([-10, -5] as const), role: 'start', removable: true });
+    const insertion = Object.freeze({ kind: 'insertion' as const, index: 1, coordinate: Object.freeze([0, 0] as const) });
+    const target = polygonTarget({
+      mode: 'edit',
+      editAnchors: Object.freeze([control, insertion]),
+      canTranslate: false,
+      canRotate: false,
+      canScale: false,
+      canStretch: false,
+      canEditVertices: true
+    });
+    harness.handles.setTarget(target);
+    const source = sourceOf(harness.map);
+    const idleFeatureCount = source.getFeatures().length;
+
+    harness.handles.setEditAnchorFeedback(control, 'hover');
+    const feedback = editAnchorFeedbackFeature(harness.map);
+    expect(source.getFeatures()).toHaveLength(idleFeatureCount + 1);
+    expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+    expect(pointCoordinates(feedback)).toEqual(control.coordinate);
+    expect(feedback.get(handleMetadata)).toBeUndefined();
+    expect(feedback.get('ol-engine-transform-vertex-batch')).toBeUndefined();
+    expect(feedback.get('ol-engine-transform-insertion-batch')).toBeUndefined();
+    expect(harness.handles.hit(harness.map.getPixelFromCoordinate(control.coordinate), 2)).toMatchObject({ anchor: control });
+
+    harness.handles.setEditAnchorFeedback(insertion, 'hover');
+    expect(editAnchorFeedbackFeature(harness.map)).toBe(feedback);
+    expect(source.getFeatures()).toHaveLength(idleFeatureCount + 1);
+    expect(feedback.getStyle()).toBe(editInsertionAnchorHoverStyle);
+    expect(pointCoordinates(feedback)).toEqual(insertion.coordinate);
+    expect(harness.handles.hit(harness.map.getPixelFromCoordinate(insertion.coordinate), 2)).toMatchObject({ anchor: insertion });
+
+    harness.handles.setEditAnchorFeedback(control, 'active');
+    expect(editAnchorFeedbackFeature(harness.map)).toBe(feedback);
+    expect(feedback.getStyle()).toBe(editControlAnchorActiveStyle);
+    expect(source.getFeatures()).toHaveLength(idleFeatureCount + 1);
+
+    harness.handles.setEditAnchorFeedback(undefined);
+    expect(feedback.getGeometry()).toBeUndefined();
+    expect(harness.handles.hit(harness.map.getPixelFromCoordinate(control.coordinate), 2)).toMatchObject({ anchor: control });
+    harness.handles.clearTarget();
+    expect(source.getFeatures()).toEqual([]);
+    expect(feedback.getStyle()).toBeUndefined();
+    harness.handles.destroy();
+  });
+
   it('恢复旧版操作图标、旋转中心和 idle/active 控制框样式', () => {
     const previewStyle = new Style({ stroke: new Stroke({ color: '#000000' }) });
     const harness = createHarness(previewStyle, interactionOptions({ translate: 'center' }));
@@ -434,6 +520,20 @@ describe('Transform 默认视觉', () => {
     expect(source.getFeatures()).toHaveLength(2);
     expect(geometry.getCoordinates()).toHaveLength(5_000);
     expect([...transformHandles(harness.map).keys()].some((key) => key.startsWith('vertex-'))).toBe(false);
+    const firstFeedbackAnchor = editTarget.editAnchors[3_456];
+    const secondFeedbackAnchor = editTarget.editAnchors[3_457];
+    harness.handles.setEditAnchorFeedback(firstFeedbackAnchor, 'hover');
+    const feedback = editAnchorFeedbackFeature(harness.map);
+    expect(feedback.getGeometry()).toBeInstanceOf(Point);
+    expect(feedback.getStyle()).toBe(editControlAnchorHoverStyle);
+    expect(feedback.get(handleMetadata)).toBeUndefined();
+    expect(source.getFeatures()).toHaveLength(3);
+    harness.handles.setEditAnchorFeedback(secondFeedbackAnchor, 'hover');
+    expect(editAnchorFeedbackFeature(harness.map)).toBe(feedback);
+    expect(pointCoordinates(feedback)).toEqual(secondFeedbackAnchor.coordinate);
+    expect(source.getFeatures()).toHaveLength(3);
+    harness.handles.setEditAnchorFeedback(undefined);
+    expect(feedback.getGeometry()).toBeUndefined();
     harness.handles.setOperationActive(true, 'vertex');
     harness.handles.setTarget({
       ...editTarget,
@@ -760,9 +860,19 @@ function bboxFeature(map: MapHarness, previewStyle: Style): Feature<Geometry> {
 }
 
 function previewFeature(map: MapHarness, previewStyle: Style): Feature<Geometry> {
-  const preview = sourceFeatures(map).find((feature) => feature.getStyle() === previewStyle);
+  const preview = sourceFeatures(map).find((feature) => {
+    const style = feature.getStyle();
+    return style === previewStyle || (Array.isArray(style) && style.includes(previewStyle));
+  });
   if (preview === undefined) throw new Error('未找到 Transform 预览要素');
   return preview;
+}
+
+function editAnchorFeedbackFeature(map: MapHarness): Feature<Geometry> {
+  const feedbackStyles = [editControlAnchorHoverStyle, editInsertionAnchorHoverStyle, editControlAnchorActiveStyle];
+  const feedback = sourceFeatures(map).find((feature) => feedbackStyles.includes(feature.getStyle() as Style));
+  if (feedback === undefined) throw new Error('未找到 Transform Edit 锚点反馈要素');
+  return feedback;
 }
 
 function translatedRing(x: number, y: number): readonly Coordinate[] {
