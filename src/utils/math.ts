@@ -11,6 +11,26 @@ function coordinatesEqual(left: Coordinate, right: Coordinate): boolean {
 }
 
 /**
+ * 把二维坐标数组展开成一维数组。
+ *
+ * @param coordinates 坐标。需要依次展开的二维数组。
+ * @returns 新的一维数组，不会修改原数组。
+ *
+ * @example
+ * ```ts
+ * import { toFlatCoordinates } from '@vrsim/earth-engine-ol';
+ *
+ * const saved = toFlatCoordinates([[120, 0], [110, 0]]);
+ * // [120, 0, 110, 0]
+ * ```
+ */
+export function toFlatCoordinates(coordinates: readonly (readonly number[])[]): number[] {
+  const result: number[] = [];
+  for (const coordinate of coordinates) result.push(...coordinate);
+  return result;
+}
+
+/**
  * 把角度转换为弧度。
  *
  * @param degrees 角度。要转换的角度值。

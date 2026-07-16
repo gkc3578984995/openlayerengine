@@ -1,4 +1,4 @@
-import { Earth, Element, Layer, animationTypes, measureTypes, shapeTypes, stylePresets, throttle, useEarth } from '@vrsim/earth-engine-ol';
+import { Earth, Element, Layer, animationTypes, measureTypes, shapeTypes, stylePresets, throttle, toFlatCoordinates, useEarth } from '@vrsim/earth-engine-ol';
 import type {
   AnimationManager,
   Coordinate,
@@ -8,6 +8,7 @@ import type {
   LayerService,
   MeasureService,
   OverlayService,
+  ShapeInput,
   StyleService,
   TransformService,
   ViewService
@@ -16,6 +17,11 @@ import type {
 const options: EarthOptions = { target: 'map', view: { zoom: 4 } };
 const getOrCreate: typeof useEarth = useEarth;
 const throttled = throttle((coordinate: Coordinate) => coordinate, 16);
+const flatCoordinates = toFlatCoordinates([
+  [120, 0],
+  [110, 0]
+]);
+const shapeInput: ShapeInput<'polyline'> = { type: 'polyline', controlPoints: flatCoordinates };
 
 declare const earth: Earth;
 const elementService: ElementService = earth.elements;
@@ -34,6 +40,8 @@ void [
   options,
   getOrCreate,
   throttled,
+  flatCoordinates,
+  shapeInput,
   elementService,
   layerService,
   styleService,

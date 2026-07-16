@@ -8,7 +8,7 @@ import { runFinalizers } from '../../core/common/dispose.js';
 import { CapabilityError, ObjectDisposedError } from '../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ElementChange, ElementChangeSet } from '../../core/transaction/types.js';
-import type { ShapeState } from '../../core/shape/types.js';
+import type { ShapeInput } from '../../core/shape/types.js';
 import type { RenderGeometryKind } from './GeometryCodec.js';
 import type { GeometryCodec } from './GeometryCodec.js';
 import type { LayerAdapter } from './LayerAdapter.js';
@@ -163,7 +163,7 @@ export class FeatureBinding {
   }
 
   /** 返回图形最终使用的渲染类型。 */
-  renderKind(state: ShapeState): RenderGeometryKind {
+  renderKind(state: ShapeInput): RenderGeometryKind {
     this.#assertActive();
     return this.#geometry.renderKind(state);
   }

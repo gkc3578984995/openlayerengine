@@ -1,4 +1,4 @@
-import type { ShapeState, ShapeType } from '../shape/types.js';
+import type { ShapeInput, ShapeState, ShapeType } from '../shape/types.js';
 import type { ElementStyleState } from '../style/types.js';
 
 /**
@@ -24,6 +24,11 @@ export interface ElementState<T = unknown> {
   /** 是否显示。控制元素是否可见。 */
   readonly visible: boolean;
 }
+
+/** 内部写入状态。允许几何在快照创建前使用宽松输入格式。 */
+export type ElementStateInput<T = unknown> = Omit<ElementState<T>, 'geometry'> & {
+  readonly geometry: ShapeInput;
+};
 
 /**
  * 元素选择器。通过一个或多个条件筛选元素。
@@ -54,11 +59,19 @@ export interface ElementSelector<T = unknown> {
  *
  * @typeParam T 业务数据。元素携带的数据类型。
  */
-export type ElementPatch<T = unknown> = Partial<Omit<ElementState<T>, 'id' | 'type'>>;
+export type ElementPatch<T = unknown> = Partial<
+  Omit<ElementState<T>, 'id' | 'type' | 'geometry'> & {
+    readonly geometry: ShapeInput;
+  }
+>;
 
 /**
  * 元素复制参数。可以覆盖新元素的几何、样式和业务信息。
  *
  * @typeParam T 业务数据。元素携带的数据类型。
  */
-export type ElementCopyOptions<T = unknown> = Partial<Omit<ElementState<T>, 'id' | 'type'>>;
+export type ElementCopyOptions<T = unknown> = Partial<
+  Omit<ElementState<T>, 'id' | 'type' | 'geometry'> & {
+    readonly geometry: ShapeInput;
+  }
+>;

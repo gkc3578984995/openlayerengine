@@ -4,7 +4,7 @@ import { isNativeRef } from '../native/types.js';
 import type { ShapeRegistry } from '../shape/ShapeRegistry.js';
 import type { ShapeState } from '../shape/types.js';
 import { isNativeStyleRef } from '../style/types.js';
-import type { ElementState } from './types.js';
+import type { ElementState, ElementStateInput } from './types.js';
 
 /** 元素快照。保存经过校验和冻结的元素状态。 */
 export type ElementSnapshot<T = unknown> = Readonly<ElementState<T>>;
@@ -18,7 +18,7 @@ export function isElementSnapshot(value: unknown): value is ElementSnapshot {
 }
 
 /** 校验状态并创建一个新的元素快照。 */
-export function createElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: ElementState<T>): ElementSnapshot<T> {
+export function createElementSnapshot<T>(shapeRegistry: ShapeRegistry, state: ElementStateInput<T>): ElementSnapshot<T> {
   const cloned = cloneCoreState(state);
   assertCanonicalFields(cloned);
   assertNonEmptyString(cloned.id, 'Element id');
@@ -77,7 +77,7 @@ export function deriveElementSnapshot<T>(source: ElementSnapshot<T>, geometry: S
 }
 
 /** 冻结已经整理好的元素状态。 */
-function freezeElementState<T>(state: Readonly<ElementState<T>>, geometry: ShapeState): ElementSnapshot<T> {
+function freezeElementState<T>(state: Readonly<ElementStateInput<T>>, geometry: ShapeState): ElementSnapshot<T> {
   const projected: ElementState<T> = {
     id: state.id,
     type: state.type,
@@ -97,7 +97,7 @@ function freezeElementState<T>(state: Readonly<ElementState<T>>, geometry: Shape
 const canonicalElementFields: ReadonlySet<string> = new Set(['id', 'type', 'geometry', 'style', 'data', 'module', 'layerId', 'visible']);
 
 /** 检查元素对象只包含允许的字段。 */
-function assertCanonicalFields(state: ElementState): void {
+function assertCanonicalFields(state: object): void {
   if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Element state must be a plain object');
   for (const key of Reflect.ownKeys(state)) {
     if (typeof key !== 'string' || !canonicalElementFields.has(key)) throw new InvalidArgumentError(`Unknown element field: ${String(key)}`);

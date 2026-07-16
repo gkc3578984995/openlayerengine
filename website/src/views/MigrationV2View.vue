@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import CodeBlock from '../components/docs/CodeBlock.vue';
+import ExampleBlock from '../components/docs/ExampleBlock.vue';
 import PageAnchor from '../components/docs/PageAnchor.vue';
+import ElementCoordinateStorageDemo from '../examples/ElementCoordinateStorageDemo.vue';
+import elementCoordinateStorageSource from '../examples/ElementCoordinateStorageDemo.vue?raw';
 
 interface AnchorItem {
   id: string;
   label: string;
+  children?: AnchorItem[];
 }
 
 const anchors: AnchorItem[] = [
@@ -12,6 +16,14 @@ const anchors: AnchorItem[] = [
   { id: 'signature', label: '调用签名' },
   { id: 'earth-instances', label: 'Earth 实例' },
   { id: 'styles', label: '样式入口' },
+  {
+    id: 'element-coordinates',
+    label: '元素坐标',
+    children: [
+      { id: 'example-flat-coordinate-storage', label: '扁平坐标保存' },
+      { id: 'api-to-flat-coordinates', label: 'toFlatCoordinates' }
+    ]
+  },
   { id: 'subpaths', label: '导出子路径' },
   { id: 'esm', label: '仅 ESM' },
   { id: 'dependencies', label: '依赖清理' },
@@ -114,6 +126,39 @@ import { PlotDraw } from '@vrsim/earth-engine-ol/plot';`;
         <h2 class="doc-h2">样式入口</h2>
         <p>1.x 的 <code>dist/index*.css</code> 深路径不再是公共接口。2.0 使用稳定的包导出 <code>@vrsim/earth-engine-ol/style.css</code>：</p>
         <CodeBlock :code="styleCode" lang="typescript" />
+      </section>
+
+      <section id="element-coordinates" class="doc-prose">
+        <h2 class="doc-h2">元素坐标</h2>
+        <p>
+          <code>earth.elements.add()</code>、<code>earth.elements.update()</code>、<code>Element.update()</code> 和复制接口都接受扁平的二维
+          <code>controlPoints</code>。例如 <code>[120, 0, 110, 0]</code> 会按 <code>XY</code> 两两分组；通过 <code>Element.state</code> 读取时仍返回
+          <code>[[120, 0], [110, 0]]</code> 这样的规范坐标。
+        </p>
+        <p>
+          这项能力只转换数组结构，不会转换坐标投影。经纬度数据仍要先转换到当前 View 使用的投影；三维坐标请使用
+          <code>[[x, y, z], ...]</code>，不要使用有歧义的扁平数组。
+        </p>
+        <p>
+          圆的 <code>center</code> 也接受 OpenLayers 返回的普通 <code>number[]</code>，因此可以直接传入 <code>fromLonLat([120, 0])</code>
+          的结果，不需要再断言成坐标元组。
+        </p>
+
+        <div id="example-flat-coordinate-storage">
+          <ExampleBlock
+            title="扁平坐标保存"
+            description="用扁平数组写入元素，通过 get/state 读取规范坐标，再用 <code class='code-fn'><a href='#api-to-flat-coordinates'>toFlatCoordinates()</a></code> 展开保存。"
+            :source="elementCoordinateStorageSource"
+          >
+            <template #preview>
+              <ElementCoordinateStorageDemo />
+            </template>
+          </ExampleBlock>
+        </div>
+
+        <h3 id="api-to-flat-coordinates" class="doc-h3">toFlatCoordinates</h3>
+        <p><code>toFlatCoordinates(coordinates: readonly (readonly number[])[]): number[]</code></p>
+        <p>按原顺序把二维数字数组展开成新的一维数组。原数组不会被修改，坐标值和投影也不会被转换。</p>
       </section>
 
       <section id="subpaths" class="doc-prose">

@@ -15,6 +15,7 @@ import {
   radToDeg,
   scale2,
   throttle,
+  toFlatCoordinates,
   trimClosingCoordinate,
   type Coordinate,
   type Pixel,
@@ -42,10 +43,10 @@ export const utilitiesScenario: ScenarioDefinition = {
   id: 'utilities',
   group: '工具函数',
   title: '数学、标识、节流与错误类型',
-  summary: '直接展示全部公共工具函数的结果、createId 的两条随机路径、throttle 的控制方法，以及七种公共错误类型。',
+  summary: '直接展示全部公共工具函数的结果、坐标数组转换、createId 的两条随机路径、throttle 的控制方法，以及七种公共错误类型。',
   steps: [
     '检查数学结果，重点确认角度归一化、二维插值、贝塞尔曲线和三维坐标闭环的返回值。',
-    '比较 closeRing 与 trimClosingCoordinate 在空数组、开放坐标和已闭合坐标上的分支结果。',
+    '比较 closeRing、trimClosingCoordinate 与 toFlatCoordinates 的坐标处理结果。',
     '确认 createId 在 Web Crypto 路径和临时禁用 crypto 的 fallback 路径中都生成 UUID v4。',
     '查看 leading-only 与 trailing-only 的自动结果，再修改选项、重建节流函数并测试 call、flush 和 cancel。',
     '逐项检查七个 Error 子类的 name、message 和 instanceof 结果。'
@@ -82,6 +83,13 @@ export const utilitiesScenario: ScenarioDefinition = {
     context.status('closeRing(已闭合三维环)', closeRing(closedRing));
     context.status('trimClosingCoordinate(开放环)', trimClosingCoordinate(openRing));
     context.status('trimClosingCoordinate(已闭合环)', trimClosingCoordinate(closedRing));
+    context.status(
+      'toFlatCoordinates(二维数组)',
+      toFlatCoordinates([
+        [120, 0],
+        [110, 0]
+      ])
+    );
     context.check('radToDeg 将负角归一化到 0～360', radToDeg(-Math.PI / 2) === 270);
     context.check('closeRing 不修改原数组', openRing.length === 3);
 
@@ -206,10 +214,12 @@ import {
   closeRing,
   createId,
   lerp2,
-  throttle
+  throttle,
+  toFlatCoordinates
 } from '@vrsim/earth-engine-ol';
 
 const closed = closeRing([[0, 0], [2, 0], [2, 2]]);
+const saved = toFlatCoordinates([[120, 0], [110, 0]]);
 const midpoint = lerp2([0, 0], [10, 20], 0.5);
 const id = createId();
 const save = throttle(value => console.log(value), 300, {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stylePresets } from '../src/builtins/styles/presets.js';
 import type { AnimationManager } from '../src/services/animation/types.js';
 import { createId } from '../src/utils/id.js';
-import { add2, closeRing, degToRad, lerp2, quadraticBezier2, radToDeg, scale2, trimClosingCoordinate } from '../src/utils/math.js';
+import { add2, closeRing, degToRad, lerp2, quadraticBezier2, radToDeg, scale2, toFlatCoordinates, trimClosingCoordinate } from '../src/utils/math.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { createAnimationHarness, pointElement } from './helpers/animationHarness.js';
 
@@ -114,6 +114,30 @@ describe('v2 环坐标工具（utils-ring-close-trim）', () => {
     ]);
     expect(closeRing([])).toEqual([]);
     expect(trimClosingCoordinate([[2, 3]])).toEqual([[2, 3]]);
+  });
+});
+
+describe('v2 坐标数组转换工具', () => {
+  it('把二维坐标按原顺序展开成独立的一维数组', () => {
+    const coordinates = Object.freeze([Object.freeze([120, 0]), Object.freeze([110, 0])]);
+    const result = toFlatCoordinates(coordinates);
+
+    expect(result).toEqual([120, 0, 110, 0]);
+    expect(result).not.toBe(coordinates);
+    expect(coordinates).toEqual([
+      [120, 0],
+      [110, 0]
+    ]);
+  });
+
+  it('支持空数组和三维坐标，但不推断坐标含义或转换投影', () => {
+    expect(toFlatCoordinates([])).toEqual([]);
+    expect(
+      toFlatCoordinates([
+        [1, 2, 3],
+        [4, 5, 6]
+      ])
+    ).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });
 

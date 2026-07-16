@@ -44,6 +44,7 @@ const valueGroups = {
     'radToDeg',
     'scale2',
     'throttle',
+    'toFlatCoordinates',
     'trimClosingCoordinate'
   ]
 } satisfies Partial<Record<ScenarioId, readonly string[]>>;
@@ -64,7 +65,17 @@ const typeGroups = {
     'TileUrlFunction',
     'VectorLayerSpec'
   ],
-  elements: ['ElementCopyOptions', 'ElementCreateInput', 'ElementHit', 'ElementPatch', 'ElementSelector', 'ElementService', 'ElementState', 'ScreenExtent'],
+  elements: [
+    'ElementCopyOptions',
+    'ElementCreateInput',
+    'ElementHit',
+    'ElementPatch',
+    'ElementSelector',
+    'ElementService',
+    'ElementState',
+    'ScreenExtent',
+    'ShapeInput'
+  ],
   'styles-shapes': [
     'ArrowDecorationSpec',
     'CircleSymbolSpec',
@@ -267,6 +278,7 @@ const memberCoverage: CoverageItem[] = [
   ...members('elements', 'ElementPatch', ['geometry', 'style', 'data', 'module', 'layerId', 'visible']),
   ...members('elements', 'ElementCopyOptions', ['geometry', 'style', 'data', 'module', 'layerId', 'visible']),
   ...members('elements', 'ElementState', ['id', 'type', 'geometry', 'style', 'data', 'module', 'layerId', 'visible']),
+  ...members('elements', 'ShapeInput', ['type', 'controlPoints', 'center', 'radius']),
 
   ...members(
     'styles-shapes',

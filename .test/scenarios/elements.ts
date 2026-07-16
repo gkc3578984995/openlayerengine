@@ -1,4 +1,4 @@
-import { Earth, stylePresets, type Coordinate, type Element, type ElementPatch, type ElementSelector } from '@vrsim/earth-engine-ol';
+import { Earth, stylePresets, type Coordinate, type Element, type ElementPatch, type ElementSelector, type ShapeInput } from '@vrsim/earth-engine-ol';
 import type { ScenarioDefinition } from '../harness/types.js';
 
 interface DemoData {
@@ -10,9 +10,9 @@ export const elementsScenario: ScenarioDefinition = {
   id: 'elements',
   group: '图层与元素',
   title: 'Element 元素、Selector 与屏幕命中',
-  summary: '验证 ElementCreateInput、全部 Selector 字段、ElementPatch、复制覆盖、显隐、移除、原生 Feature、像素命中和屏幕范围。',
+  summary: '验证扁平坐标写入与规范坐标读取、ElementCreateInput、全部 Selector 字段、ElementPatch、复制覆盖、显隐、移除、原生 Feature、像素命中和屏幕范围。',
   steps: [
-    '确认地图显示主元素、折线和多边形，其中一个元素初始为隐藏状态。',
+    '确认扁平坐标可以创建主元素和折线，读取时会返回规范的嵌套坐标。',
     '执行“检查全部 Selector”，确认 id、ids、module、layerId、type、visible、predicate 均能筛选。',
     '执行完整 update() 与 copy()，观察元素位置、图层、样式、数据和可见性同步变化。',
     '执行像素命中和屏幕范围检查，再分别使用服务与句柄完成显隐、移除和清空。'
@@ -24,23 +24,20 @@ export const elementsScenario: ScenarioDefinition = {
 
     const primary = earth.elements.add<DemoData>({
       id: 'element-primary',
-      geometry: { type: 'point', controlPoints: [[0, 0]] },
+      geometry: { type: 'point', controlPoints: [0, 0] },
       style: richPointStyle('主元素'),
       data: { label: '主元素数据', score: 100 },
       module: 'planning',
       layerId: 'default',
       visible: true
     });
+    const lineGeometry: ShapeInput<'polyline'> = {
+      type: 'polyline',
+      controlPoints: [-2_000_000, -1_000_000, -800_000, 1_200_000, 1_000_000, 700_000]
+    };
     const line = earth.elements.add<DemoData>({
       id: 'element-line',
-      geometry: {
-        type: 'polyline',
-        controlPoints: [
-          [-2_000_000, -1_000_000],
-          [-800_000, 1_200_000],
-          [1_000_000, 700_000]
-        ]
-      },
+      geometry: lineGeometry,
       style: stylePresets['line-default'],
       data: { label: '线路数据', score: 80 },
       module: 'route',
@@ -67,6 +64,10 @@ export const elementsScenario: ScenarioDefinition = {
 
     context.check('ElementService.add() 使用全部 ElementCreateInput 字段', hasCompleteState(primary));
     context.check('ElementService.get() 返回相同句柄', earth.elements.get(primary.id) === primary);
+    context.check(
+      '扁平坐标写入后返回嵌套坐标',
+      'controlPoints' in line.state.geometry && Array.isArray(line.state.geometry.controlPoints[0]) && line.state.geometry.controlPoints.length === 3
+    );
     context.check('Element.id 与 Element.state.id 一致', primary.id === primary.state.id);
     context.check('Element.olFeature 可用于 OpenLayers 互操作', primary.olFeature.getGeometry() !== undefined);
     renderElementStatus(context, earth.elements.query<DemoData>());
@@ -113,7 +114,7 @@ export const elementsScenario: ScenarioDefinition = {
       'ElementService.update() 完整 patch',
       () => {
         const patch: ElementPatch<DemoData> = {
-          geometry: { type: 'point', controlPoints: [[700_000, 500_000]] },
+          geometry: { type: 'point', controlPoints: [700_000, 500_000] },
           style: richPointStyle('已完整更新'),
           data: { label: '更新后的数据', score: 120 },
           module: 'review',
@@ -155,7 +156,7 @@ export const elementsScenario: ScenarioDefinition = {
       'ElementService.copy() 全部覆盖字段',
       () => {
         const copy = earth.elements.copy<DemoData>(primary.id, {
-          geometry: { type: 'point', controlPoints: [[-1_000_000, 500_000]] },
+          geometry: { type: 'point', controlPoints: [-1_000_000, 500_000] },
           style: richPointStyle('复制元素'),
           data: { label: '复制数据', score: 60 },
           module: 'copies',
@@ -227,7 +228,7 @@ import { Earth, stylePresets } from '@vrsim/earth-engine-ol';
 const earth = new Earth({ target: 'map' });
 const element = earth.elements.add({
   id: 'vehicle-1',
-  geometry: { type: 'point', controlPoints: [[0, 0]] },
+  geometry: { type: 'point', controlPoints: [0, 0] },
   style: stylePresets['point-default'],
   data: { name: '车辆一' },
   module: 'vehicles',
@@ -239,6 +240,7 @@ earth.elements.update({ module: 'vehicles' }, { visible: false });
 earth.elements.show({ id: element.id });
 const copy = earth.elements.copy(element.id, { module: 'vehicle-copies' });
 const extent = earth.elements.getScreenExtent(copy);
+console.log(element.state.geometry); // 读取结果仍是嵌套坐标
 `);
   }
 };

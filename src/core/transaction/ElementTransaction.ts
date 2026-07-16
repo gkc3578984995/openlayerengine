@@ -5,7 +5,7 @@ import type { ShapeRegistry } from '../shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../style/types.js';
 import { cloneElementSnapshot, createElementSnapshot, type ElementSnapshot } from '../element/snapshot.js';
 import { assertDestructiveSelector, compileSelector } from '../element/selector.js';
-import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from '../element/types.js';
+import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState, ElementStateInput } from '../element/types.js';
 import type { ElementChange, ElementChangeSet } from './types.js';
 
 /** 内部类型。描述 StoredElement 使用的数据。 */
@@ -53,7 +53,7 @@ const patchFields: ReadonlySet<string> = new Set(['geometry', 'style', 'data', '
 /** 内部接口。约定 ElementTransaction 的数据结构。 */
 export interface ElementTransaction {
   /** 添加一个元素。 */
-  add<T>(input: ElementState<T>): Readonly<ElementState<T>>;
+  add<T>(input: ElementStateInput<T>): Readonly<ElementState<T>>;
   /** 读取指定对象。 */
   get<T>(id: string): Readonly<ElementState<T>> | undefined;
   /** 查询匹配的数据。 */
@@ -128,7 +128,7 @@ class ElementTransactionImpl implements ElementTransaction {
   }
 
   /** 添加一个元素。 */
-  add<T>(input: ElementState<T>): Readonly<ElementState<T>> {
+  add<T>(input: ElementStateInput<T>): Readonly<ElementState<T>> {
     const transaction = writableState(this);
     const state = createElementSnapshot(transaction.shapeRegistry, input);
     if (hasElement(transaction, state.id)) throw new DuplicateElementIdError(`Element id already exists: ${state.id}`);
@@ -398,12 +398,12 @@ function clonePatch<T>(patch: ElementPatch<T> | ElementCopyOptions<T>): ElementP
 }
 
 /** 内部方法。处理 mergeState 相关数据。 */
-function mergeState<T>(source: StoredElement, patch: ElementPatch<T>, id: string): ElementState<T> {
+function mergeState<T>(source: StoredElement, patch: ElementPatch<T>, id: string): ElementStateInput<T> {
   const has = (key: keyof ElementPatch<T>): boolean => Object.prototype.hasOwnProperty.call(patch, key);
   return {
     id,
     type: source.type,
-    geometry: has('geometry') ? (patch.geometry as ElementState<T>['geometry']) : source.geometry,
+    geometry: has('geometry') ? patch.geometry! : source.geometry,
     style: has('style') ? (patch.style as ElementState<T>['style']) : source.style,
     ...(has('data') || Object.prototype.hasOwnProperty.call(source, 'data') ? { data: has('data') ? patch.data : (source.data as T | undefined) } : {}),
     ...(has('module') || Object.prototype.hasOwnProperty.call(source, 'module') ? { module: has('module') ? patch.module : source.module } : {}),

@@ -17,7 +17,7 @@ export {
   ObjectDisposedError,
   UnsupportedOperationError
 } from './core/errors.js';
-export { add2, closeRing, degToRad, lerp2, quadraticBezier2, radToDeg, scale2, trimClosingCoordinate } from './utils/math.js';
+export { add2, closeRing, degToRad, lerp2, quadraticBezier2, radToDeg, scale2, toFlatCoordinates, trimClosingCoordinate } from './utils/math.js';
 export { createId } from './utils/id.js';
 export { throttle } from './utils/throttle.js';
 export { animationTypes } from './builtins/animations/index.js';
@@ -39,7 +39,7 @@ export type { AnimationHandle, AnimationManager } from './services/animation/typ
 export type { Color, Coordinate, Pixel } from './core/common/types.js';
 export type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from './core/element/types.js';
 export type { LayerKind, LayerOwnership, LayerPatch } from './core/layer/types.js';
-export type { ShapeState, ShapeType } from './core/shape/types.js';
+export type { ShapeInput, ShapeState, ShapeType } from './core/shape/types.js';
 export type {
   ArrowDecorationSpec,
   CircleSymbolSpec,

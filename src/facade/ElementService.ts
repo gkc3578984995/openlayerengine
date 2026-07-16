@@ -4,10 +4,11 @@ import { stylePresets } from '../builtins/styles/presets.js';
 import { cloneCoreState } from '../core/common/clone.js';
 import type { Pixel } from '../core/common/types.js';
 import type { ElementStore } from '../core/element/ElementStore.js';
-import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from '../core/element/types.js';
+import type { ElementCopyOptions, ElementPatch, ElementSelector } from '../core/element/types.js';
 import { InvalidArgumentError } from '../core/errors.js';
 import type { LayerManager } from '../core/layer/LayerManager.js';
 import type { HitTestPort } from '../core/ports/HitTestPort.js';
+import type { ShapeInput } from '../core/shape/types.js';
 import type { NativeStyleRef, StyleSpec } from '../core/style/types.js';
 import { constructElementHandle, Element, elementHandleFeature } from './Element.js';
 import type { LayerServiceImpl } from './LayerService.js';
@@ -278,12 +279,12 @@ function inspectCreateInput(value: unknown): Record<PropertyKey, unknown> {
 }
 
 /** 克隆并确认输入是有效的图形状态。 */
-function requireGeometry(value: unknown): ElementState['geometry'] {
+function requireGeometry(value: unknown): ShapeInput {
   const geometry = cloneCoreState(value);
   if (geometry === null || typeof geometry !== 'object' || typeof (geometry as { type?: unknown }).type !== 'string') {
-    throw new InvalidArgumentError('Element geometry must be a ShapeState');
+    throw new InvalidArgumentError('Element geometry must be a ShapeInput');
   }
-  return geometry as ElementState['geometry'];
+  return geometry as ShapeInput;
 }
 
 /** 按渲染类型选择默认样式。 */

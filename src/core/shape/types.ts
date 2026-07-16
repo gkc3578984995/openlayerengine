@@ -28,6 +28,29 @@ export const shapeTypes = Object.freeze([
 export type ShapeType = (typeof shapeTypes)[number];
 
 /**
+ * 图形输入。写入元素时可使用扁平坐标或嵌套坐标。
+ *
+ * 扁平的 `controlPoints` 始终按二维坐标依次分组。三维坐标请使用嵌套数组。
+ *
+ * @typeParam T 图形类型。需要写入的图形类型。
+ */
+export type ShapeInput<T extends ShapeType = ShapeType> = T extends 'circle'
+  ? {
+      /** 类型。固定为圆。 */
+      readonly type: 'circle';
+      /** 圆心。接受 OpenLayers 返回的普通坐标数组。 */
+      readonly center: readonly number[];
+      /** 半径。使用当前地图投影的坐标单位。 */
+      readonly radius: number;
+    }
+  : {
+      /** 类型。当前图形的类型。 */
+      readonly type: T;
+      /** 控制点。可传二维扁平数组，也可传二维或三维嵌套坐标。 */
+      readonly controlPoints: readonly number[] | readonly (readonly number[])[];
+    };
+
+/**
  * 图形状态。圆使用圆心和半径，其他图形使用有序控制点。
  *
  * @typeParam T 图形类型。需要描述的图形类型。

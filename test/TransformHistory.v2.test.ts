@@ -33,9 +33,10 @@ describe('TransformHistory v2', () => {
     addElement(harness, 'point-a', 'point', [[2, 3]], { symbol: { type: 'circle', radius: 4 } }, { label: 'source' });
     const session = harness.service.select<{ label: string }>('point-a');
 
-    const direct = session.copy({ data: { label: 'direct' } });
+    const direct = session.copy({ geometry: { type: 'point', controlPoints: [8, 9] }, data: { label: 'direct' } });
     expect(direct.id).toBe('copy-1');
     expect(direct.data).toEqual({ label: 'direct' });
+    expect(direct.geometry).toEqual({ type: 'point', controlPoints: [[8, 9]] });
 
     harness.input.key('c', { ctrlKey: true });
     harness.input.key('v', { ctrlKey: true });

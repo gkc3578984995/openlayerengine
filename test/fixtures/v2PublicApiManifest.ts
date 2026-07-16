@@ -23,6 +23,7 @@ export const publicApiManifest = {
     'shapeTypes',
     'stylePresets',
     'throttle',
+    'toFlatCoordinates',
     'trimClosingCoordinate',
     'useEarth'
   ],
@@ -109,6 +110,7 @@ export const publicApiManifest = {
     'PulseAnimationSpec',
     'ScaleLineOptions',
     'ScreenExtent',
+    'ShapeInput',
     'ShapeState',
     'ShapeType',
     'SolidFillSpec',

@@ -104,6 +104,56 @@ describe('ElementService', () => {
     expect(() => elements.add({ geometry: { type: 'point', controlPoints: [[0, 0]] }, unknown: true } as never)).toThrow(InvalidArgumentError);
   });
 
+  it('accepts flat XY input at every element write boundary and keeps read state canonical', () => {
+    const { elements } = setup(['point', 'line', 'circle', 'copy']);
+    const pointInput: number[] = [120, 0];
+    const lineInput: number[] = [120, 0, 110, 0];
+    const center: number[] = [13_358_338.895, 0];
+
+    const point = elements.add({ geometry: { type: 'point', controlPoints: pointInput } });
+    const line = elements.add({ geometry: { type: 'polyline', controlPoints: lineInput } });
+    const circle = elements.add({ geometry: { type: 'circle', center, radius: 1_000 } });
+
+    expect(point.state.geometry).toEqual({ type: 'point', controlPoints: [[120, 0]] });
+    expect(line.state.geometry).toEqual({
+      type: 'polyline',
+      controlPoints: [
+        [120, 0],
+        [110, 0]
+      ]
+    });
+    expect(elements.get(line.id)?.state.geometry).toEqual(line.state.geometry);
+    expect(circle.state.geometry).toEqual({ type: 'circle', center, radius: 1_000 });
+    expect(pointInput).toEqual([120, 0]);
+    expect(lineInput).toEqual([120, 0, 110, 0]);
+    expect(Object.isFrozen(line.state.geometry)).toBe(true);
+    expect(Object.isFrozen('controlPoints' in line.state.geometry ? line.state.geometry.controlPoints : [])).toBe(true);
+
+    elements.update({ id: point.id }, { geometry: { type: 'point', controlPoints: [10, 20] } });
+    expect(point.state.geometry).toEqual({ type: 'point', controlPoints: [[10, 20]] });
+    point.update({ geometry: { type: 'point', controlPoints: [30, 40] } });
+    expect(point.state.geometry).toEqual({ type: 'point', controlPoints: [[30, 40]] });
+
+    const copy = elements.copy(point.id, { geometry: { type: 'point', controlPoints: [-1, -2] } });
+    expect(copy.state.geometry).toEqual({ type: 'point', controlPoints: [[-1, -2]] });
+  });
+
+  it('rejects malformed flat control points atomically and preserves nested XYZ input', () => {
+    const { elements, store } = setup(['source']);
+    const source = elements.add({ geometry: { type: 'point', controlPoints: [[1, 2, 3]] } });
+    expect(source.state.geometry).toEqual({ type: 'point', controlPoints: [[1, 2, 3]] });
+    const before = store.query();
+    const sparse = new Array<number>(2);
+    sparse[0] = 1;
+
+    expect(() => elements.add({ geometry: { type: 'point', controlPoints: [0, 0, 1] } })).toThrow(InvalidArgumentError);
+    expect(() => elements.add({ geometry: { type: 'point', controlPoints: [0, Number.POSITIVE_INFINITY] } })).toThrow(InvalidArgumentError);
+    expect(() => elements.update({ id: source.id }, { geometry: { type: 'point', controlPoints: [0, Number.NaN] } })).toThrow(InvalidArgumentError);
+    expect(() => source.update({ geometry: { type: 'point', controlPoints: sparse } })).toThrow(InvalidArgumentError);
+    expect(() => elements.copy(source.id, { geometry: { type: 'point', controlPoints: [0, [1, 1]] } as never })).toThrow(InvalidArgumentError);
+    expect(store.query()).toEqual(before);
+  });
+
   it('rejects geometry accessors without invoking them', () => {
     const { elements } = setup();
     let getterCalls = 0;

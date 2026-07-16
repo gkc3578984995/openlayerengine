@@ -3,7 +3,7 @@ import type TileSource from 'ol/source/Tile.js';
 import type { Pixel } from '../core/common/types.js';
 import type { ElementCopyOptions, ElementPatch, ElementSelector } from '../core/element/types.js';
 import type { LayerKind, LayerOwnership, LayerPatch } from '../core/layer/types.js';
-import type { ShapeState } from '../core/shape/types.js';
+import type { ShapeInput } from '../core/shape/types.js';
 import type { Element } from './Element.js';
 import type { Layer } from './Layer.js';
 import type { StyleInput } from './styleTypes.js';
@@ -174,8 +174,8 @@ export type PublicLayerSpec = VectorLayerSpec | TileLayerSpec | NativeLayerSpec;
  * @typeParam T 业务数据。表示新元素保存的数据类型。
  */
 export interface ElementCreateInput<T = unknown> {
-  /** 几何。用于描述图形类型和控制点。 */
-  geometry: ShapeState;
+  /** 几何。控制点可使用扁平坐标或嵌套坐标。 */
+  geometry: ShapeInput;
   /** 元素 ID。省略时由引擎自动生成。 */
   id?: string;
   /** 样式。支持结构化样式或原生 OpenLayers 样式。 */

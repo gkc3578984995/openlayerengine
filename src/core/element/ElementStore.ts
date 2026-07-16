@@ -4,7 +4,7 @@ import type { ShapeRegistry } from '../shape/ShapeRegistry.js';
 import { createElementTransactionScope, type ElementTransaction, type ElementTransactionScope } from '../transaction/ElementTransaction.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision, TransactionResult } from '../transaction/types.js';
 import { cloneElementSnapshot, type ElementSnapshot } from './snapshot.js';
-import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from './types.js';
+import type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState, ElementStateInput } from './types.js';
 
 /** 元素仓库的内部配置。 */
 export interface ElementStoreOptions {
@@ -63,7 +63,7 @@ export class ElementStore {
   }
 
   /** 添加元素并返回提交后的快照。 */
-  add<T>(input: ElementState<T>): Readonly<ElementState<T>> {
+  add<T>(input: ElementStateInput<T>): Readonly<ElementState<T>> {
     return this.transaction((transaction) => transaction.add(input)).value;
   }
 

@@ -274,6 +274,23 @@ function readDensePlainArray(input: unknown, label: string): unknown[] {
   return values;
 }
 
+/** 将外部控制点输入整理成规范坐标。扁平数组固定按 XY 两两分组。 */
+function normalizeControlPoints(input: unknown): Coordinate[] {
+  const values = readDensePlainArray(input, 'controlPoints');
+  if (values.length === 0 || typeof values[0] !== 'number') {
+    const points = new Array<Coordinate>(values.length);
+    for (let index = 0; index < values.length; index += 1) points[index] = normalizeCoordinate(values[index], `controlPoints[${index}]`);
+    return points;
+  }
+
+  if (values.length % 2 !== 0) throw new InvalidArgumentError('Flat controlPoints must contain complete XY pairs');
+  const points = new Array<Coordinate>(values.length / 2);
+  for (let index = 0; index < values.length; index += 2) {
+    points[index / 2] = normalizeCoordinate([values[index], values[index + 1]], `controlPoints[${index / 2}]`);
+  }
+  return points;
+}
+
 /** 内部方法。处理 assertFiniteRenderGeometry 相关数据。 */
 export function assertFiniteRenderGeometry(geometry: RenderGeometryState): void {
   const record = getPlainDataRecord(geometry, 'Render geometry');
@@ -317,9 +334,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
   const normalize = (input: unknown): ShapeState<T> => {
     const record = getPlainDataRecord(input);
     if (getOwnDataValue(record, 'type', 'type') !== options.type) throw new InvalidArgumentError(`Expected shape type ${options.type}`);
-    const rawPoints = readDensePlainArray(getOwnDataValue(record, 'controlPoints', 'controlPoints'), 'controlPoints');
-    const points = new Array<Coordinate>(rawPoints.length);
-    for (let index = 0; index < rawPoints.length; index += 1) points[index] = normalizeCoordinate(rawPoints[index], `controlPoints[${index}]`);
+    const points = normalizeControlPoints(getOwnDataValue(record, 'controlPoints', 'controlPoints'));
     if (points.length < options.previewMin) throw new InvalidArgumentError(`${options.type} requires at least ${options.previewMin} preview control points`);
     if (options.completeMax !== undefined && points.length > options.completeMax) {
       throw new InvalidArgumentError(`${options.type} accepts at most ${options.completeMax} control points`);

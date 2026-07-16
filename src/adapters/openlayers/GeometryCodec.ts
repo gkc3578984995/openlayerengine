@@ -6,7 +6,7 @@ import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import type { Coordinate } from '../../core/common/types.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
-import type { RenderGeometryState, ShapeState } from '../../core/shape/types.js';
+import type { RenderGeometryState, ShapeInput, ShapeState } from '../../core/shape/types.js';
 
 /** OpenLayers 最终需要渲染的几何类型。 */
 export type RenderGeometryKind = RenderGeometryState['type'];
@@ -55,8 +55,10 @@ export class GeometryCodec {
   }
 
   /** 返回图形最终使用的渲染类型。 */
-  renderKind(state: ShapeState): RenderGeometryKind {
-    return this.#render(state).type;
+  renderKind(input: ShapeInput): RenderGeometryKind {
+    const definition = this.#shapes.get(input.type);
+    const state = definition.normalize(input);
+    return definition.toRenderGeometry(state as never).type;
   }
 
   /** 调用图形定义生成渲染状态。 */
