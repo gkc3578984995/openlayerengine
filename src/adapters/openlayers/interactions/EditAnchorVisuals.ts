@@ -42,6 +42,11 @@ interface EditPreviewVisual {
   readonly pointFill: string;
 }
 
+/** 编辑强调描边统一使用圆角连接，避免锐角顶点产生 Canvas miter 尖峰。 */
+const EDIT_PREVIEW_LINE_CAP: CanvasLineCap = 'round';
+const EDIT_PREVIEW_LINE_JOIN: CanvasLineJoin = 'round';
+const EDIT_PREVIEW_MITER_LIMIT = 2;
+
 /** 交互反馈全部由语义空间索引命中，Canvas 强调层不重复参与原生命中检测。 */
 const renderNoHit: RenderFunction = (): void => undefined;
 
@@ -148,11 +153,23 @@ const editPreviewHaloVisual: EditPreviewVisual = {
 export const editPreviewHaloStyle = new Style({
   renderer: createEditPreviewRenderer(editPreviewHaloVisual),
   hitDetectionRenderer: renderNoHit,
-  stroke: new Stroke({ color: 'rgba(22,119,255,0.28)', width: 6 }),
+  stroke: new Stroke({
+    color: 'rgba(22,119,255,0.28)',
+    width: 6,
+    lineCap: EDIT_PREVIEW_LINE_CAP,
+    lineJoin: EDIT_PREVIEW_LINE_JOIN,
+    miterLimit: EDIT_PREVIEW_MITER_LIMIT
+  }),
   image: new CircleStyle({
     radius: 12,
     fill: new Fill({ color: 'rgba(22,119,255,0.04)' }),
-    stroke: new Stroke({ color: 'rgba(22,119,255,0.28)', width: 6 })
+    stroke: new Stroke({
+      color: 'rgba(22,119,255,0.28)',
+      width: 6,
+      lineCap: EDIT_PREVIEW_LINE_CAP,
+      lineJoin: EDIT_PREVIEW_LINE_JOIN,
+      miterLimit: EDIT_PREVIEW_MITER_LIMIT
+    })
   }),
   zIndex: EDIT_PREVIEW_ACCENT_Z_INDEX
 });
@@ -170,11 +187,25 @@ export const editPreviewAccentStyle = new Style({
   renderer: createEditPreviewRenderer(editPreviewAccentVisual),
   hitDetectionRenderer: renderNoHit,
   fill: new Fill({ color: 'rgba(22,119,255,0.10)' }),
-  stroke: new Stroke({ color: '#1677ff', width: 2, lineDash: [6, 4] }),
+  stroke: new Stroke({
+    color: '#1677ff',
+    width: 2,
+    lineDash: [6, 4],
+    lineCap: EDIT_PREVIEW_LINE_CAP,
+    lineJoin: EDIT_PREVIEW_LINE_JOIN,
+    miterLimit: EDIT_PREVIEW_MITER_LIMIT
+  }),
   image: new CircleStyle({
     radius: 10,
     fill: new Fill({ color: 'rgba(22,119,255,0.10)' }),
-    stroke: new Stroke({ color: '#1677ff', width: 2, lineDash: [6, 4] })
+    stroke: new Stroke({
+      color: '#1677ff',
+      width: 2,
+      lineDash: [6, 4],
+      lineCap: EDIT_PREVIEW_LINE_CAP,
+      lineJoin: EDIT_PREVIEW_LINE_JOIN,
+      miterLimit: EDIT_PREVIEW_MITER_LIMIT
+    })
   }),
   zIndex: EDIT_PREVIEW_ACCENT_Z_INDEX
 });
@@ -345,6 +376,9 @@ function createEditPreviewRenderer(visual: EditPreviewVisual): RenderFunction {
       }
       context.strokeStyle = visual.stroke;
       context.lineWidth = visual.strokeWidth * pixelRatio;
+      context.lineCap = EDIT_PREVIEW_LINE_CAP;
+      context.lineJoin = EDIT_PREVIEW_LINE_JOIN;
+      context.miterLimit = EDIT_PREVIEW_MITER_LIMIT;
       if (visual.lineDash !== undefined) context.setLineDash(visual.lineDash.map((length) => length * pixelRatio));
       context.stroke();
     } finally {
