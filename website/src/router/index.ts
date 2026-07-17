@@ -8,6 +8,7 @@ import PolygonLayerView from '../views/PolygonLayerView.vue';
 import BillboardLayerView from '../views/BillboardLayerView.vue';
 import OverlayLayerView from '../views/OverlayLayerView.vue';
 import PolylineLayerView from '../views/PolylineLayerView.vue';
+import AnimationView from '../views/AnimationView.vue';
 import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
 import GlobalMethodsView from '../views/GlobalMethodsView.vue';
@@ -101,6 +102,11 @@ const router = createRouter({
           path: 'components/polyline-layer',
           name: 'polyline-layer',
           component: PolylineLayerView
+        },
+        {
+          path: 'components/animation',
+          name: 'animation',
+          component: AnimationView
         },
         {
           path: 'components/global-event',

@@ -1,0 +1,594 @@
+import { describe, expect, it, vi } from 'vitest';
+import { alertAnimationDefinition, normalizeAlertAnimationSpec } from '../src/builtins/animations/alert.js';
+import { blinkAnimationDefinition, normalizeBlinkAnimationSpec } from '../src/builtins/animations/blink.js';
+import { centerSpreadAnimationDefinition, normalizeCenterSpreadAnimationSpec } from '../src/builtins/animations/centerSpread.js';
+import { fadeAnimationDefinition, normalizeFadeAnimationSpec } from '../src/builtins/animations/fade.js';
+import { growAnimationDefinition, normalizeGrowAnimationSpec } from '../src/builtins/animations/grow.js';
+import { highlightAnimationDefinition, normalizeHighlightAnimationSpec } from '../src/builtins/animations/highlight.js';
+import { normalizeRadarScanAnimationSpec, radarScanAnimationDefinition } from '../src/builtins/animations/radarScan.js';
+import {
+  alertIntensityAt,
+  animationFinishedAt,
+  applyAnimationEasing,
+  blinkOpacityAt,
+  centerSpreadFinishedAt,
+  centerSpreadRingProgressAt,
+  fadeOpacityAt,
+  growProgressAt,
+  highlightIntensityAt,
+  nextBlinkDeadlineAt,
+  radarScanProgressAt
+} from '../src/builtins/animations/timeline.js';
+import type { Coordinate } from '../src/core/common/types.js';
+import { CapabilityError, InvalidArgumentError, UnsupportedOperationError } from '../src/core/errors.js';
+import type { RenderGeometryState, ShapeAnimationProfile, ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
+import { createNativeStyleRef } from '../src/core/style/types.js';
+import { createAnimationFrameBuffer } from '../src/services/animation/AnimationFrameBuffer.js';
+import type { AnimationDefinition, AnimationFrameContext, AnimationRuntime, AnimationTargetProfile } from '../src/services/animation/types.js';
+
+describe('可组合动画效果配置', () => {
+  it('严格补齐已批准的默认值', () => {
+    expect(normalizeBlinkAnimationSpec({ type: 'blink' })).toEqual({
+      type: 'blink',
+      channel: 'blink',
+      periodMs: 800,
+      dutyCycle: 0.5,
+      minOpacity: 0,
+      maxOpacity: 1,
+      repeat: true
+    });
+    expect(normalizeHighlightAnimationSpec({ type: 'highlight' })).toEqual({
+      type: 'highlight',
+      channel: 'highlight',
+      mode: 'steady',
+      color: '#ffc107',
+      fillOpacity: 0.18,
+      strokeWidth: 3,
+      periodMs: 1200
+    });
+    expect(normalizeAlertAnimationSpec({ type: 'alert' })).toEqual({
+      type: 'alert',
+      channel: 'alert',
+      periodMs: 1200,
+      color: '#ff3b30',
+      fillOpacity: 0.22,
+      strokeWidth: 3,
+      repeat: true
+    });
+    expect(normalizeGrowAnimationSpec({ type: 'grow' })).toEqual({
+      type: 'grow',
+      channel: 'grow',
+      durationMs: 1200,
+      direction: 'forward',
+      easing: 'linear',
+      repeat: false
+    });
+    expect(normalizeRadarScanAnimationSpec({ type: 'radar-scan' })).toEqual({
+      type: 'radar-scan',
+      channel: 'radar-scan',
+      periodMs: 2000,
+      direction: 'clockwise',
+      color: '#00e5ff',
+      opacity: 0.35,
+      beamWidthDeg: 45,
+      repeat: true
+    });
+    expect(normalizeCenterSpreadAnimationSpec({ type: 'center-spread' })).toEqual({
+      type: 'center-spread',
+      channel: 'center-spread',
+      periodMs: 1600,
+      color: '#00e5ff',
+      strokeWidth: 2,
+      ringCount: 3,
+      repeat: true
+    });
+    expect(normalizeFadeAnimationSpec({ type: 'fade', direction: 'out' })).toEqual({
+      type: 'fade',
+      channel: 'fade',
+      direction: 'out',
+      durationMs: 500,
+      easing: 'ease-in-out'
+    });
+  });
+
+  it('拒绝非法范围、互斥字段和缺失的 fade direction', () => {
+    const invalidInputs: readonly (() => unknown)[] = [
+      () => normalizeBlinkAnimationSpec({ type: 'blink', periodMs: 0 }),
+      () => normalizeBlinkAnimationSpec({ type: 'blink', dutyCycle: 1 }),
+      () => normalizeBlinkAnimationSpec({ type: 'blink', minOpacity: 0.5, maxOpacity: 0.5 }),
+      () => normalizeBlinkAnimationSpec({ type: 'blink', maxOpacity: 1.01 }),
+      () => normalizeHighlightAnimationSpec({ type: 'highlight', periodMs: 900 }),
+      () => normalizeHighlightAnimationSpec({ type: 'highlight', mode: 'breathe', strokeWidth: -1 }),
+      () => normalizeAlertAnimationSpec({ type: 'alert', fillOpacity: -0.01 }),
+      () => normalizeGrowAnimationSpec({ type: 'grow', direction: 'backward' }),
+      () => normalizeGrowAnimationSpec({ type: 'grow', easing: 'quadratic' }),
+      () => normalizeRadarScanAnimationSpec({ type: 'radar-scan', beamWidthDeg: 361 }),
+      () => normalizeRadarScanAnimationSpec({ type: 'radar-scan', opacity: Number.NaN }),
+      () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 0 }),
+      () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 2.5 }),
+      () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 6 }),
+      () => normalizeFadeAnimationSpec({ type: 'fade' }),
+      () => normalizeFadeAnimationSpec({ type: 'fade', direction: 'in', durationMs: Number.POSITIVE_INFINITY })
+    ];
+    for (const invalid of invalidInputs) expect(invalid).toThrowError(InvalidArgumentError);
+    expect(normalizeHighlightAnimationSpec({ type: 'highlight', mode: 'breathe', periodMs: 900 }).periodMs).toBe(900);
+  });
+
+  it('拒绝未知字段、accessor、symbol 与非法原型，且不修改调用方对象', () => {
+    const input = { type: 'blink' as const, channel: 'attention' };
+    const original = structuredClone(input);
+    const normalized = normalizeBlinkAnimationSpec(input);
+    expect(input).toEqual(original);
+    expect(normalized).not.toBe(input);
+    expect(Object.isFrozen(normalized)).toBe(true);
+    expect(() => normalizeBlinkAnimationSpec({ ...input, unknown: true })).toThrowError(InvalidArgumentError);
+
+    const getter = vi.fn(() => 800);
+    const accessor = { type: 'blink' };
+    Object.defineProperty(accessor, 'periodMs', { enumerable: true, get: getter });
+    expect(() => normalizeBlinkAnimationSpec(accessor)).toThrowError(InvalidArgumentError);
+    expect(getter).not.toHaveBeenCalled();
+
+    const symbolInput = { type: 'blink', [Symbol('hidden')]: true };
+    expect(() => normalizeBlinkAnimationSpec(symbolInput)).toThrowError(InvalidArgumentError);
+    expect(() => normalizeBlinkAnimationSpec(Object.assign(Object.create({}), { type: 'blink' }))).toThrowError(InvalidArgumentError);
+  });
+});
+
+describe('可组合动画纯时间函数', () => {
+  it('使用固定三次 easing 并限制输入进度', () => {
+    expect(applyAnimationEasing('linear', -1)).toBe(0);
+    expect(applyAnimationEasing('linear', 2)).toBe(1);
+    expect(applyAnimationEasing('ease-in', 0.5)).toBe(0.125);
+    expect(applyAnimationEasing('ease-out', 0.5)).toBe(0.875);
+    expect(applyAnimationEasing('ease-in-out', 0.25)).toBe(0.0625);
+    expect(applyAnimationEasing('ease-in-out', 0.75)).toBe(0.9375);
+  });
+
+  it('精确处理 blink 阶跃边界与下一截止时间', () => {
+    expect(blinkOpacityAt(0, 800, 0.5, 0.2, 0.9, true)).toBe(0.9);
+    expect(blinkOpacityAt(399.999, 800, 0.5, 0.2, 0.9, true)).toBe(0.9);
+    expect(blinkOpacityAt(400, 800, 0.5, 0.2, 0.9, true)).toBe(0.2);
+    expect(blinkOpacityAt(800, 800, 0.5, 0.2, 0.9, true)).toBe(0.9);
+    expect(nextBlinkDeadlineAt(0, 800, 0.5, true)).toBe(400);
+    expect(nextBlinkDeadlineAt(400, 800, 0.5, true)).toBe(800);
+    expect(nextBlinkDeadlineAt(800, 800, 0.5, false)).toBeUndefined();
+  });
+
+  it('精确采样呼吸高亮、告警双峰、grow、radar 和 fade', () => {
+    expect(highlightIntensityAt(0, 1200, 'steady')).toBe(1);
+    expect(highlightIntensityAt(0, 1200, 'breathe')).toBeCloseTo(0.35);
+    expect(highlightIntensityAt(600, 1200, 'breathe')).toBeCloseTo(1);
+    expect(alertIntensityAt(144, 1200, false)).toBe(1);
+    expect(alertIntensityAt(288, 1200, false)).toBe(0);
+    expect(alertIntensityAt(432, 1200, false)).toBe(1);
+    expect(alertIntensityAt(624, 1200, false)).toBe(0);
+    expect(growProgressAt(500, 1000, false, 'ease-in')).toBe(0.125);
+    expect(radarScanProgressAt(500, 2000, true)).toBe(0.25);
+    expect(fadeOpacityAt(250, 500, 'in', 'ease-in-out')).toBe(0.5);
+    expect(fadeOpacityAt(250, 500, 'out', 'ease-in-out')).toBe(0.5);
+    expect(animationFinishedAt(1000, 1000, false)).toBe(true);
+    expect(animationFinishedAt(1000, 1000, true)).toBe(false);
+  });
+
+  it('按固定 slot 计算 center-spread 发射和完成边界', () => {
+    expect(centerSpreadRingProgressAt(0, 1200, 3, 0, false)).toBe(0);
+    expect(centerSpreadRingProgressAt(399, 1200, 3, 1, false)).toBeUndefined();
+    expect(centerSpreadRingProgressAt(400, 1200, 3, 1, false)).toBe(0);
+    expect(centerSpreadRingProgressAt(1600, 1200, 3, 1, false)).toBeUndefined();
+    expect(centerSpreadRingProgressAt(1600, 1200, 3, 1, true)).toBe(0);
+    expect(centerSpreadFinishedAt(1999, 1200, 3, false)).toBe(false);
+    expect(centerSpreadFinishedAt(2000, 1200, 3, false)).toBe(true);
+  });
+});
+
+describe('可组合动画 Runtime 草案', () => {
+  it('为所有新增 Definition 声明确定的写入域、能力与交互策略', () => {
+    const definitions = [
+      blinkAnimationDefinition,
+      highlightAnimationDefinition,
+      alertAnimationDefinition,
+      growAnimationDefinition,
+      radarScanAnimationDefinition,
+      centerSpreadAnimationDefinition,
+      fadeAnimationDefinition
+    ] as const;
+    expect(definitions.map(({ type }) => type)).toEqual(['blink', 'highlight', 'alert', 'grow', 'radar-scan', 'center-spread', 'fade']);
+    for (const definition of definitions) {
+      expect(definition.interactionPolicy).toEqual({ edit: 'pause-and-suppress', transform: 'pause-and-suppress' });
+      expect(definition.requirements.has('structured-presentation')).toBe(true);
+    }
+    expect([...blinkAnimationDefinition.writeDomains]).toEqual(['target-opacity']);
+    expect([...fadeAnimationDefinition.writeDomains]).toEqual(['target-opacity']);
+    expect([...growAnimationDefinition.writeDomains]).toEqual(['target-geometry']);
+    expect([...highlightAnimationDefinition.writeDomains]).toEqual(['overlay']);
+  });
+
+  it('blink 仅在阶跃边界调度，fade-in remove 且 fade-out retain', () => {
+    const target = targetProfile({ type: 'point', coordinates: [0, 0] });
+    const blink = createRuntime(blinkAnimationDefinition, target, { type: 'blink', periodMs: 800, repeat: false });
+    const blinkBuffer = createAnimationFrameBuffer(blink.slots);
+    expect(sample(blink, blinkBuffer, target, 0)).toEqual({ finished: false, schedule: { kind: 'deadline', atElapsedMs: 400 } });
+    expect(blinkBuffer.targetOpacity).toBe(1);
+    blinkBuffer.reset();
+    expect(sample(blink, blinkBuffer, target, 400).schedule).toEqual({ kind: 'deadline', atElapsedMs: 800 });
+    expect(blinkBuffer.targetOpacity).toBe(0);
+    blinkBuffer.reset();
+    expect(sample(blink, blinkBuffer, target, 800).finished).toBe(true);
+    expect(blinkBuffer.targetOpacity).toBeUndefined();
+
+    const fadeIn = createRuntime(fadeAnimationDefinition, target, { type: 'fade', direction: 'in' });
+    const fadeInBuffer = createAnimationFrameBuffer(fadeIn.slots);
+    sample(fadeIn, fadeInBuffer, target, 250);
+    expect(fadeInBuffer.targetOpacity).toBe(0.5);
+    fadeInBuffer.reset();
+    expect(sample(fadeIn, fadeInBuffer, target, 500)).toEqual({ finished: true, schedule: { kind: 'stable' } });
+    expect(fadeInBuffer.targetOpacity).toBeUndefined();
+
+    const fadeOut = createRuntime(fadeAnimationDefinition, target, { type: 'fade', direction: 'out' });
+    const fadeOutBuffer = createAnimationFrameBuffer(fadeOut.slots);
+    expect(sample(fadeOut, fadeOutBuffer, target, 500)).toEqual({ finished: true, retain: true, schedule: { kind: 'stable' } });
+    expect(fadeOutBuffer.targetOpacity).toBe(0);
+  });
+
+  it('highlight 与 alert 只更新稳定 overlay slot', () => {
+    const target = targetProfile(polygonGeometry());
+    const highlight = createRuntime(highlightAnimationDefinition, target, { type: 'highlight', mode: 'breathe' });
+    const highlightBuffer = createAnimationFrameBuffer(highlight.slots);
+    expect(sample(highlight, highlightBuffer, target, 600).schedule).toEqual({ kind: 'continuous' });
+    expect(highlightBuffer.overlays).toHaveLength(2);
+    expect(highlightBuffer.overlays[0]).toEqual(expect.objectContaining({ active: true, geometryKind: 'effective-target', opacity: 0.18 }));
+    expect(highlightBuffer.overlays[1]).toEqual(expect.objectContaining({ active: true, geometryKind: 'effective-target', opacity: 1 }));
+
+    const alert = createRuntime(alertAnimationDefinition, target, { type: 'alert', repeat: false });
+    const alertBuffer = createAnimationFrameBuffer(alert.slots);
+    sample(alert, alertBuffer, target, 144);
+    expect(alertBuffer.overlays).toHaveLength(3);
+    expect(alertBuffer.overlays.map(({ active, opacity }) => ({ active, opacity }))).toEqual([
+      { active: true, opacity: 0.22 },
+      { active: true, opacity: 1 },
+      { active: true, opacity: 0.35 }
+    ]);
+    alertBuffer.reset();
+    expect(sample(alert, alertBuffer, target, 1200).finished).toBe(true);
+    expect(alertBuffer.overlays.every(({ active }) => !active)).toBe(true);
+  });
+
+  it('不可见的合法 repeat 配置保持稳定且不请求连续帧', () => {
+    const surface = targetProfile(polygonGeometry());
+    const highlight = createRuntime(highlightAnimationDefinition, surface, {
+      type: 'highlight',
+      mode: 'breathe',
+      fillOpacity: 0,
+      strokeWidth: 0
+    });
+    const alert = createRuntime(alertAnimationDefinition, surface, { type: 'alert', fillOpacity: 0, strokeWidth: 0, repeat: true });
+    const radial = radialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, radial, { type: 'radar-scan', opacity: 0, repeat: true });
+    const spread = createRuntime(centerSpreadAnimationDefinition, radial, { type: 'center-spread', strokeWidth: 0, repeat: true });
+
+    for (const [runtime, target] of [
+      [highlight, surface],
+      [alert, surface],
+      [radar, radial],
+      [spread, radial]
+    ] as const) {
+      expect(sample(runtime, createAnimationFrameBuffer(runtime.slots), target, 0).schedule).toEqual({ kind: 'stable' });
+      runtime.destroy();
+    }
+  });
+
+  it('grow 按累计长度生成正向前缀和反向后缀', () => {
+    const target = targetProfile({
+      type: 'polyline',
+      coordinates: [
+        [0, 0],
+        [10, 0],
+        [10, 10]
+      ]
+    });
+    const forward = createRuntime(growAnimationDefinition, target, { type: 'grow', durationMs: 1000 });
+    const forwardBuffer = createAnimationFrameBuffer(forward.slots);
+    sample(forward, forwardBuffer, target, 500);
+    expect(forwardBuffer.targetGeometry).toEqual({
+      type: 'polyline',
+      coordinates: [
+        [0, 0],
+        [10, 0]
+      ]
+    });
+    const stableForwardGeometry = forwardBuffer.targetGeometry;
+    sample(forward, forwardBuffer, target, 750);
+    expect(forwardBuffer.targetGeometry).toBe(stableForwardGeometry);
+
+    const reverse = createRuntime(growAnimationDefinition, target, { type: 'grow', durationMs: 1000, direction: 'reverse' });
+    const reverseBuffer = createAnimationFrameBuffer(reverse.slots);
+    sample(reverse, reverseBuffer, target, 500);
+    expect(reverseBuffer.targetGeometry).toEqual(
+      expect.objectContaining({
+        type: 'polyline',
+        coordinates: expect.arrayContaining([
+          [10, 0],
+          [10, 10]
+        ])
+      })
+    );
+  });
+
+  it('grow 优先复用 Shape reveal session，并在 rebind 与 destroy 时转交资源生命周期', () => {
+    const stableGeometry = polygonGeometry();
+    const reveal = vi.fn(() => stableGeometry);
+    const rebind = vi.fn();
+    const destroy = vi.fn();
+    const revealGeometry = vi.fn(() => {
+      throw new Error('legacy reveal provider should not run');
+    });
+    const createRevealSession = vi.fn(() => ({ reveal, rebind, destroy }));
+    const target = targetProfile(polygonGeometry(), { revealGeometry, createRevealSession });
+    const runtime = createRuntime(growAnimationDefinition, target, { type: 'grow', durationMs: 1000 });
+    const buffer = createAnimationFrameBuffer(runtime.slots);
+
+    sample(runtime, buffer, target, 250);
+    expect(buffer.targetGeometry).toBe(stableGeometry);
+    sample(runtime, buffer, target, 500);
+    expect(buffer.targetGeometry).toBe(stableGeometry);
+    expect(createRevealSession).toHaveBeenCalledTimes(1);
+    expect(reveal).toHaveBeenNthCalledWith(1, 0.25, 'forward');
+    expect(reveal).toHaveBeenNthCalledWith(2, 0.5, 'forward');
+    expect(revealGeometry).not.toHaveBeenCalled();
+
+    const reboundViewShape: ShapeState = { type: 'polygon', controlPoints: [[3, 4]] };
+    const rebound = { ...target, viewShape: reboundViewShape } as AnimationTargetProfile;
+    runtime.rebind(rebound);
+    expect(rebind).toHaveBeenCalledWith(reboundViewShape);
+    sample(runtime, buffer, rebound, 750);
+    expect(buffer.targetGeometry).toBe(stableGeometry);
+    expect(createRevealSession).toHaveBeenCalledTimes(1);
+
+    runtime.destroy();
+    runtime.destroy();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('radar-scan 与 center-spread 使用 radial provider 和有界稳定 slot', () => {
+    const target = radialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, target, { type: 'radar-scan' });
+    const radarBuffer = createAnimationFrameBuffer(radar.slots);
+    sample(radar, radarBuffer, target, 500);
+    expect(radar.slots).toHaveLength(10);
+    expect(radarBuffer.overlays.filter(({ active }) => active).length).toBeGreaterThan(0);
+    expect(radarBuffer.overlays.filter(({ active }) => active).every(({ geometry }) => geometry?.type === 'polygon')).toBe(true);
+    expect(radarBuffer.overlays[0].opacity).toBe(0.35);
+    const stableRadarGeometry = radarBuffer.overlays[0].geometry;
+    sample(radar, radarBuffer, target, 600);
+    expect(radarBuffer.overlays[0].geometry).toBe(stableRadarGeometry);
+
+    const spread = createRuntime(centerSpreadAnimationDefinition, target, { type: 'center-spread', periodMs: 1200, ringCount: 3 });
+    const spreadBuffer = createAnimationFrameBuffer(spread.slots);
+    sample(spread, spreadBuffer, target, 600);
+    expect(spread.slots).toHaveLength(3);
+    expect(spreadBuffer.overlays[0].geometry).toEqual({ type: 'circle', center: [0, 0], radius: 50 });
+    expect(spreadBuffer.overlays[0].opacity).toBe(0.5);
+    expect(spreadBuffer.overlays[2].active).toBe(false);
+    const stableSpreadGeometry = spreadBuffer.overlays[0].geometry;
+    sample(spread, spreadBuffer, target, 700);
+    expect(spreadBuffer.overlays[0].geometry).toBe(stableSpreadGeometry);
+  });
+
+  it('radar-scan 按 resolution 桶调整采样并保持槽内几何与坐标容器稳定', () => {
+    const target = radialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, target, { type: 'radar-scan', beamWidthDeg: 360 });
+    const buffer = createAnimationFrameBuffer(radar.slots);
+
+    sample(radar, buffer, target, 500, 1);
+    const geometry = polygonGeometryFrom(buffer.overlays[0].geometry);
+    const ring = geometry.coordinates[0];
+    const coarseCoordinates = [...ring];
+    const coarseLength = ring.length;
+    expect(maxChordErrorCssPx(ring.slice(1, -1), [0, 0], 100, 1)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
+
+    sample(radar, buffer, target, 500, 1.5);
+    const sameBucketRing = polygonGeometryFrom(buffer.overlays[0].geometry).coordinates[0];
+    expect(sameBucketRing).toBe(ring);
+    expect(sameBucketRing).toHaveLength(coarseLength);
+    for (let index = 0; index < coarseCoordinates.length; index += 1) expect(sameBucketRing[index]).toBe(coarseCoordinates[index]);
+
+    sample(radar, buffer, target, 500, 0.5);
+    const fineRing = polygonGeometryFrom(buffer.overlays[0].geometry).coordinates[0];
+    expect(fineRing).toBe(ring);
+    expect(fineRing.length).toBeGreaterThan(coarseLength);
+    const fineCoordinates = [...fineRing];
+
+    sample(radar, buffer, target, 500, 0.75);
+    const sameFineBucketRing = polygonGeometryFrom(buffer.overlays[0].geometry).coordinates[0];
+    expect(sameFineBucketRing).toBe(fineRing);
+    expect(sameFineBucketRing).toHaveLength(fineCoordinates.length);
+    for (let index = 0; index < fineCoordinates.length; index += 1) expect(sameFineBucketRing[index]).toBe(fineCoordinates[index]);
+    expect(maxChordErrorCssPx(sameFineBucketRing.slice(1, -1), [0, 0], 100, 0.75)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
+  });
+
+  it('center-spread 的 Sector 弧线按外半径预算采样且同 resolution 桶不改变拓扑', () => {
+    const target = sectorRadialTarget();
+    const spread = createRuntime(centerSpreadAnimationDefinition, target, { type: 'center-spread', periodMs: 1000, ringCount: 1 });
+    const buffer = createAnimationFrameBuffer(spread.slots);
+
+    sample(spread, buffer, target, 900, 1);
+    const geometry = polylineGeometryFrom(buffer.overlays[0].geometry);
+    const coordinates = geometry.coordinates;
+    const coarseCoordinates = [...coordinates];
+    const coarseLength = coordinates.length;
+    expect(maxChordErrorCssPx(coordinates, [0, 0], 90, 1)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
+
+    sample(spread, buffer, target, 900, 1.5);
+    const sameBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    expect(sameBucketCoordinates).toBe(coordinates);
+    expect(sameBucketCoordinates).toHaveLength(coarseLength);
+    for (let index = 0; index < coarseCoordinates.length; index += 1) expect(sameBucketCoordinates[index]).toBe(coarseCoordinates[index]);
+
+    sample(spread, buffer, target, 900, 0.5);
+    const fineCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    expect(fineCoordinates).toBe(coordinates);
+    expect(fineCoordinates.length).toBeGreaterThan(coarseLength);
+    const fineCoordinateRefs = [...fineCoordinates];
+
+    sample(spread, buffer, target, 900, 0.75);
+    const sameFineBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    expect(sameFineBucketCoordinates).toBe(fineCoordinates);
+    expect(sameFineBucketCoordinates).toHaveLength(fineCoordinateRefs.length);
+    for (let index = 0; index < fineCoordinateRefs.length; index += 1) expect(sameFineBucketCoordinates[index]).toBe(fineCoordinateRefs[index]);
+    expect(maxChordErrorCssPx(sameFineBucketCoordinates, [0, 0], 90, 0.75)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
+
+    const sameRadiusBucketTarget = sectorRadialTarget(120);
+    spread.rebind(sameRadiusBucketTarget);
+    sample(spread, buffer, sameRadiusBucketTarget, 900, 0.75);
+    const sameRadiusBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    expect(sameRadiusBucketCoordinates).toBe(coordinates);
+    expect(sameRadiusBucketCoordinates).toHaveLength(fineCoordinateRefs.length);
+    for (let index = 0; index < fineCoordinateRefs.length; index += 1) expect(sameRadiusBucketCoordinates[index]).toBe(fineCoordinateRefs[index]);
+    expect(maxChordErrorCssPx(sameRadiusBucketCoordinates, [0, 0], 108, 0.75)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
+
+    const largerRadiusBucketTarget = sectorRadialTarget(200);
+    spread.rebind(largerRadiusBucketTarget);
+    sample(spread, buffer, largerRadiusBucketTarget, 900, 0.75);
+    const largerRadiusBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    expect(largerRadiusBucketCoordinates).toBe(coordinates);
+    expect(largerRadiusBucketCoordinates.length).toBeGreaterThan(fineCoordinateRefs.length);
+    expect(maxChordErrorCssPx(largerRadiusBucketCoordinates, [0, 0], 180, 0.75)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
+  });
+
+  it('在创建记录前拒绝不具备目标能力的 Shape 和 NativeStyleRef', () => {
+    const point = targetProfile({ type: 'point', coordinates: [0, 0] });
+    expect(() => highlightAnimationDefinition.assertCompatible(point)).toThrowError(CapabilityError);
+    expect(() => radarScanAnimationDefinition.assertCompatible(point)).toThrowError(CapabilityError);
+    expect(() =>
+      growAnimationDefinition.assertCompatible(
+        targetProfile({
+          type: 'polyline',
+          coordinates: [
+            [0, 0],
+            [0, 0]
+          ]
+        })
+      )
+    ).toThrowError(CapabilityError);
+
+    const structured = targetProfile({ type: 'point', coordinates: [0, 0] });
+    const native = { ...structured, state: Object.freeze({ ...structured.state, style: createNativeStyleRef() }) } as AnimationTargetProfile;
+    expect(() => blinkAnimationDefinition.assertCompatible(native)).toThrowError(UnsupportedOperationError);
+  });
+});
+
+function createRuntime(definition: AnimationDefinition, target: AnimationTargetProfile, spec: unknown): AnimationRuntime {
+  const normalized = definition.normalize(spec);
+  definition.assertCompatible(target);
+  return definition.create(target, normalized);
+}
+
+function sample(
+  runtime: AnimationRuntime,
+  buffer: ReturnType<typeof createAnimationFrameBuffer>,
+  target: AnimationTargetProfile,
+  elapsedMs: number,
+  resolution = 1
+) {
+  const context: AnimationFrameContext = { target, elapsedMs, resolution, rotation: 0, pixelRatio: 1 };
+  return runtime.sample(context, buffer);
+}
+
+function polygonGeometry(): RenderGeometryState {
+  return {
+    type: 'polygon',
+    coordinates: [
+      [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+        [0, 0]
+      ]
+    ]
+  };
+}
+
+function radialTarget(): AnimationTargetProfile {
+  return targetProfile(
+    { type: 'circle', center: [0, 0], radius: 100 },
+    {
+      radialFrame: () => ({ center: [0, 0], radius: 100, startAngleRad: Math.PI / 2, sweepAngleRad: Math.PI * 2 })
+    }
+  );
+}
+
+function sectorRadialTarget(radius = 100): AnimationTargetProfile {
+  return targetProfile(
+    {
+      type: 'polygon',
+      coordinates: [
+        [
+          [0, 0],
+          [radius, 0],
+          [-radius, 0],
+          [0, 0]
+        ]
+      ]
+    },
+    {
+      radialFrame: () => ({ center: [0, 0], radius, startAngleRad: 0, sweepAngleRad: Math.PI })
+    }
+  );
+}
+
+function polygonGeometryFrom(geometry: RenderGeometryState | undefined): Extract<RenderGeometryState, { type: 'polygon' }> {
+  if (geometry?.type !== 'polygon') throw new Error('Expected polygon animation geometry');
+  return geometry;
+}
+
+function polylineGeometryFrom(geometry: RenderGeometryState | undefined): Extract<RenderGeometryState, { type: 'polyline' }> {
+  if (geometry?.type !== 'polyline') throw new Error('Expected polyline animation geometry');
+  return geometry;
+}
+
+function maxChordErrorCssPx(coordinates: readonly Coordinate[], center: Coordinate, radius: number, resolution: number): number {
+  let maximum = 0;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const left = coordinates[index - 1];
+    const right = coordinates[index];
+    const midpointX = (left[0] + right[0]) / 2;
+    const midpointY = (left[1] + right[1]) / 2;
+    maximum = Math.max(maximum, (radius - Math.hypot(midpointX - center[0], midpointY - center[1])) / resolution);
+  }
+  return maximum;
+}
+
+function targetProfile(geometry: RenderGeometryState, animation?: ShapeAnimationProfile): AnimationTargetProfile {
+  const type: ShapeType =
+    geometry.type === 'point' || geometry.type === 'polyline' || geometry.type === 'polygon' || geometry.type === 'circle' ? geometry.type : 'point';
+  const viewShape = (
+    type === 'circle'
+      ? { type: 'circle', center: geometry.type === 'circle' ? geometry.center : [0, 0], radius: geometry.type === 'circle' ? geometry.radius : 1 }
+      : { type, controlPoints: [] }
+  ) as ShapeState;
+  const style = geometry.type === 'point' ? { symbol: { type: 'circle' as const, radius: 4 } } : { strokes: [{ color: '#000000', width: 2 }] };
+  const profile = {
+    state: Object.freeze({ id: 'target', type, geometry: viewShape, style, layerId: 'default', visible: true }),
+    viewShape,
+    geometry,
+    style,
+    shape: shapeDefinition(type, animation)
+  };
+  return profile as AnimationTargetProfile;
+}
+
+function shapeDefinition(type: ShapeType, animation?: ShapeAnimationProfile): ShapeDefinition {
+  return {
+    type,
+    capabilities: new Set(),
+    ...(animation === undefined ? {} : { animation }),
+    createDraft: () => undefined,
+    normalize: (input) => input as ShapeState,
+    clone: (state) => state,
+    isComplete: () => true,
+    tryComplete: (state) => ({ status: 'complete', state }),
+    toRenderGeometry: () => ({ type: 'point', coordinates: [0, 0] })
+  } as ShapeDefinition;
+}

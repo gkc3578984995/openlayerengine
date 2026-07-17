@@ -100,6 +100,57 @@ export type RenderGeometryState =
       readonly radius: number;
     };
 
+/** 路径或面箭头的揭示方向。 */
+export type ShapeAnimationDirection = 'forward' | 'reverse';
+
+/** 圆形和扇面动画使用的 View 径向语义。 */
+export interface ShapeRadialFrame {
+  /** 径向效果的中心。 */
+  readonly center: Coordinate;
+  /** 当前 View 投影单位中的外半径。 */
+  readonly radius: number;
+  /** 起始边界角；0 沿 View 坐标正 X。 */
+  readonly startAngleRad: number;
+  /** 从起始边界沿角度增加方向覆盖的弧度。 */
+  readonly sweepAngleRad: number;
+}
+
+/** Shape reveal provider 为单条动画记录持有的可复用工作会话。 */
+export interface ShapeRevealSession<S extends ShapeState = ShapeState> {
+  /** 在目标 View 工作状态变化时重建控制点、路径指标和算法工作区。 */
+  rebind(viewState: Readonly<S>): void;
+  /** 把当前进度写入会话持有的稳定 RenderGeometry 容器。 */
+  reveal(progress: number, direction: ShapeAnimationDirection): RenderGeometryState | undefined;
+  /** 释放会话持有的引用与工作区；重复调用保持幂等。 */
+  destroy(): void;
+}
+
+/** Shape 为动画内核提供的可选几何语义。 */
+export interface ShapeAnimationProfile<S extends ShapeState = ShapeState> {
+  /**
+   * 生成从空状态到完整状态的中间展示几何。
+   *
+   * @param viewState 已转换到当前 View 工作单位的 Shape 状态。
+   * @param progress 限制到 `[0, 1]` 的揭示进度。
+   * @param direction 几何的揭示顺序。
+   * @returns 有限、非退化的中间几何；尚不足以成形时返回 `undefined`。
+   */
+  revealGeometry?(viewState: Readonly<S>, progress: number, direction: ShapeAnimationDirection): RenderGeometryState | undefined;
+  /**
+   * 为一条动画记录创建可复用 reveal 工作会话。
+   *
+   * 热路径优先使用该会话；`revealGeometry` 保留为无状态语义入口和兼容回退。
+   */
+  createRevealSession?(viewState: Readonly<S>): ShapeRevealSession<S>;
+  /**
+   * 返回当前 Shape 的径向语义。
+   *
+   * @param viewState 已转换到当前 View 工作单位的 Shape 状态。
+   * @returns 径向效果使用的中心、半径和角度范围。
+   */
+  radialFrame?(viewState: Readonly<S>): ShapeRadialFrame;
+}
+
 /** 图形可声明的绘制、编辑和变换能力。 */
 export type ShapeCapability =
   'draw' | 'edit' | 'translate' | 'rotate' | 'scale' | 'vertexEdit' | 'controlPointInsert' | 'controlPointRemove' | 'freehand' | 'anchor' | 'path';
@@ -248,6 +299,8 @@ export interface ShapeDefinition<S extends ShapeState = ShapeState> {
   readonly editTopology?: ShapeEditTopology<S>;
   /** 提供连续采样处理规则。 */
   readonly freehand?: ShapeFreehandPolicy<S>;
+  /** 提供动画揭示或径向语义；provider 的存在即为对应能力声明。 */
+  readonly animation?: ShapeAnimationProfile<S>;
   /**
    * 从控制点创建可预览的草图。
    *

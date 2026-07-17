@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "runner": {
+    "spec": "test/browser/animation-kernel.performance.spec.ts",
+    "fixture": "/animation-benchmark.html",
+    "powershell": "$env:OL_ENGINE_RUN_ANIMATION_BENCHMARK='1'; $env:OL_ENGINE_ASSERT_ANIMATION_BENCHMARK_THRESHOLDS='1'; $env:OL_ENGINE_ANIMATION_BENCHMARK_SCENARIO='all'; npx playwright test test/browser/animation-kernel.performance.spec.ts --config playwright.performance.config.ts",
+    "posix": "OL_ENGINE_RUN_ANIMATION_BENCHMARK=1 OL_ENGINE_ASSERT_ANIMATION_BENCHMARK_THRESHOLDS=1 OL_ENGINE_ANIMATION_BENCHMARK_SCENARIO=all npx playwright test test/browser/animation-kernel.performance.spec.ts --config playwright.performance.config.ts",
+    "scenarioEnvironmentVariable": "OL_ENGINE_ANIMATION_BENCHMARK_SCENARIO",
+    "recordScript": "npm run test:performance:animation:record",
+    "assertScript": "npm run test:performance:animation"
+  },
+  "environment": {
+    "browser": "repository-locked-chromium",
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "deviceScaleFactor": 1,
+    "seed": 20260717,
+    "view": {
+      "projection": "EPSG:3857",
+      "resolution": 1,
+      "rotation": 0
+    }
+  },
+  "sampling": {
+    "source": "actual-map-postrender",
+    "warmupFrames": 120,
+    "sampleFrames": 600,
+    "includeStartupInStableSample": false,
+    "absoluteHardwareThresholds": false
+  },
+  "thresholds": {
+    "mode": "explicit-only",
+    "assertEnvironmentVariable": "OL_ENGINE_ASSERT_ANIMATION_BENCHMARK_THRESHOLDS",
+    "averageFrameIntervalMs": 25,
+    "p95FloorMs": 35,
+    "idleP95Multiplier": 2.5,
+    "longFrameMs": 50,
+    "longFrameRatio": 0.05,
+    "idleSampling": {
+      "warmupFrames": 60,
+      "sampleFrames": 180
+    }
+  },
+  "record": [
+    "chromiumVersion",
+    "cpu",
+    "operatingSystem",
+    "viewport",
+    "deviceScaleFactor",
+    "seed",
+    "view",
+    "scenarioId",
+    "variant",
+    "screenCoverageRatio",
+    "elementCount",
+    "animationHandleCount",
+    "postrenderListenerCount",
+    "startupMs",
+    "warmupFrames",
+    "sampleFrames",
+    "warmupElapsedMs",
+    "sampleElapsedMs",
+    "frameIntervalsMs",
+    "idleFrameStats",
+    "frameStats",
+    "thresholdEvaluation",
+    "thresholdAssertionsEnabled"
+  ],
+  "scenarios": [
+    {
+      "id": "points-blink",
+      "description": "1000 个网格 Point 使用 6 CSS px CircleSymbol 与 blink，另行记录 20 个完整 period 的边界唤醒。",
+      "elementCount": 1000,
+      "animation": "blink",
+      "periodMs": 500,
+      "minimumPeriods": 20,
+      "variants": ["onscreen", "offscreen", "world-copy"]
+    },
+    {
+      "id": "points-fade",
+      "description": "1000 个网格 Point 使用 6 CSS px CircleSymbol 与 20000ms fade。",
+      "elementCount": 1000,
+      "animation": "fade",
+      "durationMs": 20000,
+      "variants": ["onscreen", "offscreen", "world-copy"]
+    },
+    {
+      "id": "polyline-grow",
+      "description": "500 条、每条 32 顶点、2 CSS px Stroke 的 repeat grow Polyline。",
+      "elementCount": 500,
+      "verticesPerElement": 32,
+      "animation": "grow",
+      "repeat": true,
+      "variants": ["onscreen", "offscreen", "world-copy"]
+    },
+    {
+      "id": "circle-radar",
+      "description": "128 个屏幕半径 40 CSS px 的 Circle 运行 radar-scan。",
+      "elementCount": 128,
+      "radiusCssPx": 40,
+      "animation": "radar-scan",
+      "variants": ["onscreen", "offscreen", "world-copy"]
+    },
+    {
+      "id": "circle-center-spread",
+      "description": "128 个屏幕半径 40 CSS px 的 Circle 运行 center-spread。",
+      "elementCount": 128,
+      "radiusCssPx": 40,
+      "animation": "center-spread",
+      "variants": ["onscreen", "offscreen", "world-copy"]
+    },
+    {
+      "id": "static-mixed",
+      "description": "10000 个静态 Point 与同层 32 个 fade/grow replacement 目标混合。",
+      "staticElementCount": 10000,
+      "replacementElementCount": 32,
+      "animations": ["fade", "grow"],
+      "variants": ["onscreen", "offscreen", "world-copy"]
+    },
+    {
+      "id": "effect-composition",
+      "description": "256 个目标覆盖 fade+blink、grow+dash-flow、grow+alert 三种组合。",
+      "elementCount": 256,
+      "combinations": ["fade+blink", "grow+dash-flow", "grow+alert"],
+      "fadeDurationMs": 20000,
+      "growRepeat": true,
+      "variants": ["onscreen", "offscreen", "world-copy"]
+    },
+    {
+      "id": "resource-cycle",
+      "description": "连续 100 次批量 play/stop，启动成本单独记录并验证资源恢复。",
+      "cycles": 100,
+      "samplePhase": "startup-and-cleanup"
+    }
+  ]
+}

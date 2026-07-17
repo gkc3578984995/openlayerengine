@@ -29,6 +29,52 @@ export function finite(value: unknown, fallback: number, label: string): number 
   return value;
 }
 
+export function nonNegative(value: unknown, fallback: number, label: string): number {
+  const result = finite(value, fallback, label);
+  if (result < 0) throw new InvalidArgumentError(`${label} must be a finite non-negative number`);
+  return result;
+}
+
+export function unitInterval(value: unknown, fallback: number, label: string): number {
+  const result = finite(value, fallback, label);
+  if (result < 0 || result > 1) throw new InvalidArgumentError(`${label} must be between zero and one`);
+  return result;
+}
+
+export function exclusiveUnitInterval(value: unknown, fallback: number, label: string): number {
+  const result = finite(value, fallback, label);
+  if (result <= 0 || result >= 1) throw new InvalidArgumentError(`${label} must be greater than zero and less than one`);
+  return result;
+}
+
+export function integerRange(value: unknown, fallback: number, min: number, max: number, label: string): number {
+  const result = finite(value, fallback, label);
+  if (!Number.isSafeInteger(result) || result < min || result > max) {
+    throw new InvalidArgumentError(`${label} must be a safe integer between ${min} and ${max}`);
+  }
+  return result;
+}
+
+export function choice<const T extends string>(value: unknown, fallback: T, choices: readonly T[], label: string): T {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !(choices as readonly string[]).includes(value)) {
+    throw new InvalidArgumentError(`${label} must be one of ${choices.join(', ')}`);
+  }
+  return value as T;
+}
+
+export function requiredChoice<const T extends string>(value: unknown, choices: readonly T[], label: string): T {
+  if (typeof value !== 'string' || !(choices as readonly string[]).includes(value)) {
+    throw new InvalidArgumentError(`${label} must be one of ${choices.join(', ')}`);
+  }
+  return value as T;
+}
+
+export function literal<const T extends string>(value: unknown, expected: T, label: string): T {
+  if (value !== expected) throw new InvalidArgumentError(`${label} must be ${expected}`);
+  return expected;
+}
+
 export function boolean(value: unknown, fallback: boolean, label: string): boolean {
   if (value === undefined) return fallback;
   if (typeof value !== 'boolean') throw new InvalidArgumentError(`${label} must be a boolean`);

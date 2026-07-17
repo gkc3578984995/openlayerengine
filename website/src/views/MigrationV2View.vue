@@ -17,6 +17,14 @@ const anchors: AnchorItem[] = [
   { id: 'earth-instances', label: 'Earth 实例' },
   { id: 'styles', label: '样式入口' },
   {
+    id: 'animations',
+    label: '动画迁移',
+    children: [
+      { id: 'animation-composition', label: 'channel 与写入域' },
+      { id: 'animation-type-compatibility', label: 'AnimationType 扩展' }
+    ]
+  },
+  {
     id: 'element-coordinates',
     label: '元素坐标',
     children: [
@@ -59,6 +67,21 @@ const styleCode = `// 1.x：不再使用 dist/index*.css
 // 2.0：从公开样式子路径导入
 import '@vrsim/earth-engine-ol/style.css';`;
 
+const animationCode = `// 闭合面：闪烁、呼吸高亮与告警
+earth.animations.play({ id: areaId }, { type: 'blink' });
+earth.animations.play({ id: areaId }, { type: 'highlight', mode: 'breathe' });
+earth.animations.play({ id: areaId }, { type: 'alert' });
+
+// 路径或内置面箭头：从起点到终点揭示
+earth.animations.play({ id: routeId }, { type: 'grow', durationMs: 1200 });
+
+// Circle / Sector：雷达扫描与中心扩散
+earth.animations.play({ id: sectorId }, { type: 'radar-scan' });
+earth.animations.play({ id: circleId }, { type: 'center-spread' });
+
+// 所有结构化 Shape：渐显或渐隐
+earth.animations.play({ id: elementId }, { type: 'fade', direction: 'out' });`;
+
 const subpathCode = `import { Earth, useEarth } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 
@@ -71,7 +94,7 @@ import '@vrsim/earth-engine-ol/style.css';
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">快速上手</span>
         <h1>2.0 迁移指南</h1>
-        <p>从 1.x 迁移时，重点核对实例注册、公开导出路径、样式入口和 ESM 运行环境。</p>
+        <p>从 1.x 迁移时，重点核对实例注册、公开导出路径、统一动画入口、样式入口和 ESM 运行环境。</p>
       </header>
 
       <section id="overview" class="doc-prose">
@@ -85,6 +108,11 @@ import '@vrsim/earth-engine-ol/style.css';
             <code class="code-fn"><a href="/guide/earth-create#api-use-earth">useEarth(options)</a></code> 创建和复用命名实例。
           </li>
           <li>样式改从公开的 <code>/style.css</code> 子路径导入，所有 <code>./dist/*</code> 深路径导入均已移除。</li>
+          <li>
+            点闪烁、流水线和飞行线迁移到统一的
+            <code class="code-fn"><a href="/components/animation#api-method-play">earth.animations.play(selector, spec)</a></code
+            >，新增效果也使用同一入口。
+          </li>
           <li>JavaScript 入口改为仅 ESM；包导出会把公开入口映射到显式的 <code>.mjs</code> 文件。</li>
           <li>外部经纬度通过 <code>earth.view</code> 显式双向转换；几何圆的 <code>radius</code> 固定使用米。</li>
         </ul>
@@ -124,6 +152,48 @@ import '@vrsim/earth-engine-ol/style.css';
         <h2 class="doc-h2">样式入口</h2>
         <p>1.x 的 <code>dist/index*.css</code> 深路径不再是公共接口。2.0 使用稳定的包导出 <code>@vrsim/earth-engine-ol/style.css</code>：</p>
         <CodeBlock :code="styleCode" lang="typescript" />
+      </section>
+
+      <section id="animations" class="doc-prose">
+        <h2 class="doc-h2">统一动画入口</h2>
+        <p>
+          1.x 的点闪烁、Polyline 流水线和 FlightLine 由不同 Layer 管理。2.0 先创建结构化 Element，再统一调用
+          <code class="code-fn"><a href="/components/animation#api-method-play">earth.animations.play(selector, spec)</a></code
+          >；原有 <code>pulse</code>、<code>dash-flow</code> 和 <code>path-travel</code> 的名称与默认 channel 保持稳定。<code>path-travel</code> 已移除
+          <code>arrow</code>、<code>arrowColor</code> 和方向箭头渲染，其余默认值与行为保持稳定；静态箭头使用结构化 Decoration，箭头生长使用 <code>grow</code>。
+        </p>
+        <p>2.0 追加 blink、highlight、alert、grow、radar-scan、center-spread 和 fade 七种内置效果，不增加区域、路径或雷达专用 Manager：</p>
+        <CodeBlock :code="animationCode" lang="typescript" />
+        <ul class="doc-list">
+          <li>blink 与 fade 适用于所有使用 StyleSpec 的结构化 Shape；highlight 与 alert 适用于非退化闭合面。</li>
+          <li>grow 适用于 Polyline、LunePolyline、CurvePolyline 和内置面箭头 provider。</li>
+          <li>radar-scan 与 center-spread 适用于 Circle 和 Sector。</li>
+          <li>
+            全部十种结构化动画都不支持 <code><a href="/components/animation#compatibility">NativeStyleRef</a></code
+            >；批量目标中任一项使用 native style 时，<code class="code-fn"><a href="/components/animation#api-method-play">play</a></code>
+            会在建立记录前原子抛出 <code>UnsupportedOperationError</code>。
+          </li>
+        </ul>
+        <p>
+          完整的 Shape 兼容矩阵、Spec 字段、默认值和 retain 行为见
+          <code><a href="/components/animation#compatibility">Animation 动画效果</a></code> 页。
+        </p>
+
+        <h3 id="animation-composition" class="doc-h3">channel 与写入域</h3>
+        <p>
+          同一目标、同一 channel 的后一次播放在完整校验后原子 replace。不同 channel 不等于无条件可组合：blink 与 fade 的 target-opacity 按乘法合成，overlay
+          效果稳定追加，grow 独占 target-geometry。同一目标上两个不同 channel 的 grow 会原子抛出
+          <code>CapabilityError</code>，不会静默覆盖或部分播放。
+        </p>
+
+        <h3 id="animation-type-compatibility" class="doc-h3">AnimationType 扩展与源码兼容</h3>
+        <p>
+          公开 <code><a href="/components/animation#api-type-animationtype">AnimationType</a></code
+          >、<code><a href="/components/animation#api-type-animationspec">AnimationSpec</a></code> 判别联合和
+          <code><a href="/components/animation#api-type-animationtype">animationTypes</a></code>
+          可以在后续功能版本的末尾追加内置成员。除上述 <code>path-travel</code> 箭头字段移除外，旧成员的字段、默认值、顺序和行为保持稳定；消费方的 exhaustive
+          switch、assertNever 或 Record&lt;AnimationType, ...&gt; 必须保留未知成员兜底。
+        </p>
       </section>
 
       <section id="element-coordinates" class="doc-prose">

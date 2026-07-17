@@ -286,6 +286,79 @@ textarea {
   }
 }
 
+.acceptance-animation-gallery {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.acceptance-animation-demo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  border: 1px solid #334155;
+  border-radius: 7px;
+  padding: 9px;
+  background: #0f172a;
+
+  h4,
+  p {
+    margin: 0;
+  }
+
+  h4 {
+    overflow-wrap: anywhere;
+    color: #f8fafc;
+    font-size: 13px;
+  }
+
+  p {
+    grid-column: 1;
+    color: #94a3b8;
+    font:
+      11px/1.4 Consolas,
+      monospace;
+  }
+
+  output {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: start;
+    border-radius: 999px;
+    padding: 2px 7px;
+    color: #cbd5e1;
+    background: #334155;
+    font:
+      11px Consolas,
+      monospace;
+  }
+
+  .acceptance-actions {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+  }
+
+  .acceptance-button {
+    padding: 4px 7px;
+    font-size: 11px;
+  }
+
+  &[data-animation-status='running'] output {
+    color: #bbf7d0;
+    background: #166534;
+  }
+
+  &[data-animation-status='paused'] output {
+    color: #fde68a;
+    background: #854d0e;
+  }
+
+  &[data-animation-status='finished'] output {
+    color: #bfdbfe;
+    background: #1e40af;
+  }
+}
+
 .acceptance-evidence {
   display: grid;
   grid-template-columns: repeat(3, minmax(280px, 1fr));

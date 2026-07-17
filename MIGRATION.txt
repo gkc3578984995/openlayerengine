@@ -1239,7 +1239,7 @@ polylineLayer.add({ id, isFlowingDash: true });
 polylineLayer.addFlightLine(options);
 ```
 
-2.0.0 统一使用 `earth.animations`。
+2.0.0 统一使用 `earth.animations.play(selector, spec)`；不再按点、线、区域或雷达拆分专用动画 Manager。
 
 点脉冲：
 
@@ -1288,13 +1288,32 @@ const travel = earth.animations.play(
     ],
     width: 5,
     curvature: 0.45,
-    arrow: true,
     showStart: true,
     showEnd: true,
     finishBehavior: 'retain'
   }
 );
 ```
+
+2.0.0 还在同一 `play()` 入口下新增七种可组合效果：
+
+```ts
+earth.animations.play({ id: areaId }, { type: 'blink' });
+earth.animations.play({ id: areaId }, { type: 'highlight', mode: 'breathe' });
+earth.animations.play({ id: areaId }, { type: 'alert' });
+earth.animations.play({ id: routeId }, { type: 'grow', durationMs: 1200 });
+earth.animations.play({ id: sectorId }, { type: 'radar-scan' });
+earth.animations.play({ id: circleId }, { type: 'center-spread' });
+earth.animations.play({ id: elementId }, { type: 'fade', direction: 'out' });
+```
+
+- `blink` 和 `fade` 支持所有使用 `StyleSpec` 的结构化 Shape。
+- `highlight` 和 `alert` 支持非退化闭合面。
+- `grow` 支持 Polyline、LunePolyline、CurvePolyline 和内置面箭头 provider。
+- `radar-scan` 和 `center-spread` 支持 Circle 与 Sector。
+- 上述七种效果以及原有 `pulse`、`dash-flow`、`path-travel` 都不支持 `NativeStyleRef`；批量播放中任一目标使用 native style 时，整次 `play()` 会在建立记录前抛出 `UnsupportedOperationError`。
+
+完整兼容矩阵、Spec 字段和 retain 语义见 Animation 动画效果页。
 
 常用旧参数迁移：
 
@@ -1303,6 +1322,7 @@ const travel = earth.animations.play(
 - Polyline 的 `arrowIsRepeat: true` 对应 `decorations: [{ type: 'arrow', placement: 'each-segment' }]`；V2 的 `placement: 'repeat'` 是按像素间距重复，不是旧语义。
 - FlightLine 的 `splitLength`、`oneFrameLimitTime`、`controlRatio` 和径向颜色配置，需要重新映射到 `smoothness`、`durationMs` 或 `speed`、`curvature`、`gradient`。这些字段的单位和计算方式不同，不能直接复制数值。
 - `addFlightLine()` 改为创建线 Element 后调用 `earth.animations.play(..., { type: 'path-travel' })`；`setFlightPosition()` 改为更新 Element geometry。V1 `removeFlightLine()` 会移除飞行线及其辅助内容；V2 停止 `AnimationHandle` 只清理动画渲染，不会删除作为目标的线 Element。需要同样的删除结果时，应先 `handle.stop()`，再 `element.remove()`。
+- `PathTravelAnimationSpec` 不再接受 `arrow` 和 `arrowColor`，路径运动只绘制尾迹与可选起终点。静态方向箭头使用 Element 的结构化 Decoration，箭头生长使用 `grow`；严格校验会把旧字段作为未知成员拒绝。
 
 单动画控制：
 
@@ -1322,7 +1342,9 @@ earth.animations.stop({ layerId: 'routes' });
 earth.animations.stopAll();
 ```
 
-同一元素、同一 channel 的新动画会替换旧动画；不同 channel 可以组合。动画运行状态不会写入 Element 快照，也不会随元素复制。
+同一元素、同一 channel 的新动画会在完整校验成功后原子替换旧动画。不同 channel 只在写入域可组合时组合：`blink` 与 `fade` 的 target-opacity 按乘法合成，overlay 效果稳定追加，`grow` 独占 target-geometry。两个不同 channel 的 `grow` 会原子抛出 `CapabilityError`，不会静默覆盖或部分播放。动画运行状态不会写入 Element 快照，也不会随元素复制。
+
+`AnimationType`、`AnimationSpec` 判别联合和公开 `animationTypes` 可能在后续功能版本的末尾追加内置成员。除上述 `path-travel` 箭头字段移除外，旧成员的字段、默认值、顺序和行为保持稳定；消费方的 exhaustive switch、`assertNever` 或 `Record<AnimationType, ...>` 必须保留未知成员兜底，不应假定联合永久只有当前十项。
 
 V2 已修复 1.x 单条 dash-flow 移除和 FlightLine postrender 监听无法完整清理的问题。
 
@@ -1476,7 +1498,8 @@ import {
 - [ ] 检查事件和右键菜单坐标；需要经纬度时对 V2 投影坐标显式调用 `earth.view.toGeographicCoordinates()`。
 - [ ] 将 ContextMenu 迁移到 `earth.contextMenu.register()` 和注册句柄。
 - [ ] 将 OverlayLayer、Descriptor 迁移到 `earth.overlays`。
-- [ ] 将点闪烁、流水线和飞行线迁移到 `earth.animations`。
+- [ ] 将点闪烁、流水线和飞行线迁移到 `earth.animations.play()`，并按需使用 blink、highlight、alert、grow、radar-scan、center-spread 和 fade。
+- [ ] 检查 `AnimationType` 的 exhaustive switch 与 `Record`，为后续尾部追加的内置类型保留未知成员兜底。
 - [ ] 将 Utils 和旧枚举迁移到新服务、根导出函数和字符串联合。
 - [ ] 检查 `EPlotType` 字符串、Utils 参数顺序和 `throttle(..., 100)` 默认节流差异。
 - [ ] Node 16 项目完成实际转译、构建和运行验证，不直接假定兼容。

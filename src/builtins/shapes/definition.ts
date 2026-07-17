@@ -4,6 +4,7 @@ import type {
   ControlPointInsertion,
   RenderGeometryState,
   ShapeCapability,
+  ShapeAnimationProfile,
   ShapeCompletion,
   ShapeDefinition,
   ShapeEditTopology,
@@ -176,6 +177,7 @@ interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> 
   readonly capabilities?: ReadonlySet<ShapeCapability>;
   readonly topology?: ControlPointTopologyMode;
   readonly freehand?: boolean;
+  readonly animation?: ShapeAnimationProfile<ShapeState<T>>;
   readonly validate?: (points: readonly Coordinate[]) => void;
   readonly render: (points: readonly Coordinate[]) => RenderGeometryState;
   /** 已校验并冻结的控制点可直接使用时采用的渲染路径。 */
@@ -510,6 +512,7 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     }),
     editTopology: Object.freeze(editTopology),
     ...(freehand === undefined ? {} : { freehand: Object.freeze(freehand) }),
+    ...(options.animation === undefined ? {} : { animation: Object.freeze(options.animation) }),
     createDraft,
     normalize,
     clone: (state) => normalize(state),

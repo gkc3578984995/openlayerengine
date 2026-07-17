@@ -1,11 +1,15 @@
 import { basicShapeDefinitions } from '../../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../../src/builtins/shapes/plot/index.js';
+import { createBuiltinAnimationRegistry } from '../../src/builtins/animations/index.js';
 import { ElementStore } from '../../src/core/element/ElementStore.js';
 import type { ElementState } from '../../src/core/element/types.js';
+import type { AnimationClockPort } from '../../src/core/ports/AnimationClockPort.js';
+import type { AnimationWakeHandle, AnimationWakePort } from '../../src/core/ports/AnimationWakePort.js';
 import type {
   LayerRenderBatch,
   LayerRenderFrame,
   LayerRenderLoopHandle,
+  LayerPresentationLease,
   LayerRenderPort,
   LayerRenderTargetHandle,
   LayerRenderTargetSpec
@@ -21,7 +25,7 @@ interface FakeLoop {
   destroyed: boolean;
 }
 
-export class FakeLayerRenderPort implements LayerRenderPort {
+export class FakeLayerRenderPort implements LayerRenderPort, AnimationClockPort, AnimationWakePort {
   readonly openCalls = new Map<string, number>();
   readonly destroyCalls = new Map<string, number>();
   readonly requestRenderCalls = new Map<string, number>();
@@ -31,7 +35,34 @@ export class FakeLayerRenderPort implements LayerRenderPort {
   readonly #targets = new Map<string, LayerRenderTargetSpec>();
   readonly #elementTargets = new Set<string>();
   readonly #destroyFailures = new Map<string, number>();
+  readonly #wakes = new Map<number, { readonly timestamp: number; readonly callback: () => void }>();
+  #nextWakeId = 0;
+  #time = 0;
   #maxActiveLoopCount = 0;
+
+  now(): number {
+    return this.#time;
+  }
+
+  scheduleAt(timestamp: number, callback: () => void): AnimationWakeHandle {
+    const id = ++this.#nextWakeId;
+    this.#wakes.set(id, { timestamp, callback });
+    return {
+      cancel: () => {
+        this.#wakes.delete(id);
+      }
+    };
+  }
+
+  advanceTime(time: number): void {
+    this.#time = time;
+    while (true) {
+      const due = [...this.#wakes].filter(([, wake]) => wake.timestamp <= time).sort((left, right) => left[1].timestamp - right[1].timestamp)[0];
+      if (due === undefined) return;
+      this.#wakes.delete(due[0]);
+      due[1].callback();
+    }
+  }
 
   get activeLoopCount(): number {
     return this.#loops.size;
@@ -39,6 +70,17 @@ export class FakeLayerRenderPort implements LayerRenderPort {
 
   get maxActiveLoopCount(): number {
     return this.#maxActiveLoopCount;
+  }
+
+  get activeWakeCount(): number {
+    return this.#wakes.size;
+  }
+
+  get nextWakeTimestamp(): number | undefined {
+    return [...this.#wakes.values()].reduce<number | undefined>(
+      (earliest, wake) => (earliest === undefined ? wake.timestamp : Math.min(earliest, wake.timestamp)),
+      undefined
+    );
   }
 
   get activeLayerIds(): readonly string[] {
@@ -100,10 +142,32 @@ export class FakeLayerRenderPort implements LayerRenderPort {
     return this.#targets.has(key) || this.#elementTargets.has(key);
   }
 
-  frame(layerId: string, time: number, resolution = 1): LayerRenderBatch {
+  acquirePresentation(layerId: string, targetId: string): LayerPresentationLease {
+    if (!this.#elementTargets.has(targetKey(layerId, targetId))) throw new Error(`目标 ${targetId} 不存在`);
+    let active = true;
+    return Object.freeze({
+      layerId,
+      targetId,
+      get active() {
+        return active;
+      },
+      release: () => {
+        active = false;
+      }
+    });
+  }
+
+  frame(
+    layerId: string,
+    time: number,
+    resolution = 1,
+    extent: readonly [number, number, number, number] = [-1_000, -1_000, 1_000, 1_000],
+    worldWidth?: number
+  ): LayerRenderBatch {
+    this.#time = time;
     const loop = this.#loops.get(layerId);
     if (loop === undefined || loop.destroyed) throw new Error(`图层 ${layerId} 没有活动渲染循环`);
-    const frame = Object.freeze({ layerId, time, resolution });
+    const frame = Object.freeze({ layerId, time, resolution, extent, pixelRatio: 1, rotation: 0, ...(worldWidth === undefined ? {} : { worldWidth }) });
     const batch = loop.render(frame);
     const batches = this.batches.get(layerId) ?? [];
     batches.push(batch);
@@ -154,7 +218,15 @@ export function createAnimationHarness(seed: readonly ElementState[] = []): Anim
   for (const state of seed) store.add(state);
   const render = new FakeLayerRenderPort();
   for (const state of seed) render.addElementTarget(state.layerId, state.id);
-  const manager = new AnimationManagerImpl({ store, shapes, render, shapeProjection: identityShapeProjection });
+  const manager = new AnimationManagerImpl({
+    store,
+    shapes,
+    render,
+    shapeProjection: identityShapeProjection,
+    registry: createBuiltinAnimationRegistry(),
+    clock: render,
+    wake: render
+  });
   return { shapes, store, render, manager };
 }
 

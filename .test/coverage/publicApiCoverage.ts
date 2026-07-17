@@ -96,15 +96,23 @@ const typeGroups = {
     'TextSpec'
   ],
   animations: [
+    'AlertAnimationSpec',
     'AnimationChannel',
+    'AnimationEasing',
     'AnimationHandle',
     'AnimationManager',
     'AnimationSpec',
     'AnimationStatus',
     'AnimationType',
+    'BlinkAnimationSpec',
+    'CenterSpreadAnimationSpec',
     'DashFlowAnimationSpec',
+    'FadeAnimationSpec',
+    'GrowAnimationSpec',
+    'HighlightAnimationSpec',
     'PathTravelAnimationSpec',
-    'PulseAnimationSpec'
+    'PulseAnimationSpec',
+    'RadarScanAnimationSpec'
   ],
   'draw-edit': ['DrawOptions', 'DrawService', 'DrawSession', 'DrawSessionEventMap', 'EditOptions', 'EditSession', 'EditSessionEventMap'],
   measure: ['MeasureOptions', 'MeasureResult', 'MeasureService', 'MeasureSession', 'MeasureSessionEventMap', 'MeasureType'],
@@ -494,6 +502,13 @@ const memberCoverage: CoverageItem[] = [
 
   ...members('animations', 'AnimationManager', ['play', 'pause', 'resume', 'stop', 'stopAll']),
   ...members('animations', 'AnimationHandle', ['id', 'status', 'finished', 'pause', 'resume', 'stop']),
+  ...members('animations', 'BlinkAnimationSpec', ['type', 'channel', 'periodMs', 'dutyCycle', 'minOpacity', 'maxOpacity', 'repeat']),
+  ...members('animations', 'HighlightAnimationSpec', ['type', 'channel', 'mode', 'color', 'fillOpacity', 'strokeWidth', 'periodMs']),
+  ...members('animations', 'AlertAnimationSpec', ['type', 'channel', 'periodMs', 'color', 'fillOpacity', 'strokeWidth', 'repeat']),
+  ...members('animations', 'GrowAnimationSpec', ['type', 'channel', 'durationMs', 'direction', 'easing', 'repeat']),
+  ...members('animations', 'RadarScanAnimationSpec', ['type', 'channel', 'periodMs', 'direction', 'color', 'opacity', 'beamWidthDeg', 'repeat']),
+  ...members('animations', 'CenterSpreadAnimationSpec', ['type', 'channel', 'periodMs', 'color', 'strokeWidth', 'ringCount', 'repeat']),
+  ...members('animations', 'FadeAnimationSpec', ['type', 'channel', 'direction', 'durationMs', 'easing']),
   ...members('animations', 'PulseAnimationSpec', ['type', 'channel', 'periodMs', 'color', 'repeat', 'radius']),
   ...members('animations', 'DashFlowAnimationSpec', ['type', 'channel', 'speed', 'lineDash', 'color']),
   ...members('animations', 'PathTravelAnimationSpec', [
@@ -508,8 +523,6 @@ const memberCoverage: CoverageItem[] = [
     'width',
     'curvature',
     'smoothness',
-    'arrow',
-    'arrowColor',
     'showStart',
     'showEnd',
     'endLineColor',

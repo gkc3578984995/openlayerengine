@@ -206,7 +206,7 @@ describe('FeatureBinding', () => {
     expect(binding.requireFeature('moving')).toBe(feature);
     expect(feature.getGeometry()).toBe(geometry);
     expect((geometry as Point).getCoordinates()).toEqual([9, 10]);
-    expect(feature.getStyle()).not.toBe(style);
+    expect(feature.getStyle()).toBe(style);
     expect(originalSource.hasFeature(feature)).toBe(false);
     expect(nextSource.hasFeature(feature)).toBe(false);
 
@@ -525,6 +525,77 @@ describe('FeatureBinding', () => {
     expect(feature.get('layerId')).toBeUndefined();
     expect(feature.get('style')).toBeUndefined();
     expect(binding.elementIdFor(new Feature<Geometry>())).toBeUndefined();
+  });
+
+  it('展示租约保留规范 Feature、规范 Geometry 和透明命中代理，并在最终释放时恢复最新样式', async () => {
+    const { adapter, binding, store } = setup([point('presented')]);
+    const source = adapter.requireVectorSource('default');
+    const layer = adapter.requireLayer('default');
+    const feature = binding.requireFeature('presented');
+    const canonicalGeometry = feature.getGeometry();
+    const changed = vi.spyOn(layer, 'changed');
+
+    const first = binding.acquirePresentation('presented');
+    const second = binding.acquirePresentation('presented');
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(first.active).toBe(true);
+    expect(second.active).toBe(true);
+    const proxy = feature.getStyleFunction()?.(feature, 1) as Style[];
+    expect(proxy[0]?.getImage()?.getOpacity()).toBe(0);
+    await Promise.resolve();
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    store.update(
+      { id: 'presented' },
+      {
+        geometry: { type: 'point', controlPoints: [[30, 40]] },
+        style: { symbol: { type: 'circle', radius: 9, fill: { type: 'solid', color: '#00ff00' } } }
+      }
+    );
+    expect(feature.getGeometry()).toBe(canonicalGeometry);
+    expect((canonicalGeometry as Point).getCoordinates()).toEqual([30, 40]);
+    expect(source.hasFeature(feature)).toBe(true);
+    const updatedProxy = feature.getStyleFunction()?.(feature, 1) as Style[];
+    expect(updatedProxy[0]?.getImage()?.getOpacity()).toBe(0);
+
+    first.release();
+    expect(second.active).toBe(true);
+    second.release();
+    await Promise.resolve();
+    const restored = feature.getStyleFunction()?.(feature, 1) as Style[];
+    expect(restored[0]?.getImage()?.getOpacity()).toBe(1);
+    expect(source.hasFeature(feature)).toBe(true);
+  });
+
+  it('拒绝为 nativeStyle 获取展示租约', () => {
+    const native = new Style();
+    const { binding, refs, store } = setup();
+    store.add(point('native-presentation', 'default', { style: refs.registerStyle(native) }));
+
+    expect(() => binding.acquirePresentation('native-presentation')).toThrowError(CapabilityError);
+    expect(binding.requireFeature('native-presentation').getStyle()).toBe(native);
+  });
+
+  it('Element generation 失效或样式转为 nativeStyle 时孤立旧展示租约', () => {
+    const removed = setup([point('removed-presentation')]);
+    const removedFeature = removed.binding.requireFeature('removed-presentation');
+    const stale = removed.binding.acquirePresentation('removed-presentation');
+    removed.store.remove({ id: 'removed-presentation' });
+    removed.store.add(point('removed-presentation', 'default', { geometry: { type: 'point', controlPoints: [[50, 60]] } }));
+    const replacement = removed.binding.requireFeature('removed-presentation');
+
+    expect(stale.active).toBe(false);
+    expect(replacement).not.toBe(removedFeature);
+    stale.release();
+    expect(removed.adapter.requireVectorSource('default').hasFeature(replacement)).toBe(true);
+
+    const transitioned = setup([point('native-transition')]);
+    const transitionLease = transitioned.binding.acquirePresentation('native-transition');
+    const native = new Style();
+    transitioned.store.update({ id: 'native-transition' }, { style: transitioned.refs.registerStyle(native) });
+    expect(transitionLease.active).toBe(false);
+    expect(transitioned.binding.requireFeature('native-transition').getStyle()).toBe(native);
+    expect(() => transitionLease.release()).not.toThrow();
   });
 
   it('reports projection failure, keeps committed Core truth dirty, and reconciles on the next operation', () => {

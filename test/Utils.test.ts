@@ -162,7 +162,7 @@ describe('旧样式与动画工具的 v2 能力映射', () => {
     expect(batch.contributions).toEqual([
       expect.objectContaining({
         targetId: 'flashing-point',
-        channel: 'pulse',
+        channel: '$animation',
         value: expect.objectContaining({ primitives: [expect.objectContaining({ style: expect.objectContaining({ symbol: expect.any(Object) }) })] })
       })
     ]);

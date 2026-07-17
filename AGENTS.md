@@ -25,7 +25,7 @@
 
 ## 2.0 系统设计规范
 
-凡涉及 2.0 的系统设计、实现、重构或评审，必须先阅读并遵循 `docs/superpowers/specs/` 中已批准的对应设计文档；当前架构总纲为 `2026-07-13-v2-element-kernel-architecture-design.md`，Draw / Edit / Transform 的光标、预览、编辑锚点与 Tooltip 还必须遵循 `2026-07-16-v2-interaction-visual-design.md`。实现必须保持 Core、Services、Public Facade 与 OpenLayers Adapter 的依赖边界，遵守 Element 状态真源、EngineContext 显式依赖、交互互斥、资源所有权和全生命周期清理等约束，不得因局部实现便利引入重复内核、隐式全局依赖、OL 私有 API 或扩大公共导出面。若需求需要改变已批准的公共契约，必须先补充设计并获得确认，再实施代码与测试。
+凡涉及 2.0 的系统设计、实现、重构或评审，必须先阅读并遵循 `docs/superpowers/specs/` 中已批准的对应设计文档；当前架构总纲为 `2026-07-13-v2-element-kernel-architecture-design.md`，Draw / Edit / Transform 的光标、预览、编辑锚点与 Tooltip 还必须遵循 `2026-07-16-v2-interaction-visual-design.md`，动画效果、帧合成和动画渲染还必须遵循 `2026-07-17-v2-animation-effect-kernel-design.md`。实现必须保持 Core、Services、Public Facade 与 OpenLayers Adapter 的依赖边界，遵守 Element 状态真源、EngineContext 显式依赖、交互互斥、资源所有权和全生命周期清理等约束，不得因局部实现便利引入重复内核、隐式全局依赖、OL 私有 API 或扩大公共导出面。若需求需要改变已批准的公共契约，必须先补充设计并获得确认，再实施代码与测试。
 
 ## 协作与输出语言
 

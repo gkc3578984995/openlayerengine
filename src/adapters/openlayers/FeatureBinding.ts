@@ -1,18 +1,20 @@
 import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
 import type VectorSource from 'ol/source/Vector.js';
-import type { StyleFunction } from 'ol/style/Style.js';
+import type { StyleFunction, StyleLike } from 'ol/style/Style.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import type { ElementState } from '../../core/element/types.js';
 import { runFinalizers } from '../../core/common/dispose.js';
 import { CapabilityError, ObjectDisposedError } from '../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
+import type { LayerPresentationLease } from '../../core/ports/LayerRenderPort.js';
 import type { ElementChange, ElementChangeSet } from '../../core/transaction/types.js';
 import type { ShapeInput } from '../../core/shape/types.js';
+import { isNativeStyleRef, type ElementStyleState } from '../../core/style/types.js';
 import type { RenderGeometryKind } from './GeometryCodec.js';
 import type { GeometryCodec } from './GeometryCodec.js';
 import type { LayerAdapter } from './LayerAdapter.js';
-import type { StyleCompiler } from './style/StyleCompiler.js';
+import { createTransparentStyleProxy, type StyleCompiler } from './style/StyleCompiler.js';
 
 type BoundSource = VectorSource<Feature<Geometry>>;
 
@@ -20,8 +22,15 @@ type BoundSource = VectorSource<Feature<Geometry>>;
 interface BindingRecord {
   readonly feature: Feature<Geometry>;
   readonly generation: symbol;
+  /** 当前 Element generation 建立时分配的稳定规范渲染顺序。 */
+  readonly renderOrder: number;
   readonly suppressionTokens: Set<symbol>;
+  readonly presentationTokens: Set<symbol>;
+  readonly styleFunction: StyleFunction;
   suppressionAcquisition: Set<symbol> | undefined;
+  canonicalStyle: StyleLike;
+  presentationProxy: StyleFunction | undefined;
+  structuredStyle: boolean;
   layerId: string;
   visible: boolean;
 }
@@ -91,11 +100,14 @@ export class FeatureBinding {
   readonly #bindings = new Map<string, BindingRecord>();
   readonly #featureIds = new WeakMap<Feature<Geometry>, string>();
   readonly #dirty = new Set<string>();
+  readonly #pendingPresentationLayers = new Set<string>();
   readonly #unsubscribe: () => void;
   #lifecycle: Lifecycle = 'active';
   #destroyProgress: DestroyProgress | undefined;
   #destroyRunning = false;
   #reconciling = false;
+  #presentationInvalidationScheduled = false;
+  #nextRenderOrder = 0;
 
   /** 订阅 Store 后立即完成首次全量对账。 */
   constructor(store: ElementStore, layers: LayerAdapter, geometry: GeometryCodec, styles: StyleCompiler, options: FeatureBindingOptions = {}) {
@@ -135,6 +147,53 @@ export class FeatureBinding {
     const feature = this.#bindings.get(id)?.feature;
     if (feature === undefined) throw new ObjectDisposedError(`Element Feature is not bound: ${id}`);
     return feature;
+  }
+
+  /** 取得当前 Element generation 的稳定规范渲染顺序。 */
+  renderOrderOf(id: string): number {
+    this.#assertActive();
+    this.#reconcileDirty();
+    const order = this.#bindings.get(id)?.renderOrder;
+    if (order === undefined) throw new ObjectDisposedError(`Element Feature is not bound: ${id}`);
+    return order;
+  }
+
+  /** 临时接管结构化 Element 的展示权，规范 Feature 仍保留在原 Source。 */
+  acquirePresentation(elementId: string): LayerPresentationLease {
+    this.#assertActive();
+    this.#reconcileDirty();
+    const binding = this.#bindings.get(elementId);
+    if (binding === undefined) throw new ObjectDisposedError(`Element Feature is not bound: ${elementId}`);
+    if (!binding.structuredStyle) throw new CapabilityError(`Element presentation requires a structured style: ${elementId}`);
+
+    const token = Symbol(elementId);
+    const first = binding.presentationTokens.size === 0;
+    binding.presentationTokens.add(token);
+    if (binding.presentationProxy === undefined) binding.presentationProxy = createTransparentStyleProxy(binding.canonicalStyle);
+    if (binding.feature.getStyle() !== binding.styleFunction) binding.feature.setStyle(binding.styleFunction);
+    if (first) this.#schedulePresentationInvalidation(binding.layerId);
+
+    let released = false;
+    const isActive = (): boolean =>
+      this.#lifecycle === 'active' &&
+      !released &&
+      this.#bindings.get(elementId) === binding &&
+      binding.presentationTokens.has(token) &&
+      binding.structuredStyle;
+    return Object.freeze({
+      layerId: binding.layerId,
+      targetId: elementId,
+      get active() {
+        return isActive();
+      },
+      release: () => {
+        if (released) return;
+        released = true;
+        if (this.#bindings.get(elementId) !== binding || !binding.presentationTokens.delete(token) || binding.presentationTokens.size > 0) return;
+        binding.presentationProxy = undefined;
+        this.#schedulePresentationInvalidation(binding.layerId);
+      }
+    });
   }
 
   /** 暂停 Element 投影，并以可交接租约管理恢复时机。 */
@@ -411,7 +470,7 @@ export class FeatureBinding {
       try {
         binding.feature.setId(change.after.id);
         this.#geometry.project(binding.feature, change.after.geometry);
-        binding.feature.setStyle(change.after.visible ? this.#styles.compile(change.after.style) : hiddenStyle);
+        this.#projectStyle(binding, change.after.style);
         binding.layerId = change.after.layerId;
         binding.visible = change.after.visible;
         for (const source of sources) {
@@ -435,10 +494,46 @@ export class FeatureBinding {
   /** 创建并登记一个新的 Feature 绑定。 */
   #createBinding(id: string, layerId: string): BindingRecord {
     const feature = new Feature<Geometry>();
-    const record = { feature, generation: Symbol(id), suppressionTokens: new Set<symbol>(), suppressionAcquisition: undefined, layerId, visible: false };
+    const record = createBindingRecord(feature, id, layerId, this.#nextRenderOrder);
+    this.#nextRenderOrder += 1;
+    feature.setStyle(record.styleFunction);
     this.#bindings.set(id, record);
     this.#featureIds.set(feature, id);
     return record;
+  }
+
+  /** 保存最新业务样式，并在租约期间更新透明代理而不替换稳定 StyleFunction。 */
+  #projectStyle(binding: BindingRecord, style: ElementStyleState): void {
+    const compiled = this.#styles.compile(style);
+    const structured = !isNativeStyleRef(style);
+    binding.canonicalStyle = compiled;
+    binding.structuredStyle = structured;
+    if (structured) {
+      binding.presentationProxy = binding.presentationTokens.size === 0 ? undefined : createTransparentStyleProxy(compiled);
+      if (binding.feature.getStyle() !== binding.styleFunction) binding.feature.setStyle(binding.styleFunction);
+      return;
+    }
+
+    if (binding.presentationTokens.size > 0) {
+      binding.presentationTokens.clear();
+      this.#schedulePresentationInvalidation(binding.layerId);
+    }
+    binding.presentationProxy = undefined;
+    if (binding.feature.getStyle() !== compiled) binding.feature.setStyle(compiled);
+  }
+
+  /** 把同一同步批次中的 lease 边界变化合并为每层一次 revision 更新。 */
+  #schedulePresentationInvalidation(layerId: string): void {
+    this.#pendingPresentationLayers.add(layerId);
+    if (this.#presentationInvalidationScheduled) return;
+    this.#presentationInvalidationScheduled = true;
+    queueMicrotask(() => {
+      this.#presentationInvalidationScheduled = false;
+      const layerIds = [...this.#pendingPresentationLayers];
+      this.#pendingPresentationLayers.clear();
+      if (this.#lifecycle !== 'active') return;
+      for (const pendingLayerId of layerIds) this.#attempt(() => this.#layers.requireLayer(pendingLayerId).changed(), pendingLayerId, 'presentation-changed');
+    });
   }
 
   /** 按 Source 批量移除 Feature，失败时逐个重试。 */
@@ -494,7 +589,9 @@ export class FeatureBinding {
     this.#featureIds.delete(binding.feature);
     this.#dirty.delete(id);
     binding.suppressionTokens.clear();
+    binding.presentationTokens.clear();
     binding.suppressionAcquisition = undefined;
+    binding.presentationProxy = undefined;
     this.#attempt(() => binding.feature.setGeometry(undefined), id, 'clear-geometry');
     this.#attempt(() => binding.feature.setStyle(undefined), id, 'clear-style');
     this.#attempt(() => binding.feature.dispose(), id, 'dispose-feature');
@@ -547,7 +644,9 @@ export class FeatureBinding {
     this.#lifecycle = 'destroying';
     for (const { binding } of records) {
       binding.suppressionTokens.clear();
+      binding.presentationTokens.clear();
       binding.suppressionAcquisition = undefined;
+      binding.presentationProxy = undefined;
     }
   }
 
@@ -582,9 +681,38 @@ export class FeatureBinding {
     }
     this.#bindings.clear();
     this.#dirty.clear();
+    this.#pendingPresentationLayers.clear();
     this.#destroyProgress = undefined;
     this.#lifecycle = 'destroyed';
   }
+}
+
+/** 创建一条自引用稳定 StyleFunction 的绑定记录。 */
+function createBindingRecord(feature: Feature<Geometry>, id: string, layerId: string, renderOrder: number): BindingRecord {
+  const holder: { record?: BindingRecord } = {};
+  const styleFunction: StyleFunction = (styledFeature, resolution) => {
+    const record = holder.record;
+    if (record === undefined || !record.visible) return [];
+    const selected = record.presentationTokens.size > 0 ? record.presentationProxy : record.canonicalStyle;
+    if (selected === undefined) return [];
+    return typeof selected === 'function' ? selected(styledFeature, resolution) : selected;
+  };
+  const record: BindingRecord = {
+    feature,
+    generation: Symbol(id),
+    renderOrder,
+    suppressionTokens: new Set<symbol>(),
+    presentationTokens: new Set<symbol>(),
+    styleFunction,
+    suppressionAcquisition: undefined,
+    canonicalStyle: hiddenStyle,
+    presentationProxy: undefined,
+    structuredStyle: true,
+    layerId,
+    visible: false
+  };
+  holder.record = record;
+  return record;
 }
 
 /** 将 Feature 追加到按 Source 分组的批次。 */

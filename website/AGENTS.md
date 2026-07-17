@@ -41,6 +41,19 @@ API 表格中的构造器、属性名和方法名使用固定视觉层级：
 - `disable*` 会批量停用底层监听并清空同类别回调时，只能在高级章节演示，并必须说明其与单次注销函数及 `remove*` 的差异。
 - 事件工具的概览页应以“重要提示”说明 `add*` 自动管理监听与返回注销函数；`enable*`、`disable*` 必须归属对应事件类别页面的“高级：底层监听控制”段，不保留脱离事件类别的独立手动监听运行示例。
 
+## 动画页面约定
+
+动画文档以 `AnimationManager` 页面作为唯一规范归属入口；按效果家族拆分内容时，公共方法和类型只在该入口定义，其他页面通过跨页锚点引用。新增或修改动画页面必须同时检查以下内容：
+
+- 兼容矩阵覆盖全部公开 `AnimationType`，按结构化样式、最终 RenderGeometry 与 Shape provider 说明支持范围；明确 `NativeStyleRef`、不兼容目标的错误和批量 `play()` 原子失败语义。
+- 每个效果记录完整 Spec 字段、默认值、范围、单位、默认 channel、自然完成和 retain 行为，并提供最小 `earth.animations.play()` 调用。
+- 组合章节区分 channel 与写入域：说明同目标同 channel 的原子 replace、跨 channel 的 opacity 乘法、geometry 独占和 overlay 稳定追加，不得把“不同 channel”描述为无条件可组合。
+- 生命周期章节覆盖 Handle `pause`、`resume`、`stop`、`status`、`finished`，以及 hide/show、remove、replace、Element 状态变更和 Earth.destroy；fade-out retain 必须展示“等待完成 → 写入业务隐藏状态 → stop 清理”的无闪回顺序。
+- Edit 与 Transform 章节列出每个 Definition 的 `pause-and-suppress` 或 `follow-preview` 策略，并说明动画帧不写 Store、copy、snapshot 或交互工作态。
+- 渲染边界必须说明 postrender replacement 的同层顺序、declutter、world wrap、规范 geometry 命中、overlay 不扩展命中和独立动画图层建议，不得暗示动画展示几何会改变业务查询或 `getScreenExtent()`。
+- 性能建议覆盖统一时钟、每层共享 RenderPass、稳定 slot、离屏/暂停调度、图元硬上限和 stop/remove/destroy 清理；不得脱离硬件、浏览器、目标数量、顶点数、覆盖面积、DPR 与配置承诺帧率。
+- 所有闪烁、呼吸和告警示例都必须显示光敏性风险提示，不得在页面加载时自动播放，并提供启动、暂停、恢复和停止控件；运行预览与展示源码继续引用同一个 Vue 组件。
+
 ## 运行时地图源
 
 所有含底图的运行示例必须通过 `website/src/config/mapSources.ts` 的 `createConfiguredLayer` 创建图层，禁止在 `website/src/examples` 中直接写入瓦片服务 URL。部署人员通过构建产物根目录的 `map-sources.json` 替换矢量或卫星 XYZ 地址；新增配置字段、底图示例或地图源行为时，必须同步更新该 JSON 示例和“地图创建与销毁”页面说明。默认配置、示例和文档不得包含私有 token、账号或内网地址。

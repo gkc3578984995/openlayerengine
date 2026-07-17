@@ -351,13 +351,24 @@ describe('Circle 米制半径语义', () => {
     let frameGeometry: RenderGeometryState | undefined;
     const definition: AnimationDefinition = {
       type: 'pulse',
-      normalize: (spec) => spec,
-      assertCompatible: (_element, geometry) => {
-        compatibilityGeometry = geometry;
+      writeDomains: new Set(['overlay']),
+      requirements: new Set(['structured-presentation']),
+      interactionPolicy: { edit: 'pause-and-suppress', transform: 'follow-preview' },
+      normalize: (spec) => spec as never,
+      assertCompatible: (target) => {
+        compatibilityGeometry = target.geometry;
       },
-      frame: (context) => {
-        frameGeometry = context.geometry;
-        return { value: { visible: true }, finished: false };
+      create: (target) => {
+        compatibilityGeometry = target.geometry;
+        return {
+          slots: [],
+          rebind() {},
+          sample(context) {
+            frameGeometry = context.target.geometry;
+            return { finished: false, schedule: { kind: 'continuous' } };
+          },
+          destroy() {}
+        };
       }
     };
     const manager = new AnimationManagerImpl({
@@ -365,7 +376,9 @@ describe('Circle 米制半径语义', () => {
       shapes,
       render,
       shapeProjection,
-      registry: new AnimationRegistry([definition])
+      registry: new AnimationRegistry([definition]),
+      clock: render,
+      wake: render
     });
     const expectedView = requireCircleState(shapeProjection.toViewState(state.geometry));
 

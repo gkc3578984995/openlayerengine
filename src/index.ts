@@ -27,12 +27,20 @@ export { stylePresets } from './builtins/styles/presets.js';
 export { useEarth } from './useEarth.js';
 
 export type {
+  AlertAnimationSpec,
   AnimationChannel,
+  AnimationEasing,
   AnimationSpec,
   AnimationStatus,
+  BlinkAnimationSpec,
+  CenterSpreadAnimationSpec,
   DashFlowAnimationSpec,
+  FadeAnimationSpec,
+  GrowAnimationSpec,
+  HighlightAnimationSpec,
   PathTravelAnimationSpec,
-  PulseAnimationSpec
+  PulseAnimationSpec,
+  RadarScanAnimationSpec
 } from './core/animation/types.js';
 export type { AnimationType } from './builtins/animations/index.js';
 export type { AnimationHandle, AnimationManager } from './services/animation/types.js';

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { createBuiltinAnimationRegistry } from '../src/builtins/animations/index.js';
 import { ObjectDisposedError } from '../src/core/errors.js';
 import type { LayerRenderValue } from '../src/core/ports/LayerRenderPort.js';
 import { AnimationManagerImpl } from '../src/services/animation/AnimationManager.js';
@@ -18,12 +19,13 @@ describe('动画生命周期', () => {
     expect(handle.status).toBe('paused');
     expect(render.activeLoopCount).toBe(0);
 
+    render.advanceTime(10_000);
     store.show({ id: 'line' });
     expect(handle.status).toBe('running');
     const resumed = render.frame('default', 10_000);
-    expect(resumed.contributions[0]?.value.primitives?.[0]?.style.strokes?.[0]?.lineDashOffset).toBeCloseTo(0);
+    expect(resumed.contributions[0]?.value.primitives?.[0]?.dynamicStyle?.lineDashOffset).toBeCloseTo(0);
     const progressed = render.frame('default', 10_500);
-    expect(progressed.contributions[0]?.value.primitives?.[0]?.style.strokes?.[0]?.lineDashOffset).toBe(-12);
+    expect(progressed.contributions[0]?.value.primitives?.[0]?.dynamicStyle?.lineDashOffset).toBe(-12);
   });
 
   it('元素迁移图层时把动画原子迁移到新的单一 RenderPass', () => {
@@ -37,7 +39,7 @@ describe('动画生命周期', () => {
     expect(render.activeLayerIds).toEqual(['layer-b']);
     expect(render.destroyCalls.get('layer-a')).toBe(1);
     expect(render.openCalls.get('layer-b')).toBe(1);
-    expect(render.frame('layer-b', 100).contributions[0]).toEqual(expect.objectContaining({ targetId: 'point', channel: 'pulse' }));
+    expect(render.frame('layer-b', 100).contributions[0]).toEqual(expect.objectContaining({ targetId: 'point', channel: '$animation' }));
   });
 
   it('图层索引在旧记录迁入时保持创建顺序并准确维护帧推进计数', () => {
@@ -66,7 +68,7 @@ describe('动画生命周期', () => {
 
   it('运行中的 path-travel 在下一帧读取事务更新后的 geometry', () => {
     const { manager, render, store } = createAnimationHarness([polylineElement('flight')]);
-    manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, repeat: false, trailLength: 0.5, showStart: false, showEnd: false, arrow: false });
+    manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, repeat: false, trailLength: 0.5, showStart: false, showEnd: false });
     render.frame('default', 0);
     render.frame('default', 500);
 
@@ -99,6 +101,7 @@ describe('动画生命周期', () => {
     const { manager, render, shapes, store } = createAnimationHarness([
       polylineElement('large-flight', { geometry: { type: 'polyline', controlPoints: largePath(0) } })
     ]);
+    const hypot = vi.spyOn(Math, 'hypot');
     manager.play(
       { id: 'large-flight' },
       {
@@ -107,32 +110,32 @@ describe('动画生命周期', () => {
         curvature: 0,
         smoothness: 2,
         trailLength: 0.001,
-        arrow: false,
         showStart: false,
         showEnd: false
       }
     );
     const get = vi.spyOn(store, 'get');
     const getShape = vi.spyOn(shapes, 'get');
-    const hypot = vi.spyOn(Math, 'hypot');
-
     try {
+      expect(hypot).toHaveBeenCalledTimes(49_999);
+      hypot.mockClear();
       render.frame('default', 0);
-      expect(hypot).toHaveBeenCalledTimes(49_999);
+      expect(hypot).not.toHaveBeenCalled();
       render.frame('default', 16);
-      expect(hypot).toHaveBeenCalledTimes(49_999);
+      expect(hypot).not.toHaveBeenCalled();
       expect(get).not.toHaveBeenCalled();
       expect(getShape).not.toHaveBeenCalled();
 
       store.update({ id: 'large-flight' }, { geometry: { type: 'polyline', controlPoints: largePath(1) } });
+      expect(hypot).toHaveBeenCalledTimes(49_999);
       get.mockClear();
       getShape.mockClear();
       hypot.mockClear();
 
       render.frame('default', 32);
-      expect(hypot).toHaveBeenCalledTimes(49_999);
+      expect(hypot).not.toHaveBeenCalled();
       render.frame('default', 48);
-      expect(hypot).toHaveBeenCalledTimes(49_999);
+      expect(hypot).not.toHaveBeenCalled();
       expect(get).not.toHaveBeenCalled();
       expect(getShape).not.toHaveBeenCalled();
     } finally {
@@ -150,8 +153,7 @@ describe('动画生命周期', () => {
         repeat: false,
         finishBehavior: 'retain',
         showStart: false,
-        showEnd: false,
-        arrow: false
+        showEnd: false
       }
     );
 
@@ -170,7 +172,7 @@ describe('动画生命周期', () => {
 
   it('Transform preview 只覆盖动画帧输入，清理后恢复 Store geometry 且时间连续', () => {
     const { manager, render, shapes, store } = createAnimationHarness([polylineElement('flight')]);
-    manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, repeat: false, trailLength: 0.5, showStart: false, showEnd: false, arrow: false });
+    manager.play({ id: 'flight' }, { type: 'path-travel', durationMs: 1_000, repeat: false, trailLength: 0.5, showStart: false, showEnd: false });
     render.frame('default', 0);
     const state = store.get('flight');
     if (state === undefined) throw new Error('测试元素不存在');
@@ -208,7 +210,7 @@ describe('动画生命周期', () => {
     expect(copy.id).not.toBe('source');
     expect(Object.hasOwn(copy, 'animation')).toBe(false);
     expect(manager.activeCount).toBe(1);
-    expect(render.frame('default', 0).contributions).toEqual([expect.objectContaining({ targetId: 'source', channel: 'source-pulse' })]);
+    expect(render.frame('default', 0).contributions).toEqual([expect.objectContaining({ targetId: 'source', channel: '$animation' })]);
     expect(handle.status).toBe('running');
   });
 
@@ -316,7 +318,15 @@ describe('动画生命周期', () => {
     let render!: FakeLayerRenderPort;
     const harness = createTransformHarness(false, ({ store, shapes }) => {
       render = new FakeLayerRenderPort();
-      manager = new AnimationManagerImpl({ store, shapes, render, shapeProjection: identityShapeProjection });
+      manager = new AnimationManagerImpl({
+        store,
+        shapes,
+        render,
+        shapeProjection: identityShapeProjection,
+        registry: createBuiltinAnimationRegistry(),
+        clock: render,
+        wake: render
+      });
       return { animations: manager, transients: manager };
     });
     addElement(harness, 'line', 'polyline', [

@@ -153,6 +153,21 @@ function stableConvexComponent(points: readonly Point[], weights: readonly numbe
   return boundedValue * scale;
 }
 
+/** 使用调用方持有的坐标容器写入凸组合，供稳定几何工作区复用。 */
+export function writeWeightedCoordinate(output: number[], points: readonly Point[], weights: readonly number[]): Coordinate {
+  if (points.length === 0 || points.length !== weights.length) throw new InvalidArgumentError('Weighted coordinate requires matching non-empty inputs');
+  let x = 0;
+  let y = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    x += weights[index] * points[index][0];
+    y += weights[index] * points[index][1];
+  }
+  output.length = 2;
+  output[0] = stableConvexComponent(points, weights, 0, x);
+  output[1] = stableConvexComponent(points, weights, 1, y);
+  return output as unknown as Coordinate;
+}
+
 export function cubicValue(t: number, start: Point, control1: Point, control2: Point, end: Point): Point {
   const boundedT = Math.max(Math.min(t, 1), 0);
   const inverse = 1 - boundedT;

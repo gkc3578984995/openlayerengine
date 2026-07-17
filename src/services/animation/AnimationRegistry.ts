@@ -16,7 +16,15 @@ export class AnimationRegistry {
   register(definition: AnimationDefinition): void {
     if (definition === null || typeof definition !== 'object') throw new InvalidArgumentError('Animation definition must be an object');
     if (this.#definitions.has(definition.type)) throw new InvalidArgumentError(`Animation type is already registered: ${definition.type}`);
-    if (typeof definition.normalize !== 'function' || typeof definition.assertCompatible !== 'function' || typeof definition.frame !== 'function') {
+    if (
+      !(definition.writeDomains instanceof Set) ||
+      !(definition.requirements instanceof Set) ||
+      definition.interactionPolicy === null ||
+      typeof definition.interactionPolicy !== 'object' ||
+      typeof definition.normalize !== 'function' ||
+      typeof definition.assertCompatible !== 'function' ||
+      typeof definition.create !== 'function'
+    ) {
       throw new InvalidArgumentError('Animation definition is incomplete');
     }
     this.#definitions.set(definition.type, definition);

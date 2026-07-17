@@ -10,6 +10,7 @@ import Text from 'ol/style/Text.js';
 import type { NativeRefRegistry } from '../NativeRefRegistry.js';
 import { cloneCoreState } from '../../../core/common/clone.js';
 import type { Color } from '../../../core/common/types.js';
+import { ObjectDisposedError } from '../../../core/errors.js';
 import { isNativeStyleRef, type ArrowDecorationSpec, type IconSymbolSpec, type StrokeSpec, type StyleSpec, type TextSpec } from '../../../core/style/types.js';
 import { assertStructuredStyleSpec } from '../../../services/style/StyleService.js';
 import { createPatternFill, type PatternCanvasFactory } from './pattern.js';
@@ -53,6 +54,39 @@ type Coordinate2 = readonly [number, number];
 interface ArrowPoint {
   readonly coordinate: Coordinate2;
   readonly angle: number;
+}
+
+/** 单个展示替身拥有的稳定样式池。 */
+export interface CompiledPresentationStyle {
+  /** 规范 Geometry、分辨率或旋转导致池重建时递增。 */
+  readonly revision: number;
+  /** 用当前展示 Geometry 更新池内动态位置，并返回本帧生效的稳定 Style。 */
+  resolve(feature: FeatureLike, resolution: number): readonly Style[];
+  /** 释放池对 Style 和 Geometry 的引用；重复调用不产生副作用。 */
+  destroy(): void;
+}
+
+/** 一种 Decoration 模板预分配的稳定 slot。 */
+interface DecorationStylePool {
+  readonly decoration: ArrowDecorationSpec;
+  readonly slots: DecorationStyleSlot[];
+}
+
+/** 单个 Decoration slot 的可变 OL 对象。 */
+interface DecorationStyleSlot {
+  readonly style: Style;
+  readonly geometry: Point;
+}
+
+/** 固定规范拓扑、分辨率和旋转下的一组展示样式。 */
+interface PresentationStylePool {
+  readonly maximumGeometry: object | undefined;
+  readonly maximumGeometryRevision: number | undefined;
+  readonly resolution: number;
+  readonly viewRotation: number;
+  readonly baseStyles: Style[];
+  readonly decorations: DecorationStylePool[];
+  readonly activeStyles: Style[];
 }
 
 /** 将 StyleSpec 单向编译为 OpenLayers 样式，并直接解析 nativeStyle 引用。 */
@@ -101,6 +135,63 @@ export class StyleCompiler {
       return styles;
     };
     return compiled;
+  }
+
+  /**
+   * 为动画展示替身建立稳定样式池。Decoration 容量来自规范完整 Geometry，
+   * 当前帧 Geometry 只更新预分配 Point 与 image setter。
+   */
+  compilePresentation(style: StyleSpec, maximumFeature: FeatureLike): CompiledPresentationStyle {
+    const spec = cloneCoreState(style);
+    assertStructuredStyleSpec(spec);
+    const needsFitPaths =
+      spec.strokes?.some((stroke) => stroke.fitPatternOnce === true && stroke.lineDash !== undefined && stroke.lineDash.length > 0) ?? false;
+    const needsDecorations = (spec.decorations?.length ?? 0) > 0;
+    const dependencies = styleDependencies(spec, needsFitPaths, needsDecorations);
+    let pool: PresentationStylePool | undefined;
+    let destroyed = false;
+    let revision = 0;
+    const resolve = (feature: FeatureLike, resolution: number): readonly Style[] => {
+      if (destroyed) throw new ObjectDisposedError('Compiled presentation style has been destroyed');
+      const normalizedResolution = dependencies.resolution ? safeResolution(resolution) : 1;
+      const viewRotation = dependencies.viewRotation ? finiteOr(this.#getViewRotation(), 0) : 0;
+      const maximumGeometry = featureGeometry(maximumFeature);
+      const maximumGeometryRevision = maximumGeometry === undefined ? undefined : callNumber(maximumGeometry, 'getRevision');
+      if (
+        pool === undefined ||
+        pool.maximumGeometry !== maximumGeometry ||
+        pool.maximumGeometryRevision !== maximumGeometryRevision ||
+        pool.resolution !== normalizedResolution ||
+        pool.viewRotation !== viewRotation
+      ) {
+        if (pool !== undefined) releasePresentationPool(pool);
+        pool = this.#createPresentationPool(
+          spec,
+          featureGeometry(feature),
+          maximumGeometry,
+          normalizedResolution,
+          viewRotation,
+          needsFitPaths,
+          needsDecorations,
+          maximumGeometryRevision
+        );
+        revision += 1;
+      }
+      updatePresentationPool(pool, spec, featureGeometry(feature), normalizedResolution, viewRotation, needsFitPaths);
+      return pool.activeStyles;
+    };
+    return Object.freeze({
+      get revision() {
+        return revision;
+      },
+      resolve,
+      destroy: () => {
+        if (destroyed) return;
+        destroyed = true;
+        if (pool !== undefined) releasePresentationPool(pool);
+        pool = undefined;
+      }
+    });
   }
 
   /** 把多层描边、填充、符号、文字和装饰组合为有序 Style 列表。 */
@@ -152,6 +243,73 @@ export class StyleCompiler {
     }
     return styles;
   }
+
+  /** 按完整路径容量建立一次展示池。 */
+  #createPresentationPool(
+    spec: StyleSpec,
+    geometry: object | undefined,
+    maximumGeometry: object | undefined,
+    resolution: number,
+    viewRotation: number,
+    needsFitPaths: boolean,
+    needsDecorations: boolean,
+    maximumGeometryRevision: number | undefined
+  ): PresentationStylePool {
+    const baseStyles = this.#compileStructured(spec, geometry, resolution, viewRotation, needsFitPaths, false);
+    const inheritedColor = lastExplicitStrokeColor(spec.strokes);
+    const maximumPaths = linePaths(maximumGeometry);
+    const currentPaths = linePaths(geometry);
+    const decorations = needsDecorations
+      ? (spec.decorations ?? []).map((decoration) => {
+          const capacity = Math.max(placeArrows(maximumPaths, decoration, resolution).length, placeArrows(currentPaths, decoration, resolution).length);
+          const slots: DecorationStyleSlot[] = [];
+          for (let index = 0; index < capacity; index += 1) slots.push(createDecorationStyleSlot(decoration, inheritedColor, viewRotation, spec.zIndex));
+          return { decoration, slots };
+        })
+      : [];
+    return {
+      maximumGeometry,
+      maximumGeometryRevision,
+      resolution,
+      viewRotation,
+      baseStyles,
+      decorations,
+      activeStyles: [...baseStyles]
+    };
+  }
+}
+
+/**
+ * 为结构化样式建立透明代理。代理保留 Geometry、尺寸和 declutter 信息，
+ * OpenLayers 的独立命中指令仍按原样式范围工作。
+ */
+export function createTransparentStyleProxy(style: StyleLike): StyleFunction {
+  const clones = new WeakMap<Style, Style>();
+  return (feature, resolution) => resolveStyleLike(style, feature, resolution).map((item) => transparentClone(item, clones));
+}
+
+/** 将样式解析结果转换为稳定数组。 */
+function resolveStyleLike(style: StyleLike, feature: FeatureLike, resolution: number): Style[] {
+  const resolved = typeof style === 'function' ? style(feature, resolution) : style;
+  if (resolved === undefined) return [];
+  return Array.isArray(resolved) ? resolved : [resolved];
+}
+
+/** 克隆一次可见样式，并把所有视觉分支改为完全透明。 */
+function transparentClone(source: Style, cache: WeakMap<Style, Style>): Style {
+  const cached = cache.get(source);
+  if (cached !== undefined) return cached;
+  const clone = source.clone();
+  clone.getFill()?.setColor([0, 0, 0, 0]);
+  clone.getStroke()?.setColor([0, 0, 0, 0]);
+  clone.getImage()?.setOpacity(0);
+  const text = clone.getText();
+  text?.getFill()?.setColor([0, 0, 0, 0]);
+  text?.getStroke()?.setColor([0, 0, 0, 0]);
+  text?.getBackgroundFill()?.setColor([0, 0, 0, 0]);
+  text?.getBackgroundStroke()?.setColor([0, 0, 0, 0]);
+  cache.set(source, clone);
+  return clone;
 }
 
 /** 编译单层线样式。 */
@@ -266,6 +424,93 @@ function compileArrow(decoration: ArrowDecorationSpec, arrow: ArrowPoint, inheri
           -arrow.angle
         );
   return new Style({ geometry, image, ...(zIndex === undefined ? {} : { zIndex }) });
+}
+
+/** 建立一个可重复更新的 Decoration slot。 */
+function createDecorationStyleSlot(
+  decoration: ArrowDecorationSpec,
+  inheritedColor: Color | undefined,
+  viewRotation: number,
+  zIndex?: number
+): DecorationStyleSlot {
+  const style = compileArrow(decoration, { coordinate: [0, 0], angle: 0 }, inheritedColor, viewRotation, zIndex);
+  const geometry = style.getGeometry();
+  if (!(geometry instanceof Point)) throw new ObjectDisposedError('Decoration style did not retain its Point geometry');
+  return { style, geometry };
+}
+
+/** 用当前有效路径更新预分配 Decoration slot，不创建新的 OL 对象。 */
+function updateDecorationStyleSlot(slot: DecorationStyleSlot, decoration: ArrowDecorationSpec, arrow: ArrowPoint, viewRotation: number): void {
+  slot.geometry.setCoordinates(arrow.coordinate as [number, number]);
+  const image = slot.style.getImage();
+  if (decoration.symbol === undefined) {
+    image?.setRotation(Math.PI / 2 - arrow.angle);
+    return;
+  }
+  if (!(image instanceof Icon)) return;
+  const rotation = degreesToRadians(decoration.symbol.rotation ?? 0) - arrow.angle;
+  const rotateWithView = decoration.symbol.rotateWithView ?? true;
+  image.setRotation(rotation);
+  image.setDisplacement(compensateOffset(decoration.symbol.displacement, rotation + (rotateWithView ? viewRotation : 0)));
+}
+
+/** 更新本帧生效 Style；容量只在规范拓扑失配时补齐。 */
+function updatePresentationPool(
+  pool: PresentationStylePool,
+  spec: StyleSpec,
+  geometry: object | undefined,
+  resolution: number,
+  viewRotation: number,
+  needsFitPaths: boolean
+): void {
+  const extracted = needsFitPaths || pool.decorations.length > 0 ? extractGeometryPaths(geometry) : undefined;
+  const paths = extracted?.paths ?? [];
+  if (needsFitPaths) updateFitPatternStyles(pool.baseStyles, spec.strokes, paths, resolution);
+
+  const active = pool.activeStyles;
+  active.length = pool.baseStyles.length;
+  for (let index = 0; index < pool.baseStyles.length; index += 1) active[index] = pool.baseStyles[index];
+  const inheritedColor = lastExplicitStrokeColor(spec.strokes);
+  for (const decorationPool of pool.decorations) {
+    const arrows = extracted?.type === 'LineString' || extracted?.type === 'MultiLineString' ? placeArrows(paths, decorationPool.decoration, resolution) : [];
+    while (decorationPool.slots.length < arrows.length) {
+      decorationPool.slots.push(createDecorationStyleSlot(decorationPool.decoration, inheritedColor, viewRotation, spec.zIndex));
+    }
+    for (let index = 0; index < arrows.length; index += 1) {
+      const slot = decorationPool.slots[index];
+      updateDecorationStyleSlot(slot, decorationPool.decoration, arrows[index], viewRotation);
+      active.push(slot.style);
+    }
+  }
+}
+
+/** fitPatternOnce 只更新现有 Stroke，不重建 Style。 */
+function updateFitPatternStyles(
+  styles: readonly Style[],
+  strokes: readonly StrokeSpec[] | undefined,
+  paths: readonly Coordinate2[][],
+  resolution: number
+): void {
+  if (strokes === undefined) return;
+  for (let index = 0; index < strokes.length; index += 1) {
+    const strokeSpec = strokes[index];
+    if (strokeSpec.fitPatternOnce !== true) continue;
+    styles[index]?.getStroke()?.setLineDash(fitDashPattern(strokeSpec.lineDash, paths, resolution) ?? null);
+  }
+}
+
+/** 从完整 Geometry 取得可放置 Decoration 的线性路径。 */
+function linePaths(geometry: object | undefined): Coordinate2[][] {
+  const extracted = extractGeometryPaths(geometry);
+  return extracted.type === 'LineString' || extracted.type === 'MultiLineString' ? extracted.paths : [];
+}
+
+/** 显式断开池对 OL 对象的引用。 */
+function releasePresentationPool(pool: PresentationStylePool): void {
+  pool.activeStyles.length = 0;
+  pool.baseStyles.length = 0;
+  for (const decoration of pool.decorations) decoration.slots.length = 0;
+  pool.decorations.length = 0;
 }
 
 /** 根据文本分项配置组合 CSS 字体字符串。 */

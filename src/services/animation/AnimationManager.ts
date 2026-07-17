@@ -2,20 +2,44 @@ import type { AnimationChannel, AnimationSpec, AnimationStatus } from '../../cor
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import { cloneElementSnapshot, isElementSnapshot } from '../../core/element/snapshot.js';
 import type { ElementSelector, ElementState } from '../../core/element/types.js';
-import { InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
+import { CapabilityError, InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
 import type { AnimationControlPort, AnimationPreviewPort } from '../../core/ports/AnimationControlPort.js';
+import type { AnimationClockPort } from '../../core/ports/AnimationClockPort.js';
+import type { AnimationWakePort } from '../../core/ports/AnimationWakePort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
-import type { LayerRenderBatch, LayerRenderContribution, LayerRenderFrame, LayerRenderLoopHandle, LayerRenderPort } from '../../core/ports/LayerRenderPort.js';
+import type {
+  LayerPresentationLease,
+  LayerRenderBatch,
+  LayerRenderContribution,
+  LayerRenderDynamicStyle,
+  LayerRenderFrame,
+  LayerRenderLoopHandle,
+  LayerRenderPort,
+  LayerRenderPrimitive,
+  LayerRenderSlotReservation
+} from '../../core/ports/LayerRenderPort.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { RenderGeometryState } from '../../core/shape/types.js';
-import { isNativeStyleRef } from '../../core/style/types.js';
+import { isNativeStyleRef, type StyleSpec } from '../../core/style/types.js';
+import { styleVisualOutsetPx } from '../../core/style/visualOutset.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
-import { createBuiltinAnimationRegistry } from '../../builtins/animations/index.js';
+import { createAnimationFrameBuffer } from './AnimationFrameBuffer.js';
+import { AnimationDeadlineScheduler } from './AnimationDeadlineScheduler.js';
 import { AnimationHandleImpl } from './AnimationHandle.js';
 import type { AnimationRegistry } from './AnimationRegistry.js';
-import type { AnimationDefinition, AnimationHandle, AnimationManager } from './types.js';
+import type {
+  AnimationDefinition,
+  AnimationFrameBuffer,
+  AnimationHandle,
+  AnimationManager,
+  AnimationOverlaySlotBuffer,
+  AnimationRuntime,
+  AnimationSample,
+  AnimationStyleParameter,
+  AnimationTargetProfile
+} from './types.js';
 
 /** 构造动画管理器所需的依赖。 */
 export interface AnimationManagerDependencies {
@@ -27,8 +51,12 @@ export interface AnimationManagerDependencies {
   readonly render: LayerRenderPort;
   /** 将元素规范状态转换为 View 工作状态。 */
   readonly shapeProjection: ShapeProjectionPort;
-  /** 可选的动画定义注册表。 */
-  readonly registry?: AnimationRegistry;
+  /** 动画定义注册表。 */
+  readonly registry: AnimationRegistry;
+  /** 与渲染帧时间使用同一时间域的时钟。 */
+  readonly clock: AnimationClockPort;
+  /** Earth 级单次截止时间唤醒。 */
+  readonly wake: AnimationWakePort;
   /** 可选的错误报告器。 */
   readonly errorReporter?: ErrorReporter;
 }
@@ -65,8 +93,12 @@ interface BaseRecord {
   handlePaused: boolean;
   /** 动画目标是否隐藏。 */
   hidden: boolean;
+  /** 交互预览暂时接管展示权时是否抑制动画。 */
+  suppressed: boolean;
   /** 动画结束后是否保留最终渲染值。 */
   retained: boolean;
+  /** 当前已登记的绝对截止时间。 */
+  deadlineTimestamp: number | undefined;
 }
 
 /** 绑定到元素状态的动画记录。 */
@@ -79,6 +111,11 @@ interface ElementRecord extends BaseRecord {
   readonly definition: AnimationDefinition;
   /** 规范化后的动画配置。 */
   readonly spec: AnimationSpec;
+  readonly runtime: AnimationRuntime;
+  buffer: AnimationFrameBuffer;
+  sample: AnimationSample | undefined;
+  /** Runtime 独立 tick 时复用的最后一份视图参数。 */
+  lastRenderFrame: LayerRenderFrame | undefined;
 }
 
 /** 绑定到临时渲染目标的动画记录。 */
@@ -97,6 +134,7 @@ interface TransientRecord extends BaseRecord {
 type ManagedRecord = ElementRecord | TransientRecord;
 /** 动画记录的终止状态。 */
 type TerminalStatus = Extract<AnimationStatus, 'stopped' | 'finished'>;
+type RenderBounds = readonly [minX: number, minY: number, maxX: number, maxY: number];
 
 /** 单个图层的动画记录及其热路径计数。 */
 interface LayerRecordIndex {
@@ -116,6 +154,9 @@ interface PreparedElementState {
   readonly state: Readonly<ElementState>;
   /** 只在状态版本变化时生成一次的深冻结渲染几何。 */
   readonly geometry: RenderGeometryState;
+  /** 规范渲染几何的保守 View 坐标范围。 */
+  readonly bounds: RenderBounds | undefined;
+  readonly target: AnimationTargetProfile;
   /** 元素实例生命周期令牌。 */
   readonly generation: ElementGeneration;
   /** 元素内容版本令牌。 */
@@ -123,6 +164,14 @@ interface PreparedElementState {
   /** 可安全按身份复用的预览输入。 */
   readonly sourceIdentity?: Readonly<ElementState>;
 }
+
+/** Session 当前持有的预览输入；没有动画记录时只保留引用，延迟到 play 再准备帧数据。 */
+interface ActivePreviewState {
+  readonly state: Readonly<ElementState>;
+  readonly geometry: RenderGeometryState;
+}
+
+const ANIMATION_RENDER_CHANNEL = '$animation';
 
 /** 统一管理 Element 动画、Session 临时预览和图层级渲染循环。 */
 export class AnimationManagerImpl implements AnimationManager, AnimationControlPort, AnimationPreviewPort, TransientAnimationPort {
@@ -136,6 +185,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   readonly #shapeProjection: ShapeProjectionPort;
   /** 动画定义注册表。 */
   readonly #registry: AnimationRegistry;
+  readonly #clock: AnimationClockPort;
+  readonly #deadlines: AnimationDeadlineScheduler;
   /** 动画错误报告器。 */
   readonly #errorReporter: ErrorReporter;
   /** 当前活动动画句柄。 */
@@ -154,8 +205,11 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   readonly #passes = new Map<string, LayerRenderLoopHandle>();
   /** Transform 等 Session 提供的临时 Element 工作态。 */
   readonly #previews = new Map<string, PreparedElementState>();
+  /** 独立于动画记录生命周期的交互预览所有权。 */
+  readonly #activePreviews = new Map<string, ActivePreviewState>();
   /** 活动动画对应的已提交帧输入，按 Element 版本复用。 */
   readonly #committedStates = new Map<string, PreparedElementState>();
+  readonly #presentationLeases = new Map<string, LayerPresentationLease>();
   /** ElementStore 订阅的释放函数。 */
   readonly #unsubscribeStore: () => void;
   /** 下一个动画句柄 ID。 */
@@ -179,7 +233,9 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#shapes = dependencies.shapes;
     this.#render = dependencies.render;
     this.#shapeProjection = dependencies.shapeProjection;
-    this.#registry = dependencies.registry ?? createBuiltinAnimationRegistry();
+    this.#registry = dependencies.registry;
+    this.#clock = dependencies.clock;
+    this.#deadlines = new AnimationDeadlineScheduler({ clock: dependencies.clock, wake: dependencies.wake, onWake: () => this.#handleDeadlineWake() });
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
     this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
   }
@@ -201,22 +257,65 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     const definition = this.#registry.get(animationType(input));
     const spec = definition.normalize(input);
     const states = this.#store.query(safeSelector);
-    const prepared = states.map(({ id }) => {
-      const current = this.#resolvePreparedState(id);
-      if (isNativeStyleRef(current.state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
-      definition.assertCompatible(current.state, current.geometry);
-      return current;
-    });
-    const handle = this.#createHandle(prepared.length === 0 ? 'finished' : 'running');
-    if (prepared.length === 0) return handle;
-    const added: ManagedRecord[] = [];
+    if (states.length === 0) return this.#createHandle('finished');
+    const channel = animationChannel(spec);
+    const startedAt = this.#clock.now();
+    if (!Number.isFinite(startedAt)) throw new InvalidArgumentError('Animation clock must return a finite timestamp');
+    const candidates: Array<{
+      committed: PreparedElementState;
+      interaction: PreparedElementState;
+      suppressed: boolean;
+      runtime: AnimationRuntime;
+      buffer: AnimationFrameBuffer;
+      sample: AnimationSample;
+    }> = [];
     try {
-      for (const committed of prepared) {
-        const preview = this.#previews.get(committed.state.id);
-        const state = (preview ?? committed).state;
-        const channel = animationChannel(spec);
-        this.#replaceRecord(elementKey(state.id, channel));
-        if (preview !== undefined) this.#previews.set(state.id, preview);
+      for (const { id } of states) {
+        try {
+          const committed = this.#resolvePreparedState(id);
+          const preview = this.#resolveActivePreview(id, committed);
+          const interaction = preview ?? committed;
+          const followsPreview = preview !== undefined && definition.interactionPolicy.transform === 'follow-preview';
+          const bound = followsPreview ? preview : committed;
+          const suppressed = preview !== undefined && !followsPreview;
+          definition.assertCompatible(bound.target);
+          if (definition.writeDomains.has('target-geometry')) {
+            const conflicting = this.#elementRecords(id).find((record) => record.channel !== channel && record.definition.writeDomains.has('target-geometry'));
+            if (conflicting !== undefined) {
+              throw new CapabilityError(
+                `Animation target ${id} already has target-geometry writer on channel ${conflicting.channel}; requested channel ${channel}`
+              );
+            }
+          }
+          const runtime = definition.create(bound.target, spec);
+          try {
+            const buffer = createAnimationFrameBuffer(runtime.slots);
+            const sample = runtime.sample({ target: bound.target, elapsedMs: 0, resolution: 1, rotation: 0, pixelRatio: 1 }, buffer);
+            candidates.push({ committed, interaction, suppressed, runtime, buffer, sample });
+          } catch (error) {
+            runtime.destroy();
+            throw error;
+          }
+        } catch (error) {
+          throw animationTargetFailure(id, error);
+        }
+      }
+    } catch (error) {
+      for (const { runtime } of candidates) runtime.destroy();
+      throw error;
+    }
+
+    const handle = this.#createHandle('running');
+    const added: ElementRecord[] = [];
+    const immediatelyFinished: Array<{ record: ElementRecord; retain: boolean }> = [];
+    const replaced = candidates.map(({ interaction }) => {
+      const key = elementKey(interaction.state.id, channel);
+      const currentId = this.#recordKeys.get(key);
+      return currentId === undefined ? undefined : this.#records.get(currentId);
+    });
+    try {
+      for (const { committed, interaction, suppressed, runtime, buffer, sample } of candidates) {
+        const state = interaction.state;
         const order = ++this.#nextRecordId;
         const record: ElementRecord = {
           kind: 'element',
@@ -229,21 +328,39 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
           channel,
           definition,
           spec,
+          runtime,
+          buffer,
+          sample,
+          lastRenderFrame: undefined,
           elapsedMs: 0,
-          lastFrameTime: undefined,
+          lastFrameTime: state.visible && !suppressed ? startedAt : undefined,
           selectorPauseDepth: 0,
           handlePaused: false,
           hidden: !state.visible,
-          retained: false
+          suppressed,
+          retained: false,
+          deadlineTimestamp: undefined
         };
-        this.#addRecord(record, committed);
         added.push(record);
+        this.#addRecord(record, committed);
+        this.#syncRecordDeadline(record, startedAt);
+        if (sample.finished) immediatelyFinished.push({ record, retain: sample.retain === true });
       }
+      this.#syncPasses();
+      for (const record of replaced) {
+        if (record !== undefined) this.#removeRecord(record, 'stopped');
+      }
+      for (const { record, retain } of immediatelyFinished) this.#finishRecord(record, retain, 'finished');
+      this.#refreshHandle(handle.id);
       this.#syncPasses();
       this.#requestLayers(new Set(added.map(({ layerId }) => layerId)));
       return handle;
     } catch (error) {
       for (const record of added) this.#removeRecord(record, 'stopped');
+      for (const { runtime } of candidates) runtime.destroy();
+      for (const record of replaced) {
+        if (record !== undefined && this.#records.has(record.id)) this.#recordKeys.set(record.key, record.id);
+      }
       this.#terminateHandle(handle.id, 'stopped');
       this.#syncPasses();
       throw error;
@@ -277,7 +394,9 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       selectorPauseDepth: 0,
       handlePaused: false,
       hidden: false,
-      retained: false
+      suppressed: false,
+      retained: false,
+      deadlineTimestamp: undefined
     };
     try {
       this.#addRecord(record);
@@ -361,33 +480,33 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#assertActive();
     if (state === null || typeof state !== 'object') throw new InvalidArgumentError('Animation preview must be an Element state');
     const elementId = nonEmptyString(state.id, 'Animation preview Element id');
+    const activePreview = Object.freeze({ state, geometry });
     const records = this.#elementRecords(elementId);
-    if (records.length === 0) return;
+    if (records.length === 0) {
+      this.#activePreviews.set(elementId, activePreview);
+      this.#previews.delete(elementId);
+      return;
+    }
     const committed = this.#resolvePreparedState(elementId);
-    if (committed.state.type !== state.type) throw new InvalidArgumentError('Animation preview cannot change Element type');
-    const existing = this.#previews.get(elementId);
-    if (existing?.sourceIdentity === state && existing.generation === committed.generation && existing.revision === committed.revision) return;
-    const trusted = isElementSnapshot(state);
-    const snapshot = trusted ? state : cloneElementSnapshot(this.#shapes, state);
-    const preview: PreparedElementState = Object.freeze({
-      state: snapshot,
-      geometry: freezeRenderGeometry(geometry),
-      generation: committed.generation,
-      revision: committed.revision,
-      ...(trusted ? { sourceIdentity: state } : {})
-    });
+    const preview = this.#preparePreview(activePreview, committed);
+    this.#activePreviews.set(elementId, activePreview);
+    if (this.#previews.get(elementId) === preview) return;
     const affectedLayers = new Set(records.map(({ layerId }) => layerId));
     this.#previews.set(elementId, preview);
     for (const record of records) {
-      const timingChanged = record.layerId !== snapshot.layerId || record.hidden === snapshot.visible;
+      const followsPreview = record.definition.interactionPolicy.transform === 'follow-preview';
+      const timingChanged = record.layerId !== preview.state.layerId || record.hidden === preview.state.visible || record.suppressed === followsPreview;
       this.#updateRecordState(record, () => {
-        record.layerId = snapshot.layerId;
-        record.hidden = !snapshot.visible;
+        record.layerId = preview.state.layerId;
+        record.hidden = !preview.state.visible;
+        record.suppressed = !followsPreview;
         if (timingChanged) record.lastFrameTime = undefined;
       });
+      if (followsPreview) this.#rebindRecord(record, preview);
       affectedLayers.add(record.layerId);
       this.#refreshHandle(record.handleId);
     }
+    this.#syncPresentation(elementId);
     this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
   }
@@ -396,22 +515,28 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   clearPreview(elementId: string): void {
     this.#assertActive();
     const safeId = nonEmptyString(elementId, 'Animation preview Element id');
-    if (!this.#previews.delete(safeId)) return;
-    const state = this.#committedStates.get(safeId)?.state;
+    const hadActivePreview = this.#activePreviews.delete(safeId);
+    const hadPreparedPreview = this.#previews.delete(safeId);
+    if (!hadActivePreview && !hadPreparedPreview) return;
+    const committed = this.#committedStates.get(safeId);
     const records = this.#elementRecords(safeId);
     const affectedLayers = new Set(records.map(({ layerId }) => layerId));
-    if (state !== undefined) {
+    if (committed !== undefined) {
+      const state = committed.state;
       for (const record of records) {
-        const timingChanged = record.layerId !== state.layerId || record.hidden === state.visible;
+        const timingChanged = record.layerId !== state.layerId || record.hidden === state.visible || record.suppressed;
         this.#updateRecordState(record, () => {
           record.layerId = state.layerId;
           record.hidden = !state.visible;
+          record.suppressed = false;
           if (timingChanged) record.lastFrameTime = undefined;
         });
+        this.#rebindRecord(record, committed);
         affectedLayers.add(record.layerId);
         this.#refreshHandle(record.handleId);
       }
     }
+    this.#syncPresentation(safeId);
     this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
   }
@@ -420,7 +545,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   pauseHandle(id: string): void {
     const group = this.#handles.get(id);
     if (group === undefined) return;
-    const records = this.#recordsFor(group);
+    const records = this.#recordsFor(group).filter(({ handlePaused }) => !handlePaused);
     for (const record of records) {
       this.#updateRecordState(record, () => {
         record.handlePaused = true;
@@ -437,7 +562,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   resumeHandle(id: string): void {
     const group = this.#handles.get(id);
     if (group === undefined) return;
-    const records = this.#recordsFor(group);
+    const records = this.#recordsFor(group).filter(({ handlePaused }) => handlePaused);
     for (const record of records) {
       this.#updateRecordState(record, () => {
         record.handlePaused = false;
@@ -474,6 +599,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
         this.#unsubscribeStore();
         this.#storeSubscribed = false;
       }
+      this.#deadlines.destroy();
+      this.#activePreviews.clear();
       this.#previews.clear();
       this.#committedStates.clear();
       this.#handles.clear();
@@ -513,6 +640,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       const records = this.#recordsByElement.get(record.elementId) ?? new Set<ElementRecord>();
       records.add(record);
       this.#recordsByElement.set(record.elementId, records);
+      this.#syncPresentation(record.elementId);
     } else {
       const records = this.#transientRecordsByOwner.get(record.ownerId) ?? new Set<TransientRecord>();
       records.add(record);
@@ -530,9 +658,15 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   /** 移除动画记录并刷新所属句柄。 */
   #removeRecord(record: ManagedRecord, status: TerminalStatus): void {
     if (!this.#records.delete(record.id)) return;
+    this.#clearRecordDeadline(record);
     if (this.#recordKeys.get(record.key) === record.id) this.#recordKeys.delete(record.key);
     this.#unindexLayerRecord(record, record.layerId, this.#shouldRender(record), this.#isRunning(record));
     if (record.kind === 'element') {
+      try {
+        record.runtime.destroy();
+      } catch (error) {
+        this.#report(error, 'destroy-runtime', record.id);
+      }
       const records = this.#recordsByElement.get(record.elementId);
       records?.delete(record);
       if (records?.size === 0) {
@@ -540,6 +674,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
         this.#committedStates.delete(record.elementId);
         this.#previews.delete(record.elementId);
       }
+      this.#syncPresentation(record.elementId);
     } else {
       const records = this.#transientRecordsByOwner.get(record.ownerId);
       records?.delete(record);
@@ -601,16 +736,19 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     const previousLayerId = record.layerId;
     const wasRenderable = this.#shouldRender(record);
     const wasRunning = this.#isRunning(record);
+    if (wasRunning) this.#advance(record, this.#clock.now());
     update();
     if (record.layerId !== previousLayerId) {
       this.#unindexLayerRecord(record, previousLayerId, wasRenderable, wasRunning);
       this.#indexLayerRecord(record);
+      this.#syncRecordDeadline(record);
       return;
     }
     const current = this.#recordsByLayer.get(record.layerId);
     if (current === undefined) return;
     current.renderableCount += Number(this.#shouldRender(record)) - Number(wasRenderable);
     current.runningCount += Number(this.#isRunning(record)) - Number(wasRunning);
+    this.#syncRecordDeadline(record);
   }
 
   /** 将动画句柄置为终态并按需移除。 */
@@ -665,14 +803,170 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     return [...(this.#recordsByElement.get(elementId) ?? [])];
   }
 
+  /** 元素或预览版本变化后失效目标缓存，但不重置 elapsed。 */
+  #rebindRecord(record: ElementRecord, prepared: PreparedElementState): void {
+    const now = this.#clock.now();
+    if (!Number.isFinite(now)) throw new InvalidArgumentError('Animation clock must return a finite timestamp');
+    if (this.#isRunning(record)) this.#advance(record, now);
+    this.#clearRecordDeadline(record);
+    record.definition.assertCompatible(prepared.target);
+    record.runtime.rebind(prepared.target);
+    record.buffer = createAnimationFrameBuffer(record.runtime.slots);
+    const frame = record.lastRenderFrame;
+    record.sample = record.runtime.sample(
+      {
+        target: prepared.target,
+        elapsedMs: record.elapsedMs,
+        resolution: frame?.resolution ?? 1,
+        rotation: frame?.rotation ?? 0,
+        pixelRatio: frame?.pixelRatio ?? 1,
+        ...(frame === undefined ? {} : { extent: frame.extent })
+      },
+      record.buffer
+    );
+    if (record.sample.finished) this.#finishRecord(record, record.sample.retain === true, 'finished');
+    else this.#syncRecordDeadline(record, now);
+  }
+
+  /** 按最早阶跃或自然完成边界登记单一 Earth 级唤醒。 */
+  #syncRecordDeadline(record: ManagedRecord, referenceTime?: number): void {
+    if (record.kind !== 'element' || !this.#isRunning(record) || record.sample === undefined) {
+      this.#clearRecordDeadline(record);
+      return;
+    }
+    const atElapsedMs = nextWakeElapsed(record.sample);
+    if (atElapsedMs === undefined) {
+      this.#clearRecordDeadline(record);
+      return;
+    }
+    const base = referenceTime ?? this.#clock.now();
+    if (!Number.isFinite(base)) throw new InvalidArgumentError('Animation clock must return a finite timestamp');
+    const timestamp = base + Math.max(0, atElapsedMs - record.elapsedMs);
+    record.deadlineTimestamp = timestamp;
+    this.#deadlines.upsert(record.id, timestamp);
+  }
+
+  /** 取消一条记录的截止时间，并保持重复调用幂等。 */
+  #clearRecordDeadline(record: ManagedRecord): void {
+    record.deadlineTimestamp = undefined;
+    this.#deadlines.remove(record.id);
+  }
+
+  /** 在无渲染帧时独立推进已到期的阶跃或终态记录。 */
+  #handleDeadlineWake(): void {
+    if (this.#disposed || this.#destroyRequested) return;
+    const now = this.#clock.now();
+    if (!Number.isFinite(now)) throw new InvalidArgumentError('Animation clock must return a finite timestamp');
+    const finished: Array<{ record: ElementRecord; retain: boolean; status: TerminalStatus }> = [];
+    const presentationCleanupCandidates: Array<{ readonly elementId: string; readonly layerId: string }> = [];
+    const affectedLayers = new Set<string>();
+    const renderLayers = new Set<string>();
+    for (const record of [...this.#records.values()]) {
+      if (record.kind !== 'element' || record.deadlineTimestamp === undefined || record.deadlineTimestamp > now || !this.#isRunning(record)) continue;
+      const prepared = this.#previews.get(record.elementId) ?? this.#committedStates.get(record.elementId);
+      if (prepared === undefined) {
+        affectedLayers.add(record.layerId);
+        renderLayers.add(record.layerId);
+        finished.push({ record, retain: false, status: 'stopped' });
+        continue;
+      }
+      const dueElapsedMs = record.sample === undefined ? undefined : nextWakeElapsed(record.sample);
+      if (dueElapsedMs === undefined) {
+        this.#clearRecordDeadline(record);
+        continue;
+      }
+      const scheduledTimestamp = record.deadlineTimestamp;
+      record.deadlineTimestamp = undefined;
+      affectedLayers.add(record.layerId);
+      try {
+        record.elapsedMs = Math.max(record.elapsedMs, dueElapsedMs + Math.max(0, now - scheduledTimestamp));
+        record.lastFrameTime = now;
+        const records = this.#elementRecords(record.elementId).filter((candidate) => candidate.layerId === record.layerId && this.#shouldRender(candidate));
+        const wasFullyTransparent = this.#hasContributingZeroOpacity(records);
+        record.buffer.reset();
+        const frame = record.lastRenderFrame;
+        record.sample = record.runtime.sample(
+          {
+            target: prepared.target,
+            elapsedMs: record.elapsedMs,
+            resolution: frame?.resolution ?? 1,
+            rotation: frame?.rotation ?? 0,
+            pixelRatio: frame?.pixelRatio ?? 1,
+            ...(frame === undefined ? {} : { extent: frame.extent })
+          },
+          record.buffer
+        );
+        const removesPresentation =
+          record.sample.finished &&
+          record.sample.retain !== true &&
+          (record.definition.writeDomains.has('target-opacity') || record.definition.writeDomains.has('target-geometry'));
+        if (removesPresentation) presentationCleanupCandidates.push({ elementId: record.elementId, layerId: record.layerId });
+        const needsSlotPrune = record.sample.finished && record.sample.retain !== true && record.runtime.slots.length > 0;
+        if (needsSlotPrune || this.#deadlineWakeNeedsRender(record, prepared, records, wasFullyTransparent)) renderLayers.add(record.layerId);
+        if (record.sample.finished) {
+          finished.push({ record, retain: record.sample.retain === true, status: 'finished' });
+        } else {
+          this.#syncRecordDeadline(record, now);
+        }
+      } catch (error) {
+        this.#report(error, 'deadline-tick', record.id);
+        renderLayers.add(record.layerId);
+        finished.push({ record, retain: false, status: 'stopped' });
+      }
+    }
+    for (const item of finished) this.#finishRecord(item.record, item.retain, item.status);
+    for (const candidate of presentationCleanupCandidates) {
+      if (this.#presentationLeases.get(candidate.elementId)?.layerId !== candidate.layerId) renderLayers.add(candidate.layerId);
+    }
+    this.#syncPasses(affectedLayers);
+    this.#requestLayers(renderLayers);
+  }
+
+  /** 判断 deadline 采样是否可能改变当前可见画面。 */
+  #deadlineWakeNeedsRender(record: ElementRecord, prepared: PreparedElementState, records: readonly ElementRecord[], wasFullyTransparent: boolean): boolean {
+    if (wasFullyTransparent && this.#hasContributingZeroOpacity(records)) return false;
+    const frame = record.lastRenderFrame;
+    if (frame === undefined || frame.layerId !== record.layerId) return true;
+    return animationTargetIntersectsFrame(prepared, records, frame);
+  }
+
+  /** 判断当前参与最终合成的透明度记录是否已完全遮蔽目标。 */
+  #hasContributingZeroOpacity(records: readonly ElementRecord[]): boolean {
+    return records.some((candidate) => {
+      if (!candidate.definition.writeDomains.has('target-opacity')) return false;
+      const sample = candidate.sample;
+      return sample !== undefined && (!sample.finished || sample.retain === true) && candidate.buffer.targetOpacity === 0;
+    });
+  }
+
+  /** 按目标修饰器的存在性同步稳定展示租约。 */
+  #syncPresentation(elementId: string): void {
+    const records = this.#elementRecords(elementId);
+    const owner = records.find(
+      (record) => this.#shouldRender(record) && (record.definition.writeDomains.has('target-opacity') || record.definition.writeDomains.has('target-geometry'))
+    );
+    const current = this.#presentationLeases.get(elementId);
+    if (owner === undefined) {
+      if (current !== undefined) {
+        current.release();
+        this.#presentationLeases.delete(elementId);
+      }
+      return;
+    }
+    if (current?.active === true && current.layerId === owner.layerId) return;
+    current?.release();
+    const next = this.#render.acquirePresentation(owner.layerId, elementId);
+    this.#presentationLeases.set(elementId, next);
+  }
+
   /** 创建需要的图层渲染循环并清理空闲循环。 */
-  #syncPasses(layerIds?: ReadonlySet<string>): void {
+  #syncPasses(layerIds?: ReadonlySet<string>, flushCurrentFrame = false): void {
     const targets = [...(layerIds ?? new Set([...this.#recordsByLayer.keys(), ...this.#passes.keys()]))];
     for (const layerId of targets) {
       const pass = this.#passes.get(layerId);
       if (pass === undefined || (this.#recordsByLayer.get(layerId)?.renderableCount ?? 0) > 0) continue;
-      pass.requestRender();
-      if (this.#destroyPass(pass)) this.#passes.delete(layerId);
+      if (!flushCurrentFrame) pass.requestRender();
+      if (this.#destroyPass(pass, flushCurrentFrame)) this.#passes.delete(layerId);
     }
     for (const layerId of targets) {
       if (this.#passes.has(layerId) || (this.#recordsByLayer.get(layerId)?.renderableCount ?? 0) === 0) continue;
@@ -685,6 +979,9 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #renderLayer(layerId: string, frame: LayerRenderFrame): LayerRenderBatch {
     const contributions: LayerRenderContribution[] = [];
     const finished: Array<{ record: ManagedRecord; retain: boolean; status: TerminalStatus }> = [];
+    const elementGroups = new Map<string, ElementRecord[]>();
+    const presentationCleanupTargets = new Set<string>();
+    let requestNextFrame = false;
     const records = [...(this.#recordsByLayer.get(layerId)?.records ?? [])];
     for (const record of records) {
       if (record.layerId !== layerId || !this.#shouldRender(record)) continue;
@@ -701,41 +998,161 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
             value: Object.freeze({ visible: Math.floor(record.elapsedMs / record.spec.periodMs) % 2 === 0 })
           })
         );
+        requestNextFrame ||= this.#isRunning(record);
         continue;
       }
-      const prepared = this.#previews.get(record.elementId) ?? this.#committedStates.get(record.elementId);
-      if (prepared === undefined || prepared.state.layerId !== record.layerId || !prepared.state.visible) continue;
-      try {
-        const { geometry, state } = prepared;
-        record.definition.assertCompatible(state, geometry);
-        if (isNativeStyleRef(state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
-        if (this.#isRunning(record)) this.#advance(record, frame.time);
-        const result = record.definition.frame(
-          {
-            instance: record,
-            state,
-            geometry,
-            style: state.style,
-            elapsedMs: record.elapsedMs,
-            resolution: frame.resolution
-          },
-          record.spec
-        );
-        if ((result.value.primitives?.length ?? 0) > 0 || result.value.visible !== undefined) {
-          contributions.push(Object.freeze({ targetId: record.elementId, channel: record.channel, value: result.value }));
+      const group = elementGroups.get(record.elementId) ?? [];
+      group.push(record);
+      elementGroups.set(record.elementId, group);
+    }
+
+    for (const [elementId, group] of elementGroups) {
+      const prepared = this.#previews.get(elementId) ?? this.#committedStates.get(elementId);
+      if (prepared === undefined || prepared.state.layerId !== layerId || !prepared.state.visible) continue;
+      if (!animationTargetIntersectsFrame(prepared, group, frame)) {
+        for (const record of group) {
+          if (this.#isRunning(record)) this.#advance(record, frame.time);
+          record.lastRenderFrame = frame;
         }
-        if (result.finished && !record.retained) finished.push({ record, retain: result.retain === true, status: 'finished' });
-      } catch (error) {
-        this.#report(error, 'render-frame', record.id);
-        finished.push({ record, retain: false, status: 'stopped' });
+        continue;
+      }
+      const sampled: ElementRecord[] = [];
+      let removesPresentationAfterFrame = false;
+      let targetOpacity = 1;
+      let effectiveGeometry: RenderGeometryState | undefined = prepared.geometry;
+      const hasPresentationModifier = group.some(
+        ({ definition }) => definition.writeDomains.has('target-opacity') || definition.writeDomains.has('target-geometry')
+      );
+      for (const record of group) {
+        try {
+          if (!record.retained || record.sample === undefined) {
+            if (this.#isRunning(record)) this.#advance(record, frame.time);
+            record.buffer.reset();
+            record.sample = record.runtime.sample(
+              {
+                target: prepared.target,
+                elapsedMs: record.elapsedMs,
+                resolution: frame.resolution,
+                rotation: frame.rotation,
+                pixelRatio: frame.pixelRatio,
+                extent: frame.extent
+              },
+              record.buffer
+            );
+          }
+          record.lastRenderFrame = frame;
+          const sample = record.sample;
+          if (sample === undefined) throw new InvalidArgumentError('Animation runtime did not produce a sample');
+          this.#syncRecordDeadline(record, frame.time);
+          sampled.push(record);
+          const contributesFinalState = !sample.finished || sample.retain === true;
+          if (contributesFinalState && record.definition.writeDomains.has('target-opacity')) {
+            targetOpacity *= normalizeAnimationOpacity(record.buffer.targetOpacity);
+          }
+          if (contributesFinalState && record.definition.writeDomains.has('target-geometry')) {
+            effectiveGeometry = record.buffer.targetGeometry;
+          }
+          if (sample.finished && !record.retained) finished.push({ record, retain: sample.retain === true, status: 'finished' });
+          removesPresentationAfterFrame ||=
+            sample.finished &&
+            sample.retain !== true &&
+            (record.definition.writeDomains.has('target-opacity') || record.definition.writeDomains.has('target-geometry'));
+        } catch (error) {
+          this.#report(error, 'render-frame', record.id);
+          finished.push({ record, retain: false, status: 'stopped' });
+          removesPresentationAfterFrame ||= record.definition.writeDomains.has('target-opacity') || record.definition.writeDomains.has('target-geometry');
+        }
+      }
+
+      const primitives: LayerRenderPrimitive[] = [];
+      for (const record of sampled) {
+        const slots = record.runtime.slots;
+        if (slots.length !== record.buffer.overlays.length) throw new InvalidArgumentError('Animation runtime changed slots without rebind');
+        for (let index = 0; index < slots.length; index += 1) {
+          const value = record.buffer.overlays[index];
+          if (!value.active) continue;
+          const opacity = normalizeAnimationOpacity(value.opacity) * targetOpacity;
+          if (opacity === 0) continue;
+          const geometry = value.geometryKind === 'effective-target' ? effectiveGeometry : value.geometry;
+          if (geometry === undefined) continue;
+          const slot = slots[index];
+          assertDynamicParameters(slot.dynamicParameters, value);
+          const dynamicStyle = dynamicStyleValue(value);
+          primitives.push(
+            Object.freeze({
+              slotKey: `${record.channel}/${slot.slotKey}`,
+              geometry,
+              style: slot.style,
+              opacity,
+              ...(dynamicStyle === undefined ? {} : { dynamicStyle })
+            })
+          );
+        }
+      }
+
+      const presentation =
+        hasPresentationModifier && effectiveGeometry !== undefined
+          ? Object.freeze({ slotKey: 'base', geometry: effectiveGeometry, style: prepared.target.style, opacity: targetOpacity })
+          : undefined;
+      if (presentation !== undefined || primitives.length > 0) {
+        contributions.push(
+          Object.freeze({
+            targetId: elementId,
+            channel: ANIMATION_RENDER_CHANNEL,
+            targetZIndex: prepared.target.style.zIndex ?? 0,
+            value: Object.freeze({
+              ...(presentation === undefined ? {} : { presentation }),
+              ...(primitives.length === 0 ? {} : { primitives: Object.freeze(primitives) })
+            })
+          })
+        );
+      }
+      if (presentation !== undefined && removesPresentationAfterFrame) presentationCleanupTargets.add(elementId);
+      for (const record of sampled) {
+        const continuous = record.sample?.schedule.kind === 'continuous' && this.#isRunning(record);
+        const changesOpacity = record.definition.writeDomains.has('target-opacity');
+        requestNextFrame ||= continuous && (changesOpacity || targetOpacity > 0);
       }
     }
     for (const item of finished) this.#finishRecord(item.record, item.retain, item.status);
-    if (finished.length > 0) this.#syncPasses(new Set([layerId]));
+    if ((this.#recordsByLayer.get(layerId)?.renderableCount ?? 0) > 0) {
+      for (const elementId of presentationCleanupTargets) {
+        if (this.#presentationLeases.get(elementId)?.layerId !== layerId) requestNextFrame = true;
+      }
+    }
+    if (finished.length > 0) this.#syncPasses(new Set([layerId]), true);
+    const slotReservations = this.#collectSlotReservations(layerId, elementGroups);
     return Object.freeze({
       contributions: Object.freeze(contributions),
-      requestNextFrame: (this.#recordsByLayer.get(layerId)?.runningCount ?? 0) > 0
+      slotReservations: Object.freeze(slotReservations),
+      requestNextFrame
     });
+  }
+
+  /** 声明仍存活的稳定 slot；本帧 inactive 或离屏不会触发 Adapter 重建资源。 */
+  #collectSlotReservations(layerId: string, elementGroups: ReadonlyMap<string, readonly ElementRecord[]>): LayerRenderSlotReservation[] {
+    const reservations: LayerRenderSlotReservation[] = [];
+    for (const [elementId, group] of elementGroups) {
+      const prepared = this.#previews.get(elementId) ?? this.#committedStates.get(elementId);
+      if (prepared === undefined || prepared.state.layerId !== layerId || !prepared.state.visible) continue;
+      let reservePresentation = false;
+      for (const record of group) {
+        if (this.#records.get(record.id) !== record || !this.#shouldRender(record)) continue;
+        reservePresentation ||= record.definition.writeDomains.has('target-opacity') || record.definition.writeDomains.has('target-geometry');
+        for (const slot of record.runtime.slots) {
+          reservations.push(
+            Object.freeze({
+              kind: 'overlay',
+              targetId: elementId,
+              channel: ANIMATION_RENDER_CHANNEL,
+              slotKey: `${record.channel}/${slot.slotKey}`
+            })
+          );
+        }
+      }
+      if (reservePresentation) reservations.push(Object.freeze({ kind: 'presentation', targetId: elementId }));
+    }
+    return reservations;
   }
 
   /** 累计动画经过时间。 */
@@ -747,12 +1164,12 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
 
   /** 判断动画记录是否正在推进时间。 */
   #isRunning(record: ManagedRecord): boolean {
-    return !record.retained && !record.hidden && !record.handlePaused && record.selectorPauseDepth === 0;
+    return !record.retained && !record.hidden && !record.suppressed && !record.handlePaused && record.selectorPauseDepth === 0;
   }
 
   /** 判断动画记录是否需要参与渲染。 */
   #shouldRender(record: ManagedRecord): boolean {
-    return !record.hidden;
+    return !record.hidden && !record.suppressed;
   }
 
   /** 根据 ElementStore 变化同步动画记录。 */
@@ -762,6 +1179,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     for (const change of changes.changes) {
       const records = this.#elementRecords(change.id);
       if (change.kind === 'remove' || change.after === undefined) {
+        this.#activePreviews.delete(change.id);
         this.#previews.delete(change.id);
         this.#committedStates.delete(change.id);
       }
@@ -785,17 +1203,29 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
           this.#removeRecord(record, 'stopped');
           continue;
         }
-        const state = (this.#previews.get(change.id) ?? committed)?.state;
-        if (state === undefined) continue;
+        const preview = this.#previews.get(change.id);
+        const prepared = preview ?? committed;
+        if (prepared === undefined || committed === undefined) continue;
+        const state = prepared.state;
         const timingChanged = record.layerId !== state.layerId || record.hidden === state.visible;
         this.#updateRecordState(record, () => {
           record.layerId = state.layerId;
           record.hidden = !state.visible;
           if (timingChanged) record.lastFrameTime = undefined;
         });
+        try {
+          if (preview === undefined || record.definition.interactionPolicy.transform === 'follow-preview') {
+            this.#rebindRecord(record, prepared);
+          }
+        } catch (error) {
+          this.#report(error, 'rebind-runtime', record.id);
+          this.#removeRecord(record, 'stopped');
+          continue;
+        }
         affectedLayers.add(record.layerId);
         this.#refreshHandle(record.handleId);
       }
+      this.#syncPresentation(change.id);
     }
     this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
@@ -811,11 +1241,56 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
     const cached = this.#committedStates.get(elementId);
     if (cached?.state === state && cached.generation === generation && cached.revision === revision) return cached;
+    if (isNativeStyleRef(state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
+    const shape = this.#shapes.get(state.type);
+    const viewShape = this.#shapeProjection.toViewState(state.geometry);
+    const geometry = freezeRenderGeometry(shape.toRenderGeometry(viewShape as never));
     return Object.freeze({
       state,
-      geometry: freezeRenderGeometry(this.#shapes.get(state.type).toRenderGeometry(this.#shapeProjection.toViewState(state.geometry) as never)),
+      geometry,
+      bounds: renderGeometryBounds(geometry),
+      target: Object.freeze({ state, viewShape, geometry, style: state.style as StyleSpec, shape }),
       generation,
       revision
+    });
+  }
+
+  /** 按当前 Store 版本延迟准备 active preview，并只复用可信快照与同一渲染几何。 */
+  #resolveActivePreview(elementId: string, committed: PreparedElementState): PreparedElementState | undefined {
+    const activePreview = this.#activePreviews.get(elementId);
+    if (activePreview === undefined) return undefined;
+    const preview = this.#preparePreview(activePreview, committed);
+    this.#previews.set(elementId, preview);
+    return preview;
+  }
+
+  /** 校验并冻结交互预览的动画帧输入，不改变 active preview 所有权。 */
+  #preparePreview(activePreview: ActivePreviewState, committed: PreparedElementState): PreparedElementState {
+    const { state, geometry } = activePreview;
+    if (committed.state.type !== state.type) throw new InvalidArgumentError('Animation preview cannot change Element type');
+    const existing = this.#previews.get(state.id);
+    if (
+      existing?.sourceIdentity === state &&
+      existing.geometry === geometry &&
+      existing.generation === committed.generation &&
+      existing.revision === committed.revision
+    ) {
+      return existing;
+    }
+    const trusted = isElementSnapshot(state);
+    const snapshot = trusted ? state : cloneElementSnapshot(this.#shapes, state);
+    if (isNativeStyleRef(snapshot.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
+    const frozenGeometry = freezeRenderGeometry(geometry);
+    const shape = committed.target.shape;
+    const viewShape = this.#shapeProjection.toViewState(snapshot.geometry);
+    return Object.freeze({
+      state: snapshot,
+      geometry: frozenGeometry,
+      bounds: renderGeometryBounds(frozenGeometry),
+      target: Object.freeze({ state: snapshot, viewShape, geometry: frozenGeometry, style: snapshot.style as StyleSpec, shape }),
+      generation: committed.generation,
+      revision: committed.revision,
+      ...(trusted ? { sourceIdentity: state } : {})
     });
   }
 
@@ -825,9 +1300,9 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   }
 
   /** 安全销毁图层渲染循环。 */
-  #destroyPass(pass: LayerRenderLoopHandle): boolean {
+  #destroyPass(pass: LayerRenderLoopHandle, flushCurrentFrame = false): boolean {
     try {
-      pass.destroy();
+      pass.destroy({ flushCurrentFrame });
       return true;
     } catch (error) {
       this.#report(error, 'destroy-render-pass');
@@ -856,6 +1331,66 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
 }
 
 /** 深冻结动画渲染几何，确保按对象身份命中的帧缓存不会被外部改写。 */
+function normalizeAnimationOpacity(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new InvalidArgumentError('Animation opacity must be a finite number between zero and one');
+  }
+  return value;
+}
+
+function nextWakeElapsed(sample: AnimationSample): number | undefined {
+  const scheduleDeadline = sample.schedule.kind === 'deadline' ? sample.schedule.atElapsedMs : undefined;
+  const completionDeadline = sample.wakeAtElapsedMs;
+  for (const value of [scheduleDeadline, completionDeadline]) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+      throw new InvalidArgumentError('Animation wake elapsed time must be a finite non-negative number');
+    }
+  }
+  if (scheduleDeadline === undefined) return completionDeadline;
+  if (completionDeadline === undefined) return scheduleDeadline;
+  return Math.min(scheduleDeadline, completionDeadline);
+}
+
+function assertDynamicParameters(allowed: readonly AnimationStyleParameter[] | undefined, value: AnimationOverlaySlotBuffer): void {
+  const accepted = new Set(allowed ?? []);
+  const parameters: ReadonlyArray<readonly [AnimationStyleParameter, number | undefined]> = [
+    ['lineDashOffset', value.lineDashOffset],
+    ['symbolRadius', value.symbolRadius],
+    ['strokeWidth', value.strokeWidth],
+    ['rotation', value.rotation]
+  ];
+  for (const [parameter, candidate] of parameters) {
+    if (candidate === undefined) continue;
+    if (!Number.isFinite(candidate)) throw new InvalidArgumentError(`Animation dynamic parameter must be finite: ${parameter}`);
+    if (!accepted.has(parameter)) throw new InvalidArgumentError(`Animation slot did not declare dynamic parameter: ${parameter}`);
+  }
+  if (value.lineDashOffsetStrokeIndex !== undefined) {
+    if (!Number.isSafeInteger(value.lineDashOffsetStrokeIndex) || value.lineDashOffsetStrokeIndex < 0) {
+      throw new InvalidArgumentError('Animation lineDashOffset stroke index must be a non-negative safe integer');
+    }
+    if (value.lineDashOffset === undefined) throw new InvalidArgumentError('Animation lineDashOffset stroke index requires lineDashOffset');
+  }
+}
+
+function dynamicStyleValue(value: AnimationOverlaySlotBuffer): LayerRenderDynamicStyle | undefined {
+  if (
+    value.lineDashOffset === undefined &&
+    value.lineDashOffsetStrokeIndex === undefined &&
+    value.symbolRadius === undefined &&
+    value.strokeWidth === undefined &&
+    value.rotation === undefined
+  ) {
+    return undefined;
+  }
+  return Object.freeze({
+    ...(value.lineDashOffset === undefined ? {} : { lineDashOffset: value.lineDashOffset }),
+    ...(value.lineDashOffsetStrokeIndex === undefined ? {} : { lineDashOffsetStrokeIndex: value.lineDashOffsetStrokeIndex }),
+    ...(value.symbolRadius === undefined ? {} : { symbolRadius: value.symbolRadius }),
+    ...(value.strokeWidth === undefined ? {} : { strokeWidth: value.strokeWidth }),
+    ...(value.rotation === undefined ? {} : { rotation: value.rotation })
+  });
+}
+
 function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryState {
   if (geometry.type === 'point') {
     Object.freeze(geometry.coordinates);
@@ -874,15 +1409,92 @@ function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryStat
   return Object.freeze(geometry);
 }
 
+/** 计算规范渲染几何的 View 坐标范围；非法输入按不可裁剪处理。 */
+function renderGeometryBounds(geometry: RenderGeometryState): RenderBounds | undefined {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  const include = (coordinate: readonly number[]): void => {
+    const [x, y] = coordinate;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  if (geometry.type === 'point') include(geometry.coordinates);
+  else if (geometry.type === 'polyline') geometry.coordinates.forEach(include);
+  else if (geometry.type === 'polygon') geometry.coordinates.forEach((ring) => ring.forEach(include));
+  else {
+    const [x, y] = geometry.center;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(geometry.radius) || geometry.radius < 0) return undefined;
+    minX = x - geometry.radius;
+    minY = y - geometry.radius;
+    maxX = x + geometry.radius;
+    maxY = y + geometry.radius;
+  }
+  return [minX, minY, maxX, maxY].every(Number.isFinite) ? Object.freeze([minX, minY, maxX, maxY]) : undefined;
+}
+
+/** 使用可证明安全的视觉外扩裁剪离屏目标；无法估算时保守保留。 */
+function animationTargetIntersectsFrame(prepared: PreparedElementState, records: readonly ElementRecord[], frame: LayerRenderFrame): boolean {
+  const bounds = prepared.bounds;
+  if (bounds === undefined || records.some(({ runtime }) => runtime.disableViewportCulling === true)) return true;
+  if (!Number.isFinite(frame.resolution) || frame.resolution <= 0 || frame.extent.some((value) => !Number.isFinite(value))) return true;
+  let outsetPx = 0;
+  if (records.some(({ definition }) => definition.writeDomains.has('target-opacity') || definition.writeDomains.has('target-geometry'))) {
+    const baseOutset = styleVisualOutsetPx(prepared.target.style);
+    if (baseOutset === undefined) return true;
+    outsetPx = baseOutset;
+  }
+  for (const { runtime } of records) {
+    if (runtime.visualOutsetPx !== undefined) {
+      if (!Number.isFinite(runtime.visualOutsetPx) || runtime.visualOutsetPx < 0) return true;
+      outsetPx = Math.max(outsetPx, runtime.visualOutsetPx);
+    }
+    for (const { style } of runtime.slots) {
+      const slotOutset = styleVisualOutsetPx(style);
+      if (slotOutset === undefined) return true;
+      outsetPx = Math.max(outsetPx, slotOutset);
+    }
+  }
+  const padding = outsetPx * frame.resolution;
+  const minX = bounds[0] - padding;
+  const minY = bounds[1] - padding;
+  const maxX = bounds[2] + padding;
+  const maxY = bounds[3] + padding;
+  const [frameMinX, frameMinY, frameMaxX, frameMaxY] = frame.extent;
+  if (maxY < frameMinY || minY > frameMaxY) return false;
+  if (frame.worldWidth !== undefined) {
+    if (!Number.isFinite(frame.worldWidth) || frame.worldWidth <= 0) return true;
+    const firstWorld = Math.ceil((frameMinX - maxX) / frame.worldWidth);
+    const lastWorld = Math.floor((frameMaxX - minX) / frame.worldWidth);
+    return !Number.isFinite(firstWorld) || !Number.isFinite(lastWorld) || firstWorld <= lastWorld;
+  }
+  return maxX >= frameMinX && minX <= frameMaxX;
+}
+
+/** 为批量播放的首个失败目标补充可定位上下文，同时保留既有错误类别。 */
+function animationTargetFailure(elementId: string, error: unknown): Error {
+  if (error instanceof Error && error.message.includes(elementId)) return error;
+  const reason = error instanceof Error ? error.message : String(error);
+  const message = `Animation target ${elementId} failed: ${reason}`;
+  if (error instanceof CapabilityError) return new CapabilityError(message);
+  if (error instanceof UnsupportedOperationError) return new UnsupportedOperationError(message);
+  if (error instanceof ObjectDisposedError) return new ObjectDisposedError(message);
+  if (error instanceof InvalidArgumentError) return new InvalidArgumentError(message);
+  const wrapped = new Error(message);
+  if (error instanceof Error) wrapped.name = error.name;
+  return wrapped;
+}
+
 /** 从不可信输入中解析动画类型。 */
 function animationType(input: AnimationSpec): AnimationSpec['type'] {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new InvalidArgumentError('Animation spec must be a plain object');
   const descriptor = Object.getOwnPropertyDescriptor(input, 'type');
   if (descriptor === undefined || !('value' in descriptor)) throw new InvalidArgumentError('Animation type must be a data property');
-  if (descriptor.value !== 'pulse' && descriptor.value !== 'dash-flow' && descriptor.value !== 'path-travel') {
-    throw new InvalidArgumentError(`Unknown animation type: ${String(descriptor.value)}`);
-  }
-  return descriptor.value;
+  return nonEmptyString(descriptor.value, 'Animation type') as AnimationSpec['type'];
 }
 
 /** 校验并冻结元素动画选择器。 */

@@ -10,7 +10,12 @@ dist-ssr
 *.local
 *.log
 *.tsbuildinfo
-/docs/
+/docs/*
+!/docs/superpowers/
+/docs/superpowers/*
+!/docs/superpowers/specs/
+/docs/superpowers/specs/*
+!/docs/superpowers/specs/2026-07-17-v2-animation-effect-kernel-design.md
 /website/public/api/
 /.cache/
 /website/src/generated/

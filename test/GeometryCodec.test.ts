@@ -5,11 +5,11 @@ import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import { describe, expect, it, vi } from 'vitest';
-import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
+import { GeometryCodec, projectRenderGeometry } from '../src/adapters/openlayers/GeometryCodec.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
-import { shapeTypes, type ShapeState, type ShapeType } from '../src/core/shape/types.js';
+import { shapeTypes, type RenderGeometryState, type ShapeState, type ShapeType } from '../src/core/shape/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
 
@@ -252,7 +252,7 @@ describe('GeometryCodec', () => {
     expect(getRadius).not.toHaveBeenCalled();
   });
 
-  it('copies coordinate arrays before passing them into OpenLayers', () => {
+  it('does not retain a writable reference to coordinates after OpenLayers flattens the input', () => {
     const codec = createCodec();
     const coordinates: [number, number][] = [
       [0, 0],
@@ -281,5 +281,66 @@ describe('GeometryCodec', () => {
     expect((feature.getGeometry() as Point).getCoordinates()).toEqual([1, 2, 3]);
     expect(state).toEqual({ type: 'point', controlPoints: [[1, 2, 3]] });
     expect(Object.isFrozen(state.controlPoints[0])).toBe(true);
+  });
+
+  it('forwards readonly coordinates directly while constructing or updating each Geometry exactly once', () => {
+    const point = {
+      type: 'point',
+      coordinates: Object.freeze([1, 2] as const)
+    } satisfies RenderGeometryState;
+    const pointSetter = vi.spyOn(Point.prototype, 'setCoordinates');
+    const pointFeature = new Feature<Geometry>();
+    const firstPoint = projectRenderGeometry(pointFeature, point);
+    expect(pointSetter).toHaveBeenCalledTimes(1);
+    expect(pointSetter.mock.calls[0]?.[0]).toBe(point.coordinates);
+    expect(projectRenderGeometry(pointFeature, point)).toBe(firstPoint);
+    expect(pointSetter).toHaveBeenCalledTimes(2);
+    expect(pointSetter.mock.calls[1]?.[0]).toBe(point.coordinates);
+    pointSetter.mockRestore();
+
+    const polyline = {
+      type: 'polyline',
+      coordinates: Object.freeze([Object.freeze([0, 0] as const), Object.freeze([2, 2] as const)])
+    } satisfies RenderGeometryState;
+    const lineSetter = vi.spyOn(LineString.prototype, 'setCoordinates');
+    const lineFeature = new Feature<Geometry>();
+    const firstLine = projectRenderGeometry(lineFeature, polyline);
+    expect(lineSetter).toHaveBeenCalledTimes(1);
+    expect(lineSetter.mock.calls[0]?.[0]).toBe(polyline.coordinates);
+    expect(projectRenderGeometry(lineFeature, polyline)).toBe(firstLine);
+    expect(lineSetter).toHaveBeenCalledTimes(2);
+    expect(lineSetter.mock.calls[1]?.[0]).toBe(polyline.coordinates);
+    lineSetter.mockRestore();
+
+    const polygon = {
+      type: 'polygon',
+      coordinates: Object.freeze([
+        Object.freeze([Object.freeze([0, 0] as const), Object.freeze([2, 0] as const), Object.freeze([0, 2] as const), Object.freeze([0, 0] as const)])
+      ])
+    } satisfies RenderGeometryState;
+    const polygonSetter = vi.spyOn(Polygon.prototype, 'setCoordinates');
+    const polygonFeature = new Feature<Geometry>();
+    const firstPolygon = projectRenderGeometry(polygonFeature, polygon);
+    expect(polygonSetter).toHaveBeenCalledTimes(1);
+    expect(polygonSetter.mock.calls[0]?.[0]).toBe(polygon.coordinates);
+    expect(projectRenderGeometry(polygonFeature, polygon)).toBe(firstPolygon);
+    expect(polygonSetter).toHaveBeenCalledTimes(2);
+    expect(polygonSetter.mock.calls[1]?.[0]).toBe(polygon.coordinates);
+    polygonSetter.mockRestore();
+
+    const circle = {
+      type: 'circle',
+      center: Object.freeze([3, 4] as const),
+      radius: 5
+    } satisfies RenderGeometryState;
+    const circleSetter = vi.spyOn(Circle.prototype, 'setCenterAndRadius');
+    const circleFeature = new Feature<Geometry>();
+    const firstCircle = projectRenderGeometry(circleFeature, circle);
+    expect(circleSetter).toHaveBeenCalledTimes(1);
+    expect(circleSetter.mock.calls[0]?.[0]).toBe(circle.center);
+    expect(projectRenderGeometry(circleFeature, circle)).toBe(firstCircle);
+    expect(circleSetter).toHaveBeenCalledTimes(2);
+    expect(circleSetter.mock.calls[1]?.[0]).toBe(circle.center);
+    circleSetter.mockRestore();
   });
 });

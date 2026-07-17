@@ -60,6 +60,8 @@ import type { EngineContext } from './EngineContext.js';
 const homeCenter = Object.freeze(fromLonLat([119, 39]));
 /** 使用线样式预设的图形类型。 */
 const lineShapes = new Set(['polyline', 'lune-polyline', 'curve-polyline']);
+/** 浏览器和 Node.js 可可靠接受的单次 setTimeout 最大延迟。 */
+const maxTimeoutDelayMs = 2_147_483_647;
 
 /** 装配单个 Earth 的地图对象、Adapter 与服务，并建立统一销毁边界。 */
 export function createEngineContext(options: EarthOptions = {}): EngineContext {
@@ -108,7 +110,36 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
 
     const render = new LayerRenderPass(map, layerAdapter, binding, styleCompiler);
     rollback.push(() => render.destroy());
-    const animations = new AnimationManagerImpl({ store, shapes, render, shapeProjection, registry: createBuiltinAnimationRegistry() });
+    const animationClock = { now: () => Date.now() };
+    const animationWake = {
+      scheduleAt(timestamp: number, callback: () => void) {
+        let active = true;
+        const timeout = globalThis.setTimeout(
+          () => {
+            if (!active) return;
+            active = false;
+            callback();
+          },
+          Math.min(maxTimeoutDelayMs, Math.max(0, timestamp - Date.now()))
+        );
+        return {
+          cancel() {
+            if (!active) return;
+            active = false;
+            globalThis.clearTimeout(timeout);
+          }
+        };
+      }
+    };
+    const animations = new AnimationManagerImpl({
+      store,
+      shapes,
+      render,
+      shapeProjection,
+      registry: createBuiltinAnimationRegistry(),
+      clock: animationClock,
+      wake: animationWake
+    });
     rollback.push(() => animations.destroy());
 
     const inputAdapter = new InputAdapter(map, hitTest, nativeRefs);

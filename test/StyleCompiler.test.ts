@@ -9,7 +9,7 @@ import RegularShape from 'ol/style/RegularShape.js';
 import Style, { type StyleFunction, type StyleLike } from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
-import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
+import { createTransparentStyleProxy, StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import { createPatternFill, drawPatternFill, normalizePatternFill, type PatternCanvasContext } from '../src/adapters/openlayers/style/pattern.js';
 import type { PatternFillSpec, StyleSpec } from '../src/core/style/types.js';
 import { InvalidArgumentError } from '../src/core/errors.js';
@@ -125,6 +125,42 @@ describe('StyleCompiler', () => {
     'utils-pattern-fill-normalize',
     'utils-pattern-fill-render'
   );
+
+  it('透明代理复用克隆并保留 PatternFill、Icon、Text 与 Decoration 的布局语义', () => {
+    const { compiler } = compilerWithCanvas();
+    const feature = line();
+    const compiled = compiler.compile({
+      fill: { type: 'pattern', pattern: 'cross', color: '#ff0000' },
+      strokes: [{ color: '#00ff00', width: 4 }],
+      symbol: { type: 'icon', src: iconSource, size: [32, 24], opacity: 0.8 },
+      text: {
+        text: 'proxy',
+        fill: { type: 'solid', color: '#ffffff' },
+        stroke: { color: '#000000', width: 2 },
+        backgroundFill: { type: 'solid', color: '#333333' },
+        backgroundStroke: { color: '#666666', width: 1 }
+      },
+      decorations: [{ type: 'arrow', placement: 'end' }]
+    });
+    const visible = styleFunction(compiled)(feature, 1) as Style[];
+    const proxyFunction = createTransparentStyleProxy(compiled);
+    const first = proxyFunction(feature, 1) as Style[];
+    const second = proxyFunction(feature, 1) as Style[];
+
+    expect(second).not.toBe(first);
+    expect(second).toEqual(first);
+    expect(second.every((style, index) => style === first[index])).toBe(true);
+    expect(first[0]).not.toBe(visible[0]);
+    expect(first[0].getFill()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(first[0].getStroke()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(first[0].getImage()?.getOpacity()).toBe(0);
+    expect(first[0].getText()?.getFill()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(first[0].getText()?.getStroke()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(first[0].getText()?.getBackgroundFill()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(first[0].getText()?.getBackgroundStroke()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(first.at(-1)?.getImage()?.getOpacity()).toBe(0);
+    expect(visible[0].getImage()?.getOpacity()).toBe(0.8);
+  });
 
   it('compiles circle points and every icon option from frozen structured input', () => {
     const { compiler } = compilerWithCanvas();
@@ -564,6 +600,59 @@ describe('StyleCompiler', () => {
     const viewChanged = compiled(firstFeature, 2) as Style[];
     expect(viewChanged).toBe(geometryReplaced);
     expect(getViewRotation).not.toHaveBeenCalled();
+  });
+
+  it('展示样式按完整路径预分配装饰池，并在 grow 几何往返变化时复用 Style 和 Point', () => {
+    const { compiler } = compilerWithCanvas();
+    const completeCoordinates: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [20, 10]
+    ];
+    const canonical = line(completeCoordinates);
+    const presentation = line(completeCoordinates);
+    const compiled = compiler.compilePresentation(
+      {
+        strokes: [{ color: '#1677ff', width: 3 }],
+        decorations: [
+          { type: 'arrow', placement: 'start' },
+          { type: 'arrow', placement: 'end' },
+          { type: 'arrow', placement: 'each-segment' },
+          { type: 'arrow', placement: 'repeat', spacing: 5 }
+        ]
+      },
+      canonical
+    );
+
+    const warmed = compiled.resolve(presentation, 1);
+    const warmedStyles = [...warmed];
+    const warmedPoints = warmedStyles.slice(1).map((style) => style.getGeometry());
+    expect(warmedStyles).toHaveLength(13);
+    expect(warmedPoints.every((geometry) => geometry instanceof Point)).toBe(true);
+
+    presentation.getGeometry().setCoordinates([
+      [0, 0],
+      [5, 0]
+    ]);
+    const shortened = compiled.resolve(presentation, 1);
+    expect(shortened).toBe(warmed);
+    expect(shortened).toHaveLength(6);
+
+    presentation.getGeometry().setCoordinates(completeCoordinates);
+    const restored = compiled.resolve(presentation, 1);
+    expect(restored).toBe(warmed);
+    expect([...restored]).toEqual(warmedStyles);
+    expect(restored.slice(1).map((style) => style.getGeometry())).toEqual(warmedPoints);
+
+    for (let frame = 0; frame < 300; frame += 1) {
+      presentation.getGeometry().setCoordinates(completeCoordinates.map((coordinate) => [...coordinate] as [number, number]));
+      const stable = compiled.resolve(presentation, 1);
+      expect([...stable]).toEqual(warmedStyles);
+      expect(stable.slice(1).map((style) => style.getGeometry())).toEqual(warmedPoints);
+    }
+
+    compiled.destroy();
   });
 
   it('要素、几何、分辨率和视图变化时复用静态样式对象', () => {

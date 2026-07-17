@@ -1,32 +1,50 @@
 import type { PathTravelAnimationSpec } from '../../core/animation/types.js';
 import type { Color, Coordinate } from '../../core/common/types.js';
 import { CapabilityError, InvalidArgumentError } from '../../core/errors.js';
-import type { LayerRenderPrimitive } from '../../core/ports/LayerRenderPort.js';
+import type { RenderGeometryState } from '../../core/shape/types.js';
 import type { StyleSpec } from '../../core/style/types.js';
-import type { AnimationDefinition, AnimationFrameResult } from '../../services/animation/types.js';
+import type {
+  AnimationDefinition,
+  AnimationFrameBuffer,
+  AnimationFrameContext,
+  AnimationRuntime,
+  AnimationSample,
+  AnimationSlotDefinition,
+  AnimationTargetProfile
+} from '../../services/animation/types.js';
 import { animationRecord, arrayValues, boolean, channel, color, copyColor, finite, interpolateColor, optionalColor, positive } from './validation.js';
 
-/** 路径采样与累计长度缓存。 */
+/** 渐变尾迹使用固定槽位，避免采样点越多就创建越多渲染对象。 */
+const gradientSlotCount = 24;
+const gradientSlotKeys = Object.freeze(Array.from({ length: gradientSlotCount }, (_, index) => `trail-${index}`));
+const continuousSample = Object.freeze({ finished: false, schedule: Object.freeze({ kind: 'continuous' as const }) });
+const removedSample = Object.freeze({ finished: true, schedule: Object.freeze({ kind: 'stable' as const }) });
+const retainedSample = Object.freeze({ finished: true, retain: true, schedule: Object.freeze({ kind: 'stable' as const }) });
+
 interface TravelPathMetrics {
-  /** 源坐标的引用身份；引用变化时缓存失效。 */
   readonly sourceCoordinates: readonly Coordinate[];
-  /** 生成缓存时使用的曲率。 */
   readonly curvature: number;
-  /** 生成缓存时使用的平滑度。 */
   readonly smoothness: number;
-  /** 实际参与动画采样的路径。 */
   readonly path: readonly Coordinate[];
-  /** 每个路径点对应的累计二维长度。 */
   readonly cumulativeLengths: readonly number[];
-  /** 路径二维总长度。 */
   readonly totalLength: number;
 }
 
-/** 以动画记录为弱引用缓存路径指标，不延长记录生命周期。 */
-const travelPathCache = new WeakMap<object, TravelPathMetrics>();
+interface MutablePolylineGeometry {
+  readonly type: 'polyline';
+  readonly coordinates: Coordinate[];
+}
+
+interface MutablePointGeometry {
+  readonly type: 'point';
+  coordinates: Coordinate;
+}
 
 export const pathTravelAnimationDefinition = Object.freeze({
   type: 'path-travel',
+  writeDomains: new Set(['overlay'] as const),
+  requirements: new Set(['structured-presentation'] as const),
+  interactionPolicy: Object.freeze({ edit: 'pause-and-suppress', transform: 'follow-preview' }),
   normalize(input) {
     const record = animationRecord(input, 'path-travel', [
       'type',
@@ -40,8 +58,6 @@ export const pathTravelAnimationDefinition = Object.freeze({
       'width',
       'curvature',
       'smoothness',
-      'arrow',
-      'arrowColor',
       'showStart',
       'showEnd',
       'endLineColor',
@@ -72,8 +88,6 @@ export const pathTravelAnimationDefinition = Object.freeze({
       width: positive(record.width, 2, 'Path-travel width'),
       curvature: finite(record.curvature, 0, 'Path-travel curvature'),
       smoothness,
-      arrow: boolean(record.arrow, true, 'Path-travel arrow'),
-      ...(record.arrowColor === undefined ? {} : { arrowColor: optionalColor(record.arrowColor, 'Path-travel arrowColor') }),
       showStart: boolean(record.showStart, true, 'Path-travel showStart'),
       showEnd: boolean(record.showEnd, true, 'Path-travel showEnd'),
       ...(record.endLineColor === undefined ? {} : { endLineColor: optionalColor(record.endLineColor, 'Path-travel endLineColor') }),
@@ -81,58 +95,235 @@ export const pathTravelAnimationDefinition = Object.freeze({
     };
     return Object.freeze(spec);
   },
-  assertCompatible(_state, geometry) {
-    if (geometry.type !== 'polyline' || geometry.coordinates.length < 2) {
-      throw new CapabilityError('Path-travel animation requires polyline render geometry with at least two points');
-    }
+  assertCompatible(target) {
+    assertPolyline(target);
   },
-  frame(context, input): AnimationFrameResult {
-    if (context.geometry.type !== 'polyline') throw new CapabilityError('Path-travel animation requires polyline render geometry');
-    const spec = input as PathTravelAnimationSpec;
-    const metrics = cachedTravelPath(context.instance, context.geometry.coordinates, spec);
-    const path = metrics.path;
-    const rawProgress =
-      spec.durationMs === undefined
-        ? (context.elapsedMs / 1000) * ((spec.speed ?? 1) / Math.max(metrics.totalLength, Number.EPSILON))
-        : context.elapsedMs / spec.durationMs;
-    const finished = spec.repeat !== true && rawProgress >= 1;
-    if (finished && spec.finishBehavior !== 'retain') {
-      travelPathCache.delete(context.instance);
-      return Object.freeze({ value: Object.freeze({ primitives: Object.freeze([]) }), finished: true });
-    }
-    const progress = finished ? 1 : spec.repeat === true ? positiveModulo(rawProgress, 1) : Math.min(1, rawProgress);
-    const startProgress = finished ? 0 : Math.max(0, progress - (spec.trailLength ?? 0.25));
-    const trail = slicePath(metrics, startProgress, progress, spec.smoothness ?? 180);
-    const inheritedColor = context.style.strokes?.[context.style.strokes.length - 1]?.color ?? '#00d8ff';
-    const baseColor = spec.color ?? inheritedColor;
-    const retainedColor = finished && spec.endLineColor !== undefined ? spec.endLineColor : baseColor;
-    const primitives = linePrimitives(
-      trail,
-      finished && spec.endLineColor !== undefined ? undefined : spec.gradient,
-      retainedColor,
-      spec.width ?? 2,
-      spec.arrow === true,
-      spec.arrowColor,
-      context.style.zIndex
-    );
-    if (spec.showStart === true) primitives.unshift(anchorPrimitive(path[0], retainedColor, context.style.zIndex));
-    if (spec.showEnd === true) primitives.push(anchorPrimitive(path[path.length - 1], retainedColor, context.style.zIndex));
-    return Object.freeze({
-      value: Object.freeze({ primitives: Object.freeze(primitives) }),
-      finished,
-      ...(finished && spec.finishBehavior === 'retain' ? { retain: true } : {})
-    });
+  create(target, spec) {
+    assertPolyline(target);
+    return createPathTravelRuntime(target, spec);
   }
-} satisfies AnimationDefinition);
+} satisfies AnimationDefinition<PathTravelAnimationSpec>);
 
-/** 读取当前动画记录和几何对应的路径指标，缓存失效时重新计算。 */
-function cachedTravelPath(instance: object, coordinates: readonly Coordinate[], spec: PathTravelAnimationSpec): TravelPathMetrics {
+function createPathTravelRuntime(initialTarget: AnimationTargetProfile, spec: Readonly<PathTravelAnimationSpec>): AnimationRuntime {
+  assertPolyline(initialTarget);
+  let metrics = createTravelPathMetrics(initialTarget.geometry.coordinates, spec);
+  let runningSample = createRunningSample(metrics, spec);
+  let slots = createSlots(initialTarget, spec);
+  const geometries = new Map<string, MutablePolylineGeometry | MutablePointGeometry>();
+
+  const polyline = (key: string): MutablePolylineGeometry => {
+    const current = geometries.get(key);
+    if (current?.type === 'polyline') return current;
+    const created: MutablePolylineGeometry = { type: 'polyline', coordinates: [] };
+    geometries.set(key, created);
+    return created;
+  };
+  const point = (key: string): MutablePointGeometry => {
+    const current = geometries.get(key);
+    if (current?.type === 'point') return current;
+    const created: MutablePointGeometry = { type: 'point', coordinates: [0, 0] };
+    geometries.set(key, created);
+    return created;
+  };
+
+  return {
+    get slots() {
+      return slots;
+    },
+    disableViewportCulling: spec.curvature !== undefined && spec.curvature !== 0,
+    rebind(next) {
+      assertPolyline(next);
+      metrics = createTravelPathMetrics(next.geometry.coordinates, spec);
+      runningSample = createRunningSample(metrics, spec);
+      slots = createSlots(next, spec);
+    },
+    sample(context: AnimationFrameContext, output: AnimationFrameBuffer): AnimationSample {
+      output.reset();
+      const rawProgress =
+        spec.durationMs === undefined
+          ? (context.elapsedMs / 1000) * ((spec.speed ?? 1) / Math.max(metrics.totalLength, Number.EPSILON))
+          : context.elapsedMs / spec.durationMs;
+      const finished = spec.repeat !== true && rawProgress >= 1;
+      if (finished && spec.finishBehavior !== 'retain') return removedSample;
+
+      const progress = finished ? 1 : spec.repeat === true ? positiveModulo(rawProgress, 1) : Math.min(1, rawProgress);
+      const from = finished ? 0 : Math.max(0, progress - (spec.trailLength ?? 0.25));
+      if (finished) {
+        if (spec.gradient !== undefined && spec.endLineColor === undefined) {
+          writeRetainedGradient(output, geometries, metrics);
+        } else {
+          const retained = polyline('retained-line');
+          writeWholePath(retained, metrics.path);
+          activateSnapshot(output, 'retained-line', retained);
+        }
+      } else if (spec.gradient === undefined) {
+        const trail = polyline('trail-0');
+        writeSampledTrail(trail, metrics, from, progress, spec.smoothness ?? 180);
+        activateSnapshot(output, 'trail-0', trail);
+      } else {
+        writeGradientTrail(output, geometries, metrics, from, progress, spec.smoothness ?? 180);
+      }
+
+      if (spec.showStart === true) {
+        const key = finished && spec.endLineColor !== undefined ? 'retained-start' : 'start';
+        const start = point(key);
+        start.coordinates = copyCoordinate(start.coordinates, metrics.path[0]);
+        activateSnapshot(output, key, start);
+      }
+      if (spec.showEnd === true) {
+        const key = finished && spec.endLineColor !== undefined ? 'retained-end' : 'end';
+        const end = point(key);
+        end.coordinates = copyCoordinate(end.coordinates, metrics.path[metrics.path.length - 1]);
+        activateSnapshot(output, key, end);
+      }
+      return finished ? retainedSample : runningSample;
+    },
+    destroy() {
+      geometries.clear();
+    }
+  };
+}
+
+function createRunningSample(metrics: TravelPathMetrics, spec: Readonly<PathTravelAnimationSpec>): AnimationSample {
+  if (spec.repeat === true) return continuousSample;
+  const wakeAtElapsedMs = spec.durationMs ?? (metrics.totalLength / Math.max(spec.speed ?? 1, Number.EPSILON)) * 1000;
+  return Object.freeze({ finished: false, schedule: Object.freeze({ kind: 'continuous' as const }), wakeAtElapsedMs });
+}
+
+function createSlots(target: AnimationTargetProfile, spec: Readonly<PathTravelAnimationSpec>): readonly AnimationSlotDefinition[] {
+  const inheritedColor = target.style.strokes?.[target.style.strokes.length - 1]?.color ?? '#00d8ff';
+  const baseColor = spec.color ?? inheritedColor;
+  const width = spec.width ?? 2;
+  const zIndex = target.style.zIndex;
+  const slots: AnimationSlotDefinition[] = [];
+  if (spec.gradient === undefined) {
+    slots.push({ slotKey: 'trail-0', style: lineStyle(baseColor, width, zIndex) });
+  } else {
+    for (let index = 0; index < gradientSlotCount; index += 1) {
+      slots.push({ slotKey: gradientSlotKeys[index], style: lineStyle(gradientColor(spec.gradient, index / (gradientSlotCount - 1)), width, zIndex) });
+    }
+  }
+  if (spec.showStart === true) slots.push({ slotKey: 'start', style: anchorStyle(baseColor, zIndex) });
+  if (spec.showEnd === true) slots.push({ slotKey: 'end', style: anchorStyle(baseColor, zIndex) });
+  if (spec.gradient === undefined || spec.endLineColor !== undefined) {
+    slots.push({ slotKey: 'retained-line', style: lineStyle(spec.endLineColor ?? baseColor, width, zIndex) });
+  }
+  if (spec.showStart === true && spec.endLineColor !== undefined) {
+    slots.push({ slotKey: 'retained-start', style: anchorStyle(spec.endLineColor, zIndex) });
+  }
+  if (spec.showEnd === true && spec.endLineColor !== undefined) {
+    slots.push({ slotKey: 'retained-end', style: anchorStyle(spec.endLineColor, zIndex) });
+  }
+  return Object.freeze(slots.map((slot) => Object.freeze(slot)));
+}
+
+function lineStyle(strokeColor: Color, width: number, zIndex: number | undefined): StyleSpec {
+  return {
+    strokes: [{ color: copyColor(strokeColor), width }],
+    ...(zIndex === undefined ? {} : { zIndex })
+  };
+}
+
+function anchorStyle(anchorColor: Color, zIndex: number | undefined): StyleSpec {
+  return {
+    symbol: { type: 'circle', radius: 4, fill: { type: 'solid', color: copyColor(anchorColor) } },
+    ...(zIndex === undefined ? {} : { zIndex })
+  };
+}
+
+function writeGradientTrail(
+  output: AnimationFrameBuffer,
+  geometries: Map<string, MutablePolylineGeometry | MutablePointGeometry>,
+  metrics: TravelPathMetrics,
+  from: number,
+  to: number,
+  smoothness: number
+): void {
+  const count = to <= from ? 1 : Math.max(2, Math.min(gradientSlotCount, Math.ceil((to - from) * smoothness)));
+  for (let index = 0; index < count; index += 1) {
+    const slotIndex = count === 1 ? gradientSlotCount - 1 : Math.round((index * (gradientSlotCount - 1)) / (count - 1));
+    const key = gradientSlotKeys[slotIndex];
+    const existing = geometries.get(key);
+    const geometry: MutablePolylineGeometry = existing?.type === 'polyline' ? existing : { type: 'polyline', coordinates: [] };
+    if (existing === undefined) geometries.set(key, geometry);
+    const left = from + ((to - from) * index) / count;
+    const right = from + ((to - from) * (index + 1)) / count;
+    writePathRangeAtProgress(geometry, metrics, left, right);
+    activateSnapshot(output, key, geometry);
+  }
+}
+
+/** 用全部固定渐变槽覆盖完整路径，retain 后仍保持原渐变而不创建新图元。 */
+function writeRetainedGradient(
+  output: AnimationFrameBuffer,
+  geometries: Map<string, MutablePolylineGeometry | MutablePointGeometry>,
+  metrics: TravelPathMetrics
+): void {
+  for (let index = 0; index < gradientSlotCount; index += 1) {
+    const key = gradientSlotKeys[index];
+    const existing = geometries.get(key);
+    const geometry: MutablePolylineGeometry = existing?.type === 'polyline' ? existing : { type: 'polyline', coordinates: [] };
+    if (existing === undefined) geometries.set(key, geometry);
+    writePathRangeAtProgress(geometry, metrics, index / gradientSlotCount, (index + 1) / gradientSlotCount);
+    activateSnapshot(output, key, geometry);
+  }
+}
+
+function writeSampledTrail(geometry: MutablePolylineGeometry, metrics: TravelPathMetrics, from: number, to: number, smoothness: number): void {
+  const count = to <= from ? 1 : Math.max(2, Math.min(256, Math.ceil((to - from) * smoothness)));
+  const coordinates = geometry.coordinates;
+  for (let index = 0; index <= count; index += 1) {
+    const progress = from + ((to - from) * index) / count;
+    const coordinate = mutableCoordinate(coordinates[index], metrics.path[0].length);
+    writePointAt(metrics, progress, coordinate);
+    coordinates[index] = coordinate as unknown as Coordinate;
+  }
+  coordinates.length = count + 1;
+}
+
+function writePathRangeAtProgress(geometry: MutablePolylineGeometry, metrics: TravelPathMetrics, startProgress: number, endProgress: number): void {
+  const { cumulativeLengths, path, totalLength } = metrics;
+  const dimension = path[0].length;
+  const startLength = Math.min(1, Math.max(0, startProgress)) * totalLength;
+  const endLength = Math.min(1, Math.max(0, endProgress)) * totalLength;
+  const coordinates = geometry.coordinates;
+  let outputIndex = 0;
+
+  const start = mutableCoordinate(coordinates[outputIndex], dimension);
+  writePointAt(metrics, startProgress, start);
+  coordinates[outputIndex] = start as unknown as Coordinate;
+  outputIndex += 1;
+
+  for (let pathIndex = 1; pathIndex < path.length - 1; pathIndex += 1) {
+    const distance = cumulativeLengths[pathIndex];
+    if (distance <= startLength || distance >= endLength) continue;
+    const coordinate = mutableCoordinate(coordinates[outputIndex], dimension);
+    copyCoordinateValues(coordinate, path[pathIndex]);
+    coordinates[outputIndex] = coordinate as unknown as Coordinate;
+    outputIndex += 1;
+  }
+
+  const end = mutableCoordinate(coordinates[outputIndex], dimension);
+  writePointAt(metrics, endProgress, end);
+  coordinates[outputIndex] = end as unknown as Coordinate;
+  geometry.coordinates.length = outputIndex + 1;
+}
+
+function writeWholePath(geometry: MutablePolylineGeometry, path: readonly Coordinate[]): void {
+  geometry.coordinates.length = path.length;
+  for (let index = 0; index < path.length; index += 1) geometry.coordinates[index] = path[index];
+}
+
+function activateSnapshot(output: AnimationFrameBuffer, key: string, geometry: RenderGeometryState): void {
+  const slot = output.overlay(key);
+  slot.active = true;
+  slot.geometryKind = 'snapshot';
+  slot.geometry = geometry;
+}
+
+function createTravelPathMetrics(coordinates: readonly Coordinate[], spec: Readonly<PathTravelAnimationSpec>): TravelPathMetrics {
   const curvature = spec.curvature ?? 0;
   const smoothness = spec.smoothness ?? 180;
-  const cached = travelPathCache.get(instance);
-  if (cached !== undefined && cached.curvature === curvature && cached.smoothness === smoothness && cached.sourceCoordinates === coordinates) {
-    return cached;
-  }
   const path = travelPath(coordinates, curvature, smoothness);
   const cumulativeLengths = [0];
   let totalLength = 0;
@@ -140,16 +331,7 @@ function cachedTravelPath(instance: object, coordinates: readonly Coordinate[], 
     totalLength += Math.hypot(path[index][0] - path[index - 1][0], path[index][1] - path[index - 1][1]);
     cumulativeLengths.push(totalLength);
   }
-  const metrics: TravelPathMetrics = {
-    sourceCoordinates: coordinates,
-    curvature,
-    smoothness,
-    path,
-    cumulativeLengths,
-    totalLength
-  };
-  travelPathCache.set(instance, metrics);
-  return metrics;
+  return { sourceCoordinates: coordinates, curvature, smoothness, path, cumulativeLengths, totalLength };
 }
 
 function travelPath(coordinates: readonly Coordinate[], curvature: number, smoothness: number): readonly Coordinate[] {
@@ -170,20 +352,12 @@ function travelPath(coordinates: readonly Coordinate[], curvature: number, smoot
   return points;
 }
 
-function slicePath(metrics: TravelPathMetrics, from: number, to: number, smoothness: number): readonly Coordinate[] {
-  if (to <= from) {
-    const point = pointAt(metrics, to);
-    return [point, cloneCoordinate(point)];
-  }
-  const count = Math.max(2, Math.min(256, Math.ceil((to - from) * smoothness)));
-  const result: Coordinate[] = [];
-  for (let index = 0; index <= count; index += 1) result.push(pointAt(metrics, from + ((to - from) * index) / count));
-  return result;
-}
-
-function pointAt(metrics: TravelPathMetrics, progress: number): Coordinate {
+function writePointAt(metrics: TravelPathMetrics, progress: number, output: number[]): void {
   const { cumulativeLengths, path, totalLength } = metrics;
-  if (totalLength <= Number.EPSILON) return cloneCoordinate(path[0]);
+  if (totalLength <= Number.EPSILON) {
+    copyCoordinateValues(output, path[0]);
+    return;
+  }
   const targetLength = Math.min(1, Math.max(0, progress)) * totalLength;
   let low = 1;
   let high = cumulativeLengths.length - 1;
@@ -195,66 +369,11 @@ function pointAt(metrics: TravelPathMetrics, progress: number): Coordinate {
   const startIndex = low - 1;
   const segmentLength = cumulativeLengths[low] - cumulativeLengths[startIndex];
   const segmentProgress = segmentLength <= Number.EPSILON ? 0 : (targetLength - cumulativeLengths[startIndex]) / segmentLength;
-  return interpolate(path[startIndex], path[low], segmentProgress);
-}
-
-function linePrimitives(
-  trail: readonly Coordinate[],
-  gradient: PathTravelAnimationSpec['gradient'],
-  fallbackColor: Color,
-  width: number,
-  arrow: boolean,
-  arrowColor: Color | undefined,
-  zIndex: number | undefined
-): LayerRenderPrimitive[] {
-  if (gradient === undefined || gradient.length === 0) {
-    return [linePrimitive(trail, fallbackColor, width, arrow, arrowColor, zIndex)];
-  }
-  const result: LayerRenderPrimitive[] = [];
-  for (let index = 0; index < trail.length - 1; index += 1) {
-    const ratio = trail.length <= 2 ? 1 : index / (trail.length - 2);
-    result.push(
-      linePrimitive([trail[index], trail[index + 1]], gradientColor(gradient, ratio), width, arrow && index === trail.length - 2, arrowColor, zIndex)
-    );
-  }
-  return result;
-}
-
-function linePrimitive(
-  coordinates: readonly Coordinate[],
-  strokeColor: Color,
-  width: number,
-  arrow: boolean,
-  arrowColor: Color | undefined,
-  zIndex: number | undefined
-): LayerRenderPrimitive {
-  const style: StyleSpec = {
-    strokes: [{ color: copyColor(strokeColor), width }],
-    ...(arrow
-      ? {
-          decorations: [
-            {
-              type: 'arrow',
-              placement: 'end',
-              ...(arrowColor === undefined ? {} : { symbol: { type: 'icon', src: arrowDataUrl, color: copyColor(arrowColor), size: [16, 16] } })
-            }
-          ]
-        }
-      : {}),
-    ...(zIndex === undefined ? {} : { zIndex })
-  };
-  return Object.freeze({ geometry: Object.freeze({ type: 'polyline', coordinates: Object.freeze(coordinates.map(cloneCoordinate)) }), style });
-}
-
-function anchorPrimitive(coordinate: Coordinate, anchorColor: Color, zIndex: number | undefined): LayerRenderPrimitive {
-  const style: StyleSpec = {
-    symbol: { type: 'circle', radius: 4, fill: { type: 'solid', color: copyColor(anchorColor) } },
-    ...(zIndex === undefined ? {} : { zIndex })
-  };
-  return Object.freeze({
-    geometry: Object.freeze({ type: 'point', coordinates: cloneCoordinate(coordinate) }),
-    style
-  });
+  const start = path[startIndex];
+  const end = path[low];
+  output[0] = start[0] + (end[0] - start[0]) * segmentProgress;
+  output[1] = start[1] + (end[1] - start[1]) * segmentProgress;
+  if (output.length === 3) output[2] = (start[2] ?? 0) + ((end[2] ?? 0) - (start[2] ?? 0)) * segmentProgress;
 }
 
 function normalizeGradient(value: unknown): readonly (readonly [number, Color])[] {
@@ -286,14 +405,32 @@ function gradientColor(stops: readonly (readonly [number, Color])[], progress: n
   return copyColor(stops[stops.length - 1][1]);
 }
 
-function interpolate(start: Coordinate, end: Coordinate, ratio: number): Coordinate {
-  const x = start[0] + (end[0] - start[0]) * ratio;
-  const y = start[1] + (end[1] - start[1]) * ratio;
-  return start.length === 3 || end.length === 3 ? [x, y, (start[2] ?? 0) + ((end[2] ?? 0) - (start[2] ?? 0)) * ratio] : [x, y];
-}
-
 function cloneCoordinate(value: Coordinate): Coordinate {
   return value.length === 3 ? [value[0], value[1], value[2]] : [value[0], value[1]];
+}
+
+function copyCoordinate(current: Coordinate, source: Coordinate): Coordinate {
+  const output = mutableCoordinate(current, source.length);
+  copyCoordinateValues(output, source);
+  return output as unknown as Coordinate;
+}
+
+function copyCoordinateValues(output: number[], source: Coordinate): void {
+  output[0] = source[0];
+  output[1] = source[1];
+  if (output.length === 3) output[2] = source[2] ?? 0;
+}
+
+function mutableCoordinate(current: Coordinate | undefined, dimension: number): number[] {
+  return current !== undefined && current.length === dimension ? (current as unknown as number[]) : Array.from({ length: dimension }, () => 0);
+}
+
+function assertPolyline(
+  target: AnimationTargetProfile
+): asserts target is AnimationTargetProfile & { geometry: { type: 'polyline'; coordinates: readonly Coordinate[] } } {
+  if (target.geometry.type !== 'polyline' || target.geometry.coordinates.length < 2) {
+    throw new CapabilityError('Path-travel animation requires polyline render geometry with at least two points');
+  }
 }
 
 function positiveInteger(value: unknown, fallback: number, label: string): number {
@@ -305,6 +442,3 @@ function positiveInteger(value: unknown, fallback: number, label: string): numbe
 function positiveModulo(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus;
 }
-
-const arrowDataUrl =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"%3E%3Cpath d="M1 8 15 1l-4 7 4 7z" fill="white"/%3E%3C/svg%3E';

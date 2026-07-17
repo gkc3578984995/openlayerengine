@@ -4,7 +4,6 @@ import Geometry from 'ol/geom/Geometry.js';
 import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
-import type { Coordinate } from '../../core/common/types.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { RenderGeometryState, ShapeInput, ShapeState } from '../../core/shape/types.js';
@@ -25,34 +24,7 @@ export class GeometryCodec {
   /** 把规范状态投影到 Feature；几何类型未变时复用原对象。 */
   project(feature: Feature<Geometry>, state: ShapeState): Geometry {
     const rendered = this.#render(state);
-    const current = feature.getGeometry();
-
-    if (rendered.type === 'point') {
-      const geometry = current instanceof Point ? current : new Point(copyCoordinate(rendered.coordinates));
-      geometry.setCoordinates(copyCoordinate(rendered.coordinates));
-      if (geometry !== current) feature.setGeometry(geometry);
-      return geometry;
-    }
-    if (rendered.type === 'polyline') {
-      const coordinates = copyCoordinates(rendered.coordinates);
-      const geometry = current instanceof LineString ? current : new LineString(coordinates);
-      geometry.setCoordinates(copyCoordinates(rendered.coordinates));
-      if (geometry !== current) feature.setGeometry(geometry);
-      return geometry;
-    }
-    if (rendered.type === 'polygon') {
-      const coordinates = rendered.coordinates.map(copyCoordinates);
-      const geometry = current instanceof Polygon ? current : new Polygon(coordinates);
-      geometry.setCoordinates(rendered.coordinates.map(copyCoordinates));
-      if (geometry !== current) feature.setGeometry(geometry);
-      return geometry;
-    }
-
-    const center = copyCoordinate(rendered.center);
-    const geometry = current instanceof Circle ? current : new Circle(center, rendered.radius);
-    geometry.setCenterAndRadius(copyCoordinate(rendered.center), rendered.radius);
-    if (geometry !== current) feature.setGeometry(geometry);
-    return geometry;
+    return projectRenderGeometry(feature, rendered);
   }
 
   /** 规范化输入后返回其实际渲染类型。 */
@@ -68,10 +40,54 @@ export class GeometryCodec {
   }
 }
 
-function copyCoordinate(coordinate: Coordinate): number[] {
-  return [...coordinate];
+/** 把 RenderGeometry 投影到 Feature；规范绑定和动画替身共享同一实现。 */
+export function projectRenderGeometry(feature: Feature<Geometry>, rendered: RenderGeometryState): Geometry {
+  const current = feature.getGeometry();
+
+  if (rendered.type === 'point') {
+    const coordinates = asOpenLayersCoordinates(rendered.coordinates);
+    if (current instanceof Point) {
+      current.setCoordinates(coordinates);
+      return current;
+    }
+    const geometry = new Point(coordinates);
+    feature.setGeometry(geometry);
+    return geometry;
+  }
+  if (rendered.type === 'polyline') {
+    const coordinates = asOpenLayersCoordinates(rendered.coordinates);
+    if (current instanceof LineString) {
+      current.setCoordinates(coordinates);
+      return current;
+    }
+    const geometry = new LineString(coordinates);
+    feature.setGeometry(geometry);
+    return geometry;
+  }
+  if (rendered.type === 'polygon') {
+    const coordinates = asOpenLayersCoordinates(rendered.coordinates);
+    if (current instanceof Polygon) {
+      current.setCoordinates(coordinates);
+      return current;
+    }
+    const geometry = new Polygon(coordinates);
+    feature.setGeometry(geometry);
+    return geometry;
+  }
+
+  const center = asOpenLayersCoordinates(rendered.center);
+  if (current instanceof Circle) {
+    current.setCenterAndRadius(center, rendered.radius);
+    return current;
+  }
+  const geometry = new Circle(center, rendered.radius);
+  feature.setGeometry(geometry);
+  return geometry;
 }
 
-function copyCoordinates(coordinates: readonly Coordinate[]): number[][] {
-  return coordinates.map(copyCoordinate);
+type MutableCoordinates<T> = T extends readonly (infer Value)[] ? MutableCoordinates<Value>[] : T;
+
+/** OL 的公开 Geometry API 只读取并扁平化输入；此处仅消除 readonly 类型差异，不共享其内部存储。 */
+function asOpenLayersCoordinates<T extends readonly unknown[]>(coordinates: T): MutableCoordinates<T> {
+  return coordinates as unknown as MutableCoordinates<T>;
 }

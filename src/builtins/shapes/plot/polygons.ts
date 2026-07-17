@@ -163,6 +163,22 @@ function sector(points: readonly Coordinate[]): Coordinate[] {
   return result;
 }
 
+function sectorRadialFrame(points: readonly Coordinate[]) {
+  const [center, radiusPoint, boundaryPoint] = points;
+  const fullTurn = Math.PI * 2;
+  const normalizeAngle = (angle: number): number => ((angle % fullTurn) + fullTurn) % fullTurn;
+  const startAngleRad = normalizeAngle(azimuth(radiusPoint, center));
+  const endAngleRad = normalizeAngle(azimuth(boundaryPoint, center));
+  let sweepAngleRad = endAngleRad - startAngleRad;
+  if (sweepAngleRad <= 0) sweepAngleRad += fullTurn;
+  return {
+    center: cloneCoordinate(center),
+    radius: distance(radiusPoint, center),
+    startAngleRad,
+    sweepAngleRad
+  };
+}
+
 function lunePolygon(points: readonly Coordinate[]): Coordinate[] {
   const working = points.map(cloneCoordinate);
   if (working.length === 2) {
@@ -273,6 +289,9 @@ const sectorDefinition = createControlPointDefinition({
   completeMax: 3,
   autoFinish: 3,
   capabilities: editableCapabilities,
+  animation: {
+    radialFrame: (viewState) => sectorRadialFrame(viewState.controlPoints)
+  },
   validate: (points) => {
     requireTwoDimensional(points);
     requireSeparated(points, [0, 1]);

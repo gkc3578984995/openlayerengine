@@ -1,6 +1,6 @@
 import type { AnimationChannel, AnimationStatus } from '../animation/types.js';
 
-export interface BlinkAnimationSpec {
+export interface TransientBlinkAnimationSpec {
   /** 闪烁动画判别字段。 */
   readonly type: 'blink';
   /** 单次闪烁周期，单位为毫秒。 */
@@ -17,7 +17,7 @@ export interface TransientAnimationSpec {
   /** 同一目标内的动画通道。 */
   readonly channel: AnimationChannel;
   /** 临时动画配置。 */
-  readonly animation: BlinkAnimationSpec;
+  readonly animation: TransientBlinkAnimationSpec;
 }
 
 export interface TransientAnimationHandle {

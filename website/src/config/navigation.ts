@@ -41,6 +41,10 @@ export const sideGroups: SideGroup[] = [
     ]
   },
   {
+    title: '动画与效果',
+    items: [{ label: 'Animation 动画效果', to: '/components/animation' }]
+  },
+  {
     title: '地图交互',
     items: [
       {

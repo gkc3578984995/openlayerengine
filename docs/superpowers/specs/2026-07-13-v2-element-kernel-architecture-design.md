@@ -8,6 +8,7 @@
 - OpenLayers 基线：10.9.0
 - 取代：2026-07-13-v2-public-api-design.md
 - 补充：2026-07-16-v2-coordinate-conversion-and-circle-radius-design.md
+- 补充：2026-07-17-v2-animation-effect-kernel-design.md
 
 本文是 2.0 架构、公共能力和实施边界的唯一设计依据。被取代的旧规格中关于兼容旧构造器、公开功能子路径、独立 Plot 入口以及继续打包 ol-wind 的内容不再有效。
 

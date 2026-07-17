@@ -192,6 +192,14 @@ function moveCircleControlPoint(state: ShapeState<'circle'>, index: number, coor
 const circleDefinition = Object.freeze<ShapeDefinition<ShapeState<'circle'>>>({
   type: 'circle',
   capabilities: nonRotatingEditableCapabilities,
+  animation: Object.freeze({
+    radialFrame: (viewState: Readonly<ShapeState<'circle'>>) => ({
+      center: cloneCoordinate(viewState.center),
+      radius: viewState.radius,
+      startAngleRad: Math.PI / 2,
+      sweepAngleRad: Math.PI * 2
+    })
+  }),
   controlPointPolicy: Object.freeze({ previewMin: 2, completeMin: 2, completeMax: 2, autoFinish: 2 }),
   editTopology: Object.freeze({
     describe: (state: ShapeState<'circle'>) => {

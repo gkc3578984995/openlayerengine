@@ -5,6 +5,7 @@ import {
   shapeTypes,
   type ControlPointPolicy,
   type ShapeCapability,
+  type ShapeAnimationProfile,
   type ShapeDefinition,
   type ShapeEditTopology,
   type ShapeFreehandPolicy,
@@ -106,6 +107,21 @@ function parseFreehandPolicy<S extends ShapeState>(input: unknown): ShapeFreehan
   }) as unknown as ShapeFreehandPolicy<S>;
 }
 
+function parseAnimationProfile<S extends ShapeState>(input: unknown): ShapeAnimationProfile<S> {
+  const record = ownDataSnapshot(input, 'Shape animation profile');
+  const revealGeometry = optionalFunction(record, 'revealGeometry', 'Shape animation profile');
+  const createRevealSession = optionalFunction(record, 'createRevealSession', 'Shape animation profile');
+  const radialFrame = optionalFunction(record, 'radialFrame', 'Shape animation profile');
+  if (revealGeometry === undefined && createRevealSession === undefined && radialFrame === undefined) {
+    throw new InvalidArgumentError('Shape animation profile requires revealGeometry, createRevealSession or radialFrame');
+  }
+  return Object.freeze({
+    ...(revealGeometry === undefined ? {} : { revealGeometry }),
+    ...(createRevealSession === undefined ? {} : { createRevealSession }),
+    ...(radialFrame === undefined ? {} : { radialFrame })
+  }) as unknown as ShapeAnimationProfile<S>;
+}
+
 function assertCapabilityContracts<S extends ShapeState>(
   capabilities: ReadonlySet<ShapeCapability>,
   editTopology?: ShapeEditTopology<S>,
@@ -146,6 +162,8 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
     Object.prototype.hasOwnProperty.call(record, 'editTopology') && record.editTopology !== undefined ? parseEditTopology<S>(record.editTopology) : undefined;
   const freehand =
     Object.prototype.hasOwnProperty.call(record, 'freehand') && record.freehand !== undefined ? parseFreehandPolicy<S>(record.freehand) : undefined;
+  const animation =
+    Object.prototype.hasOwnProperty.call(record, 'animation') && record.animation !== undefined ? parseAnimationProfile<S>(record.animation) : undefined;
   assertCapabilityContracts(capabilities, editTopology, freehand);
   const snapshot = {
     type,
@@ -153,6 +171,7 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
     ...(policy === undefined ? {} : { controlPointPolicy: policy }),
     ...(editTopology === undefined ? {} : { editTopology }),
     ...(freehand === undefined ? {} : { freehand }),
+    ...(animation === undefined ? {} : { animation }),
     createDraft: requiredFunction(record, 'createDraft'),
     normalize: requiredFunction(record, 'normalize'),
     clone: requiredFunction(record, 'clone'),

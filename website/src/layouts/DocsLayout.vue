@@ -73,6 +73,7 @@ const pageTitle = computed(() => {
   if (route.path === '/components/billboard-layer') return 'BillboardLayer 广告牌图层';
   if (route.path === '/components/overlay-layer') return 'OverlayLayer 覆盖物图层';
   if (route.path === '/components/polyline-layer') return 'PolylineLayer 线图层';
+  if (route.path === '/components/animation') return 'Animation 动画效果';
   const globalEventTitles: Record<string, string> = {
     '/components/global-event': 'GlobalEvent 概览与初始化',
     '/components/global-event/global-mouse': 'GlobalEvent 全局鼠标事件',

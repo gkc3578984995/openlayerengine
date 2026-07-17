@@ -65,8 +65,9 @@ describe('AnimationManager', () => {
     expect(render.openCalls.get('default')).toBe(1);
 
     const batch = render.frame('default', 0);
-    expect(batch.contributions.map(({ channel }) => channel).sort()).toEqual(['highlight', 'selection']);
-    expect(batch.contributions.every(({ targetId }) => targetId === 'point')).toBe(true);
+    expect(batch.contributions).toHaveLength(1);
+    expect(batch.contributions[0]).toEqual(expect.objectContaining({ targetId: 'point', channel: '$animation' }));
+    expect(batch.contributions[0]?.value.primitives?.map(({ slotKey }) => slotKey).sort()).toEqual(['highlight/pulse-ring', 'selection/pulse-ring']);
   });
 
   it('支持按 id、module、layerId、type 和 channel 组合控制并保留嵌套暂停深度', () => {
@@ -168,6 +169,93 @@ describe('AnimationManager', () => {
     expect(get).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
     expect(getShape).not.toHaveBeenCalled();
+  });
+
+  it('Transform 已持有 preview 时新建 pause-and-suppress 动画保持冻结，清理 preview 后才开始渲染', () => {
+    const { manager, render, shapes, store } = createAnimationHarness([pointElement('selected-point')]);
+    const preview = store.get('selected-point');
+    if (preview === undefined) throw new Error('测试元素不存在');
+
+    manager.setPreview(preview, shapes.get(preview.type).toRenderGeometry(preview.geometry as never));
+    const handle = manager.play({ id: 'selected-point' }, { type: 'blink' });
+
+    expect(handle.status).toBe('paused');
+    expect(manager.activeCount).toBe(1);
+    expect(manager.activeLayerCount).toBe(0);
+    expect(render.openCalls.get('default')).toBeUndefined();
+    expect(render.activeWakeCount).toBe(0);
+
+    render.advanceTime(10_000);
+    manager.clearPreview('selected-point');
+
+    expect(handle.status).toBe('running');
+    expect(manager.activeLayerCount).toBe(1);
+    expect(render.nextWakeTimestamp).toBe(10_400);
+    expect(render.frame('default', 10_000).contributions).toEqual([
+      expect.objectContaining({ targetId: 'selected-point', value: expect.objectContaining({ presentation: expect.objectContaining({ opacity: 1 }) }) })
+    ]);
+  });
+
+  it('无动画记录时建立的 Transform preview 会在后续 follow-preview 动画启动时延迟绑定', () => {
+    const { manager, render, shapes, store } = createAnimationHarness([polylineElement('selected-line')]);
+    const committed = store.get('selected-line');
+    if (committed === undefined) throw new Error('测试元素不存在');
+    const preview = cloneElementSnapshot(shapes, {
+      ...committed,
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [240, 0]
+        ]
+      }
+    });
+    const previewGeometry = shapes.get(preview.type).toRenderGeometry(preview.geometry as never);
+
+    manager.setPreview(preview, previewGeometry);
+    const handle = manager.play({ id: 'selected-line' }, { type: 'dash-flow' });
+
+    expect(handle.status).toBe('running');
+    expect(render.frame('default', 0).contributions[0]?.value.primitives?.[0]?.geometry).toEqual({
+      type: 'polyline',
+      coordinates: [
+        [0, 0],
+        [240, 0]
+      ]
+    });
+  });
+
+  it('已有 follow-preview 动画时新建 pause-and-suppress 动画仍把视觉所有权留给 Transform', () => {
+    const { manager, render, shapes, store } = createAnimationHarness([polylineElement('mixed-preview')]);
+    const follow = manager.play({ id: 'mixed-preview' }, { type: 'dash-flow' });
+    const committed = store.get('mixed-preview');
+    if (committed === undefined) throw new Error('测试元素不存在');
+    const preview = cloneElementSnapshot(shapes, {
+      ...committed,
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [200, 0]
+        ]
+      }
+    });
+    manager.setPreview(preview, shapes.get(preview.type).toRenderGeometry(preview.geometry as never));
+
+    const suppressed = manager.play({ id: 'mixed-preview' }, { type: 'blink' });
+    const duringPreview = render.frame('default', 0);
+
+    expect(follow.status).toBe('running');
+    expect(suppressed.status).toBe('paused');
+    expect(duringPreview.contributions[0]?.value.presentation).toBeUndefined();
+    expect(duringPreview.contributions[0]?.value.primitives?.map(({ slotKey }) => slotKey)).toEqual(['dash-flow/dash-flow']);
+
+    manager.clearPreview('mixed-preview');
+    const restored = render.frame('default', 1);
+
+    expect(suppressed.status).toBe('running');
+    expect(restored.contributions[0]?.value.presentation).toBeDefined();
+    expect(restored.contributions[0]?.value.primitives?.map(({ slotKey }) => slotKey)).toEqual(['dash-flow/dash-flow']);
   });
 
   it('动画预览仅按引擎快照 identity 复用，并在 Store revision 变化后安全失效', () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
 import type OlMap from 'ol/Map.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
+import { createBuiltinAnimationRegistry } from '../src/builtins/animations/index.js';
 import type { AnimationSpec, AnimationStatus } from '../src/core/animation/types.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementSelector } from '../src/core/element/types.js';
@@ -292,14 +293,22 @@ describe('Descriptor lifecycle', () => {
     const shapes = new ShapeRegistry(basicShapeDefinitions);
     const store = new ElementStore(shapes);
     const render = new FakeLayerRenderPort();
-    const manager = new AnimationManagerImpl({ store, shapes, render, shapeProjection: identityShapeProjection });
+    const manager = new AnimationManagerImpl({
+      store,
+      shapes,
+      render,
+      shapeProjection: identityShapeProjection,
+      registry: createBuiltinAnimationRegistry(),
+      clock: render,
+      wake: render
+    });
     const service = new OverlayService(port, store, manager, { descriptorLayerId: 'default' });
 
     const descriptor = service.createDescriptor(descriptorSpec('real-animation'));
     expect(manager.activeCount).toBe(1);
     expect(render.openCalls.get('default')).toBe(1);
     expect(render.frame('default', 0).contributions).toEqual([
-      expect.objectContaining({ targetId: 'descriptor:real-animation:fixed-line', channel: 'descriptor-fixed-line' })
+      expect.objectContaining({ targetId: 'descriptor:real-animation:fixed-line', channel: '$animation' })
     ]);
 
     descriptor.destroy();

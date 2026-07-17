@@ -6,6 +6,9 @@ export type AnimationChannel = string;
 /** 动画句柄的生命周期状态。 */
 export type AnimationStatus = 'running' | 'paused' | 'stopped' | 'finished';
 
+/** 动画进度使用的内置缓动曲线。 */
+export type AnimationEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+
 /** Point 周期性向外扩散的脉冲动画。 */
 export interface PulseAnimationSpec {
   /** 固定为脉冲动画。 */
@@ -18,7 +21,7 @@ export interface PulseAnimationSpec {
   readonly color?: Color;
   /** 完成后是否重新开始。 */
   readonly repeat?: boolean;
-  /** 脉冲扩散到的最大像素半径。 */
+  /** 脉冲起始的像素半径；动画在此基础上继续向外扩散。 */
   readonly radius?: number;
 }
 
@@ -60,10 +63,6 @@ export interface PathTravelAnimationSpec {
   readonly curvature?: number;
   /** 设置路径采样段数，数值越大越平滑。 */
   readonly smoothness?: number;
-  /** 控制移动方向箭头是否可见。 */
-  readonly arrow?: boolean;
-  /** 移动方向箭头使用的颜色。 */
-  readonly arrowColor?: Color;
   /** 控制路径起点标记是否可见。 */
   readonly showStart?: boolean;
   /** 控制路径终点标记是否可见。 */
@@ -74,5 +73,137 @@ export interface PathTravelAnimationSpec {
   readonly finishBehavior?: 'remove' | 'retain';
 }
 
+/** 让结构化图形按固定占空比阶跃闪烁。 */
+export interface BlinkAnimationSpec {
+  /** 固定为闪烁动画。 */
+  readonly type: 'blink';
+  /** 独立控制这组动画的通道。 */
+  readonly channel?: AnimationChannel;
+  /** 单次闪烁周期，单位为毫秒。 */
+  readonly periodMs?: number;
+  /** 每周期保持最大透明度的比例。 */
+  readonly dutyCycle?: number;
+  /** 闪烁低位使用的整体透明度乘数。 */
+  readonly minOpacity?: number;
+  /** 闪烁高位使用的整体透明度乘数。 */
+  readonly maxOpacity?: number;
+  /** 完成一个周期后是否重新开始。 */
+  readonly repeat?: boolean;
+}
+
+/** 在闭合面上绘制稳定或呼吸高亮。 */
+export interface HighlightAnimationSpec {
+  /** 固定为高亮动画。 */
+  readonly type: 'highlight';
+  /** 独立控制这组动画的通道。 */
+  readonly channel?: AnimationChannel;
+  /** 使用稳定高亮或周期性呼吸高亮。 */
+  readonly mode?: 'steady' | 'breathe';
+  /** 高亮填充和描边使用的颜色。 */
+  readonly color?: Color;
+  /** 高亮填充相对颜色 alpha 的透明度乘数。 */
+  readonly fillOpacity?: number;
+  /** 高亮描边的像素宽度。 */
+  readonly strokeWidth?: number;
+  /** 呼吸高亮的单次周期，单位为毫秒。 */
+  readonly periodMs?: number;
+}
+
+/** 在闭合面上绘制固定双峰节奏的告警。 */
+export interface AlertAnimationSpec {
+  /** 固定为告警动画。 */
+  readonly type: 'alert';
+  /** 独立控制这组动画的通道。 */
+  readonly channel?: AnimationChannel;
+  /** 单次告警周期，单位为毫秒。 */
+  readonly periodMs?: number;
+  /** 告警填充、描边和光晕使用的颜色。 */
+  readonly color?: Color;
+  /** 告警填充相对颜色 alpha 的透明度乘数。 */
+  readonly fillOpacity?: number;
+  /** 告警描边的像素宽度。 */
+  readonly strokeWidth?: number;
+  /** 完成一个告警周期后是否重新开始。 */
+  readonly repeat?: boolean;
+}
+
+/** 从起点或终点逐步揭示路径和箭头。 */
+export interface GrowAnimationSpec {
+  /** 固定为生长动画。 */
+  readonly type: 'grow';
+  /** 独立控制这组动画的通道。 */
+  readonly channel?: AnimationChannel;
+  /** 完整揭示一次的时长，单位为毫秒。 */
+  readonly durationMs?: number;
+  /** 选择从路径起点或终点开始揭示。 */
+  readonly direction?: 'forward' | 'reverse';
+  /** 揭示进度使用的缓动曲线。 */
+  readonly easing?: AnimationEasing;
+  /** 完整揭示后是否重新开始。 */
+  readonly repeat?: boolean;
+}
+
+/** 在圆形或扇面内绘制旋转雷达尾迹。 */
+export interface RadarScanAnimationSpec {
+  /** 固定为雷达扫描动画。 */
+  readonly type: 'radar-scan';
+  /** 独立控制这组动画的通道。 */
+  readonly channel?: AnimationChannel;
+  /** 完整扫描一轮的时长，单位为毫秒。 */
+  readonly periodMs?: number;
+  /** 最终屏幕上的扫描方向。 */
+  readonly direction?: 'clockwise' | 'counterclockwise';
+  /** 雷达尾迹使用的颜色。 */
+  readonly color?: Color;
+  /** 雷达尾迹相对颜色 alpha 的透明度乘数。 */
+  readonly opacity?: number;
+  /** 雷达尾迹角宽，单位为度。 */
+  readonly beamWidthDeg?: number;
+  /** 完成一轮扫描后是否重新开始。 */
+  readonly repeat?: boolean;
+}
+
+/** 从圆形或扇面中心向外绘制扩散环。 */
+export interface CenterSpreadAnimationSpec {
+  /** 固定为中心扩散动画。 */
+  readonly type: 'center-spread';
+  /** 独立控制这组动画的通道。 */
+  readonly channel?: AnimationChannel;
+  /** 单个扩散环从中心传播到外半径的时长，单位为毫秒。 */
+  readonly periodMs?: number;
+  /** 扩散环使用的颜色。 */
+  readonly color?: Color;
+  /** 扩散环的像素宽度。 */
+  readonly strokeWidth?: number;
+  /** 同时错峰传播的固定环数量。 */
+  readonly ringCount?: number;
+  /** 所有环完成一轮传播后是否重新开始。 */
+  readonly repeat?: boolean;
+}
+
+/** 让结构化图形整体渐显或渐隐。 */
+export interface FadeAnimationSpec {
+  /** 固定为渐变透明度动画。 */
+  readonly type: 'fade';
+  /** 独立控制这组动画的通道。 */
+  readonly channel?: AnimationChannel;
+  /** 必须明确选择渐显或渐隐。 */
+  readonly direction: 'in' | 'out';
+  /** 完整渐变一次的时长，单位为毫秒。 */
+  readonly durationMs?: number;
+  /** 透明度进度使用的缓动曲线。 */
+  readonly easing?: AnimationEasing;
+}
+
 /** 引擎内置动画的配置联合类型。 */
-export type AnimationSpec = PulseAnimationSpec | DashFlowAnimationSpec | PathTravelAnimationSpec;
+export type AnimationSpec =
+  | PulseAnimationSpec
+  | DashFlowAnimationSpec
+  | PathTravelAnimationSpec
+  | BlinkAnimationSpec
+  | HighlightAnimationSpec
+  | AlertAnimationSpec
+  | GrowAnimationSpec
+  | RadarScanAnimationSpec
+  | CenterSpreadAnimationSpec
+  | FadeAnimationSpec;
