@@ -1,5 +1,6 @@
 import type OlMap from 'ol/Map.js';
 import Overlay from 'ol/Overlay.js';
+import type { Coordinate } from '../../core/common/types.js';
 import { runFinalizers } from '../../core/common/dispose.js';
 import { InvalidArgumentError } from '../../core/errors.js';
 import type {
@@ -137,7 +138,7 @@ class ToolbarView implements TransformToolbarViewHandle {
     const key = target?.dataset.transformCommand;
     const item = key === undefined ? undefined : this.#items.get(key);
     if (key === undefined || item === undefined || item.disabled || !item.visible) return;
-    this.#listener(Object.freeze({ type: 'command', key }));
+    this.#listener(Object.freeze({ type: 'command', key, coordinate: freezeCoordinate(this.#map.getEventCoordinate(event)) }));
   };
 
   readonly #onMouseOver = (event: MouseEvent): void => {
@@ -218,6 +219,14 @@ function copyOptions(options: TransformToolbarViewOptions): TransformToolbarView
 
 function numbersEqual(left: readonly number[], right: readonly number[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/** 复制并冻结工具栏点击对应的地图坐标。 */
+function freezeCoordinate(coordinate: readonly number[]): Coordinate {
+  if (!Array.isArray(coordinate) || (coordinate.length !== 2 && coordinate.length !== 3) || coordinate.some((value) => !Number.isFinite(value))) {
+    throw new InvalidArgumentError('Transform toolbar coordinate must contain two or three finite numbers');
+  }
+  return Object.freeze([...coordinate]) as Coordinate;
 }
 
 /** 仅在浏览器环境中提供默认 DOM 工厂。 */

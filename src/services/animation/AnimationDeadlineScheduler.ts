@@ -8,8 +8,8 @@ export interface AnimationDeadlineSchedulerDependencies {
   readonly clock: AnimationClockPort;
   /** 平台提供的单次唤醒能力。 */
   readonly wake: AnimationWakePort;
-  /** 任一截止时间到达时唤醒统一动画 tick。 */
-  readonly onWake: () => void;
+  /** 把本次到期的记录键交给统一动画 tick。 */
+  readonly onWake: (keys: readonly string[], now: number) => void;
 }
 
 interface DeadlineState {
@@ -38,7 +38,7 @@ const pendingWakeHandle: AnimationWakeHandle = Object.freeze({ cancel: () => und
 export class AnimationDeadlineScheduler {
   readonly #clock: AnimationClockPort;
   readonly #wake: AnimationWakePort;
-  readonly #onWake: () => void;
+  readonly #onWake: (keys: readonly string[], now: number) => void;
   readonly #deadlines = new Map<string, DeadlineState>();
   readonly #heap: DeadlineNode[] = [];
   #nextRevision = 0;
@@ -151,7 +151,7 @@ export class AnimationDeadlineScheduler {
     if (this.#disposed || scheduled === undefined || scheduled.generation !== generation) return;
     this.#scheduled = undefined;
     const now = this.#now();
-    let expired = false;
+    const expiredKeys: string[] = [];
     while (true) {
       const next = this.#peek();
       if (next === undefined || next.timestamp > now) break;
@@ -159,10 +159,10 @@ export class AnimationDeadlineScheduler {
       const current = this.#deadlines.get(next.key);
       if (current?.revision !== next.revision) continue;
       this.#deadlines.delete(next.key);
-      expired = true;
+      expiredKeys.push(next.key);
     }
     try {
-      if (expired) this.#onWake();
+      if (expiredKeys.length > 0) this.#onWake(expiredKeys, now);
     } finally {
       if (!this.#disposed) this.#reconcileWake();
     }

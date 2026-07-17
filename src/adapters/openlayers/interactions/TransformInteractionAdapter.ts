@@ -255,12 +255,16 @@ class OpenLayersTransformHandle implements TransformInteractionHandle {
   }
 
   /** 启动一个跟随指针的复制预览。 */
-  startCopyPreview(preview: TransformCopyPreview): void {
+  startCopyPreview(preview: TransformCopyPreview, position?: Coordinate): void {
     this.#assertOpen();
-    this.#copyAnchor = this.#lastCoordinate ?? extentCenter(this.#handles.extent ?? [0, 0, 0, 0]);
-    this.#copyDelta = Object.freeze({ x: 0, y: 0 });
+    const geometry = translateRenderGeometry(preview.geometry, this.#worldOffset, 0);
+    const center = extentCenter(renderExtent(geometry));
+    const pointer = position === undefined ? (this.#lastCoordinate ?? center) : coordinate(position);
+    this.#copyAnchor = center;
+    this.#copyDelta = Object.freeze({ x: pointer[0] - center[0], y: pointer[1] - center[1] });
     this.#copyActive = true;
-    this.#handles.setCopyPreview(translateRenderGeometry(preview.geometry, this.#worldOffset, 0), preview.style);
+    this.#handles.setCopyPreview(geometry, preview.style);
+    this.#handles.updateCopyPreview(this.#copyDelta.x, this.#copyDelta.y);
   }
 
   /** 取消复制预览并清除位移状态。 */

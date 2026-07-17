@@ -16,6 +16,7 @@ import type {
 } from '../../src/core/ports/LayerRenderPort.js';
 import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import { AnimationManagerImpl } from '../../src/services/animation/AnimationManager.js';
+import type { AnimationRegistry } from '../../src/services/animation/AnimationRegistry.js';
 import { identityShapeProjection } from './shapeProjection.js';
 
 interface FakeLoop {
@@ -212,7 +213,7 @@ export interface AnimationHarness {
   readonly manager: AnimationManagerImpl;
 }
 
-export function createAnimationHarness(seed: readonly ElementState[] = []): AnimationHarness {
+export function createAnimationHarness(seed: readonly ElementState[] = [], registry: AnimationRegistry = createBuiltinAnimationRegistry()): AnimationHarness {
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   const store = new ElementStore(shapes);
   for (const state of seed) store.add(state);
@@ -223,7 +224,7 @@ export function createAnimationHarness(seed: readonly ElementState[] = []): Anim
     shapes,
     render,
     shapeProjection: identityShapeProjection,
-    registry: createBuiltinAnimationRegistry(),
+    registry,
     clock: render,
     wake: render
   });

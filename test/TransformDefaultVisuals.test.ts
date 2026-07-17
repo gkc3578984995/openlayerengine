@@ -764,7 +764,7 @@ function interactionOptions(overrides: Partial<TransformInteractionOptions> = {}
     rotate: true,
     translateBBox: false,
     noFlip: true,
-    keepRectangle: true,
+    keepRectangle: false,
     buffer: 16,
     pointRadius: 8,
     ...overrides

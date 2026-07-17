@@ -146,8 +146,8 @@ export interface TransformInteractionHandle {
   clearTarget(): void;
   /** 更新变换操作的活动状态。 */
   setOperationActive(active: boolean, operation?: TransformOperation): void;
-  /** 开始显示复制预览。 */
-  startCopyPreview(preview: TransformCopyPreview): void;
+  /** 开始显示复制预览；指定位置时把预览中心放到该地图坐标。 */
+  startCopyPreview(preview: TransformCopyPreview, position?: Coordinate): void;
   /** 取消复制预览。 */
   cancelCopyPreview(): void;
   /** 释放交互、临时图层和监听器。 */

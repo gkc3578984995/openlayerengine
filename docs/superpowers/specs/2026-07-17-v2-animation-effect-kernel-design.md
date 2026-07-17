@@ -8,6 +8,8 @@
 - 契约修订：2026-07-17，`path-travel` 移除 `arrow`、`arrowColor` 与方向箭头渲染，箭头展示继续由 Shape 样式或 `grow` 负责
 - 契约修订：2026-07-17，`radar-scan` 增加与 `path-travel` 同格式的 `gradient`，与 `color` 互斥；默认颜色改为 `#00e676`，并明确 Circle 跨 `0/2π` 连续扫描与 Sector 边界裁剪
 - 契约修订：2026-07-17，`center-spread` 改为带固定径向尾迹的波纹带，增加与 `radar-scan` 同格式的 `gradient`、`opacity` 和 `trailLength`；默认颜色改为 `#00e676`，并保留 `trailLength: 0` 的旧式线环/弧退化路径
+- 契约修订：2026-07-17，三种 `gradient` 在 Spec 归一化阶段确定性转换为 RGBA；支持 `transparent`、CSS named、hex、传统逗号语法及现代数值空格/斜杠语法子集的 `rgb/rgba` 与 `hsl/hsla`，拒绝依赖 DOM 上下文或未纳入契约的字符串语法
+- 契约修订：2026-07-17，`path-travel.curvature` 扩展到多点路径；两点路径保持既有二次 Bézier，多点路径使用 centripetal knot 参数化、waypoint 共享切线的 cubic Hermite 并按弧长重采样，`0` 仍严格保留原折线
 - 目标版本：@vrsim/earth-engine-ol 2.0.0
 - 性质：公共动画契约与内部渲染架构补充
 - 适用范围：AnimationManager、AnimationRegistry、ShapeDefinition 动画能力、帧合成、LayerRenderPass 与 OpenLayers 展示适配器
@@ -206,15 +208,15 @@ earth.animations.play({ id }, { type: 'alert', channel: 'attention' });
 
 ### 3.3 默认值与校验
 
-| 类型            | 默认值                                                                                                                                     | 自然完成行为                                         |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| `blink`         | `periodMs: 800`、`dutyCycle: 0.5`、`minOpacity: 0`、`maxOpacity: 1`、`repeat: true`                                                        | `repeat: false` 时一个周期后移除效果                 |
-| `highlight`     | `mode: 'steady'`、`color: '#ffc107'`、`fillOpacity: 0.18`、`strokeWidth: 3`；呼吸周期 `1200ms`                                             | 不自然完成，由 stop、replace、remove 或 destroy 结束 |
-| `alert`         | `periodMs: 1200`、`color: '#ff3b30'`、`fillOpacity: 0.22`、`strokeWidth: 3`、`repeat: true`                                                | `repeat: false` 时一个告警周期后移除 overlay         |
-| `grow`          | `durationMs: 1200`、`direction: 'forward'`、`easing: 'linear'`、`repeat: false`                                                            | 完成后移除临时几何；此时原图形已完整，不产生视觉跳变 |
-| `radar-scan`    | `periodMs: 2000`、`direction: 'clockwise'`、`color: '#00e676'`、`gradient: undefined`、`opacity: 0.35`、`beamWidthDeg: 45`、`repeat: true` | `repeat: false` 时完成一轮扫描后移除                 |
+| 类型            | 默认值                                                                                                                                             | 自然完成行为                                         |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `blink`         | `periodMs: 800`、`dutyCycle: 0.5`、`minOpacity: 0`、`maxOpacity: 1`、`repeat: true`                                                                | `repeat: false` 时一个周期后移除效果                 |
+| `highlight`     | `mode: 'steady'`、`color: '#ffc107'`、`fillOpacity: 0.18`、`strokeWidth: 3`；呼吸周期 `1200ms`                                                     | 不自然完成，由 stop、replace、remove 或 destroy 结束 |
+| `alert`         | `periodMs: 1200`、`color: '#ff3b30'`、`fillOpacity: 0.22`、`strokeWidth: 3`、`repeat: true`                                                        | `repeat: false` 时一个告警周期后移除 overlay         |
+| `grow`          | `durationMs: 1200`、`direction: 'forward'`、`easing: 'linear'`、`repeat: false`                                                                    | 完成后移除临时几何；此时原图形已完整，不产生视觉跳变 |
+| `radar-scan`    | `periodMs: 2000`、`direction: 'clockwise'`、`color: '#00e676'`、`gradient: undefined`、`opacity: 0.35`、`beamWidthDeg: 45`、`repeat: true`         | `repeat: false` 时完成一轮扫描后移除                 |
 | `center-spread` | `periodMs: 1600`、`color: '#00e676'`、`gradient: undefined`、`opacity: 0.7`、`trailLength: 0.18`、`strokeWidth: 2`、`ringCount: 3`、`repeat: true` | `repeat: false` 时完成一轮扩散后移除                 |
-| `fade`          | `durationMs: 500`、`easing: 'ease-in-out'`                                                                                                 | fade-in 固定 remove；fade-out 固定 retain            |
+| `fade`          | `durationMs: 500`、`easing: 'ease-in-out'`                                                                                                         | fade-in 固定 remove；fade-out 固定 retain            |
 
 所有 Spec 继续使用现有严格普通对象规则：拒绝未知字段、accessor、symbol 字段和非法原型，不修改调用方对象。
 
@@ -226,6 +228,8 @@ earth.animations.play({ id }, { type: 'alert', channel: 'attention' });
 - `strokeWidth` 为有限非负数。
 - `beamWidthDeg` 满足 `0 < value <= 360`；Sector 的实际宽度不超过自身 sweep。
 - `radar-scan.gradient`、`center-spread.gradient` 与 `path-travel.gradient` 使用同一格式、校验和线性 RGBA 插值：至少两个 `[offset, Color]` 色标，offset 是 `[0, 1]` 内严格递增的有限数；色标范围之外沿用最近端点颜色。
+- 所有动画 `Color` 的 RGB/RGBA 数值数组要求 RGB 通道位于 `[0, 255]`、alpha 位于 `[0, 1]`。gradient 颜色字符串支持 `transparent`、CSS named、`#RGB[A]`、`#RRGGBB[AA]`、传统逗号语法及现代数值空格/斜杠语法子集的 `rgb/rgba` 与 `hsl/hsla`；传统逗号 `rgb/rgba` 的三个通道必须统一使用 number 或 percentage，字符串通道按 CSS 语义钳制。`currentColor`、CSS 变量、相对颜色、`none`、`calc()` 和其他色彩空间因无法脱离 DOM 确定解析或未纳入该数值语法子集而在 `play()` 建立记录前抛出 `InvalidArgumentError`，不得退化为中点换色。
+- `path-travel.curvature` 为有限数；`0` 使用原路径，两点路径保持既有二次 Bézier 语义。三点及以上路径以 XY 屏幕平面距离建立 centripetal knot，并以 waypoint 共享切线的 cubic Hermite 经过全部 XY 非重复途经点；绝对值控制切线强度，正负值分别让共享切线偏向入段或出段。共享切线必须经过单调性限制，避免在折返、尖角或长度悬殊分段上沿当前 chord 回退；无法同时落入相邻分段安全方向锥时允许退化为零切线。Z 不参与 knot、去重和弧长，只在所属分段内线性插值。若有限输入在目标坐标尺度上仍会产生非有限切线、几何或累计弧长，Runtime 建立或 rebind 必须稳定抛出 `InvalidArgumentError`。`smoothness` 是整条曲线路径的采样预算；为保证任一多点分段的曲率不被静默忽略，每个非退化原始分段至少保留两个采样段，实际预算不得低于该下限。
 - `radar-scan.color` 与 `radar-scan.gradient` 互斥，同时传入时抛出 `InvalidArgumentError`；只在两者都未传入时补齐默认 `color: '#00e676'`，不得让默认 color 与显式 gradient 形成隐式冲突。
 - `center-spread.color` 与 `center-spread.gradient` 互斥，同时传入时抛出 `InvalidArgumentError`；只在两者都未传入时补齐默认 `color: '#00e676'`，不得让默认 color 与显式 gradient 形成隐式冲突。
 - `trailLength` 是波纹带占目标外半径的比例，位于 `[0, 1]`；`0` 表示不绘制填充尾迹，只保留前沿线环或扇面弧。

@@ -109,6 +109,8 @@ const handleMethodRows = [
 
 const channelType = '<a href="#api-type-animationchannel">AnimationChannel</a>?';
 const easingType = '<a href="#api-type-animationeasing">AnimationEasing</a>?';
+const gradientColorSyntax =
+  '色标颜色在播放建立时转换为 RGBA；支持 transparent、CSS named、hex、传统逗号语法及现代数值空格/斜杠语法子集的 rgb/rgba 与 hsl/hsla，RGB tuple 范围为 0..255、alpha 为 0..1；currentColor、CSS 变量、none、calc() 和其他色彩空间会报错';
 
 const commonSpecRows = (type: AnimationType): Array<Record<string, string>> => [
   { name: 'type', desc: '判别字段', type: `<code>'${type}'</code>`, default: `<code>'${type}'</code>` },
@@ -162,10 +164,20 @@ const specDocuments: readonly SpecDocument[] = [
       { name: 'repeat', desc: '到达终点后是否重新开始', type: 'boolean?', default: 'true' },
       { name: 'trailLength', desc: '尾迹占整条路径的比例，范围 (0, 1]', type: 'number?', default: '0.25' },
       { name: 'color', desc: '尾迹基础颜色；省略时继承末层描边，仍无颜色时使用内置青色', type: 'Color?', default: '继承或 #00d8ff' },
-      { name: 'gradient', desc: '至少两个、offset 在 [0, 1] 内严格递增的 [offset, Color] 色标', type: 'readonly [number, Color][]?', default: '—' },
+      {
+        name: 'gradient',
+        desc: `至少两个、offset 在 [0, 1] 内严格递增的 [offset, Color] 色标；${gradientColorSyntax}`,
+        type: 'readonly [number, Color][]?',
+        default: '—'
+      },
       { name: 'width', desc: '尾迹像素宽度，有限正数', type: 'number?', default: '2' },
-      { name: 'curvature', desc: '两点路径的曲率；0 使用原路径，必须是有限数', type: 'number?', default: '0' },
-      { name: 'smoothness', desc: '曲线路径采样段数，1..2048 的安全整数', type: 'number?', default: '180' },
+      {
+        name: 'curvature',
+        desc: '0 使用原路径；两点路径使用二次 Bézier，多点路径使用 centripetal knot 与 waypoint 共享切线，正负值分别侧重入弯或出弯；必须是有限数',
+        type: 'number?',
+        default: '0'
+      },
+      { name: 'smoothness', desc: '整条曲线路径的采样预算，1..2048 的安全整数；多点路径每个非退化原始分段至少使用两个采样段', type: 'number?', default: '180' },
       { name: 'showStart', desc: '是否绘制路径起点标记', type: 'boolean?', default: 'true' },
       { name: 'showEnd', desc: '是否绘制路径终点标记', type: 'boolean?', default: 'true' },
       { name: 'endLineColor', desc: '设置后把 retain 最终路径改为该纯色', type: 'Color?', default: '渐变保留原渐变，否则使用尾迹基础颜色' },
@@ -254,7 +266,7 @@ const specDocuments: readonly SpecDocument[] = [
       { name: 'color', desc: '纯色尾迹快捷配置；颜色自身 alpha 会参与相乘，不能与 gradient 同时设置', type: 'Color?', default: "'#00e676'" },
       {
         name: 'gradient',
-        desc: '渐变尾迹色标；至少两个、offset 在 [0, 1] 内严格递增，0 表示最旧尾端、1 表示扫描前沿；不能与 color 同时设置',
+        desc: `渐变尾迹色标；至少两个、offset 在 [0, 1] 内严格递增，0 表示最旧尾端、1 表示扫描前沿；不能与 color 同时设置；${gradientColorSyntax}`,
         type: 'readonly [number, Color][]?',
         default: '—'
       },
@@ -277,7 +289,7 @@ const specDocuments: readonly SpecDocument[] = [
       { name: 'color', desc: '纯色波纹带快捷配置；颜色自身 alpha 会参与相乘，不能与 gradient 同时设置', type: 'Color?', default: "'#00e676'" },
       {
         name: 'gradient',
-        desc: '径向尾迹色标；至少两个、offset 在 [0, 1] 内严格递增，0 表示内侧最旧尾迹、1 表示外侧波纹前沿；不能与 color 同时设置',
+        desc: `径向尾迹色标；至少两个、offset 在 [0, 1] 内严格递增，0 表示内侧最旧尾迹、1 表示外侧波纹前沿；不能与 color 同时设置；${gradientColorSyntax}`,
         type: 'readonly [number, Color][]?',
         default: '—'
       },
@@ -704,7 +716,8 @@ const anchors: AnchorItem[] = [
           >
         </p>
         <p class="doc-prose__hint">
-          所有 Spec 都必须是严格普通对象：未知字段、accessor、symbol 字段、非法原型或非法数值会在 play 建立记录前同步拒绝；调用方对象不会被修改。
+          所有 Spec 都必须是严格普通对象：未知字段、accessor、symbol 字段、非法原型或非法数值会在 play 建立记录前同步拒绝；调用方对象不会被修改。动画 Color
+          的数值 RGB 通道范围为 0..255，RGBA 的 alpha 范围为 0..1。
         </p>
 
         <h4 id="api-type-animationtype" class="doc-h4">AnimationType 与 animationTypes</h4>

@@ -66,6 +66,7 @@ export class FakeTransformHandle implements TransformInteractionHandle {
   readonly #fallbackRenderLayerId: string;
   target: TransformInteractionTarget | undefined;
   copyPreview: TransformCopyPreview | undefined;
+  copyPreviewPosition: Coordinate | undefined;
   operationActive = false;
   destroyed = false;
 
@@ -94,13 +95,15 @@ export class FakeTransformHandle implements TransformInteractionHandle {
     this.log.push(`interaction:operation-active:${String(active)}`);
   }
 
-  startCopyPreview(preview: TransformCopyPreview): void {
+  startCopyPreview(preview: TransformCopyPreview, position?: Coordinate): void {
     this.copyPreview = preview;
+    this.copyPreviewPosition = position;
     this.log.push('copy:start');
   }
 
   cancelCopyPreview(): void {
     this.copyPreview = undefined;
+    this.copyPreviewPosition = undefined;
     this.log.push('copy:cancel');
   }
 
@@ -175,10 +178,10 @@ class FakeTransients implements TransientAnimationPort {
 
 export class FakeToolbarPort implements TransformToolbarPort {
   readonly views: FakeToolbarHandle[] = [];
-  command: ((key: string) => void) | undefined;
+  command: ((key: string, coordinate?: Coordinate) => void) | undefined;
 
   open(spec: TransformToolbarViewSpec, listener: (event: TransformToolbarViewEvent) => void): TransformToolbarViewHandle {
-    this.command = (key) => listener({ type: 'command', key });
+    this.command = (key, coordinate) => listener({ type: 'command', key, ...(coordinate === undefined ? {} : { coordinate }) });
     const view = new FakeToolbarHandle(spec);
     this.views.push(view);
     return view;

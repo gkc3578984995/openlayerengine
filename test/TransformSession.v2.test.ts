@@ -431,6 +431,26 @@ describe('TransformSession v2', () => {
     expect(toolbar.destroy).toHaveBeenCalledOnce();
   });
 
+  it('passes the toolbar click coordinate to the copy preview without retaining the toolbar event array', () => {
+    const harness = createTransformHarness({});
+    addElement(harness, 'copy-source', 'polygon', [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4]
+    ]);
+    const session = harness.service.select('copy-source', { toolbar: {} });
+    const triggerCoordinate: [number, number] = [30, 40];
+
+    harness.toolbarPort.command?.('copy', triggerCoordinate);
+    triggerCoordinate[0] = 99;
+
+    expect(harness.interaction.handle?.copyPreview).toBeDefined();
+    expect(harness.interaction.handle?.copyPreviewPosition).toEqual([30, 40]);
+    expect(harness.tooltipPort.views[0]?.state.position).toEqual([30, 40]);
+    session.cancel();
+  });
+
   it('rolls back an opened toolbar when selection fails during toolbar state synchronization', () => {
     const harness = createTransformHarness({});
     addElement(harness, 'point-a', 'point', [[0, 0]]);
@@ -534,6 +554,19 @@ describe('TransformSession v2', () => {
     harness.interaction.emit({ type: 'operation-change', operation: 'translate', delta: { type: 'translate', x: 2, y: 3 } });
     expect(harness.toolbarPort.views[0]?.updateOptions).toHaveBeenCalledWith({ position: [25, 26] });
     expect(harness.toolbarPort.views[0]?.updateOptions).toHaveBeenCalledTimes(1);
+    session.cancel();
+  });
+
+  it('defaults rectangle corner scaling to independent axes', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'rectangle-a', 'rectangle', [
+      [0, 0],
+      [4, 2]
+    ]);
+
+    const session = harness.service.select('rectangle-a');
+
+    expect(harness.interaction.options?.keepRectangle).toBe(false);
     session.cancel();
   });
 

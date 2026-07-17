@@ -110,6 +110,7 @@ describe('AnimationDeadlineScheduler', () => {
     wake.fire(firstWake);
 
     expect(onWake).toHaveBeenCalledOnce();
+    expect(onWake).toHaveBeenLastCalledWith(['first', 'also-first'], 100);
     expect(scheduler.size).toBe(1);
     expect(scheduler.nextTimestamp).toBe(250);
     expect(wake.active()).toHaveLength(1);
@@ -121,8 +122,38 @@ describe('AnimationDeadlineScheduler', () => {
     wake.fire(secondWake);
 
     expect(onWake).toHaveBeenCalledTimes(2);
+    expect(onWake).toHaveBeenLastCalledWith(['next'], 300);
     expect(scheduler.size).toBe(0);
     expect(wake.active()).toHaveLength(0);
+  });
+
+  it('一万条记录只传递当前错峰到期的少量键', () => {
+    const batches: string[][] = [];
+    const { scheduler, clock, wake } = createScheduler((keys: readonly string[]) => batches.push([...keys]));
+    const firstDue = new Set(['record-7', 'record-107', 'record-1007']);
+    const secondDue = new Set(['record-17', 'record-117']);
+
+    for (let index = 0; index < 10_000; index += 1) {
+      const key = `record-${index}`;
+      scheduler.upsert(key, firstDue.has(key) ? 100 : secondDue.has(key) ? 200 : 1_000 + index);
+    }
+
+    clock.nowValue = 100;
+    const firstWake = wake.active()[0];
+    if (firstWake === undefined) throw new Error('Missing first wake');
+    wake.fire(firstWake);
+
+    expect(batches).toEqual([[...firstDue]]);
+    expect(scheduler.size).toBe(9_997);
+
+    clock.nowValue = 200;
+    const secondWake = wake.active()[0];
+    if (secondWake === undefined) throw new Error('Missing second wake');
+    wake.fire(secondWake);
+
+    expect(batches).toEqual([[...firstDue], [...secondDue]]);
+    expect(batches.flat()).toHaveLength(firstDue.size + secondDue.size);
+    expect(scheduler.size).toBe(9_995);
   });
 
   it('平台提前回调时不唤醒动画 tick，而是重新等待原截止时间', () => {

@@ -285,7 +285,10 @@ describe('内置动画定义', () => {
     sample(runtime, buffer, target, 250);
     const active = activeSlots(runtime.slots, buffer).filter(({ definition }) => definition.slotKey.startsWith('trail-'));
     expect(active.map(({ definition }) => definition.slotKey)).toEqual(['trail-0', 'trail-23']);
-    expect(active.map(({ definition }) => definition.style.strokes?.[0]?.color)).toEqual(['#ff0000', [0, 0, 255, 1]]);
+    expect(active.map(({ definition }) => definition.style.strokes?.[0]?.color)).toEqual([
+      [255, 0, 0, 1],
+      [0, 0, 255, 1]
+    ]);
 
     const singleSpec = pathTravelAnimationDefinition.normalize({ ...spec, smoothness: 1 });
     const singleRuntime = pathTravelAnimationDefinition.create(target, singleSpec);

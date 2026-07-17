@@ -811,14 +811,23 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   /** 开始可由指针确认的复制预览。 */
-  #beginCopyPreview(): void {
+  #beginCopyPreview(position?: Coordinate): void {
     const clipboard = this.#readClipboard();
     if (clipboard === undefined) return;
     const definition = this.#shapes.get(clipboard.type);
-    this.#requireHandle().startCopyPreview({
-      geometry: definition.toRenderGeometry(this.#shapeProjection.toViewState(clipboard.geometry) as never),
-      style: clipboard.style
-    });
+    if (position !== undefined) assertFiniteCoordinate(position, 'Transform copy preview position');
+    const previewPosition = position === undefined ? undefined : cloneCoordinate(position);
+    this.#requireHandle().startCopyPreview(
+      {
+        geometry: definition.toRenderGeometry(this.#shapeProjection.toViewState(clipboard.geometry) as never),
+        style: clipboard.style
+      },
+      previewPosition
+    );
+    if (previewPosition !== undefined) {
+      this.#lastPointerCoordinate = previewPosition;
+      this.#tooltip?.update({ position: previewPosition });
+    }
     this.#copyPreview = true;
     this.#setTooltipLines(['点击地图完成复制，右键地图退出复制']);
   }
@@ -936,7 +945,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   /** 处理工具栏发出的命令或状态事件。 */
   #handleToolbarEvent(event: TransformToolbarViewEvent): void {
     if (event.type === 'command') {
-      this.#toolbarCommand(event.key);
+      this.#toolbarCommand(event.key, event.coordinate);
       return;
     }
     if (event.type === 'leave') {
@@ -950,14 +959,14 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   }
 
   /** 执行指定工具栏命令。 */
-  #toolbarCommand(key: string): void {
+  #toolbarCommand(key: string, coordinate?: Coordinate): void {
     if (key === 'exit' || key === 'save') this.finish();
     else if (key === 'undo') this.undo();
     else if (key === 'redo') this.redo();
     else if (key === 'copy') {
       const working = this.#requireWorking();
       this.#writeClipboard(cloneElementSnapshot(this.#shapes, working));
-      this.#beginCopyPreview();
+      this.#beginCopyPreview(coordinate);
     } else if (key === 'remove') this.remove();
     else if (key === 'edit') this.setMode(this.#mode === 'edit' ? 'transform' : 'edit');
   }

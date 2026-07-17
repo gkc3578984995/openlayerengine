@@ -222,7 +222,7 @@ export class TransformService implements InternalTransformService {
     const rotate = optionalBoolean(record, 'rotate', true, 'Transform rotate');
     const translateBBox = optionalBoolean(record, 'translateBBox', false, 'Transform translateBBox');
     const noFlip = optionalBoolean(record, 'noFlip', true, 'Transform noFlip');
-    const keepRectangle = optionalBoolean(record, 'keepRectangle', true, 'Transform keepRectangle');
+    const keepRectangle = optionalBoolean(record, 'keepRectangle', false, 'Transform keepRectangle');
     const buffer = optionalNonNegative(record, 'buffer', 16, 'Transform buffer');
     const pointRadius = optionalPositive(record, 'pointRadius', 8, 'Transform pointRadius');
     const historyLimit = optionalPositiveInteger(record, 'historyLimit', 10, 'Transform historyLimit');

@@ -35,7 +35,7 @@ export interface InternalTransformOptions {
   readonly translateBBox?: boolean;
   /** 是否禁止翻转图形。 */
   readonly noFlip?: boolean;
-  /** 是否保持矩形形状。 */
+  /** 矩形四角缩放时是否锁定宽高比，默认 false。 */
   readonly keepRectangle?: boolean;
   /** 控制区域向外扩张的距离，单位为 CSS 像素。 */
   readonly buffer?: number;

@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { PulseAnimationSpec } from '../src/core/animation/types.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { CapabilityError } from '../src/core/errors.js';
 import type { LayerRenderBatch, LayerRenderContribution } from '../src/core/ports/LayerRenderPort.js';
+import type { StyleSpec } from '../src/core/style/types.js';
+import { AnimationRegistry } from '../src/services/animation/AnimationRegistry.js';
+import type { AnimationDefinition } from '../src/services/animation/types.js';
 import { createAnimationHarness, pointElement, polylineElement } from './helpers/animationHarness.js';
 
 describe('AnimationManager effect composition', () => {
@@ -201,6 +205,90 @@ describe('AnimationManager effect composition', () => {
 
     grow.stop();
     alert.stop();
+  });
+
+  it('预热后复用 slot reservation 与视觉外扩画像，并在 rebind 时更新', () => {
+    let styleReadCount = 0;
+    const createSlots = (revision: number) =>
+      Object.freeze([
+        Object.freeze({
+          slotKey: `probe-${revision}`,
+          style: new Proxy<StyleSpec>(
+            { strokes: [{ color: '#00e676', width: 2, lineJoin: 'round' }] },
+            {
+              get(target, property, receiver) {
+                styleReadCount += 1;
+                return Reflect.get(target, property, receiver);
+              }
+            }
+          )
+        })
+      ]);
+    const definition = {
+      type: 'pulse',
+      writeDomains: new Set(['overlay'] as const),
+      requirements: new Set(['structured-presentation'] as const),
+      interactionPolicy: Object.freeze({ edit: 'pause-and-suppress' as const, transform: 'pause-and-suppress' as const }),
+      normalize: () => Object.freeze({ type: 'pulse' as const, channel: 'profile-probe', repeat: true }),
+      assertCompatible: () => undefined,
+      create(initialTarget) {
+        let target = initialTarget;
+        let revision = 0;
+        let slots = createSlots(revision);
+        return {
+          get slots() {
+            return slots;
+          },
+          rebind(next) {
+            target = next;
+            revision += 1;
+            slots = createSlots(revision);
+          },
+          sample(_context, output) {
+            output.reset();
+            const slot = output.overlay(slots[0].slotKey);
+            slot.active = true;
+            slot.geometryKind = 'snapshot';
+            slot.geometry = target.geometry;
+            slot.opacity = 1;
+            return { finished: false, schedule: { kind: 'continuous' as const } };
+          },
+          destroy() {
+            return;
+          }
+        };
+      }
+    } satisfies AnimationDefinition<PulseAnimationSpec>;
+    const registry = new AnimationRegistry([definition]);
+    const { manager, render, store } = createAnimationHarness([pointElement('profile-probe')], registry);
+    const handle = manager.play({ id: 'profile-probe' }, { type: 'pulse' });
+    const offscreenExtent = [10_000, 10_000, 10_100, 10_100] as const;
+
+    const warm = render.frame('default', 0, 1, offscreenExtent);
+    const warmReservation = warm.slotReservations?.[0];
+    if (warmReservation === undefined) throw new Error('缺少预热 slot reservation');
+    const warmStyleReads = styleReadCount;
+    const observedReservations = new Set([warmReservation]);
+    for (let frame = 1; frame <= 300; frame += 1) {
+      const reservation = render.frame('default', frame * 16, 1, offscreenExtent).slotReservations?.[0];
+      if (reservation === undefined) throw new Error('稳定帧缺少 slot reservation');
+      observedReservations.add(reservation);
+    }
+
+    expect(observedReservations.size).toBe(1);
+    expect(styleReadCount).toBe(warmStyleReads);
+
+    store.update({ id: 'profile-probe' }, { data: { revision: 1 } });
+    const rebound = render.frame('default', 4_816, 1, offscreenExtent);
+    const reboundReservation = rebound.slotReservations?.[0];
+    expect(reboundReservation).toMatchObject({ kind: 'overlay', slotKey: 'profile-probe/probe-1' });
+    expect(reboundReservation).not.toBe(warmReservation);
+    expect(styleReadCount).toBeGreaterThan(warmStyleReads);
+    const reboundStyleReads = styleReadCount;
+    for (let frame = 1; frame <= 100; frame += 1) render.frame('default', 4_816 + frame * 16, 1, offscreenExtent);
+    expect(styleReadCount).toBe(reboundStyleReads);
+
+    handle.stop();
   });
 
   it('draws canonical geometry once while a completed grow releases its presentation lease', async () => {

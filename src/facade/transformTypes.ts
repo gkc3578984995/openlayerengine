@@ -90,7 +90,7 @@ export interface TransformOptions {
   translateBBox?: boolean;
   /** 是否禁止缩放和拉伸穿过零点后翻转。 */
   noFlip?: boolean;
-  /** 矩形缩放时是否维持矩形语义。 */
+  /** 矩形四角缩放时是否锁定宽高比，默认 false；拖动时按 Shift 可临时等比缩放。 */
   keepRectangle?: boolean;
   /** 几何外包框周围的缓冲，单位为 CSS 像素。 */
   buffer?: number;

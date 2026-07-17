@@ -162,7 +162,7 @@ describe('可组合动画效果配置', () => {
       direction: 'clockwise',
       gradient: [
         [0, [0, 32, 0, 0.1]],
-        [0.4, '#00aa44'],
+        [0.4, [0, 170, 68, 1]],
         [1, [0, 255, 0, 1]]
       ],
       opacity: 0.35,
@@ -176,6 +176,7 @@ describe('可组合动画效果配置', () => {
     expect(Object.isFrozen(normalized)).toBe(true);
     expect(Object.isFrozen(normalized.gradient)).toBe(true);
     expect(normalized.gradient?.every(Object.isFrozen)).toBe(true);
+    expect(normalized.gradient?.every((stop) => Array.isArray(stop[1]) && Object.isFrozen(stop[1]))).toBe(true);
   });
 
   it('radar-scan 沿用严格渐变色标规则并拒绝 color 与 gradient 同时出现', () => {
@@ -188,8 +189,8 @@ describe('可组合动画效果配置', () => {
         ]
       }).gradient
     ).toEqual([
-      [0.2, '#001100'],
-      [0.8, '#00ff00']
+      [0.2, [0, 17, 0, 1]],
+      [0.8, [0, 255, 0, 1]]
     ]);
 
     const invalidGradients: readonly unknown[] = [
@@ -270,7 +271,7 @@ describe('可组合动画效果配置', () => {
       periodMs: 1600,
       gradient: [
         [0, [0, 32, 0, 0.1]],
-        [0.4, '#00aa44'],
+        [0.4, [0, 170, 68, 1]],
         [1, [0, 255, 0, 1]]
       ],
       opacity: 0.7,
@@ -286,6 +287,7 @@ describe('可组合动画效果配置', () => {
     expect(Object.isFrozen(normalized)).toBe(true);
     expect(Object.isFrozen(normalized.gradient)).toBe(true);
     expect(normalized.gradient?.every(Object.isFrozen)).toBe(true);
+    expect(normalized.gradient?.every((stop) => Array.isArray(stop[1]) && Object.isFrozen(stop[1]))).toBe(true);
   });
 
   it('center-spread 沿用严格渐变色标规则并拒绝 color 与 gradient 同时出现', () => {
@@ -298,8 +300,8 @@ describe('可组合动画效果配置', () => {
         ]
       }).gradient
     ).toEqual([
-      [0.2, '#001100'],
-      [0.8, '#00ff00']
+      [0.2, [0, 17, 0, 1]],
+      [0.8, [0, 255, 0, 1]]
     ]);
 
     const invalidGradients: readonly unknown[] = [
@@ -717,7 +719,7 @@ describe('可组合动画 Runtime 草案', () => {
     });
 
     expect(radar.slots[0].style.fill).toEqual({ type: 'solid', color: [0, 255, 0, 1] });
-    expect(radar.slots.at(-1)?.style.fill).toEqual({ type: 'solid', color: '#001100' });
+    expect(radar.slots.at(-1)?.style.fill).toEqual({ type: 'solid', color: [0, 17, 0, 1] });
   });
 
   it.each(['clockwise', 'counterclockwise'] as const)('radar-scan full Circle repeat 在非 slot 对齐的早期 %s 帧完整跨越正北', (direction) => {

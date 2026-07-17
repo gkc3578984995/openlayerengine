@@ -105,7 +105,8 @@ describe('TransformToolbarAdapter', () => {
     expect(enabledRemove.disabled).toBe(false);
     expect(enabledRemove.className).not.toContain('is-disabled');
     enabledRemove.dispatch('click');
-    expect(events).toEqual([{ type: 'command', key: 'remove' }]);
+    expect(events).toEqual([{ type: 'command', key: 'remove', coordinate: [31, 42] }]);
+    expect(map.getEventCoordinate).toHaveBeenCalledOnce();
 
     view.destroy();
   });
@@ -126,8 +127,9 @@ describe('TransformToolbarAdapter', () => {
     expect(listener.mock.calls.map(([event]) => event)).toEqual([
       { type: 'enter', key: 'edit' },
       { type: 'leave', key: 'edit' },
-      { type: 'command', key: 'edit' }
+      { type: 'command', key: 'edit', coordinate: [31, 42] }
     ]);
+    expect(map.getEventCoordinate).toHaveBeenCalledOnce();
 
     view.hide();
     expect(root.hidden).toBe(true);
@@ -578,6 +580,7 @@ class FakeMap {
   readonly removedOverlays: OverlayRecord[] = [];
   readonly view = { on: vi.fn(() => ({ target: 'view' })) };
   readonly on = vi.fn(() => ({ target: 'map' }));
+  readonly getEventCoordinate = vi.fn(() => [31, 42]);
 
   addOverlay(overlay: OverlayRecord): void {
     this.addedOverlays.push(overlay);

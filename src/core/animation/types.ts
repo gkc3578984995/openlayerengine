@@ -55,13 +55,13 @@ export interface PathTravelAnimationSpec {
   readonly trailLength?: number;
   /** 移动轨迹使用的颜色。 */
   readonly color?: Color;
-  /** 按位置和颜色设置移动轨迹的渐变。 */
+  /** 按位置和颜色设置移动轨迹的渐变；支持 named、hex、传统逗号及现代数值 rgb/hsl 语法、`transparent` 和数值 RGB/RGBA。 */
   readonly gradient?: readonly (readonly [offset: number, color: Color])[];
   /** 移动轨迹的像素宽度。 */
   readonly width?: number;
-  /** `0` 使用原路径，其他值按路径长度控制弯曲方向和幅度。 */
+  /** `0` 使用原路径；两点路径使用二次 Bézier，多点路径使用 centripetal knot 与 waypoint 共享切线，正负值控制入弯或出弯侧重。 */
   readonly curvature?: number;
-  /** 设置路径采样段数，数值越大越平滑。 */
+  /** 设置整条曲线路径的采样预算；多点路径为避免曲率失效，每个非退化原始分段至少使用两个采样段。 */
   readonly smoothness?: number;
   /** 控制路径起点标记是否可见。 */
   readonly showStart?: boolean;
@@ -155,7 +155,7 @@ export interface RadarScanAnimationSpec {
   readonly direction?: 'clockwise' | 'counterclockwise';
   /** 雷达尾迹使用的纯色；不能和 `gradient` 同时设置。 */
   readonly color?: Color;
-  /** 从尾迹最旧端 `0` 到扫描前沿 `1` 的颜色渐变；不能和 `color` 同时设置。 */
+  /** 从尾迹最旧端 `0` 到扫描前沿 `1` 的颜色渐变；支持确定性 RGBA 颜色语法，不能和 `color` 同时设置。 */
   readonly gradient?: readonly (readonly [offset: number, color: Color])[];
   /** 雷达尾迹相对颜色 alpha 的透明度乘数。 */
   readonly opacity?: number;
@@ -175,7 +175,7 @@ export interface CenterSpreadAnimationSpec {
   readonly periodMs?: number;
   /** 扩散波纹使用的纯色；不能和 `gradient` 同时设置。 */
   readonly color?: Color;
-  /** 从内侧最旧尾迹 `0` 到外侧波纹前沿 `1` 的颜色渐变；不能和 `color` 同时设置。 */
+  /** 从内侧最旧尾迹 `0` 到外侧波纹前沿 `1` 的颜色渐变；支持确定性 RGBA 颜色语法，不能和 `color` 同时设置。 */
   readonly gradient?: readonly (readonly [offset: number, color: Color])[];
   /** 扩散波纹相对颜色 alpha 的透明度乘数。 */
   readonly opacity?: number;

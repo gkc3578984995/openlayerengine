@@ -1,6 +1,7 @@
 import type { Color } from '../../core/common/types.js';
 import { InvalidArgumentError } from '../../core/errors.js';
-import { arrayValues, color, copyColor, interpolateColor } from './validation.js';
+import { interpolateColor, normalizeInterpolableColor } from './cssColor.js';
+import { arrayValues, color, copyColor } from './validation.js';
 
 /** 严格校验颜色渐变，并复制、冻结调用方提供的色标。 */
 export function normalizeColorGradient(value: unknown, label: string): readonly (readonly [offset: number, color: Color])[] {
@@ -15,7 +16,10 @@ export function normalizeColorGradient(value: unknown, label: string): readonly 
       throw new InvalidArgumentError(`${label} offsets must increase within zero and one`);
     }
     previous = offset;
-    return Object.freeze([offset, color(stop[1], '#000000', `${label} stop ${index}`)] as const);
+    const stopColor = color(stop[1], '#000000', `${label} stop ${index} color`);
+    const rgba = normalizeInterpolableColor(stopColor, `${label} stop ${index} color`);
+    if (Array.isArray(rgba)) Object.freeze(rgba);
+    return Object.freeze([offset, rgba] as const);
   });
   return Object.freeze(result);
 }

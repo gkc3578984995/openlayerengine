@@ -237,7 +237,7 @@ export const animationsScenario: ScenarioDefinition = {
   steps: [
     '在独立演示卡中逐项播放 manifest 的 10 种内核默认效果；每种效果使用独立目标，可分别暂停、继续和停止。',
     '使用“播放全部独立演示”同时观察 Point、Polyline、Polygon、FineArrow、Circle 与 Sector 上的默认效果。',
-    '调节 AnimationSpec 字段，重点验证 path-travel 的 speed/durationMs 互斥、grow 方向、radar 的纯色/渐变尾迹和 fade retain 行为。',
+    '调节 AnimationSpec 字段，重点验证 path-travel 的 speed/durationMs 互斥与多点 curvature、grow 方向、radar 的纯色/渐变尾迹和 fade retain 行为。',
     '使用 AnimationHandle.pause()/resume()/stop()，核对 id、status 和 finished Promise。',
     '使用 AnimationManager.pause()/resume()/stop()，分别传入和省略 channels，核对受影响数量。',
     '按 manifest 同时启动全部效果后执行 stopAll()，确认所有活动渲染通道都停止且业务元素仍存在。'

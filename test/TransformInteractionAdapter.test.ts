@@ -108,7 +108,7 @@ const options: TransformInteractionOptions = {
   rotate: true,
   translateBBox: false,
   noFlip: true,
-  keepRectangle: true,
+  keepRectangle: false,
   buffer: 16,
   pointRadius: 8
 };
@@ -194,7 +194,7 @@ describe('TransformInteractionAdapter', () => {
     expect(map.layers.getLength()).toBe(0);
   });
 
-  it('keeps corner scaling proportional while Shift is pressed', () => {
+  it('keeps rectangle corner scaling proportional while Shift is pressed', () => {
     const map = new MapHarness();
     const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
     const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
@@ -202,7 +202,7 @@ describe('TransformInteractionAdapter', () => {
     const received: unknown[] = [];
     const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
     const handle = adapter.open('transform-shift-scale', { ...options, keepRectangle: false }, (event) => received.push(event));
-    handle.setTarget(polygonTarget());
+    handle.setTarget(rectangleTarget());
     map.hitHandleKey = 'scale-ne';
     const input = map.interactions.item(0);
     if (input === null) throw new Error('Transform interaction was not installed.');
@@ -216,6 +216,35 @@ describe('TransformInteractionAdapter', () => {
       expect.objectContaining({ type: 'operation-change', operation: 'scale', delta: { type: 'scale', scaleX: 2, scaleY: 2, center: [0, 0] } }),
       expect.objectContaining({ type: 'operation-end', operation: 'scale', delta: { type: 'scale', scaleX: 2, scaleY: 2, center: [0, 0] } })
     ]);
+    handle.destroy();
+  });
+
+  it.each([
+    { keepRectangle: false, scaleX: 2, scaleY: 3 },
+    { keepRectangle: true, scaleX: 3, scaleY: 3 }
+  ])('applies rectangle corner aspect locking only when keepRectangle is $keepRectangle', ({ keepRectangle, scaleX, scaleY }) => {
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open(`transform-rectangle-scale-${String(keepRectangle)}`, { ...options, keepRectangle }, (event) => received.push(event));
+    handle.setTarget(rectangleTarget());
+    map.hitHandleKey = 'scale-ne';
+    const input = map.interactions.item(0);
+    if (input === null) throw new Error('Transform interaction was not installed.');
+
+    input.handleEvent(pointerGestureEvent('pointerdown', [2, 1]));
+    input.handleEvent(pointerGestureEvent('pointerdrag', [4, 3]));
+    input.handleEvent(pointerGestureEvent('pointerup', [4, 3]));
+
+    expect(received).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'operation-change', operation: 'scale', delta: { type: 'scale', scaleX, scaleY, center: [0, 0] } }),
+        expect.objectContaining({ type: 'operation-end', operation: 'scale', delta: { type: 'scale', scaleX, scaleY, center: [0, 0] } })
+      ])
+    );
     handle.destroy();
   });
 
@@ -793,6 +822,49 @@ describe('TransformInteractionAdapter', () => {
     }
   });
 
+  it.each([
+    { source: 'explicit trigger position', explicit: true },
+    { source: 'latest map pointer', explicit: false }
+  ])('places the copy preview center at the current pointer from the $source and keeps it under the pointer', ({ explicit }) => {
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-copy-pointer-center', options, (event) => received.push(event));
+    handle.setTarget(polygonTarget());
+    const input = map.interactions.item(0);
+    if (input === null) throw new Error('Transform interaction was not installed.');
+    const previewGeometry = {
+      type: 'polygon' as const,
+      coordinates: [
+        [
+          [2, 17],
+          [2, 27],
+          [22, 27],
+          [22, 17],
+          [2, 17]
+        ]
+      ]
+    };
+
+    input.handleEvent(pointerGestureEvent('pointermove', explicit ? [5, 6] : [30, 40]));
+    if (explicit) handle.startCopyPreview({ geometry: previewGeometry, style: {} }, [30, 40]);
+    else handle.startCopyPreview({ geometry: previewGeometry, style: {} });
+    const copy = transformSource(map)
+      .getFeatures()
+      .find((feature) => feature.get('ol-engine-transform-copy') === true);
+    if (copy === undefined) throw new Error('Transform copy preview was not created.');
+
+    expect(geometryCenter(copy)).toEqual([30, 40]);
+    input.handleEvent(pointerGestureEvent('pointermove', [50, 25]));
+    expect(geometryCenter(copy)).toEqual([50, 25]);
+    input.handleEvent(pointerGestureEvent('pointerdown', [50, 25]));
+    expect(received).toContainEqual({ type: 'copy-preview-confirm', delta: { x: 38, y: 3 } });
+    handle.destroy();
+  });
+
   it('moves an active copy preview with the selected world without changing its user delta', () => {
     const map = new MapHarness();
     const binding = {
@@ -878,9 +950,13 @@ function editAnchorFeedbackFeature(map: MapHarness): Feature<Geometry> {
 }
 
 function geometryCenterX(feature: Feature<Geometry>): number {
+  return geometryCenter(feature)[0];
+}
+
+function geometryCenter(feature: Feature<Geometry>): readonly [number, number] {
   const extent = feature.getGeometry()?.getExtent();
   if (extent === undefined) throw new Error('Transform feature geometry was not found.');
-  return (extent[0] + extent[2]) / 2;
+  return [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
 }
 
 function polygonTarget(): TransformInteractionTarget {
@@ -903,6 +979,31 @@ function polygonTarget(): TransformInteractionTarget {
     editAnchors: [],
     canTranslate: true,
     canRotate: true,
+    canScale: true,
+    canStretch: true,
+    canEditVertices: false
+  };
+}
+
+function rectangleTarget(): TransformInteractionTarget {
+  const ring = [
+    [-2, -1],
+    [-2, 1],
+    [2, 1],
+    [2, -1],
+    [-2, -1]
+  ] as const;
+  return {
+    elementId: 'rectangle',
+    type: 'rectangle',
+    layerId: 'default',
+    geometry: { type: 'polygon', coordinates: [ring] },
+    style: {},
+    mode: 'transform',
+    controlPoints: [ring[0], ring[2]],
+    editAnchors: [],
+    canTranslate: true,
+    canRotate: false,
     canScale: true,
     canStretch: true,
     canEditVertices: false

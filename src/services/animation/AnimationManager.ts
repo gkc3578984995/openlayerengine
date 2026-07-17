@@ -37,6 +37,7 @@ import type {
   AnimationOverlaySlotBuffer,
   AnimationRuntime,
   AnimationSample,
+  AnimationSlotDefinition,
   AnimationStyleParameter,
   AnimationTargetProfile
 } from './types.js';
@@ -112,6 +113,8 @@ interface ElementRecord extends BaseRecord {
   /** 规范化后的动画配置。 */
   readonly spec: AnimationSpec;
   readonly runtime: AnimationRuntime;
+  /** Runtime 本次绑定对应的稳定 slot 声明与裁剪画像。 */
+  renderProfile: AnimationRecordRenderProfile;
   buffer: AnimationFrameBuffer;
   sample: AnimationSample | undefined;
   /** Runtime 独立 tick 时复用的最后一份视图参数。 */
@@ -156,6 +159,8 @@ interface PreparedElementState {
   readonly geometry: RenderGeometryState;
   /** 规范渲染几何的保守 View 坐标范围。 */
   readonly bounds: RenderBounds | undefined;
+  /** 规范样式相对 Geometry 的最大 CSS 像素外扩；undefined 表示不可安全裁剪。 */
+  readonly baseVisualOutsetPx: number | undefined;
   readonly target: AnimationTargetProfile;
   /** 元素实例生命周期令牌。 */
   readonly generation: ElementGeneration;
@@ -163,6 +168,20 @@ interface PreparedElementState {
   readonly revision: ElementRevision;
   /** 可安全按身份复用的预览输入。 */
   readonly sourceIdentity?: Readonly<ElementState>;
+}
+
+/** Runtime 在 create/rebind 边界生成、稳定帧只读复用的渲染元数据。 */
+interface AnimationRecordRenderProfile {
+  /** 当前 Runtime 绑定声明的稳定 slot。 */
+  readonly slots: readonly AnimationSlotDefinition[];
+  /** Adapter 用于保留 inactive slot 的不可变声明。 */
+  readonly slotReservations: readonly LayerRenderSlotReservation[];
+  /** target modifier 需要的基础展示 slot 声明。 */
+  readonly presentationReservation: LayerRenderSlotReservation | undefined;
+  /** 任一视觉范围无法可靠估算时禁用裁剪。 */
+  readonly disableViewportCulling: boolean;
+  /** Runtime 与所有 slot 样式的最大 CSS 像素外扩。 */
+  readonly visualOutsetPx: number;
 }
 
 /** Session 当前持有的预览输入；没有动画记录时只保留引用，延迟到 play 再准备帧数据。 */
@@ -235,7 +254,11 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#shapeProjection = dependencies.shapeProjection;
     this.#registry = dependencies.registry;
     this.#clock = dependencies.clock;
-    this.#deadlines = new AnimationDeadlineScheduler({ clock: dependencies.clock, wake: dependencies.wake, onWake: () => this.#handleDeadlineWake() });
+    this.#deadlines = new AnimationDeadlineScheduler({
+      clock: dependencies.clock,
+      wake: dependencies.wake,
+      onWake: (recordIds, now) => this.#handleDeadlineWake(recordIds, now)
+    });
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
     this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
   }
@@ -266,6 +289,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       interaction: PreparedElementState;
       suppressed: boolean;
       runtime: AnimationRuntime;
+      renderProfile: AnimationRecordRenderProfile;
       buffer: AnimationFrameBuffer;
       sample: AnimationSample;
     }> = [];
@@ -289,9 +313,11 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
           }
           const runtime = definition.create(bound.target, spec);
           try {
-            const buffer = createAnimationFrameBuffer(runtime.slots);
+            const slots = runtime.slots;
+            const buffer = createAnimationFrameBuffer(slots);
+            const renderProfile = createAnimationRecordRenderProfile(id, channel, definition, runtime, slots);
             const sample = runtime.sample({ target: bound.target, elapsedMs: 0, resolution: 1, rotation: 0, pixelRatio: 1 }, buffer);
-            candidates.push({ committed, interaction, suppressed, runtime, buffer, sample });
+            candidates.push({ committed, interaction, suppressed, runtime, renderProfile, buffer, sample });
           } catch (error) {
             runtime.destroy();
             throw error;
@@ -314,7 +340,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       return currentId === undefined ? undefined : this.#records.get(currentId);
     });
     try {
-      for (const { committed, interaction, suppressed, runtime, buffer, sample } of candidates) {
+      for (const { committed, interaction, suppressed, runtime, renderProfile, buffer, sample } of candidates) {
         const state = interaction.state;
         const order = ++this.#nextRecordId;
         const record: ElementRecord = {
@@ -329,6 +355,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
           definition,
           spec,
           runtime,
+          renderProfile,
           buffer,
           sample,
           lastRenderFrame: undefined,
@@ -811,9 +838,11 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#clearRecordDeadline(record);
     record.definition.assertCompatible(prepared.target);
     record.runtime.rebind(prepared.target);
-    record.buffer = createAnimationFrameBuffer(record.runtime.slots);
+    const slots = record.runtime.slots;
+    const nextBuffer = createAnimationFrameBuffer(slots);
+    const nextRenderProfile = createAnimationRecordRenderProfile(record.elementId, record.channel, record.definition, record.runtime, slots);
     const frame = record.lastRenderFrame;
-    record.sample = record.runtime.sample(
+    const nextSample = record.runtime.sample(
       {
         target: prepared.target,
         elapsedMs: record.elapsedMs,
@@ -822,8 +851,11 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
         pixelRatio: frame?.pixelRatio ?? 1,
         ...(frame === undefined ? {} : { extent: frame.extent })
       },
-      record.buffer
+      nextBuffer
     );
+    record.renderProfile = nextRenderProfile;
+    record.buffer = nextBuffer;
+    record.sample = nextSample;
     if (record.sample.finished) this.#finishRecord(record, record.sample.retain === true, 'finished');
     else this.#syncRecordDeadline(record, now);
   }
@@ -853,16 +885,16 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   }
 
   /** 在无渲染帧时独立推进已到期的阶跃或终态记录。 */
-  #handleDeadlineWake(): void {
+  #handleDeadlineWake(recordIds: readonly string[], now: number): void {
     if (this.#disposed || this.#destroyRequested) return;
-    const now = this.#clock.now();
     if (!Number.isFinite(now)) throw new InvalidArgumentError('Animation clock must return a finite timestamp');
     const finished: Array<{ record: ElementRecord; retain: boolean; status: TerminalStatus }> = [];
     const presentationCleanupCandidates: Array<{ readonly elementId: string; readonly layerId: string }> = [];
     const affectedLayers = new Set<string>();
     const renderLayers = new Set<string>();
-    for (const record of [...this.#records.values()]) {
-      if (record.kind !== 'element' || record.deadlineTimestamp === undefined || record.deadlineTimestamp > now || !this.#isRunning(record)) continue;
+    for (const recordId of recordIds) {
+      const record = this.#records.get(recordId);
+      if (record?.kind !== 'element' || record.deadlineTimestamp === undefined || record.deadlineTimestamp > now || !this.#isRunning(record)) continue;
       const prepared = this.#previews.get(record.elementId) ?? this.#committedStates.get(record.elementId);
       if (prepared === undefined) {
         affectedLayers.add(record.layerId);
@@ -1066,7 +1098,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
 
       const primitives: LayerRenderPrimitive[] = [];
       for (const record of sampled) {
-        const slots = record.runtime.slots;
+        const slots = record.renderProfile.slots;
         if (slots.length !== record.buffer.overlays.length) throw new InvalidArgumentError('Animation runtime changed slots without rebind');
         for (let index = 0; index < slots.length; index += 1) {
           const value = record.buffer.overlays[index];
@@ -1135,22 +1167,13 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     for (const [elementId, group] of elementGroups) {
       const prepared = this.#previews.get(elementId) ?? this.#committedStates.get(elementId);
       if (prepared === undefined || prepared.state.layerId !== layerId || !prepared.state.visible) continue;
-      let reservePresentation = false;
+      let presentationReservation: LayerRenderSlotReservation | undefined;
       for (const record of group) {
         if (this.#records.get(record.id) !== record || !this.#shouldRender(record)) continue;
-        reservePresentation ||= record.definition.writeDomains.has('target-opacity') || record.definition.writeDomains.has('target-geometry');
-        for (const slot of record.runtime.slots) {
-          reservations.push(
-            Object.freeze({
-              kind: 'overlay',
-              targetId: elementId,
-              channel: ANIMATION_RENDER_CHANNEL,
-              slotKey: `${record.channel}/${slot.slotKey}`
-            })
-          );
-        }
+        presentationReservation ??= record.renderProfile.presentationReservation;
+        for (const reservation of record.renderProfile.slotReservations) reservations.push(reservation);
       }
-      if (reservePresentation) reservations.push(Object.freeze({ kind: 'presentation', targetId: elementId }));
+      if (presentationReservation !== undefined) reservations.push(presentationReservation);
     }
     return reservations;
   }
@@ -1249,6 +1272,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       state,
       geometry,
       bounds: renderGeometryBounds(geometry),
+      baseVisualOutsetPx: styleVisualOutsetPx(state.style as StyleSpec),
       target: Object.freeze({ state, viewShape, geometry, style: state.style as StyleSpec, shape }),
       generation,
       revision
@@ -1287,6 +1311,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       state: snapshot,
       geometry: frozenGeometry,
       bounds: renderGeometryBounds(frozenGeometry),
+      baseVisualOutsetPx: styleVisualOutsetPx(snapshot.style as StyleSpec),
       target: Object.freeze({ state: snapshot, viewShape, geometry: frozenGeometry, style: snapshot.style as StyleSpec, shape }),
       generation: committed.generation,
       revision: committed.revision,
@@ -1391,6 +1416,45 @@ function dynamicStyleValue(value: AnimationOverlaySlotBuffer): LayerRenderDynami
   });
 }
 
+/** 在 Runtime create/rebind 边界固定 slot 声明和视觉范围，稳定帧不重复遍历 StyleSpec。 */
+function createAnimationRecordRenderProfile(
+  elementId: string,
+  channel: string,
+  definition: AnimationDefinition,
+  runtime: AnimationRuntime,
+  slots: readonly AnimationSlotDefinition[]
+): AnimationRecordRenderProfile {
+  const slotReservations = Object.freeze(
+    slots.map(({ slotKey }) =>
+      Object.freeze({
+        kind: 'overlay' as const,
+        targetId: elementId,
+        channel: ANIMATION_RENDER_CHANNEL,
+        slotKey: `${channel}/${slotKey}`
+      })
+    )
+  );
+  const hasPresentation = definition.writeDomains.has('target-opacity') || definition.writeDomains.has('target-geometry');
+  const presentationReservation = hasPresentation ? Object.freeze({ kind: 'presentation' as const, targetId: elementId }) : undefined;
+  let disableViewportCulling = runtime.disableViewportCulling === true;
+  let visualOutsetPx = 0;
+  if (!disableViewportCulling && runtime.visualOutsetPx !== undefined) {
+    if (!Number.isFinite(runtime.visualOutsetPx) || runtime.visualOutsetPx < 0) disableViewportCulling = true;
+    else visualOutsetPx = runtime.visualOutsetPx;
+  }
+  if (!disableViewportCulling) {
+    for (const { style } of slots) {
+      const slotOutset = styleVisualOutsetPx(style);
+      if (slotOutset === undefined) {
+        disableViewportCulling = true;
+        break;
+      }
+      visualOutsetPx = Math.max(visualOutsetPx, slotOutset);
+    }
+  }
+  return Object.freeze({ slots, slotReservations, presentationReservation, disableViewportCulling, visualOutsetPx });
+}
+
 function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryState {
   if (geometry.type === 'point') {
     Object.freeze(geometry.coordinates);
@@ -1440,25 +1504,15 @@ function renderGeometryBounds(geometry: RenderGeometryState): RenderBounds | und
 /** 使用可证明安全的视觉外扩裁剪离屏目标；无法估算时保守保留。 */
 function animationTargetIntersectsFrame(prepared: PreparedElementState, records: readonly ElementRecord[], frame: LayerRenderFrame): boolean {
   const bounds = prepared.bounds;
-  if (bounds === undefined || records.some(({ runtime }) => runtime.disableViewportCulling === true)) return true;
+  if (bounds === undefined || records.some(({ renderProfile }) => renderProfile.disableViewportCulling)) return true;
   if (!Number.isFinite(frame.resolution) || frame.resolution <= 0 || frame.extent.some((value) => !Number.isFinite(value))) return true;
   let outsetPx = 0;
   if (records.some(({ definition }) => definition.writeDomains.has('target-opacity') || definition.writeDomains.has('target-geometry'))) {
-    const baseOutset = styleVisualOutsetPx(prepared.target.style);
+    const baseOutset = prepared.baseVisualOutsetPx;
     if (baseOutset === undefined) return true;
     outsetPx = baseOutset;
   }
-  for (const { runtime } of records) {
-    if (runtime.visualOutsetPx !== undefined) {
-      if (!Number.isFinite(runtime.visualOutsetPx) || runtime.visualOutsetPx < 0) return true;
-      outsetPx = Math.max(outsetPx, runtime.visualOutsetPx);
-    }
-    for (const { style } of runtime.slots) {
-      const slotOutset = styleVisualOutsetPx(style);
-      if (slotOutset === undefined) return true;
-      outsetPx = Math.max(outsetPx, slotOutset);
-    }
-  }
+  for (const { renderProfile } of records) outsetPx = Math.max(outsetPx, renderProfile.visualOutsetPx);
   const padding = outsetPx * frame.resolution;
   const minX = bounds[0] - padding;
   const minY = bounds[1] - padding;

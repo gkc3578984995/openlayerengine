@@ -38,7 +38,7 @@ export interface TransformToolbarViewSpec {
 }
 
 export type TransformToolbarViewEvent =
-  Readonly<{ type: 'command'; key: string }> | Readonly<{ type: 'enter'; key: string }> | Readonly<{ type: 'leave'; key: string }>;
+  Readonly<{ type: 'command'; key: string; coordinate?: Coordinate }> | Readonly<{ type: 'enter'; key: string }> | Readonly<{ type: 'leave'; key: string }>;
 
 export interface TransformToolbarViewHandle {
   /** 设置工具栏激活项目。 */
