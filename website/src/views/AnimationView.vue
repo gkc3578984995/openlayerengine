@@ -267,15 +267,23 @@ const specDocuments: readonly SpecDocument[] = [
     id: 'api-type-centerspreadanimationspec',
     type: 'center-spread',
     name: 'CenterSpreadAnimationSpec',
-    summary: '从圆形或扇面中心错峰发射固定数量的扩散环或扩散弧。',
+    summary: '从圆形或扇面中心错峰发射固定数量的径向波纹带，每条波纹以前沿弧和内侧尾迹共同表现扩散能量。',
     capability: '仅支持 Circle 与 Sector radial provider；要求 StyleSpec。',
     completion: 'repeat 为 false 时等待最后一个环完成后移除全部 slot。',
-    minimal: "earth.animations.play({ id: 'circle-1' }, { type: 'center-spread' });",
+    minimal: "earth.animations.play({ id: 'sector-1' }, { type: 'center-spread' });",
     rows: [
       ...commonSpecRows('center-spread'),
       { name: 'periodMs', desc: '单个环从中心传播到外半径的寿命，有限正数，单位毫秒', type: 'number?', default: '1600' },
-      { name: 'color', desc: '扩散环颜色；颜色自身 alpha 会参与相乘', type: 'Color?', default: "'#00e5ff'" },
-      { name: 'strokeWidth', desc: '扩散环像素宽度，有限非负数', type: 'number?', default: '2' },
+      { name: 'color', desc: '纯色波纹带快捷配置；颜色自身 alpha 会参与相乘，不能与 gradient 同时设置', type: 'Color?', default: "'#00e676'" },
+      {
+        name: 'gradient',
+        desc: '径向尾迹色标；至少两个、offset 在 [0, 1] 内严格递增，0 表示内侧最旧尾迹、1 表示外侧波纹前沿；不能与 color 同时设置',
+        type: 'readonly [number, Color][]?',
+        default: '—'
+      },
+      { name: 'opacity', desc: '波纹带相对颜色 alpha 的乘数，范围 [0, 1]', type: 'number?', default: '0.7' },
+      { name: 'trailLength', desc: '尾迹占目标外半径的比例，范围 [0, 1]；设置为 0 时退化为旧版线环', type: 'number?', default: '0.18' },
+      { name: 'strokeWidth', desc: '波纹前沿弧的像素宽度，有限非负数', type: 'number?', default: '2' },
       { name: 'ringCount', desc: '错峰传播的稳定环数量，1..5 的安全整数', type: 'number?', default: '3' },
       { name: 'repeat', desc: '全部环完成一轮传播后是否重新开始', type: 'boolean?', default: 'true' }
     ]
@@ -526,7 +534,7 @@ const anchors: AnchorItem[] = [
         <div id="example-animation-effects">
           <ExampleBlock
             title="十种效果与完整控制"
-            :description="`效果列表由公开 <code><a href=&quot;#api-type-animationtype&quot;>animationTypes</a></code> 与同源清单生成，默认选中 radar-scan，可在启动前切换绿色渐变或纯色尾迹。点击启动后，可通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-pause&quot;>pause</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-resume&quot;>resume</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-stop&quot;>stop</a></code> 控制最近的 <code><a href=&quot;#api-type-animationhandle&quot;>AnimationHandle</a></code>；组件卸载时停止全部句柄并销毁 Earth。`"
+            :description="`效果列表由公开 <code><a href=&quot;#api-type-animationtype&quot;>animationTypes</a></code> 与同源清单生成。radar-scan 可切换绿色渐变或纯色尾迹；center-spread 默认切换到 Sector，并提供相同的纯色/绿色渐变选择及 opacity、trailLength 对照。点击启动后，可通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-pause&quot;>pause</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-resume&quot;>resume</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-stop&quot;>stop</a></code> 控制最近的 <code><a href=&quot;#api-type-animationhandle&quot;>AnimationHandle</a></code>；组件卸载时停止全部句柄并销毁 Earth。`"
             :source="animationEffectsSource"
           >
             <template #preview>
@@ -658,7 +666,10 @@ const anchors: AnchorItem[] = [
         </p>
         <ul class="doc-list animation-spaced-list">
           <li>暂停、隐藏、steady highlight、fade-out retained 和全部离屏目标不会持续请求无效地图帧；blink 只在阶跃边界唤醒。</li>
-          <li>radar 尾迹默认 10 个稳定 slot、硬上限 16；center-spread 默认 3 个、硬上限 5。slot 数不会随播放时长增长。</li>
+          <li>
+            radar 尾迹默认 10 个稳定 slot、硬上限 16；center-spread 每环固定 4 个填充 slot 加 1 个前沿 slot，默认 3 环共 15 个、硬上限 25。slot
+            数不会随播放时长增长。
+          </li>
           <li>大量高覆盖面积的呼吸、告警和径向效果仍会增加 fill rate；按模块批量 pause/stop，降低同时可见目标数，并优先放入独立动画图层。</li>
           <li>
             组件卸载时保存并停止所有 <code><a href="#api-type-animationhandle">AnimationHandle</a></code

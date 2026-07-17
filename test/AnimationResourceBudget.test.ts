@@ -153,11 +153,12 @@ describe('动画性能与资源预算', () => {
     const spread = centerSpreadAnimationDefinition.create(radialTarget, spreadSpec);
     const spreadSlots = spread.slots;
     const spreadBuffer = createAnimationFrameBuffer(spreadSlots);
-    expect(spreadSlots).toHaveLength(5);
+    expect(spreadSlots).toHaveLength(25);
+    expect(spreadSlots.length).toBeLessThanOrEqual(25);
     for (let frame = 0; frame < 300; frame += 1) {
       spread.sample(frameContext(radialTarget, frame * 17), spreadBuffer);
       expect(spread.slots).toBe(spreadSlots);
-      expect(spreadBuffer.overlays.filter(({ active }) => active).length).toBeLessThanOrEqual(5);
+      expect(spreadBuffer.overlays.filter(({ active }) => active).length).toBeLessThanOrEqual(25);
     }
 
     const pathTarget = polylineTarget();

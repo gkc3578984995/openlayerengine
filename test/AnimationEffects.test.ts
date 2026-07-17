@@ -77,7 +77,9 @@ describe('可组合动画效果配置', () => {
       type: 'center-spread',
       channel: 'center-spread',
       periodMs: 1600,
-      color: '#00e5ff',
+      color: '#00e676',
+      opacity: 0.7,
+      trailLength: 0.18,
       strokeWidth: 2,
       ringCount: 3,
       repeat: true
@@ -107,6 +109,10 @@ describe('可组合动画效果配置', () => {
       () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 0 }),
       () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 2.5 }),
       () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 6 }),
+      () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', opacity: -0.01 }),
+      () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', opacity: Number.NaN }),
+      () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', trailLength: -0.01 }),
+      () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', trailLength: 1.01 }),
       () => normalizeFadeAnimationSpec({ type: 'fade' }),
       () => normalizeFadeAnimationSpec({ type: 'fade', direction: 'in', durationMs: Number.POSITIVE_INFINITY })
     ];
@@ -242,6 +248,116 @@ describe('可组合动画效果配置', () => {
     expect(() => normalizeRadarScanAnimationSpec({ type: 'radar-scan', gradient: [accessorStop, [1, '#00ff00']] })).toThrowError(InvalidArgumentError);
     expect(colorGetter).not.toHaveBeenCalled();
   });
+
+  it('center-spread 复制并冻结合法渐变，且不修改调用方输入', () => {
+    const input = {
+      type: 'center-spread',
+      channel: 'custom-spread',
+      gradient: [
+        [0, [0, 32, 0, 0.1]],
+        [0.4, '#00aa44'],
+        [1, [0, 255, 0, 1]]
+      ]
+    };
+    const original = structuredClone(input);
+
+    const normalized = normalizeCenterSpreadAnimationSpec(input);
+
+    expect(input).toEqual(original);
+    expect(normalized).toEqual({
+      type: 'center-spread',
+      channel: 'custom-spread',
+      periodMs: 1600,
+      gradient: [
+        [0, [0, 32, 0, 0.1]],
+        [0.4, '#00aa44'],
+        [1, [0, 255, 0, 1]]
+      ],
+      opacity: 0.7,
+      trailLength: 0.18,
+      strokeWidth: 2,
+      ringCount: 3,
+      repeat: true
+    });
+    expect('color' in normalized).toBe(false);
+    expect(normalized.gradient).not.toBe(input.gradient);
+    expect(normalized.gradient?.[0]).not.toBe(input.gradient[0]);
+    expect(normalized.gradient?.[0][1]).not.toBe(input.gradient[0][1]);
+    expect(Object.isFrozen(normalized)).toBe(true);
+    expect(Object.isFrozen(normalized.gradient)).toBe(true);
+    expect(normalized.gradient?.every(Object.isFrozen)).toBe(true);
+  });
+
+  it('center-spread 沿用严格渐变色标规则并拒绝 color 与 gradient 同时出现', () => {
+    expect(
+      normalizeCenterSpreadAnimationSpec({
+        type: 'center-spread',
+        gradient: [
+          [0.2, '#001100'],
+          [0.8, '#00ff00']
+        ]
+      }).gradient
+    ).toEqual([
+      [0.2, '#001100'],
+      [0.8, '#00ff00']
+    ]);
+
+    const invalidGradients: readonly unknown[] = [
+      [[0, '#001100']],
+      [
+        [0, '#001100', 'extra'],
+        [1, '#00ff00']
+      ],
+      [
+        [-0.01, '#001100'],
+        [1, '#00ff00']
+      ],
+      [
+        [0, '#001100'],
+        [1.01, '#00ff00']
+      ],
+      [
+        [Number.NaN, '#001100'],
+        [1, '#00ff00']
+      ],
+      [
+        [0, '#001100'],
+        [Number.POSITIVE_INFINITY, '#00ff00']
+      ],
+      [
+        [0, '#001100'],
+        [0, '#00ff00']
+      ],
+      [
+        [0.8, '#001100'],
+        [0.2, '#00ff00']
+      ],
+      [
+        [0, ''],
+        [1, '#00ff00']
+      ]
+    ];
+    for (const gradient of invalidGradients) {
+      expect(() => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', gradient })).toThrowError(InvalidArgumentError);
+    }
+    expect(() =>
+      normalizeCenterSpreadAnimationSpec({
+        type: 'center-spread',
+        color: '#00e676',
+        gradient: [
+          [0, '#001100'],
+          [1, '#00ff00']
+        ]
+      })
+    ).toThrowError(InvalidArgumentError);
+
+    const colorGetter = vi.fn(() => '#00ff00');
+    const accessorStop = [0];
+    Object.defineProperty(accessorStop, 1, { enumerable: true, get: colorGetter });
+    Object.defineProperty(accessorStop, 'length', { value: 2 });
+    expect(() => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', gradient: [accessorStop, [1, '#00ff00']] })).toThrowError(InvalidArgumentError);
+    expect(colorGetter).not.toHaveBeenCalled();
+  });
 });
 
 describe('可组合动画纯时间函数', () => {
@@ -374,7 +490,7 @@ describe('可组合动画 Runtime 草案', () => {
     const alert = createRuntime(alertAnimationDefinition, surface, { type: 'alert', fillOpacity: 0, strokeWidth: 0, repeat: true });
     const radial = radialTarget();
     const radar = createRuntime(radarScanAnimationDefinition, radial, { type: 'radar-scan', opacity: 0, repeat: true });
-    const spread = createRuntime(centerSpreadAnimationDefinition, radial, { type: 'center-spread', strokeWidth: 0, repeat: true });
+    const spread = createRuntime(centerSpreadAnimationDefinition, radial, { type: 'center-spread', opacity: 0, strokeWidth: 0, repeat: true });
 
     for (const [runtime, target] of [
       [highlight, surface],
@@ -475,13 +591,119 @@ describe('可组合动画 Runtime 草案', () => {
     const spread = createRuntime(centerSpreadAnimationDefinition, target, { type: 'center-spread', periodMs: 1200, ringCount: 3 });
     const spreadBuffer = createAnimationFrameBuffer(spread.slots);
     sample(spread, spreadBuffer, target, 600);
-    expect(spread.slots).toHaveLength(3);
-    expect(spreadBuffer.overlays[0].geometry).toEqual({ type: 'circle', center: [0, 0], radius: 50 });
-    expect(spreadBuffer.overlays[0].opacity).toBe(0.5);
-    expect(spreadBuffer.overlays[2].active).toBe(false);
+    expect(spread.slots).toHaveLength(15);
+    expect(spread.slots.slice(0, 4).every(({ style }) => style.fill !== undefined)).toBe(true);
+    expect(spread.slots[4].style.strokes).toEqual([{ color: '#00e676', width: 2 }]);
+    expect(spreadBuffer.overlays[0].geometry?.type).toBe('polygon');
+    expect(spreadBuffer.overlays[4].geometry).toEqual({ type: 'circle', center: [0, 0], radius: 50 });
+    expect(spreadBuffer.overlays[0].opacity).toBeCloseTo(0.35);
+    expect(spreadBuffer.overlays[1].opacity).toBeCloseTo(0.2625);
+    expect(spreadBuffer.overlays.slice(10).every(({ active }) => !active)).toBe(true);
     const stableSpreadGeometry = spreadBuffer.overlays[0].geometry;
     sample(spread, spreadBuffer, target, 700);
     expect(spreadBuffer.overlays[0].geometry).toBe(stableSpreadGeometry);
+  });
+
+  it('center-spread 每环固定四个尾迹填充槽和一个独立前沿槽', () => {
+    const target = radialTarget();
+    const spread = createRuntime(centerSpreadAnimationDefinition, target, {
+      type: 'center-spread',
+      periodMs: 1000,
+      ringCount: 2,
+      trailLength: 0
+    });
+    const buffer = createAnimationFrameBuffer(spread.slots);
+
+    expect(spread.slots).toHaveLength(10);
+    for (let ringIndex = 0; ringIndex < 2; ringIndex += 1) {
+      const ringSlots = spread.slots.slice(ringIndex * 5, ringIndex * 5 + 5);
+      expect(ringSlots.slice(0, 4).every(({ style }) => style.fill !== undefined && style.strokes === undefined)).toBe(true);
+      expect(ringSlots[4].style.fill).toBeUndefined();
+      expect(ringSlots[4].style.strokes).toEqual([{ color: '#00e676', width: 2 }]);
+    }
+
+    sample(spread, buffer, target, 500);
+    expect(buffer.overlays.slice(0, 4).every(({ active }) => !active)).toBe(true);
+    expect(buffer.overlays[4]).toEqual(expect.objectContaining({ active: true, geometry: { type: 'circle', center: [0, 0], radius: 50 }, opacity: 0.35 }));
+    expect(buffer.overlays.slice(5).every(({ active }) => !active)).toBe(true);
+  });
+
+  it('center-spread 的渐变 offset 从内侧最旧端指向外侧前沿，并按尾迹强度与扩散进度合成透明度', () => {
+    const target = radialTarget();
+    const spread = createRuntime(centerSpreadAnimationDefinition, target, {
+      type: 'center-spread',
+      periodMs: 1000,
+      ringCount: 1,
+      gradient: [
+        [0, [0, 16, 0, 0.2]],
+        [1, [0, 240, 0, 0.8]]
+      ],
+      opacity: 0.6,
+      trailLength: 0.4
+    });
+    const buffer = createAnimationFrameBuffer(spread.slots);
+
+    expect(spread.slots[0].style.fill).toEqual({ type: 'solid', color: [0, 240, 0, 0.8] });
+    expect(spread.slots[3].style.fill).toEqual({ type: 'solid', color: [0, 16, 0, 0.2] });
+    expect(spread.slots[4].style.strokes).toEqual([{ color: [0, 240, 0, 0.8], width: 2 }]);
+
+    sample(spread, buffer, target, 500);
+    const expectedOpacities = [0.3, 0.225, 0.15, 0.075];
+    for (let index = 0; index < expectedOpacities.length; index += 1) expect(buffer.overlays[index].opacity).toBeCloseTo(expectedOpacities[index]);
+    expect(buffer.overlays[4].opacity).toBeCloseTo(0.3);
+    expect(0.8 * buffer.overlays[0].opacity).toBeCloseTo(0.24);
+    expect(0.2 * buffer.overlays[3].opacity).toBeCloseTo(0.015);
+  });
+
+  it('center-spread 在 Circle 上绘制无接缝环形带，并保持外到内的固定径向分段', () => {
+    const target = radialTarget();
+    const spread = createRuntime(centerSpreadAnimationDefinition, target, {
+      type: 'center-spread',
+      periodMs: 1000,
+      ringCount: 1,
+      trailLength: 0.18
+    });
+    const buffer = createAnimationFrameBuffer(spread.slots);
+
+    sample(spread, buffer, target, 500);
+
+    const expectedBands = [
+      [45.5, 50],
+      [41, 45.5],
+      [36.5, 41],
+      [32, 36.5]
+    ] as const;
+    for (let index = 0; index < expectedBands.length; index += 1) {
+      const geometry = polygonGeometryFrom(buffer.overlays[index].geometry);
+      expect(geometry.coordinates).toHaveLength(2);
+      for (const ring of geometry.coordinates) expect(ring.at(-1)).toEqual(ring[0]);
+      expectRadialRange(geometry.coordinates.flat(), [0, 0], expectedBands[index][0], expectedBands[index][1]);
+    }
+    expect(buffer.overlays[4].geometry).toEqual({ type: 'circle', center: [0, 0], radius: 50 });
+  });
+
+  it('center-spread 在 Sector 上绘制受两条边界射线裁剪的环形扇面带', () => {
+    const target = sectorRadialTarget();
+    const spread = createRuntime(centerSpreadAnimationDefinition, target, {
+      type: 'center-spread',
+      periodMs: 1000,
+      ringCount: 1,
+      trailLength: 0.18
+    });
+    const buffer = createAnimationFrameBuffer(spread.slots);
+
+    sample(spread, buffer, target, 500);
+
+    for (const overlay of buffer.overlays.slice(0, 4)) {
+      const geometry = polygonGeometryFrom(overlay.geometry);
+      expect(geometry.coordinates).toHaveLength(1);
+      expect(geometry.coordinates[0].at(-1)).toEqual(geometry.coordinates[0][0]);
+      for (const coordinate of geometry.coordinates[0]) expect(coordinate[1]).toBeGreaterThanOrEqual(-1e-10);
+    }
+    const front = polylineGeometryFrom(buffer.overlays[4].geometry).coordinates;
+    expectCoordinateCloseTo(front[0], [50, 0]);
+    expectCoordinateCloseTo(front.at(-1), [-50, 0]);
+    for (const coordinate of front) expect(coordinate[1]).toBeGreaterThanOrEqual(-1e-10);
   });
 
   it('radar-scan 渐变从 offset 0 的最旧端过渡到 offset 1 的扫描前沿', () => {
@@ -607,26 +829,29 @@ describe('可组合动画 Runtime 草案', () => {
     const buffer = createAnimationFrameBuffer(spread.slots);
 
     sample(spread, buffer, target, 900, 1);
-    const geometry = polylineGeometryFrom(buffer.overlays[0].geometry);
+    const stableFillGeometry = buffer.overlays[0].geometry;
+    const geometry = polylineGeometryFrom(buffer.overlays[4].geometry);
     const coordinates = geometry.coordinates;
     const coarseCoordinates = [...coordinates];
     const coarseLength = coordinates.length;
     expect(maxChordErrorCssPx(coordinates, [0, 0], 90, 1)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
 
     sample(spread, buffer, target, 900, 1.5);
-    const sameBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    const sameBucketCoordinates = polylineGeometryFrom(buffer.overlays[4].geometry).coordinates;
+    expect(buffer.overlays[0].geometry).toBe(stableFillGeometry);
     expect(sameBucketCoordinates).toBe(coordinates);
     expect(sameBucketCoordinates).toHaveLength(coarseLength);
     for (let index = 0; index < coarseCoordinates.length; index += 1) expect(sameBucketCoordinates[index]).toBe(coarseCoordinates[index]);
 
     sample(spread, buffer, target, 900, 0.5);
-    const fineCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    const fineCoordinates = polylineGeometryFrom(buffer.overlays[4].geometry).coordinates;
+    expect(buffer.overlays[0].geometry).toBe(stableFillGeometry);
     expect(fineCoordinates).toBe(coordinates);
     expect(fineCoordinates.length).toBeGreaterThan(coarseLength);
     const fineCoordinateRefs = [...fineCoordinates];
 
     sample(spread, buffer, target, 900, 0.75);
-    const sameFineBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    const sameFineBucketCoordinates = polylineGeometryFrom(buffer.overlays[4].geometry).coordinates;
     expect(sameFineBucketCoordinates).toBe(fineCoordinates);
     expect(sameFineBucketCoordinates).toHaveLength(fineCoordinateRefs.length);
     for (let index = 0; index < fineCoordinateRefs.length; index += 1) expect(sameFineBucketCoordinates[index]).toBe(fineCoordinateRefs[index]);
@@ -635,7 +860,8 @@ describe('可组合动画 Runtime 草案', () => {
     const sameRadiusBucketTarget = sectorRadialTarget(120);
     spread.rebind(sameRadiusBucketTarget);
     sample(spread, buffer, sameRadiusBucketTarget, 900, 0.75);
-    const sameRadiusBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    const sameRadiusBucketCoordinates = polylineGeometryFrom(buffer.overlays[4].geometry).coordinates;
+    expect(buffer.overlays[0].geometry).toBe(stableFillGeometry);
     expect(sameRadiusBucketCoordinates).toBe(coordinates);
     expect(sameRadiusBucketCoordinates).toHaveLength(fineCoordinateRefs.length);
     for (let index = 0; index < fineCoordinateRefs.length; index += 1) expect(sameRadiusBucketCoordinates[index]).toBe(fineCoordinateRefs[index]);
@@ -644,7 +870,8 @@ describe('可组合动画 Runtime 草案', () => {
     const largerRadiusBucketTarget = sectorRadialTarget(200);
     spread.rebind(largerRadiusBucketTarget);
     sample(spread, buffer, largerRadiusBucketTarget, 900, 0.75);
-    const largerRadiusBucketCoordinates = polylineGeometryFrom(buffer.overlays[0].geometry).coordinates;
+    const largerRadiusBucketCoordinates = polylineGeometryFrom(buffer.overlays[4].geometry).coordinates;
+    expect(buffer.overlays[0].geometry).toBe(stableFillGeometry);
     expect(largerRadiusBucketCoordinates).toBe(coordinates);
     expect(largerRadiusBucketCoordinates.length).toBeGreaterThan(fineCoordinateRefs.length);
     expect(maxChordErrorCssPx(largerRadiusBucketCoordinates, [0, 0], 180, 0.75)).toBeLessThanOrEqual(0.75 + Number.EPSILON);
@@ -771,6 +998,18 @@ function polygonGeometryFrom(geometry: RenderGeometryState | undefined): Extract
 function polylineGeometryFrom(geometry: RenderGeometryState | undefined): Extract<RenderGeometryState, { type: 'polyline' }> {
   if (geometry?.type !== 'polyline') throw new Error('Expected polyline animation geometry');
   return geometry;
+}
+
+function expectRadialRange(coordinates: readonly Coordinate[], center: Coordinate, expectedMinimum: number, expectedMaximum: number): void {
+  const radii = coordinates.map((coordinate) => Math.hypot(coordinate[0] - center[0], coordinate[1] - center[1]));
+  expect(Math.min(...radii)).toBeCloseTo(expectedMinimum, 10);
+  expect(Math.max(...radii)).toBeCloseTo(expectedMaximum, 10);
+}
+
+function expectCoordinateCloseTo(actual: Coordinate | undefined, expected: Coordinate): void {
+  if (actual === undefined) throw new Error('Expected coordinate');
+  expect(actual).toHaveLength(expected.length);
+  for (let index = 0; index < expected.length; index += 1) expect(actual[index]).toBeCloseTo(expected[index], 10);
 }
 
 function maxChordErrorCssPx(coordinates: readonly Coordinate[], center: Coordinate, radius: number, resolution: number): number {

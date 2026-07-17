@@ -1,5 +1,6 @@
 import type { CenterSpreadAnimationSpec } from '../../core/animation/types.js';
-import type { Coordinate } from '../../core/common/types.js';
+import type { Color, Coordinate } from '../../core/common/types.js';
+import { InvalidArgumentError } from '../../core/errors.js';
 import type { ShapeRadialFrame } from '../../core/shape/types.js';
 import type { AnimationDefinition, AnimationRuntime, AnimationSlotDefinition } from '../../services/animation/types.js';
 import {
@@ -13,21 +14,52 @@ import {
   stableUntil,
   writeDomains
 } from './effectRuntime.js';
+import { normalizeColorGradient, sampleColorGradient } from './colorGradient.js';
 import { RadialArcSamplingCache } from './radialArcSampling.js';
+import {
+  createRadialBandGeometryBuffer,
+  destroyRadialBandGeometryBuffer,
+  prepareRadialBandGeometryBuffer,
+  writeRadialBandGeometry
+} from './radialBandGeometry.js';
 import { centerSpreadFinishedAt, centerSpreadRingProgressAt } from './timeline.js';
-import { animationRecord, boolean, channel, color, integerRange, literal, nonNegative, positive } from './validation.js';
+import { animationRecord, boolean, channel, color, integerRange, literal, nonNegative, positive, unitInterval } from './validation.js';
 
 /** 已补齐默认值并通过严格校验的 center-spread 配置。 */
-export type NormalizedCenterSpreadAnimationSpec = Readonly<Required<CenterSpreadAnimationSpec>>;
+export type NormalizedCenterSpreadAnimationSpec = Readonly<
+  Required<Omit<CenterSpreadAnimationSpec, 'color' | 'gradient'>> &
+    (
+      | { readonly color: Color; readonly gradient?: undefined }
+      | { readonly color?: undefined; readonly gradient: readonly (readonly [offset: number, color: Color])[] }
+    )
+>;
 
 /** 严格校验并补齐 center-spread 配置。 */
 export function normalizeCenterSpreadAnimationSpec(input: unknown): NormalizedCenterSpreadAnimationSpec {
-  const record = animationRecord(input, 'center-spread', ['type', 'channel', 'periodMs', 'color', 'strokeWidth', 'ringCount', 'repeat']);
+  const record = animationRecord(input, 'center-spread', [
+    'type',
+    'channel',
+    'periodMs',
+    'color',
+    'gradient',
+    'opacity',
+    'trailLength',
+    'strokeWidth',
+    'ringCount',
+    'repeat'
+  ]);
+  if (record.color !== undefined && record.gradient !== undefined) {
+    throw new InvalidArgumentError('Center-spread color and gradient are mutually exclusive');
+  }
   return Object.freeze({
     type: literal(record.type, 'center-spread', 'Center-spread type'),
     channel: channel(record.channel, 'center-spread', 'Center-spread channel'),
     periodMs: positive(record.periodMs, 1600, 'Center-spread periodMs'),
-    color: color(record.color, '#00e5ff', 'Center-spread color'),
+    ...(record.gradient === undefined
+      ? { color: color(record.color, '#00e676', 'Center-spread color') }
+      : { gradient: normalizeColorGradient(record.gradient, 'Center-spread gradient') }),
+    opacity: unitInterval(record.opacity, 0.7, 'Center-spread opacity'),
+    trailLength: unitInterval(record.trailLength, 0.18, 'Center-spread trailLength'),
     strokeWidth: nonNegative(record.strokeWidth, 2, 'Center-spread strokeWidth'),
     ringCount: integerRange(record.ringCount, 3, 1, 5, 'Center-spread ringCount'),
     repeat: boolean(record.repeat, true, 'Center-spread repeat')
@@ -49,27 +81,45 @@ export const centerSpreadAnimationDefinition = Object.freeze({
   }
 } satisfies AnimationDefinition<CenterSpreadAnimationSpec>);
 
+const centerSpreadTailSlotCount = 4;
+
 function centerSpreadRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedCenterSpreadAnimationSpec): AnimationRuntime {
   let radialFrame = initialFrame;
   const completionElapsedMs = spec.periodMs + ((spec.ringCount - 1) * spec.periodMs) / spec.ringCount;
-  const runningSample =
-    spec.strokeWidth > 0
-      ? spec.repeat
-        ? continuousSample
-        : continuousUntil(completionElapsedMs)
-      : spec.repeat
-        ? stableSample
-        : stableUntil(completionElapsedMs);
-  const slotKeys = Object.freeze(Array.from({ length: spec.ringCount }, (_, index) => `center-spread-${index}`));
-  const slots: readonly AnimationSlotDefinition[] = Object.freeze(
-    slotKeys.map((slotKey) =>
+  const hasVisibleOutput = spec.opacity > 0 && (spec.trailLength > 0 || spec.strokeWidth > 0);
+  const runningSample = hasVisibleOutput
+    ? spec.repeat
+      ? continuousSample
+      : continuousUntil(completionElapsedMs)
+    : spec.repeat
+      ? stableSample
+      : stableUntil(completionElapsedMs);
+  const slotKeys = Object.freeze(
+    Array.from({ length: spec.ringCount }, (_, ringIndex) =>
       Object.freeze({
-        slotKey,
-        style: Object.freeze({ strokes: [Object.freeze({ color: spec.color, width: spec.strokeWidth })] })
+        tails: Object.freeze(Array.from({ length: centerSpreadTailSlotCount }, (_, tailIndex) => `center-spread-${ringIndex}-trail-${tailIndex}`)),
+        front: `center-spread-${ringIndex}-front`
       })
     )
   );
-  const geometryBuffers = slotKeys.map(() => createSpreadGeometryBuffer());
+  const frontColor = spec.gradient === undefined ? spec.color : sampleColorGradient(spec.gradient, 1);
+  const slots: readonly AnimationSlotDefinition[] = Object.freeze(
+    slotKeys.flatMap(({ tails, front }) => [
+      ...tails.map((slotKey, tailIndex) => {
+        const fillColor = spec.gradient === undefined ? spec.color : sampleColorGradient(spec.gradient, 1 - tailIndex / (centerSpreadTailSlotCount - 1));
+        return Object.freeze({
+          slotKey,
+          style: Object.freeze({ fill: Object.freeze({ type: 'solid' as const, color: fillColor }) })
+        });
+      }),
+      Object.freeze({
+        slotKey: front,
+        style: Object.freeze({ strokes: [Object.freeze({ color: frontColor, width: spec.strokeWidth })] })
+      })
+    ])
+  );
+  const bandGeometryBuffers = slotKeys.map(() => Array.from({ length: centerSpreadTailSlotCount }, () => createRadialBandGeometryBuffer()));
+  const frontGeometryBuffers = slotKeys.map(() => createSpreadGeometryBuffer());
   const arcSampling = new RadialArcSamplingCache();
   return {
     slots,
@@ -80,23 +130,63 @@ function centerSpreadRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedCen
       output.reset();
       if (centerSpreadFinishedAt(context.elapsedMs, spec.periodMs, spec.ringCount, spec.repeat)) return finishedSample;
       const fullCircle = radialFrame.sweepAngleRad >= Math.PI * 2 - Number.EPSILON;
-      if (!fullCircle && arcSampling.update(radialFrame.radius, radialFrame.sweepAngleRad, context.resolution, radialFrame.center.length)) {
-        for (const geometryBuffer of geometryBuffers) prepareSpreadGeometryBuffer(geometryBuffer, arcSampling.segmentCount, radialFrame.center.length);
+      if (arcSampling.update(radialFrame.radius, radialFrame.sweepAngleRad, context.resolution, radialFrame.center.length)) {
+        for (const ringBuffers of bandGeometryBuffers) {
+          for (const geometryBuffer of ringBuffers) {
+            prepareRadialBandGeometryBuffer(geometryBuffer, arcSampling.segmentCount, radialFrame.center.length, fullCircle);
+          }
+        }
+        if (!fullCircle) {
+          for (const geometryBuffer of frontGeometryBuffers) {
+            prepareSpreadGeometryBuffer(geometryBuffer, arcSampling.segmentCount, radialFrame.center.length);
+          }
+        }
       }
-      for (let index = 0; index < spec.ringCount; index += 1) {
-        const progress = centerSpreadRingProgressAt(context.elapsedMs, spec.periodMs, spec.ringCount, index, spec.repeat);
-        if (progress === undefined || progress <= Number.EPSILON || spec.strokeWidth <= 0) continue;
-        const slot = output.overlay(slotKeys[index]);
-        const geometryBuffer = geometryBuffers[index];
-        slot.active = true;
-        slot.geometryKind = 'snapshot';
-        slot.geometry = writeSpreadGeometry(geometryBuffer, radialFrame, radialFrame.radius * progress, fullCircle, arcSampling.segmentCount);
-        slot.opacity = 1 - progress;
+      const normalizedBandWidth = spec.trailLength / centerSpreadTailSlotCount;
+      for (let ringIndex = 0; ringIndex < spec.ringCount; ringIndex += 1) {
+        const progress = centerSpreadRingProgressAt(context.elapsedMs, spec.periodMs, spec.ringCount, ringIndex, spec.repeat);
+        if (progress === undefined || progress <= Number.EPSILON || spec.opacity <= 0) continue;
+        const progressOpacity = spec.opacity * (1 - progress);
+        if (normalizedBandWidth > 0) {
+          for (let tailIndex = 0; tailIndex < centerSpreadTailSlotCount; tailIndex += 1) {
+            const outerProgress = progress - tailIndex * normalizedBandWidth;
+            const innerProgress = Math.max(0, outerProgress - normalizedBandWidth);
+            if (outerProgress - innerProgress <= Number.EPSILON) continue;
+            const slot = output.overlay(slotKeys[ringIndex].tails[tailIndex]);
+            slot.active = true;
+            slot.geometryKind = 'snapshot';
+            slot.geometry = writeRadialBandGeometry(
+              bandGeometryBuffers[ringIndex][tailIndex],
+              radialFrame,
+              radialFrame.radius * innerProgress,
+              radialFrame.radius * outerProgress,
+              fullCircle,
+              arcSampling.segmentCount
+            );
+            slot.opacity = progressOpacity * (1 - tailIndex / centerSpreadTailSlotCount);
+          }
+        }
+        if (spec.strokeWidth > 0) {
+          const front = output.overlay(slotKeys[ringIndex].front);
+          front.active = true;
+          front.geometryKind = 'snapshot';
+          front.geometry = writeSpreadGeometry(
+            frontGeometryBuffers[ringIndex],
+            radialFrame,
+            radialFrame.radius * progress,
+            fullCircle,
+            arcSampling.segmentCount
+          );
+          front.opacity = progressOpacity;
+        }
       }
       return runningSample;
     },
     destroy() {
-      for (const buffer of geometryBuffers) {
+      for (const ringBuffers of bandGeometryBuffers) {
+        for (const buffer of ringBuffers) destroyRadialBandGeometryBuffer(buffer);
+      }
+      for (const buffer of frontGeometryBuffers) {
         buffer.polyline.coordinates.length = 0;
         buffer.coordinatePool.length = 0;
       }

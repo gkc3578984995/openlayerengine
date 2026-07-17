@@ -214,6 +214,10 @@ const radarTrailStyleOptions = [
   { label: 'gradient（绿色渐变尾迹）', value: 'gradient' },
   { label: 'solid（纯色尾迹）', value: 'solid' }
 ] as const;
+const centerSpreadTrailStyleOptions = [
+  { label: 'gradient（绿色渐变波纹带）', value: 'gradient' },
+  { label: 'solid（纯色波纹带）', value: 'solid' }
+] as const;
 const fadeDirectionOptions = [
   { label: 'out（渐隐并保留终态）', value: 'out' },
   { label: 'in（渐显后移除效果）', value: 'in' }
@@ -310,10 +314,17 @@ export const animationsScenario: ScenarioDefinition = {
     const radarGradientTail = context.text(optionsSection, '雷达渐变尾端（gradient[0]）', 'rgba(0, 230, 118, 0.05)');
     const radarGradientMiddle = context.text(optionsSection, '雷达渐变中段（gradient[1]）', 'rgba(0, 230, 118, 0.45)');
     const radarGradientFront = context.text(optionsSection, '雷达渐变前沿（gradient[2]）', 'rgba(0, 230, 118, 1)');
+    const centerSpreadTrailStyle = context.select(optionsSection, '扩散波纹样式（center-spread.color/gradient）', centerSpreadTrailStyleOptions, 'gradient');
+    const centerSpreadColor = context.color(optionsSection, '扩散纯色波纹（center-spread.color）', '#00e676');
+    const centerSpreadGradientTail = context.text(optionsSection, '扩散渐变内侧（gradient[0]）', 'rgba(0, 230, 118, 0.05)');
+    const centerSpreadGradientMiddle = context.text(optionsSection, '扩散渐变中段（gradient[1]）', 'rgba(0, 230, 118, 0.45)');
+    const centerSpreadGradientFront = context.text(optionsSection, '扩散渐变前沿（gradient[2]）', 'rgba(0, 230, 118, 1)');
     const fadeDirection = context.select(optionsSection, '渐变方向（fade.direction）', fadeDirectionOptions, 'out');
     const easing = context.select(optionsSection, '缓动曲线（easing）', easingOptions, 'ease-in-out');
     const radarOpacity = context.number(optionsSection, '雷达透明度（radar-scan.opacity）', 0.42, { min: 0, max: 1, step: 0.05 });
     const beamWidthDeg = context.number(optionsSection, '雷达尾迹角宽（beamWidthDeg）', 52, { min: 1, max: 360, step: 1 });
+    const centerSpreadOpacity = context.number(optionsSection, '扩散透明度（center-spread.opacity）', 0.7, { min: 0, max: 1, step: 0.05 });
+    const centerSpreadTrailLength = context.number(optionsSection, '扩散尾迹长度（center-spread.trailLength）', 0.18, { min: 0, max: 1, step: 0.01 });
     const ringCount = context.number(optionsSection, '扩散环数量（ringCount）', 3, { min: 1, max: 5, step: 1 });
     const playActions = context.actions(optionsSection);
 
@@ -422,7 +433,17 @@ export const animationsScenario: ScenarioDefinition = {
             type: 'center-spread',
             channel: channel.value,
             periodMs: Math.max(1, periodMs.valueAsNumber || 1),
-            color: color.value,
+            ...(centerSpreadTrailStyle.value === 'gradient'
+              ? {
+                  gradient: [
+                    [0, centerSpreadGradientTail.value] as const,
+                    [0.6, centerSpreadGradientMiddle.value] as const,
+                    [1, centerSpreadGradientFront.value] as const
+                  ]
+                }
+              : { color: centerSpreadColor.value }),
+            opacity: centerSpreadOpacity.valueAsNumber,
+            trailLength: Math.min(1, Math.max(0, centerSpreadTrailLength.valueAsNumber || 0)),
             strokeWidth: strokeWidth.valueAsNumber,
             ringCount: Math.trunc(ringCount.valueAsNumber),
             repeat: repeat.checked

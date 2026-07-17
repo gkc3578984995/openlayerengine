@@ -12,6 +12,7 @@ import '@vrsim/earth-engine-ol/style.css';
 type FadeDirection = 'in' | 'out';
 type GrowDirection = 'forward' | 'reverse';
 type RadarDirection = 'clockwise' | 'counterclockwise';
+type RadialTrailStyle = 'solid' | 'gradient';
 
 const targetCatalog: Record<AnimationDemoTargetKey, { readonly id: string; readonly label: string }> = {
   point: { id: 'animation-demo-point', label: 'Point 点' },
@@ -32,11 +33,18 @@ const channel = ref('');
 const fadeDirection = ref<FadeDirection>('out');
 const growDirection = ref<GrowDirection>('forward');
 const radarDirection = ref<RadarDirection>('clockwise');
-const radarTrailStyle = ref<'solid' | 'gradient'>('gradient');
+const radarTrailStyle = ref<RadialTrailStyle>('gradient');
 const radarColor = ref('#00e676');
 const radarGradientTail = ref('rgba(0, 230, 118, 0.05)');
 const radarGradientMiddle = ref('rgba(0, 230, 118, 0.45)');
 const radarGradientFront = ref('rgba(0, 230, 118, 1)');
+const centerSpreadTrailStyle = ref<RadialTrailStyle>('gradient');
+const centerSpreadColor = ref('#00e676');
+const centerSpreadGradientTail = ref('rgba(0, 230, 118, 0.05)');
+const centerSpreadGradientMiddle = ref('rgba(0, 230, 118, 0.45)');
+const centerSpreadGradientFront = ref('rgba(0, 230, 118, 1)');
+const centerSpreadOpacity = ref(0.7);
+const centerSpreadTrailLength = ref(0.18);
 const handleStatus = ref<AnimationStatus>('stopped');
 
 const effectOptions = animationEffectManifest.map(({ animationType: type, label }) => ({ type, label }));
@@ -44,6 +52,10 @@ const availableTargets = computed(() => animationEffectManifestByType[selectedTy
 const statusLabel = computed(() => ({ running: '运行中', paused: '已暂停', stopped: '已停止', finished: '已自然完成' })[handleStatus.value]);
 
 watch(selectedType, (type) => {
+  if (type === 'center-spread') {
+    selectedTarget.value = 'sector';
+    return;
+  }
   const targets = animationEffectManifestByType[type].demoTargets;
   if (!targets.some((target) => target === selectedTarget.value)) selectedTarget.value = targets[0];
 });
@@ -56,7 +68,14 @@ const controls = (): AnimationManifestDemoControls => ({
   radarColor: radarColor.value,
   radarGradientTail: radarGradientTail.value,
   radarGradientMiddle: radarGradientMiddle.value,
-  radarGradientFront: radarGradientFront.value
+  radarGradientFront: radarGradientFront.value,
+  centerSpreadTrailStyle: centerSpreadTrailStyle.value,
+  centerSpreadColor: centerSpreadColor.value,
+  centerSpreadGradientTail: centerSpreadGradientTail.value,
+  centerSpreadGradientMiddle: centerSpreadGradientMiddle.value,
+  centerSpreadGradientFront: centerSpreadGradientFront.value,
+  centerSpreadOpacity: centerSpreadOpacity.value,
+  centerSpreadTrailLength: centerSpreadTrailLength.value
 });
 
 const start = () => {
@@ -262,7 +281,7 @@ onBeforeUnmount(() => {
         <el-radio-button value="reverse">反向 reverse</el-radio-button>
       </el-radio-group>
     </div>
-    <div v-else-if="selectedType === 'radar-scan'" class="animation-demo__radar-options">
+    <div v-else-if="selectedType === 'radar-scan'" class="animation-demo__radial-options">
       <div class="animation-demo__option-row">
         <span>扫描方向</span>
         <el-radio-group v-model="radarDirection">
@@ -277,7 +296,7 @@ onBeforeUnmount(() => {
           <el-radio-button value="solid">纯色</el-radio-button>
         </el-radio-group>
       </div>
-      <div class="animation-demo__radar-colors">
+      <div class="animation-demo__radial-colors">
         <label v-if="radarTrailStyle === 'solid'">
           <span>纯色尾迹</span>
           <el-color-picker v-model="radarColor" show-alpha aria-label="雷达纯色尾迹" />
@@ -298,6 +317,46 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </div>
+    <div v-else-if="selectedType === 'center-spread'" class="animation-demo__radial-options">
+      <div class="animation-demo__option-row">
+        <span>波纹带样式</span>
+        <el-radio-group v-model="centerSpreadTrailStyle">
+          <el-radio-button value="gradient">绿色渐变</el-radio-button>
+          <el-radio-button value="solid">纯色</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="animation-demo__radial-colors">
+        <label v-if="centerSpreadTrailStyle === 'solid'">
+          <span>纯色波纹带</span>
+          <el-color-picker v-model="centerSpreadColor" show-alpha aria-label="中心扩散纯色波纹带" />
+        </label>
+        <template v-else>
+          <label>
+            <span>内侧旧尾迹（offset 0）</span>
+            <el-color-picker v-model="centerSpreadGradientTail" show-alpha aria-label="中心扩散渐变内侧旧尾迹" />
+          </label>
+          <label>
+            <span>渐变中段（offset 0.6）</span>
+            <el-color-picker v-model="centerSpreadGradientMiddle" show-alpha aria-label="中心扩散渐变中段" />
+          </label>
+          <label>
+            <span>外侧波纹前沿（offset 1）</span>
+            <el-color-picker v-model="centerSpreadGradientFront" show-alpha aria-label="中心扩散渐变外侧波纹前沿" />
+          </label>
+        </template>
+      </div>
+      <div class="animation-demo__radial-numbers">
+        <label>
+          <span>整体透明度 opacity</span>
+          <el-input-number v-model="centerSpreadOpacity" :min="0" :max="1" :step="0.05" :precision="2" aria-label="中心扩散整体透明度" />
+        </label>
+        <label>
+          <span>径向尾迹比例 trailLength</span>
+          <el-input-number v-model="centerSpreadTrailLength" :min="0" :max="1" :step="0.01" :precision="2" aria-label="中心扩散径向尾迹比例" />
+        </label>
+        <span class="example-demo__hint">设为 0 可对照旧版线环</span>
+      </div>
+    </div>
 
     <div class="example-demo__toolbar animation-demo__toolbar">
       <el-button type="primary" @click="start">启动</el-button>
@@ -310,8 +369,8 @@ onBeforeUnmount(() => {
 
     <div :id="mapId" class="example-stage animation-demo__stage"></div>
     <p class="animation-demo__footnote">
-      radar-scan 的渐变从最旧尾端（offset 0）过渡到扫描前沿（offset 1）；纯色与渐变二选一。示例不会自动播放。不同效果使用同一 channel
-      时，后启动者会原子替换前者。
+      radar-scan 的渐变从最旧尾端（offset 0）过渡到扫描前沿（offset 1）；center-spread 的渐变从内侧旧尾迹（offset 0）过渡到外侧波纹前沿（offset 1），并默认在
+      Sector 上展示径向波纹带。两种效果的纯色与渐变均为二选一。示例不会自动播放；不同效果使用同一 channel 时，后启动者会原子替换前者。
     </p>
   </div>
 </template>
@@ -342,15 +401,16 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.animation-demo__radar-options {
+.animation-demo__radial-options {
   margin-bottom: 12px;
 }
 
-.animation-demo__radar-options .animation-demo__option-row {
+.animation-demo__radial-options .animation-demo__option-row {
   margin-bottom: 8px;
 }
 
-.animation-demo__radar-colors {
+.animation-demo__radial-colors,
+.animation-demo__radial-numbers {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
@@ -360,12 +420,18 @@ onBeforeUnmount(() => {
   background: var(--doc-surface-soft);
 }
 
-.animation-demo__radar-colors label {
+.animation-demo__radial-colors label,
+.animation-demo__radial-numbers label {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--doc-muted);
   font-size: 12px;
+}
+
+.animation-demo__radial-numbers {
+  align-items: center;
+  margin-top: 8px;
 }
 
 .animation-demo__toolbar {

@@ -165,7 +165,7 @@ export interface RadarScanAnimationSpec {
   readonly repeat?: boolean;
 }
 
-/** 从圆形或扇面中心向外绘制扩散环。 */
+/** 从圆形或扇面中心向外绘制带尾迹的扩散波纹。 */
 export interface CenterSpreadAnimationSpec {
   /** 固定为中心扩散动画。 */
   readonly type: 'center-spread';
@@ -173,9 +173,15 @@ export interface CenterSpreadAnimationSpec {
   readonly channel?: AnimationChannel;
   /** 单个扩散环从中心传播到外半径的时长，单位为毫秒。 */
   readonly periodMs?: number;
-  /** 扩散环使用的颜色。 */
+  /** 扩散波纹使用的纯色；不能和 `gradient` 同时设置。 */
   readonly color?: Color;
-  /** 扩散环的像素宽度。 */
+  /** 从内侧最旧尾迹 `0` 到外侧波纹前沿 `1` 的颜色渐变；不能和 `color` 同时设置。 */
+  readonly gradient?: readonly (readonly [offset: number, color: Color])[];
+  /** 扩散波纹相对颜色 alpha 的透明度乘数。 */
+  readonly opacity?: number;
+  /** 尾迹宽度占目标外半径的比例；`0` 退化为仅绘制前沿环或弧。 */
+  readonly trailLength?: number;
+  /** 波纹前沿环或弧的像素宽度。 */
   readonly strokeWidth?: number;
   /** 同时错峰传播的固定环数量。 */
   readonly ringCount?: number;

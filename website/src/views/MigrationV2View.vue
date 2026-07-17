@@ -77,7 +77,7 @@ earth.animations.play({ id: routeId }, { type: 'grow', durationMs: 1200 });
 
 // Circle / Sector：雷达扫描与中心扩散
 earth.animations.play({ id: sectorId }, { type: 'radar-scan' });
-earth.animations.play({ id: circleId }, { type: 'center-spread' });
+earth.animations.play({ id: sectorId }, { type: 'center-spread' });
 
 // 所有结构化 Shape：渐显或渐隐
 earth.animations.play({ id: elementId }, { type: 'fade', direction: 'out' });`;
@@ -168,9 +168,14 @@ import '@vrsim/earth-engine-ol/style.css';
           <li>blink 与 fade 适用于所有使用 StyleSpec 的结构化 Shape；highlight 与 alert 适用于非退化闭合面。</li>
           <li>grow 适用于 Polyline、LunePolyline、CurvePolyline 和内置面箭头 provider。</li>
           <li>
-            <code><a href="/components/animation#api-type-radarscananimationspec">radar-scan</a></code> 与 center-spread 适用于 Circle 和 Sector；radar-scan
-            默认使用 <code>#00e676</code> 绿色尾迹，纯色 <code>color</code> 与多段 <code>gradient</code> 互斥，gradient offset
-            <code>0</code> 表示尾迹最旧端、<code>1</code> 表示扫描前沿。
+            <code><a href="/components/animation#api-type-radarscananimationspec">radar-scan</a></code> 与
+            <code><a href="/components/animation#api-type-centerspreadanimationspec">center-spread</a></code> 适用于 Circle 和 Sector；两者都默认使用
+            <code>#00e676</code> 绿色效果，并且纯色 <code>color</code> 与多段 <code>gradient</code> 互斥。
+          </li>
+          <li>
+            radar-scan 的 gradient offset <code>0</code> 表示尾迹最旧端、<code>1</code> 表示扫描前沿；center-spread 的 offset
+            <code>0</code> 表示内侧最旧尾迹、<code>1</code> 表示外侧波纹前沿。center-spread 默认 <code>opacity: 0.7</code>、<code>trailLength: 0.18</code>，将
+            <code>trailLength</code> 设为 <code>0</code> 可保留旧版纯线环视觉。
           </li>
           <li>
             全部十种结构化动画都不支持 <code><a href="/components/animation#compatibility">NativeStyleRef</a></code

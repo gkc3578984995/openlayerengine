@@ -13,6 +13,13 @@ export interface AnimationManifestDemoControls {
   readonly radarGradientTail: string;
   readonly radarGradientMiddle: string;
   readonly radarGradientFront: string;
+  readonly centerSpreadTrailStyle: 'solid' | 'gradient';
+  readonly centerSpreadColor: string;
+  readonly centerSpreadGradientTail: string;
+  readonly centerSpreadGradientMiddle: string;
+  readonly centerSpreadGradientFront: string;
+  readonly centerSpreadOpacity: number;
+  readonly centerSpreadTrailLength: number;
 }
 
 export interface AnimationEffectManifestEntry {
@@ -43,7 +50,14 @@ export const defaultAnimationManifestDemoControls = Object.freeze({
   radarColor: '#00e676',
   radarGradientTail: 'rgba(0, 230, 118, 0.05)',
   radarGradientMiddle: 'rgba(0, 230, 118, 0.45)',
-  radarGradientFront: 'rgba(0, 230, 118, 1)'
+  radarGradientFront: 'rgba(0, 230, 118, 1)',
+  centerSpreadTrailStyle: 'gradient',
+  centerSpreadColor: '#00e676',
+  centerSpreadGradientTail: 'rgba(0, 230, 118, 0.05)',
+  centerSpreadGradientMiddle: 'rgba(0, 230, 118, 0.45)',
+  centerSpreadGradientFront: 'rgba(0, 230, 118, 1)',
+  centerSpreadOpacity: 0.7,
+  centerSpreadTrailLength: 0.18
 }) satisfies AnimationManifestDemoControls;
 
 const structuredShapeTypes = [
@@ -272,9 +286,34 @@ export const animationEffectManifest = [
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['circle', 'sector'],
-    acceptanceTarget: 'circle',
+    acceptanceTarget: 'sector',
     createDefaultSpec: () => ({ type: 'center-spread' }),
-    createDemoSpec: () => ({ type: 'center-spread', periodMs: 1800, color: '#00e5ff', strokeWidth: 3, ringCount: 3, repeat: true })
+    createDemoSpec: ({
+      centerSpreadTrailStyle,
+      centerSpreadColor,
+      centerSpreadGradientTail,
+      centerSpreadGradientMiddle,
+      centerSpreadGradientFront,
+      centerSpreadOpacity,
+      centerSpreadTrailLength
+    }) => ({
+      type: 'center-spread',
+      periodMs: 1800,
+      ...(centerSpreadTrailStyle === 'gradient'
+        ? {
+            gradient: [
+              [0, centerSpreadGradientTail],
+              [0.6, centerSpreadGradientMiddle],
+              [1, centerSpreadGradientFront]
+            ]
+          }
+        : { color: centerSpreadColor }),
+      opacity: centerSpreadOpacity,
+      trailLength: centerSpreadTrailLength,
+      strokeWidth: 3,
+      ringCount: 3,
+      repeat: true
+    })
   },
   {
     animationType: 'fade',

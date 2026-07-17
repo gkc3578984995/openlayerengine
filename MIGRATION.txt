@@ -1303,14 +1303,16 @@ earth.animations.play({ id: areaId }, { type: 'highlight', mode: 'breathe' });
 earth.animations.play({ id: areaId }, { type: 'alert' });
 earth.animations.play({ id: routeId }, { type: 'grow', durationMs: 1200 });
 earth.animations.play({ id: sectorId }, { type: 'radar-scan' });
-earth.animations.play({ id: circleId }, { type: 'center-spread' });
+earth.animations.play({ id: sectorId }, { type: 'center-spread' });
 earth.animations.play({ id: elementId }, { type: 'fade', direction: 'out' });
 ```
 
 - `blink` 和 `fade` 支持所有使用 `StyleSpec` 的结构化 Shape。
 - `highlight` 和 `alert` 支持非退化闭合面。
 - `grow` 支持 Polyline、LunePolyline、CurvePolyline 和内置面箭头 provider。
-- `radar-scan` 和 `center-spread` 支持 Circle 与 Sector。`radar-scan` 默认使用 `#00e676` 绿色尾迹；纯色 `color` 与多段 `gradient` 互斥，gradient offset `0` 表示尾迹最旧端、`1` 表示扫描前沿。
+- `radar-scan` 和 `center-spread` 支持 Circle 与 Sector。两者都默认使用 `#00e676` 绿色效果，并且纯色 `color` 与多段 `gradient` 互斥。
+- `radar-scan` 的 gradient offset `0` 表示尾迹最旧端、`1` 表示扫描前沿；`center-spread` 的 offset `0` 表示内侧最旧尾迹、`1` 表示外侧波纹前沿。
+- `center-spread` 默认 `opacity` 为 `0.7`、`trailLength` 为 `0.18`；将 `trailLength` 设为 `0` 可保留旧版纯线环视觉。
 - 上述七种效果以及原有 `pulse`、`dash-flow`、`path-travel` 都不支持 `NativeStyleRef`；批量播放中任一目标使用 native style 时，整次 `play()` 会在建立记录前抛出 `UnsupportedOperationError`。
 
 完整兼容矩阵、Spec 字段和 retain 语义见 Animation 动画效果页。

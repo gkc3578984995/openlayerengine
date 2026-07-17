@@ -86,6 +86,38 @@ describe('2.0 动画效果 manifest', () => {
     expect(websiteSource).toContain('不能与 color 同时设置');
   });
 
+  it('中心扩散在 Sector 上演示可调绿色波纹带，并记录默认值与退化行为', () => {
+    const centerSpreadEntry = animationEffectManifest.find(({ animationType }) => animationType === 'center-spread');
+    const demoSpec = centerSpreadEntry?.createDemoSpec(defaultAnimationManifestDemoControls);
+
+    expect(centerSpreadEntry?.acceptanceTarget).toBe('sector');
+    expect(animationDemoElementsByType['center-spread'].geometry.type).toBe('sector');
+    expect(demoSpec).toMatchObject({
+      type: 'center-spread',
+      gradient: [
+        [0, 'rgba(0, 230, 118, 0.05)'],
+        [0.6, 'rgba(0, 230, 118, 0.45)'],
+        [1, 'rgba(0, 230, 118, 1)']
+      ],
+      opacity: 0.7,
+      trailLength: 0.18
+    });
+    expect(demoSpec).not.toHaveProperty('color');
+
+    const acceptanceSource = sourceOf('.test/scenarios/animations.ts');
+    expect(acceptanceSource).toContain("centerSpreadTrailStyle.value === 'gradient'");
+    expect(acceptanceSource).toContain('centerSpreadTrailLength.valueAsNumber');
+
+    const websiteDemoSource = sourceOf('website/src/examples/AnimationEffectsDemo.vue');
+    expect(websiteDemoSource).toContain('centerSpreadGradientFront');
+    expect(websiteDemoSource).toContain('centerSpreadTrailLength');
+
+    const websiteSource = sourceOf('website/src/views/AnimationView.vue');
+    expect(websiteSource).toContain('0 表示内侧最旧尾迹、1 表示外侧波纹前沿');
+    expect(websiteSource).toContain("default: '0.18'");
+    expect(websiteSource).toContain('设置为 0 时退化为旧版线环');
+  });
+
   it('每项实现、Shape、测试证据、网站锚点和验收场景都真实存在', () => {
     const knownShapeTypes = new Set<string>(shapeTypes);
     const routerSource = sourceOf('website/src/router/index.ts');
