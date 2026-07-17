@@ -506,7 +506,7 @@ const memberCoverage: CoverageItem[] = [
   ...members('animations', 'HighlightAnimationSpec', ['type', 'channel', 'mode', 'color', 'fillOpacity', 'strokeWidth', 'periodMs']),
   ...members('animations', 'AlertAnimationSpec', ['type', 'channel', 'periodMs', 'color', 'fillOpacity', 'strokeWidth', 'repeat']),
   ...members('animations', 'GrowAnimationSpec', ['type', 'channel', 'durationMs', 'direction', 'easing', 'repeat']),
-  ...members('animations', 'RadarScanAnimationSpec', ['type', 'channel', 'periodMs', 'direction', 'color', 'opacity', 'beamWidthDeg', 'repeat']),
+  ...members('animations', 'RadarScanAnimationSpec', ['type', 'channel', 'periodMs', 'direction', 'color', 'gradient', 'opacity', 'beamWidthDeg', 'repeat']),
   ...members('animations', 'CenterSpreadAnimationSpec', ['type', 'channel', 'periodMs', 'color', 'strokeWidth', 'ringCount', 'repeat']),
   ...members('animations', 'FadeAnimationSpec', ['type', 'channel', 'direction', 'durationMs', 'easing']),
   ...members('animations', 'PulseAnimationSpec', ['type', 'channel', 'periodMs', 'color', 'repeat', 'radius']),

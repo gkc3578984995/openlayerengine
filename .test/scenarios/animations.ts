@@ -210,6 +210,10 @@ const radarDirectionOptions = [
   { label: 'clockwise（顺时针）', value: 'clockwise' },
   { label: 'counterclockwise（逆时针）', value: 'counterclockwise' }
 ] as const;
+const radarTrailStyleOptions = [
+  { label: 'gradient（绿色渐变尾迹）', value: 'gradient' },
+  { label: 'solid（纯色尾迹）', value: 'solid' }
+] as const;
 const fadeDirectionOptions = [
   { label: 'out（渐隐并保留终态）', value: 'out' },
   { label: 'in（渐显后移除效果）', value: 'in' }
@@ -229,7 +233,7 @@ export const animationsScenario: ScenarioDefinition = {
   steps: [
     '在独立演示卡中逐项播放 manifest 的 10 种内核默认效果；每种效果使用独立目标，可分别暂停、继续和停止。',
     '使用“播放全部独立演示”同时观察 Point、Polyline、Polygon、FineArrow、Circle 与 Sector 上的默认效果。',
-    '调节 AnimationSpec 字段，重点验证 path-travel 的 speed/durationMs 互斥、grow 方向、radar 扫描方向和 fade retain 行为。',
+    '调节 AnimationSpec 字段，重点验证 path-travel 的 speed/durationMs 互斥、grow 方向、radar 的纯色/渐变尾迹和 fade retain 行为。',
     '使用 AnimationHandle.pause()/resume()/stop()，核对 id、status 和 finished Promise。',
     '使用 AnimationManager.pause()/resume()/stop()，分别传入和省略 channels，核对受影响数量。',
     '按 manifest 同时启动全部效果后执行 stopAll()，确认所有活动渲染通道都停止且业务元素仍存在。'
@@ -301,6 +305,11 @@ export const animationsScenario: ScenarioDefinition = {
     const finishBehavior = context.select(optionsSection, '结束行为（finishBehavior）', finishOptions, 'retain');
     const growDirection = context.select(optionsSection, '生长方向（grow.direction）', growDirectionOptions, 'forward');
     const radarDirection = context.select(optionsSection, '扫描方向（radar-scan.direction）', radarDirectionOptions, 'clockwise');
+    const radarTrailStyle = context.select(optionsSection, '雷达尾迹样式（color/gradient）', radarTrailStyleOptions, 'gradient');
+    const radarColor = context.color(optionsSection, '雷达纯色尾迹（radar-scan.color）', '#00e676');
+    const radarGradientTail = context.text(optionsSection, '雷达渐变尾端（gradient[0]）', 'rgba(0, 230, 118, 0.05)');
+    const radarGradientMiddle = context.text(optionsSection, '雷达渐变中段（gradient[1]）', 'rgba(0, 230, 118, 0.45)');
+    const radarGradientFront = context.text(optionsSection, '雷达渐变前沿（gradient[2]）', 'rgba(0, 230, 118, 1)');
     const fadeDirection = context.select(optionsSection, '渐变方向（fade.direction）', fadeDirectionOptions, 'out');
     const easing = context.select(optionsSection, '缓动曲线（easing）', easingOptions, 'ease-in-out');
     const radarOpacity = context.number(optionsSection, '雷达透明度（radar-scan.opacity）', 0.42, { min: 0, max: 1, step: 0.05 });
@@ -399,7 +408,11 @@ export const animationsScenario: ScenarioDefinition = {
             channel: channel.value,
             periodMs: Math.max(1, periodMs.valueAsNumber || 1),
             direction: radarDirection.value as 'clockwise' | 'counterclockwise',
-            color: color.value,
+            ...(radarTrailStyle.value === 'gradient'
+              ? {
+                  gradient: [[0, radarGradientTail.value] as const, [0.6, radarGradientMiddle.value] as const, [1, radarGradientFront.value] as const]
+                }
+              : { color: radarColor.value }),
             opacity: radarOpacity.valueAsNumber,
             beamWidthDeg: beamWidthDeg.valueAsNumber,
             repeat: repeat.checked

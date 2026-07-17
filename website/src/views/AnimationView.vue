@@ -243,7 +243,7 @@ const specDocuments: readonly SpecDocument[] = [
     id: 'api-type-radarscananimationspec',
     type: 'radar-scan',
     name: 'RadarScanAnimationSpec',
-    summary: '在圆形或扇面径向范围内绘制固定 slot 的旋转尾迹。',
+    summary: '在圆形或扇面径向范围内绘制固定 slot 的旋转尾迹，可选择纯色或沿尾迹方向变化的渐变。',
     capability: '仅支持 Circle 与 Sector radial provider；要求 StyleSpec。',
     completion: 'repeat 为 false 时完成一轮扫描后移除。',
     minimal: "earth.animations.play({ id: 'sector-1' }, { type: 'radar-scan' });",
@@ -251,7 +251,13 @@ const specDocuments: readonly SpecDocument[] = [
       ...commonSpecRows('radar-scan'),
       { name: 'periodMs', desc: '完整扫描一轮的时长，有限正数，单位毫秒', type: 'number?', default: '2000' },
       { name: 'direction', desc: '最终屏幕上的旋转方向，不随 View rotation 改变含义', type: "'clockwise' | 'counterclockwise'?", default: "'clockwise'" },
-      { name: 'color', desc: '雷达尾迹颜色；颜色自身 alpha 会参与相乘', type: 'Color?', default: "'#00e5ff'" },
+      { name: 'color', desc: '纯色尾迹快捷配置；颜色自身 alpha 会参与相乘，不能与 gradient 同时设置', type: 'Color?', default: "'#00e676'" },
+      {
+        name: 'gradient',
+        desc: '渐变尾迹色标；至少两个、offset 在 [0, 1] 内严格递增，0 表示最旧尾端、1 表示扫描前沿；不能与 color 同时设置',
+        type: 'readonly [number, Color][]?',
+        default: '—'
+      },
       { name: 'opacity', desc: '尾迹相对颜色 alpha 的乘数，范围 [0, 1]', type: 'number?', default: '0.35' },
       { name: 'beamWidthDeg', desc: '尾迹角宽，范围 (0, 360] 度；Sector 还会裁剪到自身 sweep', type: 'number?', default: '45' },
       { name: 'repeat', desc: '完成一轮扫描后是否重新开始', type: 'boolean?', default: 'true' }
@@ -520,7 +526,7 @@ const anchors: AnchorItem[] = [
         <div id="example-animation-effects">
           <ExampleBlock
             title="十种效果与完整控制"
-            :description="`效果列表由公开 <code><a href=&quot;#api-type-animationtype&quot;>animationTypes</a></code> 与同源清单生成。点击启动后，可通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-pause&quot;>pause</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-resume&quot;>resume</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-stop&quot;>stop</a></code> 控制最近的 <code><a href=&quot;#api-type-animationhandle&quot;>AnimationHandle</a></code>；组件卸载时停止全部句柄并销毁 Earth。`"
+            :description="`效果列表由公开 <code><a href=&quot;#api-type-animationtype&quot;>animationTypes</a></code> 与同源清单生成，默认选中 radar-scan，可在启动前切换绿色渐变或纯色尾迹。点击启动后，可通过 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-pause&quot;>pause</a></code>、<code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-resume&quot;>resume</a></code> 和 <code class=&quot;code-fn&quot;><a href=&quot;#api-handle-method-stop&quot;>stop</a></code> 控制最近的 <code><a href=&quot;#api-type-animationhandle&quot;>AnimationHandle</a></code>；组件卸载时停止全部句柄并销毁 Earth。`"
             :source="animationEffectsSource"
           >
             <template #preview>

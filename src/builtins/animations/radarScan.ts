@@ -1,5 +1,5 @@
 import type { RadarScanAnimationSpec } from '../../core/animation/types.js';
-import type { Coordinate } from '../../core/common/types.js';
+import type { Color, Coordinate } from '../../core/common/types.js';
 import { InvalidArgumentError } from '../../core/errors.js';
 import type { ShapeRadialFrame } from '../../core/shape/types.js';
 import type { AnimationDefinition, AnimationRuntime, AnimationSlotDefinition } from '../../services/animation/types.js';
@@ -16,14 +16,24 @@ import {
 } from './effectRuntime.js';
 import { animationFinishedAt, radarScanProgressAt } from './timeline.js';
 import { RadialArcSamplingCache } from './radialArcSampling.js';
+import { normalizeColorGradient, sampleColorGradient } from './colorGradient.js';
 import { animationRecord, boolean, channel, choice, color, literal, positive, unitInterval } from './validation.js';
 
 /** 已补齐默认值并通过严格校验的 radar-scan 配置。 */
-export type NormalizedRadarScanAnimationSpec = Readonly<Required<RadarScanAnimationSpec>>;
+export type NormalizedRadarScanAnimationSpec = Readonly<
+  Required<Omit<RadarScanAnimationSpec, 'color' | 'gradient'>> &
+    (
+      | { readonly color: Color; readonly gradient?: undefined }
+      | { readonly color?: undefined; readonly gradient: readonly (readonly [offset: number, color: Color])[] }
+    )
+>;
 
 /** 严格校验并补齐 radar-scan 配置。 */
 export function normalizeRadarScanAnimationSpec(input: unknown): NormalizedRadarScanAnimationSpec {
-  const record = animationRecord(input, 'radar-scan', ['type', 'channel', 'periodMs', 'direction', 'color', 'opacity', 'beamWidthDeg', 'repeat']);
+  const record = animationRecord(input, 'radar-scan', ['type', 'channel', 'periodMs', 'direction', 'color', 'gradient', 'opacity', 'beamWidthDeg', 'repeat']);
+  if (record.color !== undefined && record.gradient !== undefined) {
+    throw new InvalidArgumentError('Radar-scan color and gradient are mutually exclusive');
+  }
   const beamWidthDeg = positive(record.beamWidthDeg, 45, 'Radar-scan beamWidthDeg');
   if (beamWidthDeg > 360) throw new InvalidArgumentError('Radar-scan beamWidthDeg must not exceed 360');
   return Object.freeze({
@@ -31,7 +41,9 @@ export function normalizeRadarScanAnimationSpec(input: unknown): NormalizedRadar
     channel: channel(record.channel, 'radar-scan', 'Radar-scan channel'),
     periodMs: positive(record.periodMs, 2000, 'Radar-scan periodMs'),
     direction: choice(record.direction, 'clockwise', ['clockwise', 'counterclockwise'], 'Radar-scan direction'),
-    color: color(record.color, '#00e5ff', 'Radar-scan color'),
+    ...(record.gradient === undefined
+      ? { color: color(record.color, '#00e676', 'Radar-scan color') }
+      : { gradient: normalizeColorGradient(record.gradient, 'Radar-scan gradient') }),
     opacity: unitInterval(record.opacity, 0.35, 'Radar-scan opacity'),
     beamWidthDeg,
     repeat: boolean(record.repeat, true, 'Radar-scan repeat')
@@ -61,12 +73,13 @@ function radarScanRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedRadarS
   const runningSample =
     spec.opacity > 0 ? (spec.repeat ? continuousSample : continuousUntil(spec.periodMs)) : spec.repeat ? stableSample : stableUntil(spec.periodMs);
   const slots: readonly AnimationSlotDefinition[] = Object.freeze(
-    radarTailSlotKeys.map((slotKey) =>
-      Object.freeze({
+    radarTailSlotKeys.map((slotKey, index) => {
+      const fillColor = spec.gradient === undefined ? spec.color : sampleColorGradient(spec.gradient, 1 - index / (radarTailSlotCount - 1));
+      return Object.freeze({
         slotKey,
-        style: Object.freeze({ fill: Object.freeze({ type: 'solid' as const, color: spec.color }) })
-      })
-    )
+        style: Object.freeze({ fill: Object.freeze({ type: 'solid' as const, color: fillColor }) })
+      });
+    })
   );
   const geometryBuffers = radarTailSlotKeys.map(() => createRadarGeometryBuffer());
   const arcSampling = new RadialArcSamplingCache();
@@ -90,14 +103,10 @@ function radarScanRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedRadarS
         const slot = output.overlay(radarTailSlotKeys[index]);
         let motionEnd = distance - index * sliceWidth;
         let motionStart = motionEnd - sliceWidth;
-        if (wraps) {
-          while (motionEnd <= 0) {
-            motionStart += radialFrame.sweepAngleRad;
-            motionEnd += radialFrame.sweepAngleRad;
-          }
+        if (!wraps) {
+          motionStart = Math.max(0, motionStart);
+          motionEnd = Math.min(radialFrame.sweepAngleRad, motionEnd);
         }
-        motionStart = Math.max(0, motionStart);
-        motionEnd = Math.min(radialFrame.sweepAngleRad, motionEnd);
         if (motionEnd - motionStart <= Number.EPSILON) continue;
         const geometryBuffer = geometryBuffers[index];
         writeRadarWedge(geometryBuffer, radialFrame, motionStart, motionEnd, spec.direction, arcSampling.segmentCount);

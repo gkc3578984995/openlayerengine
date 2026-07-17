@@ -68,7 +68,7 @@ describe('可组合动画效果配置', () => {
       channel: 'radar-scan',
       periodMs: 2000,
       direction: 'clockwise',
-      color: '#00e5ff',
+      color: '#00e676',
       opacity: 0.35,
       beamWidthDeg: 45,
       repeat: true
@@ -132,6 +132,115 @@ describe('可组合动画效果配置', () => {
     const symbolInput = { type: 'blink', [Symbol('hidden')]: true };
     expect(() => normalizeBlinkAnimationSpec(symbolInput)).toThrowError(InvalidArgumentError);
     expect(() => normalizeBlinkAnimationSpec(Object.assign(Object.create({}), { type: 'blink' }))).toThrowError(InvalidArgumentError);
+  });
+
+  it('radar-scan 复制并冻结合法渐变，且不修改调用方输入', () => {
+    const input = {
+      type: 'radar-scan',
+      channel: 'custom-radar',
+      gradient: [
+        [0, [0, 32, 0, 0.1]],
+        [0.4, '#00aa44'],
+        [1, [0, 255, 0, 1]]
+      ]
+    };
+    const original = structuredClone(input);
+
+    const normalized = normalizeRadarScanAnimationSpec(input);
+
+    expect(input).toEqual(original);
+    expect(normalized).toEqual({
+      type: 'radar-scan',
+      channel: 'custom-radar',
+      periodMs: 2000,
+      direction: 'clockwise',
+      gradient: [
+        [0, [0, 32, 0, 0.1]],
+        [0.4, '#00aa44'],
+        [1, [0, 255, 0, 1]]
+      ],
+      opacity: 0.35,
+      beamWidthDeg: 45,
+      repeat: true
+    });
+    expect('color' in normalized).toBe(false);
+    expect(normalized.gradient).not.toBe(input.gradient);
+    expect(normalized.gradient?.[0]).not.toBe(input.gradient[0]);
+    expect(normalized.gradient?.[0][1]).not.toBe(input.gradient[0][1]);
+    expect(Object.isFrozen(normalized)).toBe(true);
+    expect(Object.isFrozen(normalized.gradient)).toBe(true);
+    expect(normalized.gradient?.every(Object.isFrozen)).toBe(true);
+  });
+
+  it('radar-scan 沿用严格渐变色标规则并拒绝 color 与 gradient 同时出现', () => {
+    expect(
+      normalizeRadarScanAnimationSpec({
+        type: 'radar-scan',
+        gradient: [
+          [0.2, '#001100'],
+          [0.8, '#00ff00']
+        ]
+      }).gradient
+    ).toEqual([
+      [0.2, '#001100'],
+      [0.8, '#00ff00']
+    ]);
+
+    const invalidGradients: readonly unknown[] = [
+      [[0, '#001100']],
+      [
+        [0, '#001100', 'extra'],
+        [1, '#00ff00']
+      ],
+      [
+        [-0.01, '#001100'],
+        [1, '#00ff00']
+      ],
+      [
+        [0, '#001100'],
+        [1.01, '#00ff00']
+      ],
+      [
+        [Number.NaN, '#001100'],
+        [1, '#00ff00']
+      ],
+      [
+        [0, '#001100'],
+        [Number.POSITIVE_INFINITY, '#00ff00']
+      ],
+      [
+        [0, '#001100'],
+        [0, '#00ff00']
+      ],
+      [
+        [0.8, '#001100'],
+        [0.2, '#00ff00']
+      ],
+      [
+        [0, ''],
+        [1, '#00ff00']
+      ]
+    ];
+    for (const gradient of invalidGradients) {
+      expect(() => normalizeRadarScanAnimationSpec({ type: 'radar-scan', gradient })).toThrowError(InvalidArgumentError);
+    }
+    expect(() =>
+      normalizeRadarScanAnimationSpec({
+        type: 'radar-scan',
+        color: '#00e676',
+        gradient: [
+          [0, '#001100'],
+          [1, '#00ff00']
+        ]
+      })
+    ).toThrowError(InvalidArgumentError);
+
+    const colorGetter = vi.fn(() => '#00ff00');
+    const accessorStop = [0];
+    Object.defineProperty(accessorStop, 1, { enumerable: true, get: colorGetter });
+    Object.defineProperty(accessorStop, 'length', { value: 2 });
+    expect(() => normalizeRadarScanAnimationSpec({ type: 'radar-scan', gradient: [accessorStop, [1, '#00ff00']] })).toThrowError(InvalidArgumentError);
+    expect(colorGetter).not.toHaveBeenCalled();
   });
 });
 
@@ -375,6 +484,91 @@ describe('可组合动画 Runtime 草案', () => {
     expect(spreadBuffer.overlays[0].geometry).toBe(stableSpreadGeometry);
   });
 
+  it('radar-scan 渐变从 offset 0 的最旧端过渡到 offset 1 的扫描前沿', () => {
+    const target = radialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, target, {
+      type: 'radar-scan',
+      gradient: [
+        [0, '#001100'],
+        [1, '#00ff00']
+      ]
+    });
+
+    expect(radar.slots[0].style.fill).toEqual({ type: 'solid', color: [0, 255, 0, 1] });
+    expect(radar.slots.at(-1)?.style.fill).toEqual({ type: 'solid', color: '#001100' });
+  });
+
+  it.each(['clockwise', 'counterclockwise'] as const)('radar-scan full Circle repeat 在非 slot 对齐的早期 %s 帧完整跨越正北', (direction) => {
+    const target = radialTarget();
+    const periodMs = 2000;
+    const elapsedMs = 12.5;
+    const beamWidthRad = Math.PI / 4;
+    const radar = createRuntime(radarScanAnimationDefinition, target, {
+      type: 'radar-scan',
+      periodMs,
+      direction,
+      beamWidthDeg: 45,
+      repeat: true
+    });
+    const buffer = createAnimationFrameBuffer(radar.slots);
+
+    sample(radar, buffer, target, elapsedMs);
+
+    expect(buffer.overlays.filter(({ active }) => active)).toHaveLength(10);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(beamWidthRad, 10);
+    const frontArc = activeRadarArcCoordinateSets(buffer)[0];
+    expect(radarArcSweep(frontArc)).toBeCloseTo(beamWidthRad / 10, 10);
+    expect(frontArc.some(([x]) => x > 1)).toBe(true);
+    expect(frontArc.some(([x]) => x < -1)).toBe(true);
+  });
+
+  it('radar-scan 的 360 度 beam 在早期跨界帧覆盖完整圆周', () => {
+    const target = radialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, target, {
+      type: 'radar-scan',
+      periodMs: 2000,
+      direction: 'clockwise',
+      beamWidthDeg: 360,
+      repeat: true
+    });
+    const buffer = createAnimationFrameBuffer(radar.slots);
+
+    sample(radar, buffer, target, 12.5);
+
+    expect(buffer.overlays.filter(({ active }) => active)).toHaveLength(10);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(Math.PI * 2, 10);
+    expect(radarArcSweep(activeRadarArcCoordinateSets(buffer)[0])).toBeCloseTo((Math.PI * 2) / 10, 10);
+  });
+
+  it('radar-scan 保持 Sector 边界与 non-repeat 起始阶段裁剪', () => {
+    for (const direction of ['clockwise', 'counterclockwise'] as const) {
+      const sector = sectorRadialTarget();
+      const sectorRadar = createRuntime(radarScanAnimationDefinition, sector, {
+        type: 'radar-scan',
+        periodMs: 1000,
+        direction,
+        beamWidthDeg: 90,
+        repeat: true
+      });
+      const sectorBuffer = createAnimationFrameBuffer(sectorRadar.slots);
+      sample(sectorRadar, sectorBuffer, sector, 100);
+      expect(activeRadarSweep(sectorBuffer)).toBeCloseTo(Math.PI * 0.1, 10);
+      for (const coordinate of activeRadarArcCoordinates(sectorBuffer)) expect(coordinate[1]).toBeGreaterThanOrEqual(-1e-10);
+    }
+
+    const circle = radialTarget();
+    const oneShotRadar = createRuntime(radarScanAnimationDefinition, circle, {
+      type: 'radar-scan',
+      periodMs: 1000,
+      direction: 'clockwise',
+      beamWidthDeg: 90,
+      repeat: false
+    });
+    const oneShotBuffer = createAnimationFrameBuffer(oneShotRadar.slots);
+    sample(oneShotRadar, oneShotBuffer, circle, 100);
+    expect(activeRadarSweep(oneShotBuffer)).toBeCloseTo(Math.PI * 0.2, 10);
+  });
+
   it('radar-scan 按 resolution 桶调整采样并保持槽内几何与坐标容器稳定', () => {
     const target = radialTarget();
     const radar = createRuntime(radarScanAnimationDefinition, target, { type: 'radar-scan', beamWidthDeg: 360 });
@@ -493,6 +687,37 @@ function sample(
 ) {
   const context: AnimationFrameContext = { target, elapsedMs, resolution, rotation: 0, pixelRatio: 1 };
   return runtime.sample(context, buffer);
+}
+
+function activeRadarSweep(buffer: ReturnType<typeof createAnimationFrameBuffer>): number {
+  return activeRadarArcCoordinateSets(buffer).reduce((total, arc) => total + radarArcSweep(arc), 0);
+}
+
+function activeRadarArcCoordinates(buffer: ReturnType<typeof createAnimationFrameBuffer>): readonly Coordinate[] {
+  return activeRadarArcCoordinateSets(buffer).flat();
+}
+
+function activeRadarArcCoordinateSets(buffer: ReturnType<typeof createAnimationFrameBuffer>): readonly (readonly Coordinate[])[] {
+  const arcs: Coordinate[][] = [];
+  for (const overlay of buffer.overlays) {
+    if (!overlay.active || overlay.geometry?.type !== 'polygon') continue;
+    arcs.push(overlay.geometry.coordinates[0].slice(1, -1));
+  }
+  return arcs;
+}
+
+function radarArcSweep(arc: readonly Coordinate[]): number {
+  let sweep = 0;
+  for (let index = 1; index < arc.length; index += 1) {
+    const previous = Math.atan2(arc[index - 1][1], arc[index - 1][0]);
+    const current = Math.atan2(arc[index][1], arc[index][0]);
+    sweep += Math.abs(signedAngularDelta(current - previous));
+  }
+  return sweep;
+}
+
+function signedAngularDelta(value: number): number {
+  return Math.atan2(Math.sin(value), Math.cos(value));
 }
 
 function polygonGeometry(): RenderGeometryState {

@@ -26,12 +26,17 @@ const mapId = useId();
 const earthRef = shallowRef<Earth | null>(null);
 const latestHandle = shallowRef<AnimationHandle | null>(null);
 const activeHandles = new Set<AnimationHandle>();
-const selectedType = ref<AnimationType>('highlight');
-const selectedTarget = ref<AnimationDemoTargetKey>('area');
+const selectedType = ref<AnimationType>('radar-scan');
+const selectedTarget = ref<AnimationDemoTargetKey>('circle');
 const channel = ref('');
 const fadeDirection = ref<FadeDirection>('out');
 const growDirection = ref<GrowDirection>('forward');
 const radarDirection = ref<RadarDirection>('clockwise');
+const radarTrailStyle = ref<'solid' | 'gradient'>('gradient');
+const radarColor = ref('#00e676');
+const radarGradientTail = ref('rgba(0, 230, 118, 0.05)');
+const radarGradientMiddle = ref('rgba(0, 230, 118, 0.45)');
+const radarGradientFront = ref('rgba(0, 230, 118, 1)');
 const handleStatus = ref<AnimationStatus>('stopped');
 
 const effectOptions = animationEffectManifest.map(({ animationType: type, label }) => ({ type, label }));
@@ -46,7 +51,12 @@ watch(selectedType, (type) => {
 const controls = (): AnimationManifestDemoControls => ({
   fadeDirection: fadeDirection.value,
   growDirection: growDirection.value,
-  radarDirection: radarDirection.value
+  radarDirection: radarDirection.value,
+  radarTrailStyle: radarTrailStyle.value,
+  radarColor: radarColor.value,
+  radarGradientTail: radarGradientTail.value,
+  radarGradientMiddle: radarGradientMiddle.value,
+  radarGradientFront: radarGradientFront.value
 });
 
 const start = () => {
@@ -252,12 +262,41 @@ onBeforeUnmount(() => {
         <el-radio-button value="reverse">反向 reverse</el-radio-button>
       </el-radio-group>
     </div>
-    <div v-else-if="selectedType === 'radar-scan'" class="animation-demo__option-row">
-      <span>扫描方向</span>
-      <el-radio-group v-model="radarDirection">
-        <el-radio-button value="clockwise">顺时针</el-radio-button>
-        <el-radio-button value="counterclockwise">逆时针</el-radio-button>
-      </el-radio-group>
+    <div v-else-if="selectedType === 'radar-scan'" class="animation-demo__radar-options">
+      <div class="animation-demo__option-row">
+        <span>扫描方向</span>
+        <el-radio-group v-model="radarDirection">
+          <el-radio-button value="clockwise">顺时针</el-radio-button>
+          <el-radio-button value="counterclockwise">逆时针</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="animation-demo__option-row">
+        <span>尾迹样式</span>
+        <el-radio-group v-model="radarTrailStyle">
+          <el-radio-button value="gradient">绿色渐变</el-radio-button>
+          <el-radio-button value="solid">纯色</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="animation-demo__radar-colors">
+        <label v-if="radarTrailStyle === 'solid'">
+          <span>纯色尾迹</span>
+          <el-color-picker v-model="radarColor" show-alpha aria-label="雷达纯色尾迹" />
+        </label>
+        <template v-else>
+          <label>
+            <span>最旧尾端（offset 0）</span>
+            <el-color-picker v-model="radarGradientTail" show-alpha aria-label="雷达渐变最旧尾端" />
+          </label>
+          <label>
+            <span>渐变中段（offset 0.6）</span>
+            <el-color-picker v-model="radarGradientMiddle" show-alpha aria-label="雷达渐变中段" />
+          </label>
+          <label>
+            <span>扫描前沿（offset 1）</span>
+            <el-color-picker v-model="radarGradientFront" show-alpha aria-label="雷达渐变扫描前沿" />
+          </label>
+        </template>
+      </div>
     </div>
 
     <div class="example-demo__toolbar animation-demo__toolbar">
@@ -271,7 +310,8 @@ onBeforeUnmount(() => {
 
     <div :id="mapId" class="example-stage animation-demo__stage"></div>
     <p class="animation-demo__footnote">
-      可在同一目标上以不同 channel 依次启动 fade + alert、grow + dash-flow；给两个效果填写同一 channel，则后启动者会原子替换前者。
+      radar-scan 的渐变从最旧尾端（offset 0）过渡到扫描前沿（offset 1）；纯色与渐变二选一。示例不会自动播放。不同效果使用同一 channel
+      时，后启动者会原子替换前者。
     </p>
   </div>
 </template>
@@ -300,6 +340,32 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
   color: var(--doc-muted);
   font-size: 13px;
+}
+
+.animation-demo__radar-options {
+  margin-bottom: 12px;
+}
+
+.animation-demo__radar-options .animation-demo__option-row {
+  margin-bottom: 8px;
+}
+
+.animation-demo__radar-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--doc-border);
+  border-radius: 8px;
+  background: var(--doc-surface-soft);
+}
+
+.animation-demo__radar-colors label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--doc-muted);
+  font-size: 12px;
 }
 
 .animation-demo__toolbar {

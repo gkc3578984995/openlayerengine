@@ -58,6 +58,34 @@ describe('2.0 动画效果 manifest', () => {
     }
   });
 
+  it('雷达运行示例使用可调绿色渐变，且文档说明色标方向与纯色互斥规则', () => {
+    const radarEntry = animationEffectManifest.find(({ animationType }) => animationType === 'radar-scan');
+    const demoSpec = radarEntry?.createDemoSpec(defaultAnimationManifestDemoControls);
+
+    expect(demoSpec).toMatchObject({
+      type: 'radar-scan',
+      gradient: [
+        [0, 'rgba(0, 230, 118, 0.05)'],
+        [0.6, 'rgba(0, 230, 118, 0.45)'],
+        [1, 'rgba(0, 230, 118, 1)']
+      ]
+    });
+    expect(demoSpec).not.toHaveProperty('color');
+
+    const acceptanceSource = sourceOf('.test/scenarios/animations.ts');
+    expect(acceptanceSource).toContain("radarTrailStyle.value === 'gradient'");
+    expect(acceptanceSource).toContain('radarGradientTail.value');
+
+    const websiteDemoSource = sourceOf('website/src/examples/AnimationEffectsDemo.vue');
+    expect(websiteDemoSource).toContain("ref<AnimationType>('radar-scan')");
+    expect(websiteDemoSource).toContain('radarGradientFront');
+
+    const websiteSource = sourceOf('website/src/views/AnimationView.vue');
+    expect(websiteSource).toContain('default: "\'#00e676\'"');
+    expect(websiteSource).toContain('0 表示最旧尾端、1 表示扫描前沿');
+    expect(websiteSource).toContain('不能与 color 同时设置');
+  });
+
   it('每项实现、Shape、测试证据、网站锚点和验收场景都真实存在', () => {
     const knownShapeTypes = new Set<string>(shapeTypes);
     const routerSource = sourceOf('website/src/router/index.ts');

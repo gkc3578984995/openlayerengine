@@ -12,7 +12,8 @@ import type {
   AnimationSlotDefinition,
   AnimationTargetProfile
 } from '../../services/animation/types.js';
-import { animationRecord, arrayValues, boolean, channel, color, copyColor, finite, interpolateColor, optionalColor, positive } from './validation.js';
+import { normalizeColorGradient, sampleColorGradient } from './colorGradient.js';
+import { animationRecord, boolean, channel, copyColor, finite, optionalColor, positive } from './validation.js';
 
 /** 渐变尾迹使用固定槽位，避免采样点越多就创建越多渲染对象。 */
 const gradientSlotCount = 24;
@@ -84,7 +85,7 @@ export const pathTravelAnimationDefinition = Object.freeze({
       repeat: boolean(record.repeat, true, 'Path-travel repeat'),
       trailLength,
       ...(record.color === undefined ? {} : { color: optionalColor(record.color, 'Path-travel color') }),
-      ...(record.gradient === undefined ? {} : { gradient: normalizeGradient(record.gradient) }),
+      ...(record.gradient === undefined ? {} : { gradient: normalizeColorGradient(record.gradient, 'Path-travel gradient') }),
       width: positive(record.width, 2, 'Path-travel width'),
       curvature: finite(record.curvature, 0, 'Path-travel curvature'),
       smoothness,
@@ -200,7 +201,7 @@ function createSlots(target: AnimationTargetProfile, spec: Readonly<PathTravelAn
     slots.push({ slotKey: 'trail-0', style: lineStyle(baseColor, width, zIndex) });
   } else {
     for (let index = 0; index < gradientSlotCount; index += 1) {
-      slots.push({ slotKey: gradientSlotKeys[index], style: lineStyle(gradientColor(spec.gradient, index / (gradientSlotCount - 1)), width, zIndex) });
+      slots.push({ slotKey: gradientSlotKeys[index], style: lineStyle(sampleColorGradient(spec.gradient, index / (gradientSlotCount - 1)), width, zIndex) });
     }
   }
   if (spec.showStart === true) slots.push({ slotKey: 'start', style: anchorStyle(baseColor, zIndex) });
@@ -374,35 +375,6 @@ function writePointAt(metrics: TravelPathMetrics, progress: number, output: numb
   output[0] = start[0] + (end[0] - start[0]) * segmentProgress;
   output[1] = start[1] + (end[1] - start[1]) * segmentProgress;
   if (output.length === 3) output[2] = (start[2] ?? 0) + ((end[2] ?? 0) - (start[2] ?? 0)) * segmentProgress;
-}
-
-function normalizeGradient(value: unknown): readonly (readonly [number, Color])[] {
-  const stops = arrayValues(value, 'Path-travel gradient');
-  if (stops.length < 2) throw new InvalidArgumentError('Path-travel gradient must contain at least two stops');
-  let previous = -1;
-  const result = stops.map((candidate, index) => {
-    const stop = arrayValues(candidate, `Path-travel gradient stop ${index}`);
-    if (stop.length !== 2) throw new InvalidArgumentError(`Path-travel gradient stop ${index} must contain offset and color`);
-    const offset = stop[0];
-    if (typeof offset !== 'number' || !Number.isFinite(offset) || offset < 0 || offset > 1 || offset <= previous) {
-      throw new InvalidArgumentError('Path-travel gradient offsets must increase within zero and one');
-    }
-    previous = offset;
-    return Object.freeze([offset, color(stop[1], '#000000', `Path-travel gradient stop ${index}`)] as const);
-  });
-  return Object.freeze(result);
-}
-
-function gradientColor(stops: readonly (readonly [number, Color])[], progress: number): Color {
-  if (progress <= stops[0][0]) return copyColor(stops[0][1]);
-  for (let index = 1; index < stops.length; index += 1) {
-    const left = stops[index - 1];
-    const right = stops[index];
-    if (progress > right[0]) continue;
-    const width = right[0] - left[0];
-    return interpolateColor(left[1], right[1], width <= Number.EPSILON ? 1 : (progress - left[0]) / width);
-  }
-  return copyColor(stops[stops.length - 1][1]);
 }
 
 function cloneCoordinate(value: Coordinate): Coordinate {

@@ -8,6 +8,11 @@ export interface AnimationManifestDemoControls {
   readonly fadeDirection: 'in' | 'out';
   readonly growDirection: 'forward' | 'reverse';
   readonly radarDirection: 'clockwise' | 'counterclockwise';
+  readonly radarTrailStyle: 'solid' | 'gradient';
+  readonly radarColor: string;
+  readonly radarGradientTail: string;
+  readonly radarGradientMiddle: string;
+  readonly radarGradientFront: string;
 }
 
 export interface AnimationEffectManifestEntry {
@@ -33,7 +38,12 @@ export interface AnimationEffectManifestEntry {
 export const defaultAnimationManifestDemoControls = Object.freeze({
   fadeDirection: 'out',
   growDirection: 'forward',
-  radarDirection: 'clockwise'
+  radarDirection: 'clockwise',
+  radarTrailStyle: 'gradient',
+  radarColor: '#00e676',
+  radarGradientTail: 'rgba(0, 230, 118, 0.05)',
+  radarGradientMiddle: 'rgba(0, 230, 118, 0.45)',
+  radarGradientFront: 'rgba(0, 230, 118, 1)'
 }) satisfies AnimationManifestDemoControls;
 
 const structuredShapeTypes = [
@@ -232,12 +242,20 @@ export const animationEffectManifest = [
     demoTargets: ['circle', 'sector'],
     acceptanceTarget: 'circle',
     createDefaultSpec: () => ({ type: 'radar-scan' }),
-    createDemoSpec: ({ radarDirection }) => ({
+    createDemoSpec: ({ radarDirection, radarTrailStyle, radarColor, radarGradientTail, radarGradientMiddle, radarGradientFront }) => ({
       type: 'radar-scan',
       periodMs: 2200,
       direction: radarDirection,
-      color: '#00e5ff',
-      opacity: 0.42,
+      ...(radarTrailStyle === 'gradient'
+        ? {
+            gradient: [
+              [0, radarGradientTail],
+              [0.6, radarGradientMiddle],
+              [1, radarGradientFront]
+            ]
+          }
+        : { color: radarColor }),
+      opacity: 0.8,
       beamWidthDeg: 52,
       repeat: true
     })
