@@ -1,5 +1,6 @@
 import type { AnimationChannel, AnimationSpec, AnimationStatus } from '../../core/animation/types.js';
 import type { ElementSelector, ElementState } from '../../core/element/types.js';
+import type { LayerRenderPathReveal } from '../../core/ports/LayerRenderPort.js';
 import type { RenderGeometryState, ShapeDefinition, ShapeState } from '../../core/shape/types.js';
 import type { StyleSpec } from '../../core/style/types.js';
 
@@ -173,6 +174,8 @@ export interface AnimationFrameBuffer {
   targetOpacity: number | undefined;
   /** 当前记录贡献的临时展示几何。 */
   targetGeometry: RenderGeometryState | undefined;
+  /** targetGeometry 对完整目标路径的真实 grow 窗口。 */
+  targetReveal: LayerRenderPathReveal | undefined;
   /** 按 Runtime 声明顺序保存的稳定 overlay 槽。 */
   readonly overlays: readonly AnimationOverlaySlotBuffer[];
   /** 复位本帧标量和槽 active 状态。 */

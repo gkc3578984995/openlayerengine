@@ -1,4 +1,16 @@
-import { Earth, Element, Layer, animationTypes, measureTypes, shapeTypes, stylePresets, throttle, toFlatCoordinates, useEarth } from '@vrsim/earth-engine-ol';
+import {
+  Earth,
+  Element,
+  Layer,
+  animationTypes,
+  lineStyles,
+  measureTypes,
+  shapeTypes,
+  stylePresets,
+  throttle,
+  toFlatCoordinates,
+  useEarth
+} from '@vrsim/earth-engine-ol';
 import type {
   AnimationManager,
   Coordinate,
@@ -22,6 +34,7 @@ const flatCoordinates = toFlatCoordinates([
   [110, 0]
 ]);
 const shapeInput: ShapeInput<'polyline'> = { type: 'polyline', controlPoints: flatCoordinates };
+const lineStyle = lineStyles.polyline({ lines: ['dashed', 'solid'] as const, decoration: 'tick' });
 
 declare const earth: Earth;
 const elementService: ElementService = earth.elements;
@@ -42,6 +55,7 @@ void [
   throttled,
   flatCoordinates,
   shapeInput,
+  lineStyle,
   elementService,
   layerService,
   styleService,

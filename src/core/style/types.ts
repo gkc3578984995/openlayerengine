@@ -172,6 +172,178 @@ export interface ArrowDecorationSpec {
   spacing?: number;
 }
 
+/** 路径线饰中不会产生虚线的端帽与装饰描边。 */
+export interface PathGlyphStrokeSpec {
+  /** 描边颜色。 */
+  color?: Color;
+  /** 描边宽度，单位为 CSS 像素。 */
+  width?: number;
+  /** 控制开放线段两端的形状。 */
+  lineCap?: 'butt' | 'round' | 'square';
+  /** 控制相邻线段拐角的形状。 */
+  lineJoin?: 'bevel' | 'round' | 'miter';
+  /** 限制尖角可以延伸的长度。 */
+  miterLimit?: number;
+}
+
+/** 路径 glyph 使用的局部 CSS 像素矢量原语。 */
+export type PathGlyphPrimitiveSpec =
+  | {
+      /** 固定为线段原语。 */
+      type: 'segment';
+      /** 线段在路径局部 `[u, v]` 坐标中的起点。 */
+      from: [number, number];
+      /** 线段在路径局部 `[u, v]` 坐标中的终点。 */
+      to: [number, number];
+      /** 线段使用的不可虚线描边。 */
+      stroke: PathGlyphStrokeSpec;
+    }
+  | {
+      /** 固定为圆形原语。 */
+      type: 'circle';
+      /** 圆心在路径局部 `[u, v]` 坐标中的位置。 */
+      center: [number, number];
+      /** 圆形半径，单位为 CSS 像素。 */
+      radius: number;
+      /** 圆形内部的纯色填充。 */
+      fill?: SolidFillSpec;
+      /** 圆形边缘使用的不可虚线描边。 */
+      stroke?: PathGlyphStrokeSpec;
+    }
+  | {
+      /** 固定为多边形原语。 */
+      type: 'polygon';
+      /** 多边形顶点在路径局部 `[u, v]` 坐标中的位置。 */
+      points: [number, number][];
+      /** 多边形内部的纯色填充。 */
+      fill?: SolidFillSpec;
+      /** 多边形边缘使用的不可虚线描边。 */
+      stroke?: PathGlyphStrokeSpec;
+    }
+  | {
+      /** 固定为原语组合。 */
+      type: 'group';
+      /** 按声明顺序组成一个 glyph 的子原语。 */
+      primitives: PathGlyphPrimitiveSpec[];
+    };
+
+/** 沿路径局部切线和法线绘制的一组矢量原语。 */
+export interface PathGlyphSpec {
+  /** 组成 glyph 的非空原语列表。 */
+  primitives: PathGlyphPrimitiveSpec[];
+}
+
+/** 开放路径起点或终点使用的端帽。 */
+export interface PathCapSpec {
+  /** 按端点外向切线定位的矢量 glyph。 */
+  glyph: PathGlyphSpec;
+}
+
+/** 沿路径重复或在路径中点放置的装饰。 */
+export type PathDecorationSpec =
+  | {
+      /** 按固定 CSS 像素间距重复放置。 */
+      placement: {
+        /** 固定为重复放置。 */
+        kind: 'repeat';
+        /** 相邻装饰锚点的 CSS 像素间距。 */
+        spacing: number;
+        /** 第一个装饰相对默认相位的 CSS 像素偏移。 */
+        phase?: number;
+      };
+      /** 按锚点次序循环选择的非空 glyph 序列。 */
+      sequence: PathGlyphSpec[];
+      /** 重复装饰不使用单个中点 glyph。 */
+      glyph?: never;
+      /** 重复装饰不切出中点留白。 */
+      cutoutPadding?: never;
+    }
+  | {
+      /** 固定放在完整渲染路径累计长度的中点。 */
+      placement: {
+        /** 固定为中点放置。 */
+        kind: 'center';
+      };
+      /** 放在路径中点的单个 glyph。 */
+      glyph: PathGlyphSpec;
+      /** glyph 外侧额外切出的 CSS 像素留白。 */
+      cutoutPadding?: number;
+      /** 中点装饰不使用重复 glyph 序列。 */
+      sequence?: never;
+    };
+
+/** 路径内嵌文本的完整、可序列化外观。 */
+export interface InlinePathTextSpec {
+  /** 显示在完整渲染路径累计长度中点的非空文本。 */
+  text: string;
+  /** 文本字体族。 */
+  fontFamily: string;
+  /** 文本字号，单位为 CSS 像素。 */
+  fontSize: number;
+  /** 文本字重。 */
+  fontWeight: number | 'normal' | 'bold';
+  /** 文本字体样式。 */
+  fontStyle: 'normal' | 'italic';
+  /** 文本内部的纯色填充。 */
+  fill: SolidFillSpec;
+  /** 文本轮廓使用的不可虚线描边。 */
+  stroke?: PathGlyphStrokeSpec;
+  /** 文本背景的纯色填充。 */
+  backgroundFill?: SolidFillSpec;
+  /** 文本背景四周的 CSS 像素内边距。 */
+  backgroundPadding?: number;
+  /** 文本视觉外观两侧切断轨道的额外 CSS 像素间距。 */
+  gapPadding: number;
+}
+
+/** 路径线饰作用于开放路径或 Polygon 闭合外环的策略。 */
+export type PathContourPolicySpec =
+  | {
+      /** 固定为开放路径。 */
+      kind: 'open';
+    }
+  | {
+      /** 固定为闭合路径。 */
+      kind: 'closed';
+      /** 第一版只装饰 Polygon 外环。 */
+      rings: 'outer';
+      /** 保持固定间距，并把余量集中在闭合缝。 */
+      seam: 'preserve-spacing';
+    };
+
+/** 路径轨道允许的描边字段；固定像素轨道不支持整段虚线拟合。 */
+export type PathTrackStrokeSpec = Omit<StrokeSpec, 'fitPatternOnce'> & {
+  /** `fitPatternOnce` 只属于顶层普通 Stroke，路径轨道明确禁止。 */
+  fitPatternOnce?: never;
+};
+
+/** 沿路径法线偏移的一条独立轨道。 */
+export interface PathTrackSpec {
+  /** 相对逻辑中心路径的法向 CSS 像素偏移。 */
+  offset: number;
+  /** 轨道独立使用的描边样式。 */
+  stroke: PathTrackStrokeSpec;
+}
+
+/** 可组合的轨道、端帽、装饰与中点文本路径线饰。 */
+export interface LineworkSpec {
+  /** 零条或多条独立轨道；纯装饰路径使用空数组。 */
+  tracks: PathTrackSpec[];
+  /** 开放单轨路径可以分别配置起点和终点端帽。 */
+  caps?: {
+    /** 起点端帽。 */
+    start?: PathCapSpec;
+    /** 终点端帽。 */
+    end?: PathCapSpec;
+  };
+  /** 重复装饰或严格位于累计长度中点的固定装饰。 */
+  decorations?: PathDecorationSpec[];
+  /** 严格位于累计长度中点并切断全部轨道的文本占位。 */
+  inlineText?: InlinePathTextSpec;
+  /** 省略时按开放路径解释；内置工厂始终显式写入。 */
+  contour?: PathContourPolicySpec;
+}
+
 /** 可序列化、可复制的结构化样式。 */
 export interface StyleSpec {
   /** Point 使用的圆形或图片样式。 */
@@ -184,6 +356,8 @@ export interface StyleSpec {
   text?: TextSpec;
   /** 沿线显示的箭头等附加内容。 */
   decorations?: ArrowDecorationSpec[];
+  /** 沿开放路径或 Polygon 外环渲染的高级路径线饰。 */
+  linework?: LineworkSpec;
   /** 控制同一图层中样式的绘制顺序。 */
   zIndex?: number;
 }
@@ -376,6 +550,8 @@ export type StylePatch = {
       });
   /** 整体替换或删除箭头等装饰。 */
   decorations?: ArrowDecorationSpec[] | undefined;
+  /** 整体替换或删除路径线饰，不执行深层局部合并。 */
+  linework?: LineworkSpec | undefined;
   /** 更新或删除样式的绘制层级。 */
   zIndex?: number | undefined;
 };

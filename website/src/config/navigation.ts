@@ -9,89 +9,113 @@ export interface SideGroup {
   items: NavItem[];
 }
 
-export type TopNavIndex = '/' | '/components';
+export interface SideNavigationMatch {
+  group: SideGroup;
+  item: NavItem;
+}
 
-export const getTopNavIndex = (path: string): TopNavIndex => (path === '/components' || path.startsWith('/components/') ? '/components' : '/');
+export type TopNavIndex = '/' | '/components' | '/api';
+
+export const getTopNavIndex = (path: string): TopNavIndex => {
+  if (path === '/api' || path.startsWith('/api/')) return '/api';
+  if (path === '/components' || path.startsWith('/components/')) return '/components';
+  return '/';
+};
 
 export const topNavItems: NavItem[] = [
   { label: '指南', to: '/' },
-  { label: '组件', to: '/components/point-layer' }
+  { label: '组件', to: '/components/core/earth' },
+  { label: 'API 查询', to: '/api/methods' }
 ];
 
 export const sideGroups: SideGroup[] = [
   {
     title: '快速上手',
     items: [
-      { label: '安装与引入', to: '/guide/quick-start' },
-      { label: '地图创建与销毁', to: '/guide/earth-create' },
-      { label: 'Earth 实例方法', to: '/guide/global-methods' },
-      { label: '2.0 迁移指南', to: '/guide/migration-v2' }
+      { label: '安装', to: '/guide/quick-start' },
+      { label: '创建第一张地图', to: '/guide/earth-create' },
+      { label: '1.x → 2.0 迁移', to: '/guide/migration-v2' }
     ]
   },
   {
-    title: '基础图层',
+    title: '核心',
     items: [
-      { label: '图层通用操作', to: '/components/layer-common' },
-      { label: 'PointLayer 点图层', to: '/components/point-layer' },
-      { label: 'CircleLayer 圆图层', to: '/components/circle-layer' },
-      { label: 'PolygonLayer 面图层', to: '/components/polygon-layer' },
-      { label: 'BillboardLayer 广告牌图层', to: '/components/billboard-layer' },
-      { label: 'OverlayLayer 覆盖物图层', to: '/components/overlay-layer' },
-      { label: 'PolylineLayer 线图层', to: '/components/polyline-layer' }
+      { label: 'Earth 与生命周期', to: '/components/core/earth' },
+      { label: '视图（View）', to: '/components/core/view' },
+      { label: '图层（Layers）', to: '/components/core/layers' },
+      { label: '地图控件（Controls）', to: '/components/core/controls' }
     ]
   },
   {
-    title: '动画与效果',
-    items: [{ label: 'Animation 动画效果', to: '/components/animation' }]
+    title: '地图元素',
+    items: [
+      { label: 'Element 概览', to: '/components/elements/overview' },
+      { label: '创建', to: '/components/elements/create' },
+      { label: '查询与选择器', to: '/components/elements/query' },
+      { label: '更新、复制与显隐', to: '/components/elements/update' },
+      { label: '删除与清理', to: '/components/elements/cleanup' },
+      { label: '图形类型（Shapes）', to: '/components/elements/shapes' },
+      { label: '样式（Styles）', to: '/components/elements/styles' },
+      { label: '路径线饰（Linework）', to: '/components/elements/linework' }
+    ]
   },
   {
     title: '地图交互',
     items: [
-      {
-        label: 'GlobalEvent 地图事件',
-        to: '/components/global-event',
-        children: [
-          { label: '概览与初始化', to: '/components/global-event' },
-          { label: '全局鼠标事件', to: '/components/global-event/global-mouse' },
-          { label: '模块鼠标事件', to: '/components/global-event/module-events' },
-          { label: '全局键盘事件', to: '/components/global-event/keyboard' }
-        ]
-      },
-      {
-        label: 'ContextMenu 右键菜单',
-        to: '/components/context-menu',
-        children: [
-          { label: '概览与初始化', to: '/components/context-menu' },
-          { label: '全局菜单', to: '/components/context-menu/default-menu' },
-          { label: '模块菜单', to: '/components/context-menu/module-menu' },
-          { label: '级联菜单', to: '/components/context-menu/cascade-menu' },
-          { label: '菜单状态', to: '/components/context-menu/menu-state' },
-          { label: '菜单移除与清理', to: '/components/context-menu/cleanup' }
-        ]
-      },
-      {
-        label: 'DynamicDraw 动态绘制',
-        to: '/components/dynamic-draw',
-        children: [
-          { label: '概览与接入', to: '/components/dynamic-draw' },
-          { label: '基础几何绘制', to: '/components/dynamic-draw/basic-geometry' },
-          { label: '高级几何绘制', to: '/components/dynamic-draw/advanced-geometry' },
-          { label: '几何编辑', to: '/components/dynamic-draw/editing' },
-          { label: '图形管理', to: '/components/dynamic-draw/management' }
-        ]
-      },
-      {
-        label: 'Measure 测量工具',
-        to: '/components/measure',
-        children: [
-          { label: '概览', to: '/components/measure' },
-          { label: '量距离', to: '/components/measure/distance' },
-          { label: '量面积', to: '/components/measure/area' },
-          { label: '移除测量', to: '/components/measure/remove' }
-        ]
-      },
-      { label: 'Transform 图形变换', to: '/components/transform' },
-      { label: 'Descriptor 标牌', to: '/components/descriptor' }
+      { label: '绘制（Draw）', to: '/components/interactions/draw' },
+      { label: '编辑（Edit）', to: '/components/interactions/edit' },
+      { label: '测量（Measure）', to: '/components/interactions/measure' },
+      { label: '变换（Transform）', to: '/components/interactions/transform' }
+    ]
+  },
+  {
+    title: '地图表现',
+    items: [{ label: '动画（Animations）', to: '/components/presentation/animations' }]
+  },
+  {
+    title: '地图服务',
+    items: [
+      { label: '右键菜单（ContextMenu）', to: '/components/services/context-menu' },
+      { label: '事件（Events）', to: '/components/services/events' },
+      { label: '覆盖物（Overlays）', to: '/components/services/overlays' },
+      { label: 'Descriptor', to: '/components/services/descriptor' }
+    ]
+  },
+  {
+    title: '工具与参考',
+    items: [
+      { label: 'Utils', to: '/components/reference/utils' },
+      { label: '错误类型', to: '/components/reference/errors' }
     ]
   }
 ];
+
+/** 不占用左侧菜单的独立文档页面。 */
+export const standaloneNavItems: NavItem[] = [];
+
+export const apiNavItems: NavItem[] = [
+  { label: '方法', to: '/api/methods' },
+  { label: '类型', to: '/api/types' }
+];
+
+const findItem = (items: readonly NavItem[], path: string): NavItem | undefined => {
+  for (const item of items) {
+    if (item.to === path) return item;
+    const child = item.children ? findItem(item.children, path) : undefined;
+    if (child) return child;
+  }
+  return undefined;
+};
+
+export const findSideNavigation = (path: string): SideNavigationMatch | undefined => {
+  for (const group of sideGroups) {
+    const item = findItem(group.items, path);
+    if (item) return { group, item };
+  }
+  return undefined;
+};
+
+export const getSideNavigationLabel = (path: string): string => findSideNavigation(path)?.item.label ?? '';
+
+export const getNavigationLabel = (path: string): string =>
+  getSideNavigationLabel(path) || standaloneNavItems.find((item) => item.to === path)?.label || apiNavItems.find((item) => item.to === path)?.label || '';

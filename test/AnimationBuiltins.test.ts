@@ -149,6 +149,158 @@ describe('内置动画定义', () => {
     );
   });
 
+  it('dash-flow 为每条 linework 虚线轨道建立独立 slot，并保留各自基础相位', () => {
+    const state = polylineElement('linework-dash');
+    const geometry = polylineGeometry();
+    const style: StyleSpec = {
+      linework: {
+        tracks: [
+          { offset: -3, stroke: { color: '#111111', width: 2, lineDash: [8, 6], lineDashOffset: 2 } },
+          { offset: 3, stroke: { color: '#222222', width: 2 } },
+          { offset: 7, stroke: { color: '#333333', width: 1, lineDash: [3, 4], lineDashOffset: 9 } }
+        ],
+        decorations: [
+          {
+            placement: { kind: 'repeat', spacing: 24 },
+            sequence: [
+              {
+                primitives: [{ type: 'segment', from: [0, -5], to: [0, 5], stroke: { color: '#111111', width: 1 } }]
+              }
+            ]
+          }
+        ],
+        contour: { kind: 'open' }
+      }
+    };
+    const original = structuredClone(style);
+    const target = targetProfile(state, geometry, style);
+    const spec = dashFlowAnimationDefinition.normalize({ type: 'dash-flow', speed: 30, lineDash: [5, 5], color: '#abcdef' });
+    const runtime = dashFlowAnimationDefinition.create(target, spec);
+    const buffer = createAnimationFrameBuffer(runtime.slots);
+
+    expect(runtime.slots.map(({ slotKey }) => slotKey)).toEqual(['dash-flow-track-0', 'dash-flow-track-2']);
+    for (const slot of runtime.slots) {
+      expect(slot.style.linework?.tracks).toHaveLength(1);
+      expect(slot.style.linework?.tracks[0].stroke).toEqual(expect.objectContaining({ color: '#abcdef', lineDash: [5, 5] }));
+      expect(slot.style.linework?.decorations).toBeUndefined();
+      expect(slot.style.linework?.caps).toBeUndefined();
+      expect(slot.style.linework?.inlineText).toBeUndefined();
+    }
+
+    sample(runtime, buffer, target, 1_000);
+    expect(buffer.overlay('dash-flow-track-0')).toEqual(
+      expect.objectContaining({ active: true, geometryKind: 'effective-target', lineDashOffset: -28, lineDashOffsetStrokeIndex: undefined })
+    );
+    expect(buffer.overlay('dash-flow-track-2')).toEqual(
+      expect.objectContaining({ active: true, geometryKind: 'effective-target', lineDashOffset: -21, lineDashOffsetStrokeIndex: undefined })
+    );
+    expect(style).toEqual(original);
+
+    const solid = targetProfile(state, geometry, {
+      linework: { tracks: [{ offset: 0, stroke: { color: '#f00', width: 2 } }], contour: { kind: 'open' } }
+    });
+    expect(() => dashFlowAnimationDefinition.assertCompatible(solid)).toThrowError(CapabilityError);
+    expect(() => dashFlowAnimationDefinition.create(solid, spec)).toThrowError(CapabilityError);
+  });
+
+  it('dash-flow accepts a closed Polygon linework track', () => {
+    const state: ElementState = {
+      id: 'polygon-dash',
+      type: 'polygon',
+      geometry: {
+        type: 'polygon',
+        controlPoints: [
+          [0, 0],
+          [100, 0],
+          [100, 100],
+          [0, 100]
+        ]
+      },
+      style: {},
+      module: 'areas',
+      layerId: 'default',
+      visible: true
+    };
+    const geometry: RenderGeometryState = {
+      type: 'polygon',
+      coordinates: [
+        [
+          [0, 0],
+          [100, 0],
+          [100, 100],
+          [0, 100],
+          [0, 0]
+        ]
+      ]
+    };
+    const style: StyleSpec = {
+      linework: {
+        tracks: [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 4], lineDashOffset: 2 } }],
+        contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' }
+      }
+    };
+    const target = targetProfile(state, geometry, style);
+    const spec = dashFlowAnimationDefinition.normalize({ type: 'dash-flow', speed: 24 });
+
+    expect(() => dashFlowAnimationDefinition.assertCompatible(target)).not.toThrow();
+    const runtime = dashFlowAnimationDefinition.create(target, spec);
+    const buffer = createAnimationFrameBuffer(runtime.slots);
+    sample(runtime, buffer, target, 500);
+
+    expect(runtime.slots).toHaveLength(1);
+    expect(runtime.slots[0].style.linework?.contour?.kind).toBe('closed');
+    expect(buffer.overlay('dash-flow-track-0')).toEqual(expect.objectContaining({ active: true, geometryKind: 'effective-target', lineDashOffset: -10 }));
+  });
+
+  it.each([
+    {
+      name: 'inline text',
+      style: {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 4] } }],
+          inlineText: {
+            text: 'AB',
+            fontFamily: 'sans-serif',
+            fontSize: 12,
+            fontWeight: 'normal',
+            fontStyle: 'normal',
+            fill: { type: 'solid', color: '#000' },
+            gapPadding: 2
+          },
+          contour: { kind: 'open' }
+        }
+      } satisfies StyleSpec
+    },
+    {
+      name: 'center decoration',
+      style: {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 4] } }],
+          decorations: [
+            {
+              placement: { kind: 'center' },
+              glyph: { primitives: [{ type: 'circle', center: [0, 0], radius: 4, fill: { type: 'solid', color: '#000' } }] }
+            }
+          ],
+          contour: { kind: 'open' }
+        }
+      } satisfies StyleSpec
+    }
+  ])('dash-flow keeps a transparent $name placeholder for the linework cutout', ({ style }) => {
+    const state = polylineElement('cutout');
+    const target = targetProfile(state, polylineGeometry(), style);
+    const runtime = dashFlowAnimationDefinition.create(target, dashFlowAnimationDefinition.normalize({ type: 'dash-flow' }));
+    const overlay = runtime.slots[0].style.linework;
+
+    if (style.linework?.inlineText !== undefined) {
+      expect(overlay?.inlineText?.fill.color).toEqual([0, 0, 0, 0]);
+    } else {
+      const primitive = overlay?.decorations?.[0]?.glyph?.primitives[0];
+      expect(primitive?.type).toBe('circle');
+      if (primitive?.type === 'circle') expect(primitive.fill?.color).toEqual([0, 0, 0, 0]);
+    }
+  });
+
   it('path-travel 使用固定渐变槽生成曲线路径和起终锚点', () => {
     coversCapabilities('animation-polyline-path-flight', 'animation-polyline-path-control');
     const state = polylineElement('flight');

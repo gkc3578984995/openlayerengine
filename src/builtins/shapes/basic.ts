@@ -31,6 +31,7 @@ const pointDefinition = createControlPointDefinition({
 
 const polylineDefinition = createControlPointDefinition({
   type: 'polyline',
+  pathContour: 'open',
   previewMin: 2,
   completeMin: 2,
   capabilities: freehandPolylineCapabilities,
@@ -42,6 +43,7 @@ const polylineDefinition = createControlPointDefinition({
 
 const polygonDefinition = createControlPointDefinition({
   type: 'polygon',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   capabilities: freehandPolygonCapabilities,
@@ -247,6 +249,7 @@ function interpolateEllipseAxis(lower: number, upper: number, weight: number): n
 
 const ellipseDefinition = createControlPointDefinition({
   type: 'ellipse',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,

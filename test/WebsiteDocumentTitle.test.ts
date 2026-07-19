@@ -11,8 +11,17 @@ describe('website document title', () => {
   });
 
   it('uses the sidebar label and site name on documentation pages', () => {
-    expect(getDocumentTitle('/guide/quick-start')).toBe('安装与引入 | OL-DOC');
-    expect(getDocumentTitle('/components/global-event/keyboard')).toBe('全局键盘事件 | OL-DOC');
+    expect(getDocumentTitle('/guide/quick-start')).toBe('安装 | OL-DOC');
+    expect(getDocumentTitle('/guide/earth-create')).toBe('创建第一张地图 | OL-DOC');
+    expect(getDocumentTitle('/guide/migration-v2')).toBe('1.x → 2.0 迁移 | OL-DOC');
+    expect(getDocumentTitle('/components/core/earth')).toBe('Earth 与生命周期 | OL-DOC');
+    expect(getDocumentTitle('/components/reference/types')).toBe('OL-DOC');
+    expect(getDocumentTitle('/components/interactions/draw')).toBe('绘制（Draw） | OL-DOC');
+    expect(getDocumentTitle('/components/presentation/animations')).toBe('动画（Animations） | OL-DOC');
+    expect(getDocumentTitle('/components/services/descriptor')).toBe('Descriptor | OL-DOC');
+    expect(getDocumentTitle('/components/reference/errors')).toBe('错误类型 | OL-DOC');
+    expect(getDocumentTitle('/api/methods')).toBe('方法 | OL-DOC');
+    expect(getDocumentTitle('/api/types')).toBe('类型 | OL-DOC');
   });
 
   it('falls back to the site name for an unknown path', () => {

@@ -1,4 +1,5 @@
 import type { StyleLike } from 'ol/style/Style.js';
+import { lineStyles } from '../../src/builtins/styles/lineStyles.js';
 import type { ElementSelector } from '../../src/core/element/types.js';
 import type { StylePatch, StyleSpec } from '../../src/core/style/types.js';
 import type { StyleInput, StyleService } from '../../src/facade/styleTypes.js';
@@ -102,6 +103,7 @@ const deletingBranches: StylePatch = {
   fill: undefined,
   text: undefined,
   decorations: undefined,
+  linework: undefined,
   zIndex: undefined
 };
 
@@ -121,6 +123,18 @@ const replaceDiscriminators: StylePatch = {
   fill: { type: 'pattern', pattern: 'dot', dotRadius: 2 }
 };
 
+const lineworkStyle = lineStyles.polyline({
+  color: '#1677ff',
+  lines: ['dashed', 'solid'] as const,
+  decoration: 'tick'
+});
+const polygonLineworkStyle = lineStyles.polygon({
+  decoration: 'inline-text',
+  text: '边界',
+  textStyle: { fontSize: 14, color: '#111827' }
+});
+const replaceLinework: StylePatch = { linework: polygonLineworkStyle.linework };
+
 declare const nativeStyle: StyleLike;
 const inputs: StyleInput[] = [complete, { nativeStyle }];
 declare const service: StyleService;
@@ -130,6 +144,7 @@ service.patch(selector, deepPatch);
 service.patch(selector, deletingBranches);
 service.patch(selector, deletingOptionalFields);
 service.patch(selector, replaceDiscriminators);
+service.patch(selector, replaceLinework);
 
 // @ts-expect-error icon styles require a source
 const missingIconSource: StyleSpec = { symbol: { type: 'icon' } };
@@ -147,6 +162,18 @@ const invalidMixedSymbolPatch: StylePatch = { symbol: { radius: 6, scale: 2 } };
 const invalidMixedNativeInput: StyleInput = { nativeStyle, zIndex: 2 };
 // @ts-expect-error native input cannot also contain a structured symbol
 const invalidNativeSymbolInput: StyleInput = { nativeStyle, symbol: { type: 'circle', radius: 4 } };
+// @ts-expect-error double-track polyline styles cannot contain caps
+const invalidDoubleTrackCaps = lineStyles.polyline({ lines: ['solid', 'dashed'] as const, caps: { end: 'arrow' } });
+// @ts-expect-error Polygon line styles cannot contain caps
+const invalidPolygonCaps = lineStyles.polygon({ caps: { start: 'bar' } });
+// @ts-expect-error decoration-only styles require slash
+const invalidDecorationOnly = lineStyles.polyline({ lines: 'none', decoration: 'circle' });
+// @ts-expect-error tracked styles cannot use slash
+const invalidTrackedSlash = lineStyles.polyline({ lines: 'solid', decoration: 'slash' });
+// @ts-expect-error non-text decorations cannot contain text
+const invalidOrdinaryText = lineStyles.polyline({ decoration: 'circle', text: '非法' });
+// @ts-expect-error inline-text requires text
+const invalidMissingInlineText = lineStyles.polyline({ decoration: 'inline-text' });
 
 void [
   missingIconSource,
@@ -156,5 +183,14 @@ void [
   invalidInput,
   invalidMixedSymbolPatch,
   invalidMixedNativeInput,
-  invalidNativeSymbolInput
+  invalidNativeSymbolInput,
+  lineworkStyle,
+  polygonLineworkStyle,
+  replaceLinework,
+  invalidDoubleTrackCaps,
+  invalidPolygonCaps,
+  invalidDecorationOnly,
+  invalidTrackedSlash,
+  invalidOrdinaryText,
+  invalidMissingInlineText
 ];

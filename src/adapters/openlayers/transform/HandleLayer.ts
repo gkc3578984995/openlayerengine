@@ -24,8 +24,10 @@ import type { EditControlAnchor, EditInteractionAnchor } from '../../../core/por
 import type { TransformInteractionOptions, TransformInteractionTarget, TransformOperation } from '../../../core/ports/TransformInteractionPort.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import { isNativeStyleRef, type ElementStyleState } from '../../../core/style/types.js';
+import { styleVisualOutsetPx } from '../../../core/style/visualOutset.js';
 import type { ProjectionSuppressionLease, FeatureBinding } from '../FeatureBinding.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
+import { compiledStylesGeometryExtent, compiledStylesVisualFootprintPx, resolveCompiledStyles } from '../style/visualFootprint.js';
 import {
   EDIT_CONTROL_ANCHOR_HIT_RADIUS,
   EDIT_CONTROL_ANCHOR_Z_INDEX,
@@ -616,12 +618,19 @@ export class HandleLayer {
   ): Feature<Geometry>[] {
     const preview = this.#preview;
     if (preview === undefined) throw new InvalidArgumentError('Transform preview feature is missing');
+    const compiledStyles = resolveCompiledStyles(preview, internalResolution(this.#map));
+    const declaredOutset =
+      isNativeStyleRef(target.style) || !('linework' in target.style) || target.style.linework === undefined ? undefined : styleVisualOutsetPx(target.style);
+    const compiledGeometryExtent = declaredOutset === undefined ? compiledStylesGeometryExtent(compiledStyles, preview) : undefined;
+    const renderedExtent = compiledGeometryExtent === undefined ? geometryExtent : unionTransformExtents(geometryExtent, compiledGeometryExtent);
+    const declaredPadding = declaredOutset === undefined ? undefined : ([declaredOutset, declaredOutset] as const);
+    const compiledPadding = compiledStylesVisualFootprintPx(compiledStyles, rotationOf(this.#map), 'view');
     const extent = bufferedExtent(
       this.#map,
-      geometryExtent,
+      renderedExtent,
       target.geometry.type === 'point',
       this.#options,
-      target.geometry.type === 'point' ? pointVisualPadding(preview, this.#map) : undefined
+      maxVisualPadding(declaredPadding, compiledPadding)
     );
     this.#extent = extent;
     // 编辑模式仅显示业务图形与语义锚点，避免 Transform 选框遮盖真实样式。
@@ -1141,43 +1150,16 @@ function bufferedExtent(
   return Object.freeze([extent[0] - paddingX, extent[1] - paddingY, extent[2] + paddingX, extent[3] + paddingY]);
 }
 
-/** 估算点图标相对锚点的屏幕外扩距离。 */
-function pointVisualPadding(feature: Feature<Geometry>, map: Map): readonly [number, number] | undefined {
-  const styleFunction = feature.getStyleFunction();
-  if (styleFunction === undefined) return undefined;
-  let styles: Style[];
-  try {
-    const value = styleFunction(feature, internalResolution(map));
-    if (value === undefined) return undefined;
-    styles = value instanceof Style ? [value] : value.filter((style): style is Style => style instanceof Style);
-  } catch {
-    return undefined;
-  }
-  let paddingX = 0;
-  let paddingY = 0;
-  for (const style of styles) {
-    const image = style.getImage();
-    if (image === null) continue;
-    try {
-      const size = image.getSize();
-      const anchor = image.getAnchor();
-      const scale = image.getScaleArray();
-      if (size === null || anchor === null || size.length < 2 || anchor.length < 2 || scale.length < 2) continue;
-      const values = [size[0], size[1], anchor[0], anchor[1], scale[0], scale[1], image.getRotation()];
-      if (values.some((value) => !Number.isFinite(value)) || size[0] <= 0 || size[1] <= 0 || scale[0] === 0 || scale[1] === 0) continue;
-      const rotation = image.getRotation() - (image.getRotateWithView() ? 0 : rotationOf(map));
-      const cosine = Math.cos(rotation);
-      const sine = Math.sin(rotation);
-      const xs = [-anchor[0] * scale[0], (size[0] - anchor[0]) * scale[0]];
-      const ys = [-anchor[1] * scale[1], (size[1] - anchor[1]) * scale[1]];
-      const corners = xs.flatMap((x) => ys.map((y) => [x * cosine - y * sine, x * sine + y * cosine] as const));
-      paddingX = Math.max(paddingX, ...corners.map(([x]) => Math.abs(x)));
-      paddingY = Math.max(paddingY, ...corners.map(([, y]) => Math.abs(y)));
-    } catch {
-      continue;
-    }
-  }
-  return paddingX > 0 && paddingY > 0 ? Object.freeze([paddingX, paddingY]) : undefined;
+/** 合并结构化样式声明和已编译 Point 图片的保守视觉外扩。 */
+function maxVisualPadding(first: readonly [number, number] | undefined, second: readonly [number, number] | undefined): readonly [number, number] | undefined {
+  if (first === undefined) return second;
+  if (second === undefined) return first;
+  return Object.freeze([Math.max(first[0], second[0]), Math.max(first[1], second[1])]);
+}
+
+/** 合并规范 Geometry 和 Style geometryFunction 派生 Geometry 的范围。 */
+function unionTransformExtents(first: TransformExtent, second: readonly [number, number, number, number]): TransformExtent {
+  return Object.freeze([Math.min(first[0], second[0]), Math.min(first[1], second[1]), Math.max(first[2], second[2]), Math.max(first[3], second[3])]);
 }
 
 /** 读取可用的视图分辨率。 */

@@ -18,6 +18,7 @@ import type { ShapeDefinition } from '../src/core/shape/types.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
+import { lineStyles } from '../src/builtins/styles/lineStyles.js';
 import { StyleService } from '../src/services/style/StyleService.js';
 import { InteractionCoordinator } from '../src/services/events/InteractionCoordinator.js';
 import { DrawService } from '../src/services/draw/DrawService.js';
@@ -142,6 +143,32 @@ describe('DrawSession', () => {
 
     expect(() => service.query(invalid)).toThrow(InvalidArgumentError);
     expect(() => service.clear(invalid)).toThrow(InvalidArgumentError);
+  });
+
+  it('rejects incompatible linework before opening a Draw preview', () => {
+    const pointFixture = setup();
+    expect(() => pointFixture.service.start({ type: 'point', layerId: 'draw-layer', style: lineStyles.polyline({ decoration: 'circle' }) })).toThrow(
+      InvalidArgumentError
+    );
+    expect(pointFixture.port.spec).toBeUndefined();
+
+    const mismatchedContour = setup();
+    expect(() => mismatchedContour.service.start({ type: 'polyline', layerId: 'draw-layer', style: lineStyles.polygon({ decoration: 'tick' }) })).toThrow(
+      InvalidArgumentError
+    );
+    expect(mismatchedContour.port.spec).toBeUndefined();
+
+    const compatible = setup();
+    const session = compatible.service.start({ type: 'polygon', layerId: 'draw-layer', style: lineStyles.polygon({ decoration: 'tick' }) });
+    expect(session.status).toBe('active');
+    session.cancel();
+
+    for (const type of ['ellipse', 'rectangle', 'triangle', 'fine-arrow', 'closed-curve-polygon'] as const) {
+      const fixture = setup();
+      const pathSession = fixture.service.start({ type, layerId: 'draw-layer', style: lineStyles.polygon({ decoration: 'square' }) });
+      expect(pathSession.status).toBe('active');
+      pathSession.cancel();
+    }
   });
 
   it('shows the legacy Draw guidance at the pointer, updates history hints, and releases the tooltip with the session', () => {

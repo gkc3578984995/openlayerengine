@@ -7,6 +7,7 @@ import VectorSource from 'ol/source/Vector.js';
 import NativeStyle from 'ol/style/Style.js';
 import type Icon from 'ol/style/Icon.js';
 import type Style from 'ol/style/Style.js';
+import Stroke from 'ol/style/Stroke.js';
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
@@ -276,6 +277,90 @@ describe('HitTestAdapter', () => {
     vi.spyOn(map, 'getPixelFromCoordinate').mockImplementation(((coordinate: number[]) => [coordinate[0], coordinate[1]]) as never);
 
     expect(hitTest.getScreenExtent(element.id)).toEqual([-10, -10, 12, 20]);
+  });
+
+  it('includes the public Stroke offset when estimating a non-point screen extent', () => {
+    const { elements, hitTest, map } = setup();
+    const element = elements.add({
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [10, 0]
+        ]
+      },
+      style: { strokes: [{ color: '#f00', width: 2 }] }
+    });
+    element.olFeature.setStyle(new NativeStyle({ stroke: new Stroke({ color: '#f00', width: 2, offset: 6, lineJoin: 'round' }) }));
+    vi.spyOn(map, 'getPixelFromCoordinate').mockImplementation(((coordinate: number[]) => [coordinate[0], coordinate[1]]) as never);
+
+    expect(hitTest.getScreenExtent(element.id)).toEqual([-7, -7, 17, 7]);
+  });
+
+  it('covers linework track offsets and glyphs through the unified visual outset', () => {
+    const { elements, hitTest, map } = setup();
+    const element = elements.add({
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [10, 0]
+        ]
+      },
+      style: {
+        linework: {
+          tracks: [{ offset: 6, stroke: { color: '#f00', width: 2, lineJoin: 'round' } }],
+          caps: {
+            end: {
+              glyph: {
+                primitives: [{ type: 'segment', from: [0, 0], to: [12, 0], stroke: { color: '#f00', width: 2, lineJoin: 'round' } }]
+              }
+            }
+          },
+          contour: { kind: 'open' }
+        }
+      }
+    });
+    vi.spyOn(map, 'getPixelFromCoordinate').mockImplementation(((coordinate: number[]) => [coordinate[0], coordinate[1]]) as never);
+
+    expect(hitTest.getScreenExtent(element.id)).toEqual([-13, -13, 23, 13]);
+  });
+
+  it('falls back to compiled inline-text metrics and derived geometry when core outset is unknown', () => {
+    const { elements, hitTest, map } = setup();
+    const element = elements.add({
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [10, 0]
+        ]
+      },
+      style: {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#f00', width: 2 } }],
+          inlineText: {
+            text: '供水管线',
+            fontFamily: 'sans-serif',
+            fontSize: 12,
+            fontWeight: 'normal',
+            fontStyle: 'normal',
+            fill: { type: 'solid', color: '#000' },
+            backgroundFill: { type: 'solid', color: '#fff' },
+            backgroundPadding: 2,
+            gapPadding: 6
+          },
+          contour: { kind: 'open' }
+        }
+      }
+    });
+    vi.spyOn(map, 'getPixelFromCoordinate').mockImplementation(((coordinate: number[]) => [coordinate[0], coordinate[1]]) as never);
+
+    const extent = hitTest.getScreenExtent(element.id);
+    expect(extent?.[0]).toBeLessThan(-30);
+    expect(extent?.[1]).toBeLessThan(-30);
+    expect(extent?.[2]).toBeGreaterThan(40);
+    expect(extent?.[3]).toBeGreaterThan(30);
   });
 
   it('conservatively expands non-point extents for rotated image footprints', () => {

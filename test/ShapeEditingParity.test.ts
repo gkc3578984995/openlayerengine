@@ -239,4 +239,57 @@ describe('Shape editing parity', () => {
     expect(topology.describe(final?.geometry as never)).toEqual(description);
     await expect(session.finished).resolves.toEqual(final);
   });
+
+  it.each([
+    ['polyline', { kind: 'open' }],
+    ['curve-polyline', { kind: 'open' }],
+    ['polygon', { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' }]
+  ] as const)('preserves complete linework while %s edit anchors remain purely topological', async (type, contour) => {
+    const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
+    const definition = shapes.get(type);
+    const topology = definition.editTopology;
+    if (topology === undefined) throw new Error(`${type} edit topology is unavailable`);
+    const geometry = completeRepresentative(shapes, type);
+    const lineworkStyle: ElementStyleState = {
+      linework: {
+        tracks: [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 6] } }],
+        decorations: [
+          {
+            placement: { kind: 'repeat', spacing: 24 },
+            sequence: [
+              {
+                primitives: [{ type: 'segment', from: [0, -5], to: [0, 5], stroke: { color: '#f00', width: 1 } }]
+              }
+            ]
+          }
+        ],
+        contour
+      }
+    };
+    const store = new ElementStore(shapes);
+    const id = `linework-edit-${type}`;
+    store.add({ id, type, geometry, style: lineworkStyle, data: {}, module: 'linework-edit', layerId: 'edit-layer', visible: true });
+    const port = new FakeEditPort();
+    const service = new DrawService({
+      store,
+      shapes,
+      shapeProjection: identityShapeProjection,
+      styles: new StyleService(store),
+      coordinator: new InteractionCoordinator(),
+      drawPort: {} as DrawInteractionPort,
+      editPort: port,
+      defaultStyle: () => lineworkStyle
+    });
+    const session = service.edit(id);
+    const description = topology.describe(geometry as never);
+
+    expect(port.renders[0]?.style).toEqual(lineworkStyle);
+    expect(port.renders[0]?.anchors).toHaveLength(description.handles.length + description.insertions.length);
+    expect(port.renders[0]?.anchors.every(({ kind }) => kind === 'control' || kind === 'insertion')).toBe(true);
+
+    session.finish();
+    expect(store.get(id)?.style).toEqual(lineworkStyle);
+    expect(port.destroy).toHaveBeenCalledOnce();
+    await expect(session.finished).resolves.toMatchObject({ id, style: lineworkStyle });
+  });
 });

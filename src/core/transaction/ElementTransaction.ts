@@ -351,13 +351,15 @@ function clonePatch<T>(patch: ElementPatch<T> | ElementCopyOptions<T>): ElementP
 
 function mergeState<T>(source: StoredElement, patch: ElementPatch<T>, id: string): ElementStateInput<T> {
   const has = (key: keyof ElementPatch<T>): boolean => Object.prototype.hasOwnProperty.call(patch, key);
+  const data = has('data') ? patch.data : (source.data as T | undefined);
+  const module = has('module') ? patch.module : source.module;
   return {
     id,
     type: source.type,
     geometry: has('geometry') ? patch.geometry! : source.geometry,
     style: has('style') ? (patch.style as ElementState<T>['style']) : source.style,
-    ...(has('data') || Object.prototype.hasOwnProperty.call(source, 'data') ? { data: has('data') ? patch.data : (source.data as T | undefined) } : {}),
-    ...(has('module') || Object.prototype.hasOwnProperty.call(source, 'module') ? { module: has('module') ? patch.module : source.module } : {}),
+    ...(data === undefined ? {} : { data }),
+    ...(module === undefined ? {} : { module }),
     layerId: has('layerId') ? (patch.layerId as string) : source.layerId,
     visible: has('visible') ? (patch.visible as boolean) : source.visible
   };

@@ -3,7 +3,7 @@ import type { ScrollbarInstance } from 'element-plus';
 import { Moon, Sunny } from '@element-plus/icons-vue';
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getTopNavIndex, sideGroups, topNavItems, type TopNavIndex } from '../config/navigation';
+import { getNavigationLabel, getTopNavIndex, sideGroups, topNavItems, type TopNavIndex } from '../config/navigation';
 import BackToTop from '../components/BackToTop.vue';
 import { getTheme, toggleTheme, type Theme } from '../utils/theme';
 
@@ -39,12 +39,14 @@ const switchTheme = () => {
   theme.value = toggleTheme(theme.value, window.localStorage, document.documentElement);
 };
 
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 const scrollToRoutePosition = async () => {
   await nextTick();
 
   if (route.hash) {
     const target = document.getElementById(decodeURIComponent(route.hash.slice(1)));
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target?.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
     return;
   }
 
@@ -59,62 +61,7 @@ watch(
 
 onMounted(() => void scrollToRoutePosition());
 
-const pageTitle = computed(() => {
-  if (route.path === '/guide/earth-create') {
-    return '地图创建与销毁';
-  }
-  if (route.path === '/guide/global-methods') {
-    return 'Earth 实例方法';
-  }
-  if (route.path === '/components/layer-common') return '图层通用操作';
-  if (route.path === '/components/point-layer') return 'PointLayer 点图层';
-  if (route.path === '/components/circle-layer') return 'CircleLayer 圆图层';
-  if (route.path === '/components/polygon-layer') return 'PolygonLayer 面图层';
-  if (route.path === '/components/billboard-layer') return 'BillboardLayer 广告牌图层';
-  if (route.path === '/components/overlay-layer') return 'OverlayLayer 覆盖物图层';
-  if (route.path === '/components/polyline-layer') return 'PolylineLayer 线图层';
-  if (route.path === '/components/animation') return 'Animation 动画效果';
-  const globalEventTitles: Record<string, string> = {
-    '/components/global-event': 'GlobalEvent 概览与初始化',
-    '/components/global-event/global-mouse': 'GlobalEvent 全局鼠标事件',
-    '/components/global-event/module-events': 'GlobalEvent 模块鼠标事件',
-    '/components/global-event/keyboard': 'GlobalEvent 全局键盘事件'
-  };
-  if (globalEventTitles[route.path]) return globalEventTitles[route.path];
-  const contextMenuTitles: Record<string, string> = {
-    '/components/context-menu': 'ContextMenu 概览与初始化',
-    '/components/context-menu/default-menu': 'ContextMenu 全局菜单',
-    '/components/context-menu/module-menu': 'ContextMenu 模块菜单',
-    '/components/context-menu/cascade-menu': 'ContextMenu 级联菜单',
-    '/components/context-menu/menu-state': 'ContextMenu 菜单状态',
-    '/components/context-menu/cleanup': 'ContextMenu 菜单移除与清理'
-  };
-  if (contextMenuTitles[route.path]) return contextMenuTitles[route.path];
-  const measureTitles: Record<string, string> = {
-    '/components/measure': 'Measure 概览',
-    '/components/measure/distance': 'Measure 量距离',
-    '/components/measure/area': 'Measure 量面积',
-    '/components/measure/remove': 'Measure 移除测量'
-  };
-  if (measureTitles[route.path]) return measureTitles[route.path];
-  const dynamicDrawTitles: Record<string, string> = {
-    '/components/dynamic-draw': 'DynamicDraw 概览与接入',
-    '/components/dynamic-draw/basic-geometry': 'DynamicDraw 基础几何绘制',
-    '/components/dynamic-draw/advanced-geometry': 'DynamicDraw 高级几何绘制',
-    '/components/dynamic-draw/editing': 'DynamicDraw 几何编辑',
-    '/components/dynamic-draw/management': 'DynamicDraw 图形管理'
-  };
-  if (dynamicDrawTitles[route.path]) return dynamicDrawTitles[route.path];
-  const standaloneInteractionTitles: Record<string, string> = {
-    '/components/transform': 'Transform 图形变换',
-    '/components/descriptor': 'Descriptor 标牌'
-  };
-  if (standaloneInteractionTitles[route.path]) return standaloneInteractionTitles[route.path];
-  if (route.path === '/guide/quick-start') {
-    return '安装与引入';
-  }
-  return '';
-});
+const pageTitle = computed(() => getNavigationLabel(route.path));
 </script>
 
 <template>

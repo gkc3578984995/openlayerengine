@@ -10,9 +10,16 @@ describe('website top menu', () => {
     expect(getTopNavIndex('/')).toBe('/');
     expect(getTopNavIndex('/guide/quick-start')).toBe('/');
     expect(getTopNavIndex('/components')).toBe('/components');
-    expect(getTopNavIndex('/components/point-layer')).toBe('/components');
-    expect(getTopNavIndex('/components/context-menu/cleanup')).toBe('/components');
+    expect(getTopNavIndex('/components/core/earth')).toBe('/components');
+    expect(getTopNavIndex('/components/presentation/animations')).toBe('/components');
+    expect(getTopNavIndex('/components/services/overlays/descriptor')).toBe('/components');
+    expect(getTopNavIndex('/components/reference/errors')).toBe('/components');
+    expect(getTopNavIndex('/components/reference/types')).toBe('/components');
+    expect(getTopNavIndex('/api')).toBe('/api');
+    expect(getTopNavIndex('/api/methods')).toBe('/api');
+    expect(getTopNavIndex('/api/types')).toBe('/api');
     expect(getTopNavIndex(topNavItems[1].to)).toBe('/components');
+    expect(getTopNavIndex(topNavItems[2].to)).toBe('/api');
   });
 
   it('uses the Element Plus menu and routes selections to existing destinations', () => {

@@ -1,40 +1,37 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import ApiQueryLayout from '../layouts/ApiQueryLayout.vue';
 import DocsLayout from '../layouts/DocsLayout.vue';
 import HomeView from '../views/HomeView.vue';
-import LayerCommonView from '../views/LayerCommonView.vue';
-import PointLayerView from '../views/PointLayerView.vue';
-import CircleLayerView from '../views/CircleLayerView.vue';
-import PolygonLayerView from '../views/PolygonLayerView.vue';
-import BillboardLayerView from '../views/BillboardLayerView.vue';
-import OverlayLayerView from '../views/OverlayLayerView.vue';
-import PolylineLayerView from '../views/PolylineLayerView.vue';
-import AnimationView from '../views/AnimationView.vue';
 import QuickStartView from '../views/QuickStartView.vue';
 import EarthCreateView from '../views/EarthCreateView.vue';
-import GlobalMethodsView from '../views/GlobalMethodsView.vue';
 import MigrationV2View from '../views/MigrationV2View.vue';
-import GlobalEventView from '../views/GlobalEventView.vue';
-import GlobalEventGlobalMouseView from '../views/GlobalEventGlobalMouseView.vue';
-import GlobalEventModuleEventsView from '../views/GlobalEventModuleEventsView.vue';
-import GlobalEventKeyboardView from '../views/GlobalEventKeyboardView.vue';
-import ContextMenuOverviewView from '../views/ContextMenuOverviewView.vue';
-import ContextMenuDefaultMenuView from '../views/ContextMenuDefaultMenuView.vue';
-import ContextMenuModuleMenuView from '../views/ContextMenuModuleMenuView.vue';
-import ContextMenuCascadeMenuView from '../views/ContextMenuCascadeMenuView.vue';
-import ContextMenuStateView from '../views/ContextMenuStateView.vue';
-import ContextMenuCleanupView from '../views/ContextMenuCleanupView.vue';
-import DynamicDrawView from '../views/DynamicDrawView.vue';
-import DynamicDrawBasicGeometryView from '../views/DynamicDrawBasicGeometryView.vue';
-import DynamicDrawAdvancedGeometryView from '../views/DynamicDrawAdvancedGeometryView.vue';
-import DynamicDrawEditingView from '../views/DynamicDrawEditingView.vue';
-import DynamicDrawManagementView from '../views/DynamicDrawManagementView.vue';
-import MeasureView from '../views/MeasureView.vue';
-import MeasureDistanceView from '../views/MeasureDistanceView.vue';
-import MeasureAreaView from '../views/MeasureAreaView.vue';
-import MeasureRemoveView from '../views/MeasureRemoveView.vue';
-import TransformView from '../views/TransformView.vue';
-import DescriptorView from '../views/DescriptorView.vue';
 import { getDocumentTitle } from '../utils/documentTitle';
+
+const EarthInstanceView = () => import('../views/EarthInstanceView.vue');
+const ViewServiceView = () => import('../views/ViewServiceView.vue');
+const LayerServiceView = () => import('../views/LayerServiceView.vue');
+const ControlServiceView = () => import('../views/ControlServiceView.vue');
+const ElementOverviewView = () => import('../views/elements/ElementOverviewView.vue');
+const ElementCreateView = () => import('../views/elements/ElementCreateView.vue');
+const ElementQueryView = () => import('../views/elements/ElementQueryView.vue');
+const ElementUpdateView = () => import('../views/elements/ElementUpdateView.vue');
+const ElementCleanupView = () => import('../views/elements/ElementCleanupView.vue');
+const ShapesView = () => import('../views/elements/ShapesView.vue');
+const StylesView = () => import('../views/elements/StylesView.vue');
+const LineworkView = () => import('../views/elements/LineworkView.vue');
+const DrawView = () => import('../views/interactions/DrawView.vue');
+const EditView = () => import('../views/interactions/EditView.vue');
+const MeasureView = () => import('../views/interactions/MeasureView.vue');
+const TransformView = () => import('../views/interactions/TransformView.vue');
+const AnimationsView = () => import('../views/presentation/AnimationsView.vue');
+const ContextMenuView = () => import('../views/services/ContextMenuView.vue');
+const EventsView = () => import('../views/services/EventsView.vue');
+const OverlaysView = () => import('../views/services/OverlaysView.vue');
+const DescriptorView = () => import('../views/services/DescriptorView.vue');
+const UtilsView = () => import('../views/reference/UtilsView.vue');
+const ErrorsView = () => import('../views/reference/ErrorsView.vue');
+const ApiMethodsView = () => import('../views/api/ApiMethodsView.vue');
+const ApiTypesView = () => import('../views/api/ApiTypesView.vue');
 
 const router = createRouter({
   history: createWebHistory(),
@@ -43,176 +40,58 @@ const router = createRouter({
       path: '/',
       component: DocsLayout,
       children: [
+        { path: '', name: 'home', component: HomeView },
+        { path: 'guide/quick-start', name: 'quick-start', component: QuickStartView },
+        { path: 'guide/earth-create', name: 'earth-create', component: EarthCreateView },
+        { path: 'guide/migration-v2', name: 'migration-v2', component: MigrationV2View },
+        { path: 'components/core/earth', name: 'core-earth', component: EarthInstanceView },
+        { path: 'components/core/view', name: 'core-view', component: ViewServiceView },
+        { path: 'components/core/layers', name: 'core-layers', component: LayerServiceView },
+        { path: 'components/core/controls', name: 'core-controls', component: ControlServiceView },
         {
-          path: '',
-          name: 'home',
-          component: HomeView
+          path: 'components/reference/types',
+          redirect: (to) => ({ path: '/api/types', query: to.query, hash: to.hash })
         },
-        {
-          path: 'guide/quick-start',
-          name: 'quick-start',
-          component: QuickStartView
-        },
-        {
-          path: 'guide/earth-create',
-          name: 'earth-create',
-          component: EarthCreateView
-        },
-        {
-          path: 'guide/global-methods',
-          name: 'global-methods',
-          component: GlobalMethodsView
-        },
-        {
-          path: 'guide/migration-v2',
-          name: 'migration-v2',
-          component: MigrationV2View
-        },
-        {
-          path: 'components/layer-common',
-          name: 'layer-common',
-          component: LayerCommonView
-        },
-        {
-          path: 'components/point-layer',
-          name: 'point-layer',
-          component: PointLayerView
-        },
-        {
-          path: 'components/circle-layer',
-          name: 'circle-layer',
-          component: CircleLayerView
-        },
-        {
-          path: 'components/polygon-layer',
-          name: 'polygon-layer',
-          component: PolygonLayerView
-        },
-        {
-          path: 'components/billboard-layer',
-          name: 'billboard-layer',
-          component: BillboardLayerView
-        },
-        {
-          path: 'components/overlay-layer',
-          name: 'overlay-layer',
-          component: OverlayLayerView
-        },
-        {
-          path: 'components/polyline-layer',
-          name: 'polyline-layer',
-          component: PolylineLayerView
-        },
-        {
-          path: 'components/animation',
-          name: 'animation',
-          component: AnimationView
-        },
-        {
-          path: 'components/global-event',
-          name: 'global-event',
-          component: GlobalEventView
-        },
-        {
-          path: 'components/global-event/global-mouse',
-          name: 'global-event-global-mouse',
-          component: GlobalEventGlobalMouseView
-        },
-        {
-          path: 'components/global-event/module-events',
-          name: 'global-event-module-events',
-          component: GlobalEventModuleEventsView
-        },
-        {
-          path: 'components/global-event/keyboard',
-          name: 'global-event-keyboard',
-          component: GlobalEventKeyboardView
-        },
-        {
-          path: 'components/context-menu',
-          name: 'context-menu',
-          component: ContextMenuOverviewView
-        },
-        {
-          path: 'components/context-menu/default-menu',
-          name: 'context-menu-default-menu',
-          component: ContextMenuDefaultMenuView
-        },
-        {
-          path: 'components/context-menu/module-menu',
-          name: 'context-menu-module-menu',
-          component: ContextMenuModuleMenuView
-        },
-        {
-          path: 'components/context-menu/cascade-menu',
-          name: 'context-menu-cascade-menu',
-          component: ContextMenuCascadeMenuView
-        },
-        {
-          path: 'components/context-menu/menu-state',
-          name: 'context-menu-menu-state',
-          component: ContextMenuStateView
-        },
-        {
-          path: 'components/context-menu/cleanup',
-          name: 'context-menu-cleanup',
-          component: ContextMenuCleanupView
-        },
-        {
-          path: 'components/dynamic-draw',
-          name: 'dynamic-draw',
-          component: DynamicDrawView
-        },
-        {
-          path: 'components/dynamic-draw/basic-geometry',
-          name: 'dynamic-draw-basic-geometry',
-          component: DynamicDrawBasicGeometryView
-        },
-        {
-          path: 'components/dynamic-draw/advanced-geometry',
-          name: 'dynamic-draw-advanced-geometry',
-          component: DynamicDrawAdvancedGeometryView
-        },
-        {
-          path: 'components/dynamic-draw/editing',
-          name: 'dynamic-draw-editing',
-          component: DynamicDrawEditingView
-        },
-        {
-          path: 'components/dynamic-draw/management',
-          name: 'dynamic-draw-management',
-          component: DynamicDrawManagementView
-        },
-        {
-          path: 'components/measure',
-          name: 'measure',
-          component: MeasureView
-        },
-        {
-          path: 'components/measure/distance',
-          name: 'measure-distance',
-          component: MeasureDistanceView
-        },
-        {
-          path: 'components/measure/area',
-          name: 'measure-area',
-          component: MeasureAreaView
-        },
-        {
-          path: 'components/measure/remove',
-          name: 'measure-remove',
-          component: MeasureRemoveView
-        },
-        {
-          path: 'components/transform',
-          name: 'transform',
-          component: TransformView
-        },
-        {
-          path: 'components/descriptor',
-          name: 'descriptor',
-          component: DescriptorView
-        }
+        { path: 'components/elements/overview', name: 'element-overview', component: ElementOverviewView },
+        { path: 'components/elements/create', name: 'element-create', component: ElementCreateView },
+        { path: 'components/elements/query', name: 'element-query', component: ElementQueryView },
+        { path: 'components/elements/update', name: 'element-update', component: ElementUpdateView },
+        { path: 'components/elements/cleanup', name: 'element-cleanup', component: ElementCleanupView },
+        { path: 'components/elements/shapes', name: 'element-shapes', component: ShapesView },
+        { path: 'components/elements/styles', name: 'element-styles', component: StylesView },
+        { path: 'components/elements/linework', name: 'element-linework', component: LineworkView },
+        { path: 'components/interactions/draw', name: 'interaction-draw', component: DrawView },
+        { path: 'components/interactions/edit', name: 'interaction-edit', component: EditView },
+        { path: 'components/interactions/measure', name: 'interaction-measure', component: MeasureView },
+        { path: 'components/interactions/transform', name: 'interaction-transform', component: TransformView },
+        { path: 'components/presentation/animations', name: 'presentation-animations', component: AnimationsView },
+        { path: 'components/services/context-menu', name: 'service-context-menu', component: ContextMenuView },
+        { path: 'components/services/events', name: 'service-events', component: EventsView },
+        { path: 'components/services/overlays', name: 'service-overlays', component: OverlaysView },
+        { path: 'components/services/descriptor', name: 'service-descriptor', component: DescriptorView },
+        { path: 'components/services/overlays/descriptor', redirect: '/components/services/descriptor' },
+        { path: 'components/reference/utils', name: 'reference-utils', component: UtilsView },
+        { path: 'components/reference/errors', name: 'reference-errors', component: ErrorsView },
+        { path: 'components/point-layer', redirect: '/components/elements/create' },
+        { path: 'components/measure', redirect: '/components/interactions/measure' },
+        { path: 'components/dynamic-draw', redirect: '/components/interactions/draw' },
+        { path: 'components/elements/list', redirect: '/components/elements/overview' },
+        { path: 'components/elements/destroy', redirect: '/components/elements/cleanup' },
+        { path: 'components/animation', redirect: '/components/presentation/animations' },
+        { path: 'components/interactions/animations', redirect: '/components/presentation/animations' },
+        { path: 'components/tools/context-menu', redirect: '/components/services/context-menu' },
+        { path: 'components/tools/events', redirect: '/components/services/events' },
+        { path: 'components/tools/overlays', redirect: '/components/services/overlays' },
+        { path: 'components/calculations/utils', redirect: '/components/reference/utils' }
+      ]
+    },
+    {
+      path: '/api',
+      component: ApiQueryLayout,
+      children: [
+        { path: '', redirect: '/api/methods' },
+        { path: 'methods', name: 'api-methods', component: ApiMethodsView },
+        { path: 'types', name: 'api-types', component: ApiTypesView }
       ]
     }
   ],

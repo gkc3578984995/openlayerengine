@@ -3,12 +3,21 @@ import type { Color } from '../../core/common/types.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import type { ElementSelector } from '../../core/element/types.js';
 import { InvalidArgumentError, UnsupportedOperationError } from '../../core/errors.js';
+import type { ShapeDefinition } from '../../core/shape/types.js';
 import {
   isNativeStyleRef,
   type ArrowDecorationSpec,
   type CircleSymbolSpec,
   type ElementStyleState,
   type IconSymbolSpec,
+  type InlinePathTextSpec,
+  type LineworkSpec,
+  type PathCapSpec,
+  type PathDecorationSpec,
+  type PathGlyphPrimitiveSpec,
+  type PathGlyphSpec,
+  type PathGlyphStrokeSpec,
+  type PathTrackSpec,
   type PatternFillSpec,
   type SolidFillSpec,
   type StrokeSpec,
@@ -19,9 +28,11 @@ import {
 import type { ElementChangeSet } from '../../core/transaction/types.js';
 
 /** 结构化样式允许的顶层字段。 */
-const styleFields = new Set(['symbol', 'strokes', 'fill', 'text', 'decorations', 'zIndex']);
+const styleFields = new Set(['symbol', 'strokes', 'fill', 'text', 'decorations', 'linework', 'zIndex']);
 /** 描边样式允许的字段。 */
 const strokeFields = new Set(['color', 'width', 'lineDash', 'lineDashOffset', 'lineCap', 'lineJoin', 'miterLimit', 'fitPatternOnce']);
+/** 路径轨道保持固定虚线间距，不接受顶层 Stroke 的整段拟合字段。 */
+const pathTrackStrokeFields = new Set([...strokeFields].filter((field) => field !== 'fitPatternOnce'));
 /** 圆形符号允许的字段。 */
 const circleFields = new Set(['type', 'radius', 'fill', 'stroke']);
 /** 图片符号允许的字段。 */
@@ -76,6 +87,31 @@ const textFields = new Set([
 ]);
 /** 箭头装饰允许的字段。 */
 const arrowFields = new Set(['type', 'placement', 'symbol', 'offset', 'spacing']);
+/** 路径线饰允许的字段。 */
+const lineworkFields = new Set(['tracks', 'caps', 'decorations', 'inlineText', 'contour']);
+/** 路径轨道允许的字段。 */
+const pathTrackFields = new Set(['offset', 'stroke']);
+/** 路径端帽集合允许的字段。 */
+const pathCapsFields = new Set(['start', 'end']);
+/** 单个路径端帽允许的字段。 */
+const pathCapFields = new Set(['glyph']);
+/** glyph 允许的字段。 */
+const pathGlyphFields = new Set(['primitives']);
+/** glyph 描边允许的字段；装饰物不能退化为虚线。 */
+const pathGlyphStrokeFields = new Set(['color', 'width', 'lineCap', 'lineJoin', 'miterLimit']);
+/** 路径内嵌文本允许的字段。 */
+const inlinePathTextFields = new Set([
+  'text',
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+  'fontStyle',
+  'fill',
+  'stroke',
+  'backgroundFill',
+  'backgroundPadding',
+  'gapPadding'
+]);
 /** 仅圆形符号补丁可使用的字段。 */
 const circleOnlyPatchFields = new Set(['radius', 'fill', 'stroke']);
 /** 仅图片符号补丁可使用的字段。 */
@@ -159,7 +195,11 @@ function cloneStyleState(style: ElementStyleState): ElementStyleState {
 
 /** 合并完整结构化样式与局部补丁。 */
 function mergeStyle(style: StyleSpec, patch: StylePatch): StyleSpec {
-  return mergePlain(style, patch) as StyleSpec;
+  const merged = mergePlain(style, patch) as StyleSpec;
+  if (hasDefined(patch as Record<string, unknown>, 'linework')) {
+    merged.linework = cloneMutable(patch.linework) as LineworkSpec;
+  }
+  return merged;
 }
 
 /** 递归合并普通对象，并支持用 undefined 删除字段。 */
@@ -206,6 +246,12 @@ export function assertStructuredStyleSpec(value: unknown): asserts value is Styl
   if (hasDefined(style, 'fill')) assertFill(style.fill, false);
   if (hasDefined(style, 'text')) assertText(style.text, false);
   if (hasDefined(style, 'decorations')) assertDecorations(style.decorations);
+  if (hasDefined(style, 'linework')) {
+    if (hasDefined(style, 'strokes') || hasDefined(style, 'decorations')) {
+      throw new InvalidArgumentError('Style linework cannot be combined with top-level strokes or decorations');
+    }
+    assertLinework(style.linework);
+  }
   if (hasDefined(style, 'zIndex')) finiteNumber(style.zIndex, 'Style zIndex');
 }
 
@@ -218,7 +264,24 @@ function assertStylePatch(value: unknown): asserts value is StylePatch {
   if (hasDefined(patch, 'fill')) assertFill(patch.fill, true);
   if (hasDefined(patch, 'text')) assertText(patch.text, true);
   if (hasDefined(patch, 'decorations')) assertDecorations(patch.decorations);
+  if (hasDefined(patch, 'linework')) {
+    if (hasDefined(patch, 'strokes') || hasDefined(patch, 'decorations')) {
+      throw new InvalidArgumentError('Style linework patch cannot include top-level strokes or decorations');
+    }
+    assertLinework(patch.linework);
+  }
   if (hasDefined(patch, 'zIndex')) finiteNumber(patch.zIndex, 'Style patch zIndex');
+}
+
+/** 确认路径线饰与 ShapeDefinition 声明的最终路径轮廓语义一致。 */
+export function assertLineworkShapeCompatibility(style: ElementStyleState, definition: ShapeDefinition): void {
+  if (isNativeStyleRef(style) || style.linework === undefined) return;
+  const contourKind = style.linework.contour?.kind ?? 'open';
+  const pathContour = definition.pathContour;
+  if (pathContour === undefined) throw new InvalidArgumentError(`Shape does not provide a linework path contour: ${definition.type}`);
+  if (contourKind !== pathContour) {
+    throw new InvalidArgumentError(`${definition.type} linework requires a ${pathContour} contour policy`);
+  }
 }
 
 /** 校验圆形或图片符号配置。 */
@@ -277,9 +340,9 @@ function assertStrokeArray(value: unknown, label: string): asserts value is Stro
 }
 
 /** 校验单条描边样式。 */
-function assertStroke(value: unknown, _partial: boolean, label: string): asserts value is StrokeSpec {
+function assertStroke(value: unknown, _partial: boolean, label: string, fields = strokeFields): asserts value is StrokeSpec {
   const stroke = record(value, label);
-  assertKnownFields(stroke, strokeFields, label);
+  assertKnownFields(stroke, fields, label);
   if (hasDefined(stroke, 'color')) assertColor(stroke.color, `${label} color`);
   if (hasDefined(stroke, 'width')) nonNegativeFiniteNumber(stroke.width, `${label} width`);
   if (hasDefined(stroke, 'lineDash')) numberArray(stroke.lineDash, `${label} lineDash`);
@@ -375,6 +438,245 @@ function assertDecorations(value: unknown): asserts value is ArrowDecorationSpec
   }
 }
 
+/** 校验完整路径线饰。 */
+function assertLinework(value: unknown): asserts value is LineworkSpec {
+  const linework = record(value, 'Style linework');
+  assertKnownFields(linework, lineworkFields, 'Style linework');
+  if (!hasDefined(linework, 'tracks')) throw new InvalidArgumentError('Style linework requires tracks');
+  assertPathTracks(linework.tracks);
+
+  const tracks = linework.tracks as PathTrackSpec[];
+  let closed = false;
+  if (hasDefined(linework, 'contour')) closed = assertPathContour(linework.contour);
+
+  if (hasDefined(linework, 'caps')) {
+    if (tracks.length !== 1) throw new InvalidArgumentError('Style linework caps require exactly one track');
+    if (closed) throw new InvalidArgumentError('Closed style linework cannot contain caps');
+    assertPathCaps(linework.caps);
+  }
+
+  let centerDecorationCount = 0;
+  if (hasDefined(linework, 'decorations')) {
+    if (!Array.isArray(linework.decorations)) throw new InvalidArgumentError('Style linework decorations must be an array');
+    for (const decoration of linework.decorations) {
+      if (assertPathDecoration(decoration) === 'center') centerDecorationCount += 1;
+    }
+    if (centerDecorationCount > 1) throw new InvalidArgumentError('Style linework can contain at most one center decoration');
+  }
+
+  if (hasDefined(linework, 'inlineText')) {
+    if (centerDecorationCount > 0) throw new InvalidArgumentError('Style linework inlineText cannot be combined with a center decoration');
+    assertInlinePathText(linework.inlineText);
+  }
+
+  const hasDecorations = Array.isArray(linework.decorations) && linework.decorations.length > 0;
+  if (tracks.length === 0 && !hasDecorations && !hasDefined(linework, 'inlineText')) {
+    throw new InvalidArgumentError('Style linework requires a track, decoration, or inlineText');
+  }
+}
+
+/** 校验路径轨道数组。 */
+function assertPathTracks(value: unknown): asserts value is PathTrackSpec[] {
+  if (!Array.isArray(value)) throw new InvalidArgumentError('Style linework tracks must be an array');
+  for (const candidate of value) {
+    const track = record(candidate, 'Path track');
+    assertKnownFields(track, pathTrackFields, 'Path track');
+    if (!hasDefined(track, 'offset')) throw new InvalidArgumentError('Path track requires offset');
+    if (!hasDefined(track, 'stroke')) throw new InvalidArgumentError('Path track requires stroke');
+    finiteNumber(track.offset, 'Path track offset');
+    assertStroke(track.stroke, false, 'Path track stroke', pathTrackStrokeFields);
+    const stroke = track.stroke as Record<string, unknown>;
+    if (hasDefined(stroke, 'color')) assertPathColor(stroke.color, 'Path track stroke color');
+  }
+}
+
+/** 校验路径端帽集合。 */
+function assertPathCaps(value: unknown): void {
+  const caps = record(value, 'Path caps');
+  assertKnownFields(caps, pathCapsFields, 'Path caps');
+  if (hasDefined(caps, 'start')) assertPathCap(caps.start, 'Path start cap');
+  if (hasDefined(caps, 'end')) assertPathCap(caps.end, 'Path end cap');
+}
+
+/** 校验单个路径端帽。 */
+function assertPathCap(value: unknown, label: string): asserts value is PathCapSpec {
+  const cap = record(value, label);
+  assertKnownFields(cap, pathCapFields, label);
+  if (!hasDefined(cap, 'glyph')) throw new InvalidArgumentError(`${label} requires glyph`);
+  assertPathGlyph(cap.glyph);
+}
+
+/** 校验路径装饰并返回其放置类型。 */
+function assertPathDecoration(value: unknown): PathDecorationSpec['placement']['kind'] {
+  const decoration = record(value, 'Path decoration');
+  const placement = record(decoration.placement, 'Path decoration placement');
+
+  if (placement.kind === 'repeat') {
+    assertKnownFields(decoration, new Set(['placement', 'sequence']), 'Repeated path decoration');
+    assertKnownFields(placement, new Set(['kind', 'spacing', 'phase']), 'Repeated path decoration placement');
+    if (!hasDefined(placement, 'spacing')) throw new InvalidArgumentError('Repeated path decoration requires spacing');
+    positiveFiniteNumber(placement.spacing, 'Repeated path decoration spacing');
+    if (hasDefined(placement, 'phase')) finiteNumber(placement.phase, 'Repeated path decoration phase');
+    if (!Array.isArray(decoration.sequence) || decoration.sequence.length === 0) {
+      throw new InvalidArgumentError('Repeated path decoration requires a non-empty glyph sequence');
+    }
+    for (const glyph of decoration.sequence) assertPathGlyph(glyph);
+    return 'repeat';
+  }
+
+  if (placement.kind === 'center') {
+    assertKnownFields(decoration, new Set(['placement', 'glyph', 'cutoutPadding']), 'Center path decoration');
+    assertKnownFields(placement, new Set(['kind']), 'Center path decoration placement');
+    if (!hasDefined(decoration, 'glyph')) throw new InvalidArgumentError('Center path decoration requires glyph');
+    assertPathGlyph(decoration.glyph);
+    if (hasDefined(decoration, 'cutoutPadding')) nonNegativeFiniteNumber(decoration.cutoutPadding, 'Center path decoration cutoutPadding');
+    return 'center';
+  }
+
+  throw new InvalidArgumentError(`Unknown path decoration placement: ${String(placement.kind)}`);
+}
+
+/** 校验一个路径 glyph 及其递归原语。 */
+function assertPathGlyph(value: unknown, active = new WeakSet<object>()): asserts value is PathGlyphSpec {
+  const glyph = record(value, 'Path glyph');
+  if (active.has(glyph)) throw new InvalidArgumentError('Path glyph primitives cannot be circular');
+  assertKnownFields(glyph, pathGlyphFields, 'Path glyph');
+  if (!Array.isArray(glyph.primitives) || glyph.primitives.length === 0) {
+    throw new InvalidArgumentError('Path glyph requires a non-empty primitives array');
+  }
+
+  active.add(glyph);
+  try {
+    for (const primitive of glyph.primitives) assertPathGlyphPrimitive(primitive, active);
+  } finally {
+    active.delete(glyph);
+  }
+}
+
+/** 校验路径 glyph 的一种局部坐标原语。 */
+function assertPathGlyphPrimitive(value: unknown, active: WeakSet<object>): asserts value is PathGlyphPrimitiveSpec {
+  const primitive = record(value, 'Path glyph primitive');
+  if (primitive.type === 'segment') {
+    assertKnownFields(primitive, new Set(['type', 'from', 'to', 'stroke']), 'Path segment primitive');
+    if (!hasDefined(primitive, 'from') || !hasDefined(primitive, 'to') || !hasDefined(primitive, 'stroke')) {
+      throw new InvalidArgumentError('Path segment primitive requires from, to, and stroke');
+    }
+    tuple(primitive.from, 2, 'Path segment primitive from');
+    tuple(primitive.to, 2, 'Path segment primitive to');
+    assertPathGlyphStroke(primitive.stroke, 'Path segment primitive stroke');
+    return;
+  }
+
+  if (primitive.type === 'circle') {
+    assertKnownFields(primitive, new Set(['type', 'center', 'radius', 'fill', 'stroke']), 'Path circle primitive');
+    if (!hasDefined(primitive, 'center') || !hasDefined(primitive, 'radius')) {
+      throw new InvalidArgumentError('Path circle primitive requires center and radius');
+    }
+    tuple(primitive.center, 2, 'Path circle primitive center');
+    positiveFiniteNumber(primitive.radius, 'Path circle primitive radius');
+    assertPathPrimitivePaint(primitive, 'Path circle primitive');
+    return;
+  }
+
+  if (primitive.type === 'polygon') {
+    assertKnownFields(primitive, new Set(['type', 'points', 'fill', 'stroke']), 'Path polygon primitive');
+    if (!Array.isArray(primitive.points) || primitive.points.length < 3) {
+      throw new InvalidArgumentError('Path polygon primitive requires at least three points');
+    }
+    for (const point of primitive.points) tuple(point, 2, 'Path polygon primitive point');
+    assertPathPrimitivePaint(primitive, 'Path polygon primitive');
+    return;
+  }
+
+  if (primitive.type === 'group') {
+    assertKnownFields(primitive, new Set(['type', 'primitives']), 'Path group primitive');
+    if (!Array.isArray(primitive.primitives) || primitive.primitives.length === 0) {
+      throw new InvalidArgumentError('Path group primitive requires a non-empty primitives array');
+    }
+    if (active.has(primitive)) throw new InvalidArgumentError('Path glyph primitives cannot be circular');
+    active.add(primitive);
+    try {
+      for (const child of primitive.primitives) assertPathGlyphPrimitive(child, active);
+    } finally {
+      active.delete(primitive);
+    }
+    return;
+  }
+
+  throw new InvalidArgumentError(`Unknown path glyph primitive type: ${String(primitive.type)}`);
+}
+
+/** 校验圆形或多边形原语至少存在一种有效 paint。 */
+function assertPathPrimitivePaint(primitive: Record<string, unknown>, label: string): void {
+  if (!hasDefined(primitive, 'fill') && !hasDefined(primitive, 'stroke')) {
+    throw new InvalidArgumentError(`${label} requires fill or stroke`);
+  }
+  if (hasDefined(primitive, 'fill')) assertSolidPathFill(primitive.fill, `${label} fill`);
+  if (hasDefined(primitive, 'stroke')) assertPathGlyphStroke(primitive.stroke, `${label} stroke`);
+}
+
+/** 校验路径原语只使用纯色填充。 */
+function assertSolidPathFill(value: unknown, label: string): asserts value is SolidFillSpec {
+  const fill = record(value, label);
+  assertKnownFields(fill, solidFillFields, label);
+  if (fill.type !== 'solid' || !hasDefined(fill, 'color')) throw new InvalidArgumentError(`${label} requires a solid color`);
+  assertPathColor(fill.color, `${label} color`);
+}
+
+/** 校验装饰物专用的不可虚线描边。 */
+function assertPathGlyphStroke(value: unknown, label: string): asserts value is PathGlyphStrokeSpec {
+  const stroke = record(value, label);
+  assertKnownFields(stroke, pathGlyphStrokeFields, label);
+  if (hasDefined(stroke, 'color')) assertPathColor(stroke.color, `${label} color`);
+  if (hasDefined(stroke, 'width')) nonNegativeFiniteNumber(stroke.width, `${label} width`);
+  if (hasDefined(stroke, 'lineCap')) oneOf(stroke.lineCap, ['butt', 'round', 'square'], `${label} lineCap`);
+  if (hasDefined(stroke, 'lineJoin')) oneOf(stroke.lineJoin, ['bevel', 'round', 'miter'], `${label} lineJoin`);
+  if (hasDefined(stroke, 'miterLimit')) nonNegativeFiniteNumber(stroke.miterLimit, `${label} miterLimit`);
+}
+
+/** 校验路径中点文本的完整外观。 */
+function assertInlinePathText(value: unknown): asserts value is InlinePathTextSpec {
+  const text = record(value, 'Path inlineText');
+  assertKnownFields(text, inlinePathTextFields, 'Path inlineText');
+  if (!hasDefined(text, 'text')) throw new InvalidArgumentError('Path inlineText requires text');
+  nonBlankString(text.text, 'Path inlineText value');
+  if (!hasDefined(text, 'fontFamily')) throw new InvalidArgumentError('Path inlineText requires fontFamily');
+  nonEmptyString(text.fontFamily, 'Path inlineText fontFamily');
+  if (!hasDefined(text, 'fontSize')) throw new InvalidArgumentError('Path inlineText requires fontSize');
+  positiveFiniteNumber(text.fontSize, 'Path inlineText fontSize');
+  if (!hasDefined(text, 'fontWeight')) throw new InvalidArgumentError('Path inlineText requires fontWeight');
+  if (typeof text.fontWeight === 'number') finiteNumber(text.fontWeight, 'Path inlineText fontWeight');
+  else oneOf(text.fontWeight, ['normal', 'bold'], 'Path inlineText fontWeight');
+  if (!hasDefined(text, 'fontStyle')) throw new InvalidArgumentError('Path inlineText requires fontStyle');
+  oneOf(text.fontStyle, ['normal', 'italic'], 'Path inlineText fontStyle');
+  if (!hasDefined(text, 'fill')) throw new InvalidArgumentError('Path inlineText requires fill');
+  assertSolidPathFill(text.fill, 'Path inlineText fill');
+  if (hasDefined(text, 'stroke')) assertPathGlyphStroke(text.stroke, 'Path inlineText stroke');
+  if (hasDefined(text, 'backgroundFill')) assertSolidPathFill(text.backgroundFill, 'Path inlineText backgroundFill');
+  if (hasDefined(text, 'backgroundPadding')) {
+    if (!hasDefined(text, 'backgroundFill')) throw new InvalidArgumentError('Path inlineText backgroundPadding requires backgroundFill');
+    nonNegativeFiniteNumber(text.backgroundPadding, 'Path inlineText backgroundPadding');
+  }
+  if (!hasDefined(text, 'gapPadding')) throw new InvalidArgumentError('Path inlineText requires gapPadding');
+  nonNegativeFiniteNumber(text.gapPadding, 'Path inlineText gapPadding');
+}
+
+/** 校验开放或闭合轮廓策略，并返回是否闭合。 */
+function assertPathContour(value: unknown): boolean {
+  const contour = record(value, 'Path contour policy');
+  if (contour.kind === 'open') {
+    assertKnownFields(contour, new Set(['kind']), 'Open path contour policy');
+    return false;
+  }
+  if (contour.kind === 'closed') {
+    assertKnownFields(contour, new Set(['kind', 'rings', 'seam']), 'Closed path contour policy');
+    oneOf(contour.rings, ['outer'], 'Closed path contour rings');
+    oneOf(contour.seam, ['preserve-spacing'], 'Closed path contour seam');
+    return true;
+  }
+  throw new InvalidArgumentError(`Unknown path contour kind: ${String(contour.kind)}`);
+}
+
 /** 校验单值或二维元组缩放。 */
 function assertScale(value: unknown, label: string): void {
   if (typeof value === 'number') finiteNumber(value, label);
@@ -391,6 +693,12 @@ function assertColor(value: unknown, label: string): asserts value is Color {
   ) {
     throw new InvalidArgumentError(`${label} must be a color string or numeric tuple`);
   }
+}
+
+/** linework 低层 schema 不接受无法形成 CSS 颜色的空字符串。 */
+function assertPathColor(value: unknown, label: string): asserts value is Color {
+  assertColor(value, label);
+  if (typeof value === 'string' && value.trim().length === 0) throw new InvalidArgumentError(`${label} must not be blank`);
 }
 
 /** 校验指定长度的有限数字元组。 */
@@ -467,6 +775,11 @@ function stringValue(value: unknown, label: string): asserts value is string {
 /** 校验非空字符串。 */
 function nonEmptyString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) throw new InvalidArgumentError(`${label} must be a non-empty string`);
+}
+
+/** 校验去除首尾空白后仍有内容的字符串。 */
+function nonBlankString(value: unknown, label: string): asserts value is string {
+  if (typeof value !== 'string' || value.trim().length === 0) throw new InvalidArgumentError(`${label} must be a non-blank string`);
 }
 
 /** 校验布尔类型。 */

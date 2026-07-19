@@ -2,6 +2,7 @@ import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
 import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
 import VectorSource from 'ol/source/Vector.js';
@@ -529,6 +530,241 @@ describe('LayerRenderPass', () => {
       .filter((value): value is number => value !== undefined);
 
     expect(offsets).toEqual([9, -15]);
+    manager.destroy();
+    pass.destroy();
+  });
+
+  it('dash-flow 分别更新 linework 的虚线轨道并保留轨道偏移与基础相位', () => {
+    const state = polylineElement('route', {
+      style: {
+        linework: {
+          tracks: [
+            { offset: -3, stroke: { color: '#111111', width: 2, lineDash: [8, 6], lineDashOffset: 2 } },
+            { offset: 0, stroke: { color: '#222222', width: 2 } },
+            { offset: 7, stroke: { color: '#333333', width: 1, lineDash: [3, 4], lineDashOffset: 9 } }
+          ],
+          contour: { kind: 'open' }
+        }
+      }
+    });
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    store.add(state);
+    const harness = createPassHarness([state]);
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, compiler);
+    const manager = new AnimationManagerImpl({
+      store,
+      shapes,
+      render: pass,
+      shapeProjection: identityShapeProjection,
+      registry: createBuiltinAnimationRegistry(),
+      clock: animationTiming,
+      wake: animationTiming
+    });
+    manager.play({ id: 'route' }, { type: 'dash-flow', speed: 30 });
+
+    dispatchFrame(harness.layer, 0, 0);
+    renderSpies.drawFeature.mockClear();
+    dispatchFrame(harness.layer, 500, 0);
+    const strokes = renderSpies.drawFeature.mock.calls.map((call) => (call[1] as Style).getStroke()).filter((stroke): stroke is Stroke => stroke !== null);
+
+    expect(strokes.map((stroke) => stroke.getLineDashOffset())).toEqual([-13, -6]);
+    expect(strokes.map((stroke) => stroke.getOffset())).toEqual([-3, 7]);
+    manager.destroy();
+    pass.destroy();
+  });
+
+  it('renders dash-flow on a closed Polygon linework track', () => {
+    const state: ElementState = {
+      id: 'area',
+      type: 'polygon',
+      geometry: {
+        type: 'polygon',
+        controlPoints: [
+          [0, 0],
+          [100, 0],
+          [100, 100],
+          [0, 100]
+        ]
+      },
+      style: {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2, lineDash: [8, 4], lineDashOffset: 2 } }],
+          contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' }
+        }
+      },
+      module: 'areas',
+      layerId: 'default',
+      visible: true
+    };
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    store.add(state);
+    const harness = createPassHarness([state]);
+    harness.binding.requireFeature('area').setGeometry(
+      new Polygon([
+        [
+          [0, 0],
+          [100, 0],
+          [100, 100],
+          [0, 100],
+          [0, 0]
+        ]
+      ])
+    );
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, compiler);
+    const manager = new AnimationManagerImpl({
+      store,
+      shapes,
+      render: pass,
+      shapeProjection: identityShapeProjection,
+      registry: createBuiltinAnimationRegistry(),
+      clock: animationTiming,
+      wake: animationTiming
+    });
+
+    const handle = manager.play({ id: 'area' }, { type: 'dash-flow', speed: 24 });
+    dispatchFrame(harness.layer, 0, 0);
+    renderSpies.drawFeature.mockClear();
+    dispatchFrame(harness.layer, 500, 0);
+
+    const styles = renderSpies.drawFeature.mock.calls.map((call) => call[1] as Style);
+    expect(handle.status).toBe('running');
+    expect(styles).toHaveLength(1);
+    expect(styles[0].getStroke()?.getLineDashOffset()).toBe(-10);
+    const geometry = styles[0].getGeometry();
+    expect(geometry).toBeInstanceOf(LineString);
+    if (geometry instanceof LineString) {
+      expect(geometry.getCoordinates()[0]).toEqual([0, 0]);
+      expect(geometry.getCoordinates().at(-1)).toEqual([0, 0]);
+    }
+    manager.destroy();
+    pass.destroy();
+  });
+
+  it('composes reverse grow reveal phase with dash-flow phase', () => {
+    const state = polylineElement('route', {
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [100, 0]
+        ]
+      },
+      style: {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2, lineDash: [8, 4], lineDashOffset: 1 } }],
+          contour: { kind: 'open' }
+        }
+      }
+    });
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    store.add(state);
+    const harness = createPassHarness([state]);
+    harness.binding.requireFeature('route').setGeometry(
+      new LineString([
+        [0, 0],
+        [100, 0]
+      ])
+    );
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, compiler);
+    const manager = new AnimationManagerImpl({
+      store,
+      shapes,
+      render: pass,
+      shapeProjection: identityShapeProjection,
+      registry: createBuiltinAnimationRegistry(),
+      clock: animationTiming,
+      wake: animationTiming
+    });
+
+    manager.play({ id: 'route' }, { type: 'dash-flow', speed: 24, color: '#00ff00' });
+    manager.play({ id: 'route' }, { type: 'grow', durationMs: 1_250, direction: 'reverse', easing: 'linear' });
+    dispatchFrame(harness.layer, 0, 0);
+    renderSpies.drawFeature.mockClear();
+    dispatchFrame(harness.layer, 500, 0);
+
+    const records = renderSpies.drawFeature.mock.calls.map((call) => {
+      const style = call[1] as Style;
+      return { stroke: style.getStroke(), geometry: style.getGeometry() };
+    });
+    expect(records.map(({ stroke }) => stroke?.getLineDashOffset())).toEqual([-59, -71]);
+    const overlay = records.find(({ stroke }) => stroke?.getColor() === '#00ff00');
+    expect(overlay?.stroke?.getLineDashOffset()).toBe(-71);
+    expect(overlay?.geometry).toBeInstanceOf(LineString);
+    if (overlay?.geometry instanceof LineString) {
+      expect(overlay.geometry.getCoordinates()).toEqual([
+        [60, 0],
+        [100, 0]
+      ]);
+    }
+    manager.destroy();
+    pass.destroy();
+  });
+
+  it.each(['inline-text', 'center-decoration'] as const)('dash-flow preserves the %s cutout without drawing duplicate content', (kind) => {
+    const style = cutoutLineworkStyle(kind);
+    const state = polylineElement('route', {
+      geometry: {
+        type: 'polyline',
+        controlPoints: [
+          [0, 0],
+          [100, 0]
+        ]
+      },
+      style
+    });
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    store.add(state);
+    const harness = createPassHarness([state], false);
+    harness.binding.requireFeature('route').setGeometry(
+      new LineString([
+        [0, 0],
+        [100, 0]
+      ])
+    );
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, compiler);
+    const manager = new AnimationManagerImpl({
+      store,
+      shapes,
+      render: pass,
+      shapeProjection: identityShapeProjection,
+      registry: createBuiltinAnimationRegistry(),
+      clock: animationTiming,
+      wake: animationTiming
+    });
+
+    manager.play({ id: 'route' }, { type: 'dash-flow', speed: 24 });
+    dispatchFrame(harness.layer, 0, 0);
+    renderSpies.drawFeature.mockClear();
+    dispatchFrame(harness.layer, 500, 0);
+
+    const styles = renderSpies.drawFeature.mock.calls.map((call) => call[1] as Style);
+    const expectedCutout = kind === 'inline-text' ? [44, 56] : [46, 54];
+    expect(styles).toHaveLength(2);
+    expect(styles.every((item) => item.getText() === null && item.getImage() === null)).toBe(true);
+    expect(styles.map((item) => item.getStroke()?.getLineDashOffset())).toEqual([-11, -11 - expectedCutout[1]]);
+    expect(
+      styles.map((item) => {
+        const geometry = item.getGeometry();
+        return geometry instanceof LineString ? geometry.getCoordinates().map(([x, y]) => [Math.round(x * 1e9) / 1e9, Math.round(y * 1e9) / 1e9]) : [];
+      })
+    ).toEqual([
+      [
+        [0, 0],
+        [expectedCutout[0], 0]
+      ],
+      [
+        [expectedCutout[1], 0],
+        [100, 0]
+      ]
+    ]);
     manager.destroy();
     pass.destroy();
   });
@@ -1114,6 +1350,37 @@ interface PassHarness {
   readonly styles: StyleCompiler & {
     readonly compile: ReturnType<typeof vi.fn>;
     readonly compilePresentation: ReturnType<typeof vi.fn>;
+  };
+}
+
+function cutoutLineworkStyle(kind: 'inline-text' | 'center-decoration'): StyleSpec {
+  return {
+    linework: {
+      tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2, lineDash: [8, 4], lineDashOffset: 1 } }],
+      ...(kind === 'inline-text'
+        ? {
+            inlineText: {
+              text: 'AB',
+              fontFamily: 'sans-serif',
+              fontSize: 12,
+              fontWeight: 'normal' as const,
+              fontStyle: 'normal' as const,
+              fill: { type: 'solid' as const, color: '#000000' },
+              gapPadding: 2
+            }
+          }
+        : {
+            decorations: [
+              {
+                placement: { kind: 'center' as const },
+                glyph: {
+                  primitives: [{ type: 'circle' as const, center: [0, 0] as [number, number], radius: 4, fill: { type: 'solid' as const, color: '#000000' } }]
+                }
+              }
+            ]
+          }),
+      contour: { kind: 'open' }
+    }
   };
 }
 

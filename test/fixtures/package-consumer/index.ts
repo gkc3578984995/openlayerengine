@@ -1,4 +1,4 @@
-import { Earth, Element, Layer, animationTypes, measureTypes, shapeTypes, stylePresets, throttle, useEarth } from '@vrsim/earth-engine-ol';
+import { Earth, Element, Layer, animationTypes, lineStyles, measureTypes, shapeTypes, stylePresets, throttle, useEarth } from '@vrsim/earth-engine-ol';
 import type {
   AnimationManager,
   Coordinate,
@@ -16,6 +16,7 @@ import type {
 const options: EarthOptions = { target: 'map', view: { center: [0, 0], zoom: 4 } };
 const getOrCreate: typeof useEarth = useEarth;
 const throttled = throttle((coordinate: Coordinate) => coordinate, 16);
+const lineStyle = lineStyles.polygon({ lines: ['solid', 'dashed'] as const, decoration: 'circle' });
 
 declare const earth: Earth;
 declare const element: Element;
@@ -35,6 +36,7 @@ void [
   options,
   getOrCreate,
   throttled,
+  lineStyle,
   elements,
   layers,
   styles,

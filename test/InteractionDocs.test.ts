@@ -11,39 +11,32 @@ describe('interaction documentation infrastructure', () => {
     expect(styles).toMatch(/\.page-anchor__title,\s*\.page-anchor \.el-anchor-link__title\s*\{\s*white-space: nowrap;/);
   });
 
-  it('adds the four interaction routes, navigation entries, and layout titles', async () => {
-    const [navigation, router, layout] = await Promise.all([
-      readFile('website/src/config/navigation.ts', 'utf8'),
-      readFile('website/src/router/index.ts', 'utf8'),
-      readFile('website/src/layouts/DocsLayout.vue', 'utf8')
-    ]);
+  it('adds the four V2 interaction routes in menu order', async () => {
+    const [navigation, router] = await Promise.all([readFile('website/src/config/navigation.ts', 'utf8'), readFile('website/src/router/index.ts', 'utf8')]);
 
     expect(navigation).toContain("title: '地图交互'");
-    expect(navigation.indexOf("{ label: 'PointLayer 点图层'")).toBeLessThan(navigation.indexOf("title: '地图交互'"));
+    expect(navigation.indexOf("title: '核心'")).toBeLessThan(navigation.indexOf("title: '地图交互'"));
 
     const interactionGroup = navigation.slice(navigation.indexOf("title: '地图交互'"));
     let previousItemIndex = -1;
-    for (const [label, path, name, title] of [
-      ['ContextMenu 右键菜单', '/components/context-menu', 'context-menu', 'ContextMenu 右键菜单'],
-      ['DynamicDraw 动态绘制', '/components/dynamic-draw', 'dynamic-draw', 'DynamicDraw 动态绘制'],
-      ['Measure 测量工具', '/components/measure', 'measure', 'Measure 概览']
+    for (const [label, path, name, component] of [
+      ['绘制（Draw）', '/components/interactions/draw', 'interaction-draw', 'DrawView'],
+      ['编辑（Edit）', '/components/interactions/edit', 'interaction-edit', 'EditView'],
+      ['测量（Measure）', '/components/interactions/measure', 'interaction-measure', 'MeasureView'],
+      ['变换（Transform）', '/components/interactions/transform', 'interaction-transform', 'TransformView']
     ]) {
       const itemIndex = interactionGroup.indexOf(`label: '${label}'`);
       expect(itemIndex).toBeGreaterThan(previousItemIndex);
       previousItemIndex = itemIndex;
       expect(router).toContain(`path: '${path.slice(1)}'`);
       expect(router).toContain(`name: '${name}'`);
-      if (!label.includes('ContextMenu') && !label.includes('DynamicDraw') && !label.includes('Measure')) expect(layout).toContain(`return '${title}';`);
+      expect(router).toContain(`component: ${component}`);
     }
-    expect(router).toContain("import GlobalEventView from '../views/GlobalEventView.vue';");
-    expect(router).toContain("import ContextMenuOverviewView from '../views/ContextMenuOverviewView.vue';");
-    expect(router).toContain("import DynamicDrawView from '../views/DynamicDrawView.vue';");
-    expect(router).toContain("import MeasureView from '../views/MeasureView.vue';");
-    expect(navigation).toContain("{ label: '概览', to: '/components/measure' }");
-    expect(layout).toContain("'/components/measure': 'Measure 概览'");
+    expect(navigation).not.toContain('DynamicDraw 动态绘制');
+    expect(navigation).not.toContain('Measure 测量工具');
   });
 
-  it('splits GlobalEvent into canonical nested navigation and API pages', async () => {
+  it('keeps legacy GlobalEvent API pages consistent while exposing the V2 Events entry', async () => {
     const viewFiles = [
       'website/src/views/GlobalEventView.vue',
       'website/src/views/GlobalEventGlobalMouseView.vue',
@@ -58,17 +51,12 @@ describe('interaction documentation infrastructure', () => {
       ...viewFiles.map((file) => readFile(file, 'utf8'))
     ]);
 
-    const globalEventPages = [
-      ['概览与初始化', '/components/global-event', 'GlobalEventView'],
-      ['全局鼠标事件', '/components/global-event/global-mouse', 'GlobalEventGlobalMouseView'],
-      ['模块鼠标事件', '/components/global-event/module-events', 'GlobalEventModuleEventsView'],
-      ['全局键盘事件', '/components/global-event/keyboard', 'GlobalEventKeyboardView']
-    ] as const;
+    const globalEventPages = [['事件（Events）', '/components/services/events', 'EventsView']] as const;
 
     expect(navigation).toMatch(/export interface NavItem \{[\s\S]*?children\?: NavItem\[\];[\s\S]*?\}/);
     for (const [label, path, component] of globalEventPages) {
       expect(navigation).toContain(`{ label: '${label}', to: '${path}' }`);
-      expect(router).toContain(`import ${component} from '../views/${component}.vue';`);
+      expect(router).toContain(`const ${component} = () => import('../views/services/${component}.vue');`);
       expect(router).toMatch(new RegExp(`path: '${path.slice(1)}',[\\s\\S]*?component: ${component}`));
     }
     for (const obsoleteEntry of ['listener-control', 'GlobalEventListenerControlView']) {
@@ -76,10 +64,8 @@ describe('interaction documentation infrastructure', () => {
       expect(router).not.toContain(obsoleteEntry);
       expect(layout).not.toContain(obsoleteEntry);
     }
-    expect(navigation).toContain("label: 'GlobalEvent 地图事件'");
-    expect(layout).toContain("'/components/global-event/global-mouse': 'GlobalEvent 全局鼠标事件'");
-    expect(layout).toContain("'/components/global-event/module-events': 'GlobalEvent 模块鼠标事件'");
-    expect(layout).toContain("'/components/global-event/keyboard': 'GlobalEvent 全局键盘事件'");
+    expect(navigation).toContain("label: '事件（Events）'");
+    expect(router).toContain("name: 'service-events'");
     expect(layout).toContain('item.children');
     expect(layout).toContain('docs-sidebar__child-link');
     expect(layout).toContain('<div v-if="item.children" class="docs-sidebar__children">');
@@ -214,46 +200,31 @@ describe('interaction documentation infrastructure', () => {
     }
   });
 
-  it('provides reachable page anchors for every Earth cross-page interaction link', async () => {
-    const [globalMethods, router, globalEvent, contextMenu, dynamicDraw, measure] = await Promise.all([
-      readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
+  it('connects every V2 interaction and service page to the generated type catalog', async () => {
+    const pages = [
+      ['/components/interactions/draw', 'DrawView', 'website/src/views/interactions/DrawView.vue'],
+      ['/components/interactions/measure', 'MeasureView', 'website/src/views/interactions/MeasureView.vue'],
+      ['/components/services/context-menu', 'ContextMenuView', 'website/src/views/services/ContextMenuView.vue'],
+      ['/components/services/events', 'EventsView', 'website/src/views/services/EventsView.vue']
+    ] as const;
+    const [router, publicApi, ...views] = await Promise.all([
       readFile('website/src/router/index.ts', 'utf8'),
-      readFile('website/src/views/GlobalEventView.vue', 'utf8'),
-      readFile('website/src/views/ContextMenuOverviewView.vue', 'utf8'),
-      readFile('website/src/views/DynamicDrawView.vue', 'utf8'),
-      readFile('website/src/views/MeasureView.vue', 'utf8')
+      readFile('website/src/components/docs/PublicApiSection.vue', 'utf8'),
+      ...pages.map(([, , file]) => readFile(file, 'utf8'))
     ]);
-    expect(router).not.toContain('const ContextMenuPlaceholderView');
-    expect(globalEvent).toContain('id="api-constructor"');
-    expect(contextMenu).toContain('id="api-constructor"');
-    expect(contextMenu).toContain('id="api-type-icontextmenuoption"');
 
-    const targetOwner: Record<string, string> = {
-      '/components/global-event': globalEvent,
-      '/components/context-menu': contextMenu,
-      '/components/dynamic-draw': dynamicDraw,
-      '/components/measure': measure
-    };
-    const hrefs = [...globalMethods.matchAll(/href="(\/components\/(?:global-event|context-menu|dynamic-draw|measure)#[^"]+)"/g)].map((match) => match[1]);
-    expect(hrefs).toEqual([
-      '/components/global-event#api-constructor',
-      '/components/global-event#api-constructor',
-      '/components/context-menu#api-constructor',
-      '/components/context-menu#api-type-icontextmenuoption',
-      '/components/context-menu#api-constructor',
-      '/components/dynamic-draw#api-constructor',
-      '/components/dynamic-draw#api-constructor',
-      '/components/measure#api-methods',
-      '/components/measure#api-methods'
-    ]);
-    for (const href of hrefs) {
-      const [path, target] = href.split('#');
+    expect(router).toContain("path: 'components/reference/types'");
+    expect(router).toContain("redirect: (to) => ({ path: '/api/types', query: to.query, hash: to.hash })");
+    expect(publicApi).toContain("import { apiCatalog, apiRuntimeExports } from '../../generated/api';");
+    for (const [[path, component], view] of pages.map((page, index) => [page, views[index]] as const)) {
       expect(router).toContain(`path: '${path.slice(1)}'`);
-      expect(targetOwner[path]).toContain(`id="${target}"`);
+      expect(router).toContain(`component: ${component}`);
+      expect(view).toContain('<PublicApiSection');
+      expect(view).toContain('/api/types#api-type-');
     }
   });
 
-  it('splits ContextMenu into six pages with runnable, anchored examples and unique API ownership', async () => {
+  it('keeps legacy ContextMenu examples covered while exposing the single V2 service page', async () => {
     const pages = [
       ['ContextMenuOverviewView.vue', '/components/context-menu', 'ContextMenuOverviewView'],
       ['ContextMenuDefaultMenuView.vue', '/components/context-menu/default-menu', 'ContextMenuDefaultMenuView'],
@@ -277,16 +248,18 @@ describe('interaction documentation infrastructure', () => {
       ['ContextMenuCleanupView.vue', 'example-remove-default-menu', 'ContextMenuRemoveDefaultDemo'],
       ['ContextMenuCleanupView.vue', 'example-remove-module-menu-state', 'ContextMenuRemoveModuleDemo']
     ] as const;
-    const [router, navigation, ...views] = await Promise.all([
+    const [router, navigation, v2View, ...views] = await Promise.all([
       readFile('website/src/router/index.ts', 'utf8'),
       readFile('website/src/config/navigation.ts', 'utf8'),
+      readFile('website/src/views/services/ContextMenuView.vue', 'utf8'),
       ...pages.map(([file]) => readFile(`website/src/views/${file}`, 'utf8'))
     ]);
-    expect(navigation).toContain("label: 'ContextMenu 右键菜单'");
-    for (const [, path, component] of pages) {
-      expect(router).toContain(`path: '${path.slice(1)}'`);
-      expect(router).toContain(`component: ${component}`);
-    }
+    expect(navigation).toContain("label: '右键菜单（ContextMenu）'");
+    expect(router).toContain("path: 'components/services/context-menu', name: 'service-context-menu', component: ContextMenuView");
+    expect(v2View).toContain('<h1>右键菜单（ContextMenu）</h1>');
+    expect(v2View).toContain("import ContextMenuDemo from '../../examples/services/ContextMenuDemo.vue';");
+    expect(v2View).toContain("from '../../examples/services/ContextMenuDemo.vue?raw';");
+    expect(v2View).toContain('<PublicApiSection');
     for (const [viewFile, anchor, component] of examples) {
       const view = views[pages.findIndex(([file]) => file === viewFile)];
       expect(view).toContain(`id="${anchor}"`);
@@ -643,7 +616,7 @@ describe('interaction documentation infrastructure', () => {
     expect(rules).toContain('跨页面锚点变更必须验证链接目标、导航、路由和布局标题');
   });
 
-  it('splits DynamicDraw documentation by scenario with unique API anchors', async () => {
+  it('keeps legacy DynamicDraw scenarios covered while exposing the V2 Draw page', async () => {
     const viewFiles = [
       'DynamicDrawView.vue',
       'DynamicDrawBasicGeometryView.vue',
@@ -651,25 +624,20 @@ describe('interaction documentation infrastructure', () => {
       'DynamicDrawEditingView.vue',
       'DynamicDrawManagementView.vue'
     ] as const;
-    const [navigation, router, layout, globalMethods, ...views] = await Promise.all([
+    const [navigation, router, globalMethods, v2Draw, ...views] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
-      readFile('website/src/layouts/DocsLayout.vue', 'utf8'),
       readFile('website/src/views/GlobalMethodsView.vue', 'utf8'),
+      readFile('website/src/views/interactions/DrawView.vue', 'utf8'),
       ...viewFiles.map((file) => readFile(`website/src/views/${file}`, 'utf8'))
     ]);
     const [overview, basic, advanced, editing, management] = views;
-    for (const [label, path, component] of [
-      ['概览与接入', '/components/dynamic-draw', 'DynamicDrawView'],
-      ['基础几何绘制', '/components/dynamic-draw/basic-geometry', 'DynamicDrawBasicGeometryView'],
-      ['高级几何绘制', '/components/dynamic-draw/advanced-geometry', 'DynamicDrawAdvancedGeometryView'],
-      ['几何编辑', '/components/dynamic-draw/editing', 'DynamicDrawEditingView'],
-      ['图形管理', '/components/dynamic-draw/management', 'DynamicDrawManagementView']
-    ]) {
-      expect(navigation).toContain(`{ label: '${label}', to: '${path}' }`);
-      expect(router).toContain(`import ${component} from '../views/${component}.vue';`);
-      expect(layout).toContain(`'${path}': 'DynamicDraw ${label}'`);
-    }
+    expect(navigation).toContain("{ label: '绘制（Draw）', to: '/components/interactions/draw' }");
+    expect(router).toContain("path: 'components/interactions/draw', name: 'interaction-draw', component: DrawView");
+    expect(router).toContain("path: 'components/dynamic-draw', redirect: '/components/interactions/draw'");
+    expect(v2Draw).toContain('<h1>绘制（Draw）</h1>');
+    expect(v2Draw).toContain("import DrawSessionDemo from '../../examples/interactions/DrawSessionDemo.vue';");
+    expect(v2Draw).toContain('<PublicApiSection');
     expect(overview).toContain('id="api-constructor"');
     expect(overview).not.toContain('id="api-methods"');
     expect(globalMethods).toContain('<a href="/components/dynamic-draw#api-constructor">useDrawTool</a>');

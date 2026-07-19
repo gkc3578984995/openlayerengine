@@ -25,7 +25,7 @@ export interface PulseAnimationSpec {
   readonly radius?: number;
 }
 
-/** 让折线虚线沿路径移动的动画。 */
+/** 让普通折线描边或 linework 开放、闭合轨道的虚线沿路径移动。 */
 export interface DashFlowAnimationSpec {
   /** 固定为流动虚线动画。 */
   readonly type: 'dash-flow';

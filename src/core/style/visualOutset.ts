@@ -1,4 +1,4 @@
-import type { IconSymbolSpec, StrokeSpec, StyleSpec } from './types.js';
+import type { IconSymbolSpec, PathGlyphPrimitiveSpec, PathGlyphSpec, StrokeSpec, StyleSpec } from './types.js';
 
 /** 当前帧通过公开样式 setter 覆盖的视觉尺寸。 */
 export interface StyleVisualOutsetOverrides {
@@ -12,7 +12,7 @@ export interface StyleVisualOutsetOverrides {
  * 动态值表示当前帧对模板值的覆盖，而不是额外增量。
  */
 export function styleVisualOutsetPx(style: StyleSpec, overrides?: StyleVisualOutsetOverrides): number | undefined {
-  if (style.text !== undefined) return undefined;
+  if (style.text !== undefined || style.linework?.inlineText !== undefined) return undefined;
   if (!validOverride(overrides?.symbolRadius) || !validOverride(overrides?.strokeWidth)) return undefined;
   let result = 0;
   for (const stroke of style.strokes ?? []) {
@@ -38,6 +38,29 @@ export function styleVisualOutsetPx(style: StyleSpec, overrides?: StyleVisualOut
       result = Math.max(result, iconOutset);
     }
   }
+  if (style.linework !== undefined) {
+    for (const track of style.linework.tracks) {
+      if (!Number.isFinite(track.offset)) return undefined;
+      const outset = strokeVisualOutsetPx(track.stroke, overrides?.strokeWidth);
+      if (outset === undefined) return undefined;
+      result = Math.max(result, Math.abs(track.offset) + outset);
+    }
+    for (const cap of [style.linework.caps?.start, style.linework.caps?.end]) {
+      if (cap === undefined) continue;
+      const outset = glyphVisualOutsetPx(cap.glyph, overrides?.strokeWidth);
+      if (outset === undefined) return undefined;
+      result = Math.max(result, outset);
+    }
+    for (const decoration of style.linework.decorations ?? []) {
+      const glyphs = decoration.placement.kind === 'repeat' ? decoration.sequence : decoration.glyph === undefined ? undefined : [decoration.glyph];
+      if (glyphs === undefined) return undefined;
+      for (const glyph of glyphs) {
+        const outset = glyphVisualOutsetPx(glyph, overrides?.strokeWidth);
+        if (outset === undefined) return undefined;
+        result = Math.max(result, outset);
+      }
+    }
+  }
   return result;
 }
 
@@ -52,6 +75,49 @@ function strokeVisualOutsetPx(stroke: StrokeSpec, widthOverride: number | undefi
   if (stroke.lineJoin === 'round' || stroke.lineJoin === 'bevel') return halfWidth;
   const miterLimit = stroke.miterLimit ?? 10;
   return Number.isFinite(miterLimit) && miterLimit >= 0 ? halfWidth * Math.max(1, miterLimit) : undefined;
+}
+
+/** 计算局部路径 glyph 相对其锚点的保守圆形外扩。 */
+function glyphVisualOutsetPx(glyph: PathGlyphSpec, widthOverride: number | undefined): number | undefined {
+  let result = 0;
+  for (const primitive of glyph.primitives) {
+    const outset = glyphPrimitiveVisualOutsetPx(primitive, widthOverride);
+    if (outset === undefined) return undefined;
+    result = Math.max(result, outset);
+  }
+  return result;
+}
+
+/** 递归汇总矢量原语的坐标半径和描边外扩。 */
+function glyphPrimitiveVisualOutsetPx(primitive: PathGlyphPrimitiveSpec, widthOverride: number | undefined): number | undefined {
+  if (primitive.type === 'group') {
+    let result = 0;
+    for (const child of primitive.primitives) {
+      const outset = glyphPrimitiveVisualOutsetPx(child, widthOverride);
+      if (outset === undefined) return undefined;
+      result = Math.max(result, outset);
+    }
+    return result;
+  }
+  const strokeOutset = primitive.stroke === undefined ? 0 : strokeVisualOutsetPx(primitive.stroke, widthOverride);
+  if (strokeOutset === undefined) return undefined;
+  if (primitive.type === 'circle') {
+    if (!Number.isFinite(primitive.radius) || primitive.radius < 0) return undefined;
+    const centerRadius = coordinateRadius(primitive.center);
+    return centerRadius === undefined ? undefined : centerRadius + primitive.radius + strokeOutset;
+  }
+  const coordinates = primitive.type === 'segment' ? [primitive.from, primitive.to] : primitive.points;
+  let coordinateOutset = 0;
+  for (const coordinate of coordinates) {
+    const radius = coordinateRadius(coordinate);
+    if (radius === undefined) return undefined;
+    coordinateOutset = Math.max(coordinateOutset, radius);
+  }
+  return coordinateOutset + strokeOutset;
+}
+
+function coordinateRadius(coordinate: readonly [number, number]): number | undefined {
+  return coordinate.every(Number.isFinite) ? Math.hypot(coordinate[0], coordinate[1]) : undefined;
 }
 
 function iconVisualOutsetPx(icon: IconSymbolSpec): number | undefined {

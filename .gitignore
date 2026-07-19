@@ -16,6 +16,10 @@ dist-ssr
 !/docs/superpowers/specs/
 /docs/superpowers/specs/*
 !/docs/superpowers/specs/2026-07-17-v2-animation-effect-kernel-design.md
+!/docs/superpowers/specs/2026-07-18-v2-polygon-inner-ring-and-hole-design.md
+!/docs/superpowers/plans/
+/docs/superpowers/plans/*
+!/docs/superpowers/plans/2026-07-18-v2-user-documentation-and-release-audit.md
 /website/public/api/
 /.cache/
 /website/src/generated/

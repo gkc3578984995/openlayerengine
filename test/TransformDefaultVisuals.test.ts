@@ -1,6 +1,7 @@
 import Collection from 'ol/Collection.js';
 import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
+import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import type BaseLayer from 'ol/layer/Base.js';
@@ -12,6 +13,7 @@ import Fill from 'ol/style/Fill.js';
 import Icon from 'ol/style/Icon.js';
 import Stroke from 'ol/style/Stroke.js';
 import Style from 'ol/style/Style.js';
+import Text from 'ol/style/Text.js';
 import View from 'ol/View.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
@@ -304,6 +306,75 @@ describe('Transform 默认视觉', () => {
     expect(fixedHarness.handles.extent?.[2]).toBeCloseTo(10);
     expect(fixedHarness.handles.extent?.[3]).toBeCloseTo(20);
     fixedHarness.handles.destroy();
+  });
+
+  it('空编译样式仍保留 Point pointRadius 选框回退', () => {
+    const harness = createHarness(new Style(), interactionOptions({ buffer: 0, pointRadius: 8 }));
+    harness.handles.setTarget(pointTarget());
+    expect(harness.handles.extent).toEqual([-16, -16, 16, 16]);
+    harness.handles.destroy();
+  });
+
+  it('linework 选框复用统一外扩，并在字体度量未知时回退到已编译样式与派生 Geometry', () => {
+    const lineworkStyle: StyleSpec = {
+      linework: {
+        tracks: [{ offset: 12, stroke: { color: '#f00', width: 4, lineJoin: 'round' } }],
+        contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' }
+      }
+    };
+    const declaredHarness = createHarness(
+      new Style({ stroke: new Stroke({ color: '#f00', width: 4, lineJoin: 'round' }) }),
+      interactionOptions({ buffer: 0 }),
+      undefined,
+      new MapHarness()
+    );
+    declaredHarness.handles.setTarget(polygonTarget({ style: lineworkStyle }));
+    expect(declaredHarness.handles.extent).toEqual([-38, -33, 38, 33]);
+    const scaledRing = [
+      [-20, -10],
+      [-20, 10],
+      [20, 10],
+      [20, -10],
+      [-20, -10]
+    ] as const;
+    declaredHarness.handles.setTarget(
+      polygonTarget({ style: lineworkStyle, geometry: { type: 'polygon', coordinates: [scaledRing] }, controlPoints: scaledRing.slice(0, -1) })
+    );
+    expect(declaredHarness.handles.extent).toEqual([-48, -38, 48, 38]);
+    expect(declaredHarness.compiler.compile).toHaveBeenCalledOnce();
+    declaredHarness.handles.destroy();
+
+    const inlineTextStyle: StyleSpec = {
+      linework: {
+        tracks: [{ offset: 0, stroke: { color: '#f00', width: 2 } }],
+        inlineText: {
+          text: '供水管线',
+          fontFamily: 'sans-serif',
+          fontSize: 12,
+          fontWeight: 'normal',
+          fontStyle: 'normal',
+          fill: { type: 'solid', color: '#000' },
+          gapPadding: 6
+        },
+        contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' }
+      }
+    };
+    const compiled = new Style({
+      geometry: new LineString([
+        [-25, 0],
+        [25, 0]
+      ]),
+      stroke: new Stroke({ color: '#f00', width: 2, lineJoin: 'round' }),
+      text: new Text({ text: '供水管线', font: 'normal normal 12px sans-serif' })
+    });
+    const fallbackHarness = createHarness(compiled, interactionOptions({ buffer: 0 }), undefined, new MapHarness());
+    fallbackHarness.handles.setTarget(polygonTarget({ style: inlineTextStyle }));
+    const fallbackExtent = fallbackHarness.handles.extent;
+    expect(fallbackExtent?.[0]).toBeLessThan(-80);
+    expect(fallbackExtent?.[1]).toBeLessThan(-70);
+    expect(fallbackExtent?.[2]).toBeGreaterThan(80);
+    expect(fallbackExtent?.[3]).toBeGreaterThan(70);
+    fallbackHarness.handles.destroy();
   });
 
   it('关闭交互期间的强制全量重绘，并按旋转后的屏幕外接框右上角定位工具栏', () => {

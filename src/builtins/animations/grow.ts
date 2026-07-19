@@ -107,6 +107,7 @@ function growRuntime(initialTarget: AnimationTargetProfile, spec: NormalizedGrow
             ? target.shape.animation?.revealGeometry?.(target.viewShape, progress, spec.direction)
             : revealSession.reveal(progress, spec.direction);
       }
+      if (output.targetGeometry !== undefined) output.targetReveal = { progress, direction: spec.direction };
       return runningSample;
     },
     destroy() {

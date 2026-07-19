@@ -1,46 +1,51 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, shallowRef, useId } from 'vue';
-import { Earth, useEarth } from '@vrsim/earth-engine-ol';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { useEarth } from '@vrsim/earth-engine-ol';
+import type { Earth } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
-import { fromLonLat } from 'ol/proj';
 import { createConfiguredLayer } from '../config/mapSources';
 
-const BEIJING = fromLonLat([116.4074, 39.9042]);
-
-const mapId = useId();
+const mapTarget = ref<HTMLDivElement | null>(null);
 const earthRef = shallowRef<Earth | null>(null);
+const lastStatus = ref<Earth['lifecycle'] | 'not-created'>('not-created');
+const status = computed(() => earthRef.value?.lifecycle ?? lastStatus.value);
 
+// #region first-map
 const createMap = () => {
-  if (earthRef.value) return;
+  if (mapTarget.value === null || earthRef.value !== null) return;
+
   const earth = useEarth({
-    target: mapId,
-    view: { center: BEIJING, zoom: 5 }
+    target: mapTarget.value,
+    view: { zoom: 5 },
+    controls: { zoom: true, rotate: false, attribution: true }
   });
-  console.assert(useEarth() === earth);
-  earth.addLayer(createConfiguredLayer(earth, 'vector'));
+  createConfiguredLayer(earth, 'vector');
+  const beijing = earth.view.toProjectedCoordinates([116.4074, 39.9042]);
+  earth.view.flyTo(beijing, 5);
   earthRef.value = earth;
+  lastStatus.value = earth.lifecycle;
 };
 
 const destroyMap = () => {
-  earthRef.value?.destroy();
+  const earth = earthRef.value;
+  if (earth === null) return;
+  earth.destroy();
+  lastStatus.value = earth.lifecycle;
   earthRef.value = null;
 };
+// #endregion first-map
 
-onMounted(() => {
-  createMap();
-});
-
-onBeforeUnmount(() => {
-  destroyMap();
-});
+onMounted(createMap);
+onBeforeUnmount(destroyMap);
 </script>
 
 <template>
   <div class="example-demo">
     <div class="example-demo__toolbar">
-      <el-button type="primary" @click="createMap">创建地图</el-button>
-      <el-button type="danger" plain @click="destroyMap">销毁地图</el-button>
+      <el-button type="primary" :disabled="earthRef !== null" @click="createMap">创建地图</el-button>
+      <el-button type="danger" plain :disabled="earthRef === null" @click="destroyMap">销毁地图</el-button>
+      <el-tag :type="status === 'ready' ? 'success' : status === 'destroyed' ? 'warning' : 'info'">{{ status }}</el-tag>
     </div>
-    <div :id="mapId" class="example-stage"></div>
+    <div ref="mapTarget" class="example-stage"></div>
   </div>
 </template>

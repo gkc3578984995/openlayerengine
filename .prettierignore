@@ -1,4 +1,1 @@
-scripts/docs/api-docs.mjs
-test/ApiDocGenerator.test.ts
-test/LayerCommonDemoCoverage.test.ts
 typedoc.json

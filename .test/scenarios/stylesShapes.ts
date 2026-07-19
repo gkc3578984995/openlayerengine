@@ -1,5 +1,6 @@
 import {
   Earth,
+  lineStyles,
   shapeTypes,
   stylePresets,
   type ArrowDecorationSpec,
@@ -28,8 +29,17 @@ import type { ScenarioDefinition } from '../harness/types.js';
 const iconDataUrl =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="96" height="48" viewBox="0 0 96 48"%3E%3Cpath d="M24 2C13 2 5 10 5 21c0 15 19 25 19 25s19-10 19-25C43 10 35 2 24 2z" fill="%231677ff" stroke="white" stroke-width="3"/%3E%3Ccircle cx="24" cy="20" r="7" fill="white"/%3E%3Cg transform="translate(48 0)"%3E%3Cpath d="M24 2C13 2 5 10 5 21c0 15 19 25 19 25s19-10 19-25C43 10 35 2 24 2z" fill="%23fa8c16" stroke="white" stroke-width="3"/%3E%3Ccircle cx="24" cy="20" r="7" fill="white"/%3E%3C/g%3E%3C/svg%3E';
 
-const boardModules = ['style-shapes', 'style-presets', 'style-patterns', 'style-details', 'style-native'] as const;
+const boardModules = ['style-linework', 'style-shapes', 'style-presets', 'style-patterns', 'style-details', 'style-native'] as const;
 type BoardModule = (typeof boardModules)[number];
+
+type LineworkGeometryKind = 'straight' | 'folded' | 'curve' | 'polygon' | 'closed-curve';
+
+interface LineworkBoardSample {
+  readonly id: string;
+  readonly label: string;
+  readonly geometry: LineworkGeometryKind;
+  readonly style: StyleSpec;
+}
 
 interface NativeStyleEvidence {
   readonly single: { readonly id: string; readonly style: Style };
@@ -73,13 +83,101 @@ const presetLabels: Record<StylePresetName, string> = {
 
 const lineShapeTypes = new Set<ShapeType>(['polyline', 'lune-polyline', 'curve-polyline']);
 
+const lineworkBoardSamples: readonly LineworkBoardSample[] = [
+  { id: 'solid', label: '单轨实线', geometry: 'straight', style: lineStyles.polyline() },
+  {
+    id: 'double-track',
+    label: '双轨：实线 / 虚线',
+    geometry: 'straight',
+    style: lineStyles.polyline({ color: '#0f766e', lines: ['solid', 'dashed'] })
+  },
+  { id: 'dashed', label: '单轨虚线', geometry: 'straight', style: lineStyles.polyline({ color: '#1677ff', lines: 'dashed' }) },
+  { id: 'tick', label: '贯穿刻度', geometry: 'straight', style: lineStyles.polyline({ decoration: 'tick' }) },
+  { id: 'alternating-tick', label: '交替短刻度', geometry: 'straight', style: lineStyles.polyline({ decoration: 'alternating-tick' }) },
+  { id: 'double-tick', label: '双刻度', geometry: 'straight', style: lineStyles.polyline({ decoration: 'double-tick' }) },
+  { id: 'square', label: '均匀方块', geometry: 'straight', style: lineStyles.polyline({ decoration: 'square' }) },
+  { id: 'circle', label: '均匀圆点', geometry: 'straight', style: lineStyles.polyline({ decoration: 'circle' }) },
+  { id: 'center-cross', label: '路径中点十字', geometry: 'straight', style: lineStyles.polyline({ decoration: 'center-cross' }) },
+  { id: 'center-dot', label: '路径中点单点', geometry: 'straight', style: lineStyles.polyline({ decoration: 'center-dot' }) },
+  { id: 'center-dot-pair', label: '路径中点双点', geometry: 'straight', style: lineStyles.polyline({ decoration: 'center-dot-pair' }) },
+  {
+    id: 'inline-text',
+    label: '累计长度中点文本',
+    geometry: 'straight',
+    style: lineStyles.polyline({
+      lines: 'dashed',
+      decoration: 'inline-text',
+      text: '供水管线',
+      textStyle: { fontSize: 14, fontWeight: 'bold', color: '#111827', outline: {}, background: { color: '#ffffff' } }
+    })
+  },
+  {
+    id: 'bar-caps',
+    label: '两端竖线端帽',
+    geometry: 'straight',
+    style: lineStyles.polyline({ lines: 'dashed', caps: { start: 'bar', end: 'bar' } })
+  },
+  {
+    id: 'arrow-cap',
+    label: '起点竖帽 / 终点箭头',
+    geometry: 'straight',
+    style: lineStyles.polyline({ color: '#7c3aed', caps: { start: 'bar', end: 'arrow' }, decoration: 'alternating-tick' })
+  },
+  { id: 'slash', label: '纯红斜线（无轨道）', geometry: 'folded', style: lineStyles.polyline({ lines: 'none', decoration: 'slash' }) },
+  {
+    id: 'folded',
+    label: '折线路径上的固定像素圆点',
+    geometry: 'folded',
+    style: lineStyles.polyline({ color: '#ea580c', lines: 'dashed', decoration: 'circle' })
+  },
+  {
+    id: 'curve',
+    label: '曲线路径上的双轨刻度',
+    geometry: 'curve',
+    style: lineStyles.polyline({ color: '#2563eb', lines: ['dashed', 'solid'], decoration: 'tick' })
+  },
+  {
+    id: 'polygon',
+    label: 'Polygon 外环双轨方块',
+    geometry: 'polygon',
+    style: {
+      ...lineStyles.polygon({ color: '#e11d48', lines: ['solid', 'dashed'], decoration: 'square' }),
+      fill: { type: 'solid', color: 'rgba(225, 29, 72, 0.12)' }
+    }
+  },
+  {
+    id: 'closed-curve',
+    label: '闭合曲面外环虚线圆点',
+    geometry: 'closed-curve',
+    style: {
+      ...lineStyles.polygon({ color: '#0891b2', lines: 'dashed', decoration: 'circle' }),
+      fill: { type: 'solid', color: 'rgba(8, 145, 178, 0.1)' }
+    }
+  },
+  {
+    id: 'polygon-text',
+    label: 'Polygon 外环中点文本',
+    geometry: 'polygon',
+    style: {
+      ...lineStyles.polygon({
+        color: '#16a34a',
+        decoration: 'inline-text',
+        text: '防护边界',
+        textStyle: { fontSize: 13, color: '#14532d', background: { color: '#f0fdf4' } }
+      }),
+      fill: { type: 'solid', color: 'rgba(22, 163, 74, 0.1)' }
+    }
+  }
+] as const;
+
 export const stylesShapesScenario: ScenarioDefinition = {
   id: 'styles-shapes',
   group: '图层与元素',
-  title: '20 种图形与完整样式系统',
-  summary: '分五个可视面板验收全部 ShapeType、八种 stylePresets、五种纹理、完整结构化样式及三种原生 StyleLike 分支。',
+  title: '图形、丰富路径线型与完整样式系统',
+  summary: '分六个可视面板验收丰富路径线型、全部 ShapeType、八种 stylePresets、五种纹理、完整结构化样式及三种原生 StyleLike 分支。',
   steps: [
-    '切换“20 种图形”“内置样式”“纹理填充”“完整样式”“三种 nativeStyle”五个面板，逐项确认可视结果。',
+    '默认检查“丰富路径线型”，再切换“20 种图形”“内置样式”“纹理填充”“完整样式”“三种 nativeStyle”面板逐项确认可视结果。',
+    '在线型面板检查单/双轨实虚线、端帽、固定像素装饰、中点文本、直线/折线/曲线及闭合面外环。',
     '在 ShapeType 下拉框选择图形，分别应用结构化 StyleSpec、StylePatch、内置 preset、Style、Style[] 和 StyleFunction。',
     '在完整样式面板检查图片偏移/锚点、文本字体/背景、多描边，以及四种箭头 placement。',
     '确认状态区列出 20 种 shapeTypes 和 8 种 stylePresets，自动检查全部通过。'
@@ -88,6 +186,7 @@ export const stylesShapesScenario: ScenarioDefinition = {
     const target = context.createMapTarget('图形与样式验收地图');
     const earth = context.trackEarth(new Earth({ target, view: { center: [0, 0], zoom: 2 }, controls: { attribution: false, rotate: false } }));
 
+    createLineworkBoard(earth);
     createShapeBoard(earth);
     createPresetBoard(earth);
     createPatternBoard(earth);
@@ -96,11 +195,20 @@ export const stylesShapesScenario: ScenarioDefinition = {
     showBoard(earth, 'style-native', [0, 0], 2.8);
     context.render(earth);
     verifyNativeStyleEvidence(context, earth, nativeStyleEvidence);
-    showBoard(earth, 'style-shapes', [0, 0], 2.25);
+    showBoard(earth, 'style-linework', [0, 0], 2.65);
 
     const presetNames = Object.keys(stylePresets) as StylePresetName[];
     context.status('shapeTypes', shapeTypes);
     context.status('stylePresets', presetNames);
+    context.status(
+      '路径线型示例',
+      lineworkBoardSamples.map(({ id, label, geometry }) => ({ id, label, geometry }))
+    );
+    context.status('当前面板', '丰富路径线型');
+    context.check(
+      '路径线型面板覆盖 20 个可视示例及对应标签',
+      lineworkBoardSamples.length === 20 && earth.elements.query({ module: 'style-linework' }).length === lineworkBoardSamples.length * 2
+    );
     context.check('shapeTypes 包含 20 种公开图形', shapeTypes.length === 20 && earth.elements.query({ module: 'style-shapes' }).length === 20);
     context.check('stylePresets 包含 8 种内置样式', presetNames.length === 8);
     context.check('nativeStyle 覆盖 Style、Style[]、StyleFunction 三种 StyleLike', earth.elements.query({ module: 'style-native' }).length === 3);
@@ -113,13 +221,17 @@ export const stylesShapesScenario: ScenarioDefinition = {
     const boardActions = context.actions(boards);
     context.button(
       boardActions,
-      '显示 20 种图形',
+      '显示丰富路径线型',
       () => {
-        showBoard(earth, 'style-shapes', [0, 0], 2.25);
-        context.status('当前面板', '20 种 ShapeType');
+        showBoard(earth, 'style-linework', [0, 0], 2.65);
+        context.status('当前面板', '丰富路径线型');
       },
       '主要'
     );
+    context.button(boardActions, '显示 20 种图形', () => {
+      showBoard(earth, 'style-shapes', [0, 0], 2.25);
+      context.status('当前面板', '20 种 ShapeType');
+    });
     context.button(boardActions, '显示 8 种 stylePresets', () => {
       showBoard(earth, 'style-presets', [0, 0], 3.1);
       context.status('当前面板', '8 种 stylePresets');
@@ -243,7 +355,7 @@ export const stylesShapesScenario: ScenarioDefinition = {
     });
 
     context.setCode(`
-import { Earth, shapeTypes, stylePresets } from '@vrsim/earth-engine-ol';
+import { Earth, lineStyles, shapeTypes, stylePresets } from '@vrsim/earth-engine-ol';
 import CircleStyle from 'ol/style/Circle.js';
 import Fill from 'ol/style/Fill.js';
 import Style, { type StyleFunction } from 'ol/style/Style.js';
@@ -264,6 +376,35 @@ earth.styles.patch({ id: element.id }, {
   text: { backgroundFill: { type: 'solid', color: '#ffffff' } }
 });
 
+earth.elements.add({
+  geometry: {
+    type: 'curve-polyline',
+    controlPoints: [[-2, 0], [0, 1.5], [2, 0]]
+  },
+  style: lineStyles.polyline({
+    color: '#1677ff',
+    lines: ['dashed', 'solid'],
+    decoration: 'tick'
+  })
+});
+
+earth.elements.add({
+  geometry: {
+    type: 'polygon',
+    controlPoints: [[-2, -1], [2, -1], [1.5, 1], [-1.5, 1]]
+  },
+  style: {
+    ...lineStyles.polygon({
+      color: '#e11d48',
+      lines: ['solid', 'dashed'],
+      decoration: 'inline-text',
+      text: '防护边界',
+      textStyle: { fontSize: 14, color: '#111827' }
+    }),
+    fill: { type: 'solid', color: 'rgba(225, 29, 72, 0.12)' }
+  }
+});
+
 const singleStyle = new Style({
   image: new CircleStyle({ radius: 10, fill: new Fill({ color: '#fa541c' }) })
 });
@@ -282,6 +423,58 @@ console.log(shapeTypes);
 `);
   }
 };
+
+function createLineworkBoard(earth: Earth): void {
+  lineworkBoardSamples.forEach((sample, index) => {
+    const column = index % 3;
+    const row = Math.floor(index / 3);
+    const origin: Coordinate = [(column - 1) * 4_600_000, (3 - row) * 1_350_000];
+    earth.elements.add({
+      id: `linework-${sample.id}`,
+      geometry: lineworkBoardGeometry(sample.geometry, origin),
+      style: sample.style,
+      data: { label: sample.label, geometry: sample.geometry },
+      module: 'style-linework',
+      visible: false
+    });
+    earth.elements.add({
+      id: `linework-label-${sample.id}`,
+      geometry: { type: 'point', controlPoints: [origin] },
+      style: labelStyle(sample.label),
+      module: 'style-linework',
+      visible: false
+    });
+  });
+}
+
+function lineworkBoardGeometry(kind: LineworkGeometryKind, [centerX, centerY]: Coordinate): ShapeState {
+  const point = (offsetX: number, offsetY: number): Coordinate => [centerX + offsetX, centerY + offsetY];
+  if (kind === 'folded') {
+    return {
+      type: 'polyline',
+      controlPoints: [point(-1_750_000, 0), point(-650_000, 260_000), point(500_000, -210_000), point(1_750_000, 0)]
+    };
+  }
+  if (kind === 'curve') {
+    return {
+      type: 'curve-polyline',
+      controlPoints: [point(-1_750_000, 0), point(-600_000, 420_000), point(550_000, -380_000), point(1_750_000, 0)]
+    };
+  }
+  if (kind === 'polygon') {
+    return {
+      type: 'polygon',
+      controlPoints: [point(-1_450_000, -280_000), point(1_450_000, -280_000), point(1_150_000, 280_000), point(-1_150_000, 280_000)]
+    };
+  }
+  if (kind === 'closed-curve') {
+    return {
+      type: 'closed-curve-polygon',
+      controlPoints: [point(-1_450_000, -200_000), point(-500_000, 320_000), point(550_000, 300_000), point(1_450_000, -200_000)]
+    };
+  }
+  return { type: 'polyline', controlPoints: [point(-1_750_000, 0), point(1_750_000, 0)] };
+}
 
 function createNativeStyleBoard(earth: Earth): NativeStyleEvidence {
   const singleStyle = createNativeFeatureStyle('Style 单对象', '#fa541c', 16, 300);

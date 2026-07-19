@@ -192,4 +192,54 @@ describe('Shape drawing parity', () => {
     expect(port.previews.some((preview) => preview !== undefined)).toBe(true);
     expect(store.query()).toHaveLength(1);
   });
+
+  it.each([
+    ['polyline', { kind: 'open' }],
+    ['curve-polyline', { kind: 'open' }],
+    ['polygon', { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' }]
+  ] as const)('keeps one linework StyleSpec from %s preview through the committed Element', (type, contour) => {
+    const lineworkStyle: ElementStyleState = {
+      linework: {
+        tracks: [
+          { offset: -3, stroke: { color: '#f00', width: 2, lineDash: [8, 6] } },
+          { offset: 3, stroke: { color: '#f00', width: 2 } }
+        ],
+        decorations: [
+          {
+            placement: { kind: 'repeat', spacing: 24 },
+            sequence: [
+              {
+                primitives: [{ type: 'circle', center: [0, 0], radius: 3, fill: { type: 'solid', color: '#f00' } }]
+              }
+            ]
+          }
+        ],
+        contour
+      }
+    };
+    const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
+    const store = new ElementStore(shapes);
+    const port = new FakeDrawPort();
+    const service = new DrawService({
+      store,
+      shapes,
+      shapeProjection: identityShapeProjection,
+      styles: new StyleService(store),
+      coordinator: new InteractionCoordinator(),
+      drawPort: port,
+      editPort: {} as EditInteractionPort,
+      defaultStyle: () => lineworkStyle,
+      createId: () => `linework-${type}`
+    });
+    const session = service.start({ type, layerId: 'draw-layer', style: lineworkStyle });
+    for (const coordinate of representativePoints[type]) port.click(coordinate);
+
+    const lastPreview = port.previews.filter((preview) => preview !== undefined).at(-1);
+    expect(lastPreview?.style).toEqual(lineworkStyle);
+    session.finish();
+
+    expect(session.results[0]?.style).toEqual(lineworkStyle);
+    expect(store.get(`linework-${type}`)?.style).toEqual(lineworkStyle);
+    expect(port.destroy).toHaveBeenCalledOnce();
+  });
 });

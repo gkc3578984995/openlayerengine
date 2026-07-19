@@ -524,6 +524,7 @@ describe('可组合动画 Runtime 草案', () => {
         [10, 0]
       ]
     });
+    expect(forwardBuffer.targetReveal).toEqual({ progress: 0.5, direction: 'forward' });
     const stableForwardGeometry = forwardBuffer.targetGeometry;
     sample(forward, forwardBuffer, target, 750);
     expect(forwardBuffer.targetGeometry).toBe(stableForwardGeometry);
@@ -540,6 +541,7 @@ describe('可组合动画 Runtime 草案', () => {
         ])
       })
     );
+    expect(reverseBuffer.targetReveal).toEqual({ progress: 0.5, direction: 'reverse' });
   });
 
   it('grow 优先复用 Shape reveal session，并在 rebind 与 destroy 时转交资源生命周期', () => {

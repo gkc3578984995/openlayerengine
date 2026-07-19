@@ -26,10 +26,12 @@ export function createAnimationFrameBuffer(slots: readonly AnimationSlotDefiniti
   const buffer: AnimationFrameBuffer = {
     targetOpacity: undefined,
     targetGeometry: undefined,
+    targetReveal: undefined,
     overlays,
     reset() {
       buffer.targetOpacity = undefined;
       buffer.targetGeometry = undefined;
+      buffer.targetReveal = undefined;
       for (const slot of overlays) {
         slot.active = false;
         slot.geometryKind = 'effective-target';

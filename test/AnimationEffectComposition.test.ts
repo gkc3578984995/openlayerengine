@@ -175,6 +175,8 @@ describe('AnimationManager effect composition', () => {
     });
     expect(primitive.slotKey).toBe('dash/dash-flow');
     expect(primitive.geometry).toBe(presentation.geometry);
+    expect(presentation.pathReveal).toEqual({ progress: 0.5, direction: 'forward' });
+    expect(primitive.pathReveal).toEqual({ progress: 0.5, direction: 'forward' });
 
     dash.stop();
     grow.stop();

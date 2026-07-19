@@ -1,7 +1,15 @@
 import type { DashFlowAnimationSpec } from '../../core/animation/types.js';
 import { cloneCoreState } from '../../core/common/clone.js';
 import { CapabilityError, InvalidArgumentError } from '../../core/errors.js';
-import type { StyleSpec } from '../../core/style/types.js';
+import type {
+  InlinePathTextSpec,
+  LineworkSpec,
+  PathDecorationSpec,
+  PathGlyphPrimitiveSpec,
+  PathGlyphSpec,
+  PathGlyphStrokeSpec,
+  StyleSpec
+} from '../../core/style/types.js';
 import type {
   AnimationDefinition,
   AnimationFrameBuffer,
@@ -33,35 +41,39 @@ export const dashFlowAnimationDefinition = Object.freeze({
     return Object.freeze(animation);
   },
   assertCompatible(target) {
-    assertPolyline(target);
+    assertDashFlowTarget(target);
   },
   create(target, spec) {
-    assertPolyline(target);
+    assertDashFlowTarget(target);
     return createDashFlowRuntime(target, spec);
   }
 } satisfies AnimationDefinition<DashFlowAnimationSpec>);
 
 function createDashFlowRuntime(initialTarget: AnimationTargetProfile, spec: Readonly<DashFlowAnimationSpec>): AnimationRuntime {
   let target = initialTarget;
-  let slots = createSlots(target, spec);
+  let plans = createSlotPlans(target, spec);
+  let slots = slotDefinitions(plans);
   return {
     get slots() {
       return slots;
     },
     rebind(next) {
-      assertPolyline(next);
+      assertDashFlowTarget(next);
       target = next;
-      slots = createSlots(target, spec);
+      plans = createSlotPlans(target, spec);
+      slots = slotDefinitions(plans);
     },
     sample(context: AnimationFrameContext, output: AnimationFrameBuffer) {
       output.reset();
-      const slot = output.overlay('dash-flow');
-      slot.active = true;
-      slot.geometryKind = 'effective-target';
-      const strokeCount = target.style.strokes?.length ?? 1;
-      if (strokeCount > 0) {
-        slot.lineDashOffset = -((context.elapsedMs / 1000) * (spec.speed ?? 24));
-        slot.lineDashOffsetStrokeIndex = strokeCount - 1;
+      const animatedOffset = -((context.elapsedMs / 1000) * (spec.speed ?? 24));
+      for (const plan of plans) {
+        const slot = output.overlay(plan.definition.slotKey);
+        slot.active = true;
+        slot.geometryKind = 'effective-target';
+        if (plan.basePhase !== undefined) {
+          slot.lineDashOffset = plan.basePhase + animatedOffset;
+          slot.lineDashOffsetStrokeIndex = plan.strokeIndex;
+        }
       }
       return continuousSample;
     },
@@ -71,8 +83,19 @@ function createDashFlowRuntime(initialTarget: AnimationTargetProfile, spec: Read
   };
 }
 
-function createSlots(target: AnimationTargetProfile, spec: Readonly<DashFlowAnimationSpec>): readonly AnimationSlotDefinition[] {
+interface DashFlowSlotPlan {
+  readonly definition: AnimationSlotDefinition;
+  readonly basePhase: number | undefined;
+  readonly strokeIndex: number | undefined;
+}
+
+function slotDefinitions(plans: readonly DashFlowSlotPlan[]): readonly AnimationSlotDefinition[] {
+  return Object.freeze(plans.map(({ definition }) => definition));
+}
+
+function createSlotPlans(target: AnimationTargetProfile, spec: Readonly<DashFlowAnimationSpec>): readonly DashFlowSlotPlan[] {
   const base = cloneCoreState(target.style) as StyleSpec;
+  if (base.linework !== undefined) return createLineworkSlotPlans(base, spec);
   const sourceStrokes = base.strokes ?? [{ width: 2 }];
   const strokes = sourceStrokes.map((stroke, index) => ({
     ...stroke,
@@ -80,11 +103,114 @@ function createSlots(target: AnimationTargetProfile, spec: Readonly<DashFlowAnim
     ...(index === sourceStrokes.length - 1 && spec.color !== undefined ? { color: spec.color } : {})
   }));
   const style = cloneCoreState({ ...base, strokes }) as StyleSpec;
-  return Object.freeze([Object.freeze({ slotKey: 'dash-flow', style, dynamicParameters: Object.freeze(['lineDashOffset'] as const) })]);
+  const strokeIndex = sourceStrokes.length - 1;
+  return Object.freeze([
+    Object.freeze({
+      definition: Object.freeze({ slotKey: 'dash-flow', style, dynamicParameters: Object.freeze(['lineDashOffset'] as const) }),
+      basePhase: strokeIndex < 0 ? undefined : 0,
+      strokeIndex: strokeIndex < 0 ? undefined : strokeIndex
+    })
+  ]);
 }
 
-function assertPolyline(target: AnimationTargetProfile): void {
+/** linework 的每条虚线轨道使用独立稳定 slot，避免复制端帽、装饰和文本。 */
+function createLineworkSlotPlans(base: StyleSpec, spec: Readonly<DashFlowAnimationSpec>): readonly DashFlowSlotPlan[] {
+  const linework = base.linework;
+  if (linework === undefined) return [];
+  const plans: DashFlowSlotPlan[] = [];
+  for (let index = 0; index < linework.tracks.length; index += 1) {
+    const sourceTrack = linework.tracks[index];
+    if (!isDashedTrack(sourceTrack.stroke.lineDash)) continue;
+    const track = {
+      ...sourceTrack,
+      stroke: {
+        ...sourceTrack.stroke,
+        lineDash: [...(spec.lineDash ?? sourceTrack.stroke.lineDash ?? [])],
+        ...(spec.color === undefined ? {} : { color: spec.color })
+      }
+    };
+    const style = cloneCoreState({
+      linework: {
+        tracks: [track],
+        ...(linework.contour === undefined ? {} : { contour: linework.contour }),
+        ...cutoutOnlyLinework(linework)
+      },
+      ...(base.zIndex === undefined ? {} : { zIndex: base.zIndex })
+    }) as StyleSpec;
+    plans.push(
+      Object.freeze({
+        definition: Object.freeze({
+          slotKey: `dash-flow-track-${index}`,
+          style,
+          dynamicParameters: Object.freeze(['lineDashOffset'] as const)
+        }),
+        basePhase: sourceTrack.stroke.lineDashOffset ?? 0,
+        strokeIndex: undefined
+      })
+    );
+  }
+  return Object.freeze(plans);
+}
+
+/** dash-flow 只复用中点切口语义，透明占位由 StyleCompiler 跳过可见绘制。 */
+function cutoutOnlyLinework(linework: LineworkSpec): Pick<LineworkSpec, 'decorations' | 'inlineText'> {
+  const centerDecorations = linework.decorations
+    ?.filter((decoration): decoration is Extract<PathDecorationSpec, { placement: { kind: 'center' } }> => decoration.placement.kind === 'center')
+    .map((decoration) => ({ ...decoration, glyph: transparentGlyph(decoration.glyph) }));
+  return {
+    ...(centerDecorations === undefined || centerDecorations.length === 0 ? {} : { decorations: centerDecorations }),
+    ...(linework.inlineText === undefined ? {} : { inlineText: transparentInlineText(linework.inlineText) })
+  };
+}
+
+function transparentInlineText(text: InlinePathTextSpec): InlinePathTextSpec {
+  return {
+    ...text,
+    fill: { ...text.fill, color: transparentColor() },
+    ...(text.stroke === undefined ? {} : { stroke: transparentGlyphStroke(text.stroke) }),
+    ...(text.backgroundFill === undefined ? {} : { backgroundFill: { ...text.backgroundFill, color: transparentColor() } })
+  };
+}
+
+function transparentGlyph(glyph: PathGlyphSpec): PathGlyphSpec {
+  return { primitives: glyph.primitives.map(transparentPrimitive) };
+}
+
+function transparentPrimitive(primitive: PathGlyphPrimitiveSpec): PathGlyphPrimitiveSpec {
+  if (primitive.type === 'segment') return { ...primitive, stroke: transparentGlyphStroke(primitive.stroke) };
+  if (primitive.type === 'group') return { ...primitive, primitives: primitive.primitives.map(transparentPrimitive) };
+  return {
+    ...primitive,
+    ...(primitive.fill === undefined ? {} : { fill: { ...primitive.fill, color: transparentColor() } }),
+    ...(primitive.stroke === undefined ? {} : { stroke: transparentGlyphStroke(primitive.stroke) })
+  };
+}
+
+function transparentGlyphStroke(stroke: PathGlyphStrokeSpec): PathGlyphStrokeSpec {
+  return { ...stroke, color: transparentColor() };
+}
+
+function transparentColor(): [number, number, number, number] {
+  return [0, 0, 0, 0];
+}
+
+function assertDashFlowTarget(target: AnimationTargetProfile): void {
+  const linework = target.style.linework;
+  if (linework !== undefined) {
+    const expectedGeometry = linework.contour?.kind === 'closed' ? 'polygon' : 'polyline';
+    if (target.geometry.type !== expectedGeometry) {
+      throw new CapabilityError(`Dash-flow linework requires ${expectedGeometry} render geometry`);
+    }
+    if (!linework.tracks.some(({ stroke }) => isDashedTrack(stroke.lineDash))) {
+      throw new CapabilityError('Dash-flow animation requires at least one dashed linework track');
+    }
+    return;
+  }
   if (target.geometry.type !== 'polyline') throw new CapabilityError('Dash-flow animation requires polyline render geometry');
+}
+
+function isDashedTrack(lineDash: readonly number[] | undefined): boolean {
+  return lineDash !== undefined && lineDash.length > 0 && lineDash.some((value) => value > 0);
 }
 
 function normalizeLineDash(value: unknown): readonly number[] | undefined {

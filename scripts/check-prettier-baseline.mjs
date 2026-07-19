@@ -3,12 +3,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const PRETTIER_BASELINE_ENTRIES = [
-  { path: 'scripts/docs/api-docs.mjs', sha256: 'aabba92e799db47637c8fed11b737fe6b7edc390978303958b92855aaeaa698c' },
-  { path: 'test/ApiDocGenerator.test.ts', sha256: 'ee4835e7e1320a48da628b67bbbd300b3ff31a1da6b610f68ff9f5e85b8fd387' },
-  { path: 'test/LayerCommonDemoCoverage.test.ts', sha256: '9f6bce69d22ceea8f07c285aad240038db76ad07f14264157a7ad67b73f0df2a' },
-  { path: 'typedoc.json', sha256: '56e5138c6302b8d8d9af910c048e3b99db6f717eb021b4a805b9a2dc0e0aa260' }
-];
+export const PRETTIER_BASELINE_ENTRIES = [{ path: 'typedoc.json', sha256: '56e5138c6302b8d8d9af910c048e3b99db6f717eb021b4a805b9a2dc0e0aa260' }];
 
 export class PrettierBaselineError extends Error {
   constructor(message) {

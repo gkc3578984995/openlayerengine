@@ -1,5 +1,6 @@
 import type { FeatureLike } from 'ol/Feature.js';
 import Point from 'ol/geom/Point.js';
+import { checkedFonts, measureTextWidth as measureCanvasTextWidth, registerFont as registerCanvasFont } from 'ol/render/canvas.js';
 import CircleStyle from 'ol/style/Circle.js';
 import Fill from 'ol/style/Fill.js';
 import Icon from 'ol/style/Icon.js';
@@ -11,9 +12,18 @@ import type { NativeRefRegistry } from '../NativeRefRegistry.js';
 import { cloneCoreState } from '../../../core/common/clone.js';
 import type { Color } from '../../../core/common/types.js';
 import { ObjectDisposedError } from '../../../core/errors.js';
+import type { LayerRenderPathReveal } from '../../../core/ports/LayerRenderPort.js';
 import { isNativeStyleRef, type ArrowDecorationSpec, type IconSymbolSpec, type StrokeSpec, type StyleSpec, type TextSpec } from '../../../core/style/types.js';
 import { assertStructuredStyleSpec } from '../../../services/style/StyleService.js';
 import { createPatternFill, type PatternCanvasFactory } from './pattern.js';
+import {
+  compileLineworkStyles,
+  createLineworkPresentationPool,
+  lineworkDependencies,
+  type CompiledLineworkStylePool,
+  type LineworkTextMeasurer
+} from './linework.js';
+import type { PathViewport } from './pathLayout.js';
 
 /** 样式编译器的可选配置。 */
 export interface StyleCompilerOptions {
@@ -21,6 +31,14 @@ export interface StyleCompilerOptions {
   readonly getViewRotation?: () => number;
   /** 为纹理填充提供自定义画布上下文。 */
   readonly createCanvasContext?: PatternCanvasFactory;
+  /** 为路径内嵌文本提供与最终字体一致的 CSS 像素宽度。 */
+  readonly measureTextWidth?: LineworkTextMeasurer;
+  /** 测试或非浏览器 Adapter 提供字体度量缓存 revision。 */
+  readonly getFontRevision?: () => number;
+  /** 注册字体加载完成后的重绘监听。 */
+  readonly registerFont?: (font: string) => void;
+  /** 返回重复线饰当前可见的保守 View 范围与 wrapX 世界宽度。 */
+  readonly getLineworkViewport?: () => PathViewport | undefined;
 }
 
 /** 结构化样式实际依赖的渲染上下文。 */
@@ -28,6 +46,8 @@ interface StyleDependencies {
   readonly geometry: boolean;
   readonly resolution: boolean;
   readonly viewRotation: boolean;
+  readonly font: boolean;
+  readonly viewport: boolean;
 }
 
 /** 单个 Feature 最近一次样式编译缓存。 */
@@ -36,6 +56,8 @@ interface CacheEntry {
   readonly geometryRevision: number | undefined;
   readonly resolution: number;
   readonly viewRotation: number;
+  readonly fontRevision: number;
+  readonly viewportKey: string;
   readonly styles: Style[];
 }
 
@@ -46,6 +68,9 @@ interface CompilationCacheContext {
   readonly geometryRevision: number | undefined;
   readonly resolution: number;
   readonly viewRotation: number;
+  readonly fontRevision: number;
+  readonly viewport: PathViewport | undefined;
+  readonly viewportKey: string;
 }
 
 type Coordinate2 = readonly [number, number];
@@ -61,7 +86,7 @@ export interface CompiledPresentationStyle {
   /** 规范 Geometry、分辨率或旋转导致池重建时递增。 */
   readonly revision: number;
   /** 用当前展示 Geometry 更新池内动态位置，并返回本帧生效的稳定 Style。 */
-  resolve(feature: FeatureLike, resolution: number): readonly Style[];
+  resolve(feature: FeatureLike, resolution: number, pathReveal?: LayerRenderPathReveal): readonly Style[];
   /** 释放池对 Style 和 Geometry 的引用；重复调用不产生副作用。 */
   destroy(): void;
 }
@@ -84,8 +109,10 @@ interface PresentationStylePool {
   readonly maximumGeometryRevision: number | undefined;
   readonly resolution: number;
   readonly viewRotation: number;
+  readonly fontRevision: number;
   readonly baseStyles: Style[];
   readonly decorations: DecorationStylePool[];
+  readonly linework: CompiledLineworkStylePool | undefined;
   readonly activeStyles: Style[];
 }
 
@@ -94,11 +121,19 @@ export class StyleCompiler {
   readonly #nativeRefs: NativeRefRegistry;
   readonly #getViewRotation: () => number;
   readonly #createCanvasContext: PatternCanvasFactory | undefined;
+  readonly #measureTextWidth: LineworkTextMeasurer;
+  readonly #getFontRevision: () => number;
+  readonly #registerFont: (font: string) => void;
+  readonly #getLineworkViewport: () => PathViewport | undefined;
 
   constructor(nativeRefs: NativeRefRegistry, options: StyleCompilerOptions = {}) {
     this.#nativeRefs = nativeRefs;
     this.#getViewRotation = options.getViewRotation ?? (() => 0);
     this.#createCanvasContext = options.createCanvasContext;
+    this.#measureTextWidth = options.measureTextWidth ?? defaultMeasureTextWidth;
+    this.#getFontRevision = options.getFontRevision ?? (() => checkedFonts.getRevision());
+    this.#registerFont = options.registerFont ?? defaultRegisterFont;
+    this.#getLineworkViewport = options.getLineworkViewport ?? (() => undefined);
   }
 
   /** 结构化样式按其真实上下文依赖缓存；nativeStyle 保持原引用。 */
@@ -111,22 +146,36 @@ export class StyleCompiler {
       spec.strokes?.some((stroke) => stroke.fitPatternOnce === true && stroke.lineDash !== undefined && stroke.lineDash.length > 0) ?? false;
     const needsDecorations = (spec.decorations?.length ?? 0) > 0;
     const dependencies = styleDependencies(spec, needsFitPaths, needsDecorations);
+    registerLineworkFont(spec, this.#registerFont);
     const cache = new WeakMap<object, CacheEntry>();
     let sharedCache: CacheEntry | undefined;
     const compiled: StyleFunction = (feature, resolution) => {
       const viewRotation = dependencies.viewRotation ? finiteOr(this.#getViewRotation(), 0) : 0;
-      const context = compilationCacheContext(feature, resolution, viewRotation, dependencies);
+      const fontRevision = dependencies.font ? finiteOr(this.#getFontRevision(), 0) : 0;
+      const viewport = dependencies.viewport ? this.#getLineworkViewport() : undefined;
+      const context = compilationCacheContext(feature, resolution, viewRotation, fontRevision, viewport, dependencies);
       const key = feature as object;
       const previous = context.cacheable ? (dependencies.geometry ? cache.get(key) : sharedCache) : undefined;
       if (previous !== undefined && cacheMatches(previous, context, dependencies)) return previous.styles;
 
-      const styles = this.#compileStructured(spec, context.geometry, context.resolution, context.viewRotation, needsFitPaths, needsDecorations);
+      const styles = this.#compileStructured(
+        spec,
+        context.geometry,
+        context.resolution,
+        context.viewRotation,
+        needsFitPaths,
+        needsDecorations,
+        true,
+        context.viewport
+      );
       if (context.cacheable) {
         const entry: CacheEntry = {
           geometry: context.geometry,
           geometryRevision: context.geometryRevision,
           resolution: context.resolution,
           viewRotation: context.viewRotation,
+          fontRevision: context.fontRevision,
+          viewportKey: context.viewportKey,
           styles
         };
         if (dependencies.geometry) cache.set(key, entry);
@@ -148,13 +197,16 @@ export class StyleCompiler {
       spec.strokes?.some((stroke) => stroke.fitPatternOnce === true && stroke.lineDash !== undefined && stroke.lineDash.length > 0) ?? false;
     const needsDecorations = (spec.decorations?.length ?? 0) > 0;
     const dependencies = styleDependencies(spec, needsFitPaths, needsDecorations);
+    registerLineworkFont(spec, this.#registerFont);
     let pool: PresentationStylePool | undefined;
     let destroyed = false;
     let revision = 0;
-    const resolve = (feature: FeatureLike, resolution: number): readonly Style[] => {
+    const resolve = (feature: FeatureLike, resolution: number, pathReveal?: LayerRenderPathReveal): readonly Style[] => {
       if (destroyed) throw new ObjectDisposedError('Compiled presentation style has been destroyed');
       const normalizedResolution = dependencies.resolution ? safeResolution(resolution) : 1;
       const viewRotation = dependencies.viewRotation ? finiteOr(this.#getViewRotation(), 0) : 0;
+      const fontRevision = dependencies.font ? finiteOr(this.#getFontRevision(), 0) : 0;
+      const viewport = spec.linework !== undefined ? this.#getLineworkViewport() : undefined;
       const maximumGeometry = featureGeometry(maximumFeature);
       const maximumGeometryRevision = maximumGeometry === undefined ? undefined : callNumber(maximumGeometry, 'getRevision');
       if (
@@ -162,7 +214,8 @@ export class StyleCompiler {
         pool.maximumGeometry !== maximumGeometry ||
         pool.maximumGeometryRevision !== maximumGeometryRevision ||
         pool.resolution !== normalizedResolution ||
-        pool.viewRotation !== viewRotation
+        pool.viewRotation !== viewRotation ||
+        pool.fontRevision !== fontRevision
       ) {
         if (pool !== undefined) releasePresentationPool(pool);
         pool = this.#createPresentationPool(
@@ -173,11 +226,13 @@ export class StyleCompiler {
           viewRotation,
           needsFitPaths,
           needsDecorations,
-          maximumGeometryRevision
+          maximumGeometryRevision,
+          fontRevision,
+          viewport
         );
         revision += 1;
       }
-      updatePresentationPool(pool, spec, featureGeometry(feature), normalizedResolution, viewRotation, needsFitPaths);
+      updatePresentationPool(pool, spec, featureGeometry(feature), normalizedResolution, viewRotation, viewport, pathReveal, needsFitPaths);
       return pool.activeStyles;
     };
     return Object.freeze({
@@ -201,7 +256,9 @@ export class StyleCompiler {
     resolution: number,
     viewRotation: number,
     needsFitPaths: boolean,
-    needsDecorations: boolean
+    needsDecorations: boolean,
+    includeLinework = true,
+    viewport?: PathViewport
   ): Style[] {
     const extracted = needsFitPaths || needsDecorations ? extractGeometryPaths(geometry) : undefined;
     const fitPaths = needsFitPaths ? (extracted?.paths ?? []) : [];
@@ -241,6 +298,18 @@ export class StyleCompiler {
         }
       }
     }
+    if (includeLinework && spec.linework !== undefined) {
+      styles.push(
+        ...compileLineworkStyles(spec.linework, {
+          geometry,
+          resolution,
+          viewRotation,
+          zIndex: spec.zIndex,
+          measureText: this.#measureTextWidth,
+          viewport
+        })
+      );
+    }
     return styles;
   }
 
@@ -253,9 +322,11 @@ export class StyleCompiler {
     viewRotation: number,
     needsFitPaths: boolean,
     needsDecorations: boolean,
-    maximumGeometryRevision: number | undefined
+    maximumGeometryRevision: number | undefined,
+    fontRevision: number,
+    viewport: PathViewport | undefined
   ): PresentationStylePool {
-    const baseStyles = this.#compileStructured(spec, geometry, resolution, viewRotation, needsFitPaths, false);
+    const baseStyles = this.#compileStructured(spec, geometry, resolution, viewRotation, needsFitPaths, false, false);
     const inheritedColor = lastExplicitStrokeColor(spec.strokes);
     const maximumPaths = linePaths(maximumGeometry);
     const currentPaths = linePaths(geometry);
@@ -267,14 +338,26 @@ export class StyleCompiler {
           return { decoration, slots };
         })
       : [];
+    const linework =
+      spec.linework === undefined
+        ? undefined
+        : createLineworkPresentationPool(spec.linework, maximumGeometry, geometry, {
+            resolution,
+            viewRotation,
+            zIndex: spec.zIndex,
+            measureText: this.#measureTextWidth,
+            viewport
+          });
     return {
       maximumGeometry,
       maximumGeometryRevision,
       resolution,
       viewRotation,
+      fontRevision,
       baseStyles,
       decorations,
-      activeStyles: [...baseStyles]
+      linework,
+      activeStyles: [...baseStyles, ...(linework?.resolve(geometry, resolution, viewRotation) ?? [])]
     };
   }
 }
@@ -461,6 +544,8 @@ function updatePresentationPool(
   geometry: object | undefined,
   resolution: number,
   viewRotation: number,
+  viewport: PathViewport | undefined,
+  pathReveal: LayerRenderPathReveal | undefined,
   needsFitPaths: boolean
 ): void {
   const extracted = needsFitPaths || pool.decorations.length > 0 ? extractGeometryPaths(geometry) : undefined;
@@ -471,6 +556,7 @@ function updatePresentationPool(
   active.length = pool.baseStyles.length;
   for (let index = 0; index < pool.baseStyles.length; index += 1) active[index] = pool.baseStyles[index];
   const inheritedColor = lastExplicitStrokeColor(spec.strokes);
+  if (pool.linework !== undefined) active.push(...pool.linework.resolve(geometry, resolution, viewRotation, viewport, pathReveal));
   for (const decorationPool of pool.decorations) {
     const arrows = extracted?.type === 'LineString' || extracted?.type === 'MultiLineString' ? placeArrows(paths, decorationPool.decoration, resolution) : [];
     while (decorationPool.slots.length < arrows.length) {
@@ -509,6 +595,7 @@ function linePaths(geometry: object | undefined): Coordinate2[][] {
 function releasePresentationPool(pool: PresentationStylePool): void {
   pool.activeStyles.length = 0;
   pool.baseStyles.length = 0;
+  pool.linework?.destroy();
   for (const decoration of pool.decorations) decoration.slots.length = 0;
   pool.decorations.length = 0;
 }
@@ -697,15 +784,23 @@ function featureGeometry(feature: FeatureLike): object | undefined {
 
 /** 分析样式编译真正需要监听的渲染上下文。 */
 function styleDependencies(spec: StyleSpec, needsFitPaths: boolean, needsDecorations: boolean): StyleDependencies {
-  const resolution = needsFitPaths || (spec.decorations?.some((decoration) => decoration.placement === 'repeat') ?? false);
+  const linework = spec.linework === undefined ? undefined : lineworkDependencies(spec.linework);
+  const resolution = needsFitPaths || linework?.resolution === true || (spec.decorations?.some((decoration) => decoration.placement === 'repeat') ?? false);
   const viewRotation =
+    linework?.viewRotation === true ||
     iconOffsetDependsOnView(spec.symbol) ||
     textOffsetDependsOnView(spec.text) ||
     (spec.decorations?.some(
       (decoration) => decoration.symbol !== undefined && decoration.symbol.rotateWithView !== false && hasOffset(decoration.symbol.displacement)
     ) ??
       false);
-  return { geometry: needsFitPaths || needsDecorations, resolution, viewRotation };
+  return {
+    geometry: needsFitPaths || needsDecorations || linework?.geometry === true,
+    resolution,
+    viewRotation,
+    font: spec.linework?.inlineText !== undefined,
+    viewport: linework?.viewport === true
+  };
 }
 
 /** 判断图片的屏幕偏移是否需要跟随视图旋转重新计算。 */
@@ -724,10 +819,27 @@ function hasOffset(offset: readonly [number, number] | undefined): boolean {
 }
 
 /** 生成样式函数本次调用的缓存上下文。 */
-function compilationCacheContext(feature: FeatureLike, resolution: number, viewRotation: number, dependencies: StyleDependencies): CompilationCacheContext {
+function compilationCacheContext(
+  feature: FeatureLike,
+  resolution: number,
+  viewRotation: number,
+  fontRevision: number,
+  viewport: PathViewport | undefined,
+  dependencies: StyleDependencies
+): CompilationCacheContext {
   const normalizedResolution = dependencies.resolution ? safeResolution(resolution) : 1;
+  const viewportKey = dependencies.viewport ? lineworkViewportKey(viewport) : '';
   if (!dependencies.geometry) {
-    return { cacheable: true, geometry: undefined, geometryRevision: undefined, resolution: normalizedResolution, viewRotation };
+    return {
+      cacheable: true,
+      geometry: undefined,
+      geometryRevision: undefined,
+      resolution: normalizedResolution,
+      viewRotation,
+      fontRevision,
+      viewport,
+      viewportKey
+    };
   }
 
   const geometry = featureGeometry(feature);
@@ -737,7 +849,10 @@ function compilationCacheContext(feature: FeatureLike, resolution: number, viewR
     geometry,
     geometryRevision,
     resolution: normalizedResolution,
-    viewRotation
+    viewRotation,
+    fontRevision,
+    viewport,
+    viewportKey
   };
 }
 
@@ -745,7 +860,14 @@ function compilationCacheContext(feature: FeatureLike, resolution: number, viewR
 function cacheMatches(entry: CacheEntry, context: CompilationCacheContext, dependencies: StyleDependencies): boolean {
   if (dependencies.geometry && (entry.geometry !== context.geometry || entry.geometryRevision !== context.geometryRevision)) return false;
   if (dependencies.resolution && entry.resolution !== context.resolution) return false;
-  return !dependencies.viewRotation || entry.viewRotation === context.viewRotation;
+  if (dependencies.viewRotation && entry.viewRotation !== context.viewRotation) return false;
+  if (dependencies.font && entry.fontRevision !== context.fontRevision) return false;
+  return !dependencies.viewport || entry.viewportKey === context.viewportKey;
+}
+
+function lineworkViewportKey(viewport: PathViewport | undefined): string {
+  if (viewport === undefined) return '';
+  return `${viewport.extent.join(',')}|${String(viewport.worldWidth ?? '')}|${String(viewport.renderBufferPx ?? '')}`;
 }
 
 function callUnknown(value: object, name: string): unknown {
@@ -800,4 +922,25 @@ function finiteOr(value: number, fallback: number): number {
 /** 把无效分辨率归一化为样式计算使用的安全值。 */
 function safeResolution(value: number): number {
   return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+/** 浏览器中使用 OL 同源字体度量；无 Canvas 的测试环境交给 linework 的确定性回退。 */
+function defaultMeasureTextWidth(font: string, text: string): number {
+  try {
+    return measureCanvasTextWidth(font, text);
+  } catch {
+    return Number.NaN;
+  }
+}
+
+/** 让 OL CompositeMapRenderer 在字体可用时调用 map.redrawText。 */
+function defaultRegisterFont(font: string): void {
+  if (typeof document === 'undefined' || document.fonts === undefined) return;
+  void registerCanvasFont(font).catch(() => undefined);
+}
+
+function registerLineworkFont(spec: StyleSpec, register: (font: string) => void): void {
+  const text = spec.linework?.inlineText;
+  if (text === undefined) return;
+  register(`${text.fontStyle} ${text.fontWeight} ${text.fontSize}px ${text.fontFamily}`);
 }

@@ -29,8 +29,8 @@ describe('元素坐标与圆半径文档', () => {
     expect(page).toContain('id="example-flat-coordinate-storage"');
     expect(page).toContain('id="circle-radius"');
     expect(page).toContain('id="api-to-flat-coordinates"');
-    expect(page).toContain('earth.view.toProjectedCoordinates([120, 0])');
-    expect(page).toContain('radius: 1000');
+    expect(page).toContain('earth.view.toProjectedCoordinates(lonLat)');
+    expect(page).toContain('radius: 1_000');
     expect(methods).toContain("import ElementCoordinateStorageDemo from '../examples/ElementCoordinateStorageDemo.vue';");
     expect(methods).toContain("import elementCoordinateStorageSource from '../examples/ElementCoordinateStorageDemo.vue?raw';");
     expect(methods).toContain('id="demo-coordinate-conversion"');

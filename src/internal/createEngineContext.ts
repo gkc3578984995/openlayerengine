@@ -16,6 +16,7 @@ import { MeasurementAdapter } from '../adapters/openlayers/MeasurementAdapter.js
 import { NativeRefRegistry } from '../adapters/openlayers/NativeRefRegistry.js';
 import { OverlayAdapter } from '../adapters/openlayers/OverlayAdapter.js';
 import { ShapeProjectionAdapter } from '../adapters/openlayers/ShapeProjectionAdapter.js';
+import { getWorldWidth } from '../adapters/openlayers/world.js';
 import { DrawInteractionAdapter } from '../adapters/openlayers/interactions/DrawInteractionAdapter.js';
 import { EditInteractionAdapter } from '../adapters/openlayers/interactions/EditInteractionAdapter.js';
 import { TransformInteractionAdapter } from '../adapters/openlayers/interactions/TransformInteractionAdapter.js';
@@ -52,7 +53,7 @@ import { InputRouter } from '../services/events/InputRouter.js';
 import { InteractionCoordinator } from '../services/events/InteractionCoordinator.js';
 import { MeasureService } from '../services/measure/MeasureService.js';
 import { OverlayService } from '../services/overlay/OverlayService.js';
-import { assertStructuredStyleSpec, StyleService } from '../services/style/StyleService.js';
+import { assertLineworkShapeCompatibility, assertStructuredStyleSpec, StyleService } from '../services/style/StyleService.js';
 import { TransformService } from '../services/transform/TransformService.js';
 import type { EngineContext } from './EngineContext.js';
 
@@ -62,6 +63,8 @@ const homeCenter = Object.freeze(fromLonLat([119, 39]));
 const lineShapes = new Set(['polyline', 'lune-polyline', 'curve-polyline']);
 /** 浏览器和 Node.js 可可靠接受的单次 setTimeout 最大延迟。 */
 const maxTimeoutDelayMs = 2_147_483_647;
+/** Engine-managed VectorLayer 当前沿用 OL 默认 renderBuffer；公共 LayerSpec 尚未开放该配置。 */
+const managedVectorRenderBufferPx = 100;
 
 /** 装配单个 Earth 的地图对象、Adapter 与服务，并建立统一销毁边界。 */
 export function createEngineContext(options: EarthOptions = {}): EngineContext {
@@ -90,6 +93,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
         currentLayerManager.requireVector(state.layerId);
         if (isNativeStyleRef(state.style)) void nativeRefs.requireStyle(state.style);
         else assertStructuredStyleSpec(state.style);
+        assertLineworkShapeCompatibility(state.style, shapes.get(state.type));
       }
     });
     rollback.push(() => store.destroy());
@@ -100,7 +104,21 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const layers = new LayerServiceImpl(layerManager, layerAdapter, nativeRefs);
 
     const geometry = new GeometryCodec(shapes, shapeProjection);
-    const styleCompiler = new StyleCompiler(nativeRefs, { getViewRotation: () => olView.getRotation() });
+    const styleCompiler = new StyleCompiler(nativeRefs, {
+      getViewRotation: () => olView.getRotation(),
+      getLineworkViewport: () => {
+        const size = map.getSize();
+        if (size === undefined || size[0] <= 0 || size[1] <= 0) return undefined;
+        const extent = olView.calculateExtent(size);
+        if (extent.length < 4 || extent.some((value) => !Number.isFinite(value))) return undefined;
+        const worldWidth = olView.getProjection().canWrapX() ? getWorldWidth(olView) : undefined;
+        return {
+          extent: [extent[0], extent[1], extent[2], extent[3]],
+          ...(worldWidth === undefined ? {} : { worldWidth }),
+          renderBufferPx: managedVectorRenderBufferPx
+        };
+      }
+    });
     const internalStyles = new StyleService(store);
     const styles = new StyleFacade(internalStyles, nativeRefs);
     const binding = new FeatureBinding(store, layerAdapter, geometry, styleCompiler);

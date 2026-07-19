@@ -1,9 +1,11 @@
 {
   "vector": {
-    "urlTemplate": "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    "urlTemplate": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    "attributions": "<a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">© OpenStreetMap contributors</a>"
   },
   "satellite": {
     "urlTemplate": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    "opacity": 0.65
+    "opacity": 0.65,
+    "attributions": "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
   }
 }

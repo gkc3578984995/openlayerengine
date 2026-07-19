@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test';
 interface PresentationSpikeSnapshot {
   readonly sourceIds: readonly string[];
   readonly hits: Readonly<Record<string, readonly string[]>>;
+  readonly proxyPixels: Readonly<Record<string, readonly [number, number, number, number]>>;
+  readonly worldWrapPixel: readonly [number, number, number, number];
   readonly declutterPixel: readonly [number, number, number, number];
   readonly replacementPixel: readonly [number, number, number, number];
   readonly replacementHits: readonly string[];
@@ -16,10 +18,14 @@ test('透明代理保留规范命中和 declutter，占位替身在 postrender �
     (window as unknown as { __PRESENTATION_SPIKE__: { snapshot(): PresentationSpikeSnapshot } }).__PRESENTATION_SPIKE__.snapshot()
   );
 
-  for (const id of ['point', 'icon', 'polyline', 'polygon', 'circle', 'declutter-proxy']) {
+  for (const id of ['point', 'icon', 'polyline', 'polygon', 'circle', 'linework-glyph', 'linework-text', 'declutter-proxy']) {
     expect(snapshot.sourceIds).toContain(id);
     expect(snapshot.hits[id]).toContain(id);
   }
+  expect(snapshot.proxyPixels['linework-glyph'][3]).toBeLessThanOrEqual(5);
+  expect(snapshot.proxyPixels['linework-text'][3]).toBeLessThanOrEqual(5);
+  expect(snapshot.worldWrapPixel[0]).toBeGreaterThan(200);
+  expect(snapshot.worldWrapPixel[3]).toBeGreaterThan(240);
   expect(snapshot.hits['declutter-proxy']).not.toContain('declutter-competitor');
   expect(snapshot.declutterPixel[3]).toBeLessThanOrEqual(5);
   expect(snapshot.alpha.before).toBe(1);

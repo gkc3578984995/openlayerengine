@@ -197,6 +197,7 @@ function lunePolygon(points: readonly Coordinate[]): Coordinate[] {
 
 const rectangleDefinition = createControlPointDefinition({
   type: 'rectangle',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
@@ -213,6 +214,7 @@ const rectangleDefinition = createControlPointDefinition({
 
 const triangleDefinition = createControlPointDefinition({
   type: 'triangle',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
@@ -227,6 +229,7 @@ const triangleDefinition = createControlPointDefinition({
 
 const equilateralTriangleDefinition = createControlPointDefinition({
   type: 'equilateral-triangle',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
@@ -251,6 +254,7 @@ const equilateralTriangleDefinition = createControlPointDefinition({
 
 const assemblePolygonDefinition = createControlPointDefinition({
   type: 'assemble-polygon',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
@@ -266,6 +270,7 @@ const assemblePolygonDefinition = createControlPointDefinition({
 
 const closedCurvePolygonDefinition = createControlPointDefinition({
   type: 'closed-curve-polygon',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   capabilities: structuralEditableCapabilities,
@@ -284,6 +289,7 @@ const closedCurvePolygonDefinition = createControlPointDefinition({
 
 const sectorDefinition = createControlPointDefinition({
   type: 'sector',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
@@ -308,6 +314,7 @@ const sectorDefinition = createControlPointDefinition({
 
 const lunePolygonDefinition = createControlPointDefinition({
   type: 'lune-polygon',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,

@@ -1310,6 +1310,7 @@ function polygonRender(generator: (points: readonly Coordinate[]) => Coordinate[
 
 const attackArrowDefinition = createControlPointDefinition({
   type: 'attack-arrow',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   capabilities: plotStructuralAreaCapabilities,
@@ -1327,6 +1328,7 @@ const attackArrowDefinition = createControlPointDefinition({
 
 const tailedAttackArrowDefinition = createControlPointDefinition({
   type: 'tailed-attack-arrow',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 3,
   capabilities: plotStructuralAreaCapabilities,
@@ -1344,6 +1346,7 @@ const tailedAttackArrowDefinition = createControlPointDefinition({
 
 const fineArrowDefinition = createControlPointDefinition({
   type: 'fine-arrow',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
@@ -1359,6 +1362,7 @@ const fineArrowDefinition = createControlPointDefinition({
 
 const tailedSquadCombatArrowDefinition = createControlPointDefinition({
   type: 'tailed-squad-combat-arrow',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
@@ -1378,6 +1382,7 @@ const tailedSquadCombatArrowDefinition = createControlPointDefinition({
 
 const assaultDirectionArrowDefinition = createControlPointDefinition({
   type: 'assault-direction-arrow',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 2,
   completeMax: 2,
@@ -1395,6 +1400,7 @@ const assaultDirectionArrowDefinition = createControlPointDefinition({
 
 const doubleArrowDefinition = createControlPointDefinition({
   type: 'double-arrow',
+  pathContour: 'closed',
   previewMin: 2,
   completeMin: 5,
   completeMax: 5,

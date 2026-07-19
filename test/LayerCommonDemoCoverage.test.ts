@@ -4,19 +4,20 @@ import { describe, expect, it } from 'vitest';
 const readOptional = async (path: string) => readFile(path, 'utf8').catch(() => '');
 
 describe('layer method demo coverage', () => {
-  it('places the common layer operations page before PointLayer in the base-layer menu', async () => {
-    const [navigation, router, layout, commonView] = await Promise.all([
+  it('uses the V2 Layers page as the canonical layer entry', async () => {
+    const [navigation, router, layersView] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
-      readFile('website/src/layouts/DocsLayout.vue', 'utf8'),
-      readOptional('website/src/views/LayerCommonView.vue')
+      readFile('website/src/views/LayerServiceView.vue', 'utf8')
     ]);
 
-    expect(navigation).toContain("{ label: '图层通用操作', to: '/components/layer-common' }");
-    expect(navigation.indexOf("{ label: '图层通用操作'")).toBeLessThan(navigation.indexOf("{ label: 'PointLayer 点图层'"));
-    expect(router).toContain("path: 'components/layer-common'");
-    expect(layout).toContain("route.path === '/components/layer-common'");
-    expect(commonView).toContain('<h1>图层通用操作</h1>');
+    expect(navigation).toContain("{ label: '图层（Layers）', to: '/components/core/layers' }");
+    expect(router).toContain("path: 'components/core/layers', name: 'core-layers', component: LayerServiceView");
+    expect(layersView).toContain('<h1>图层（Layers）</h1>');
+    expect(layersView).toContain('LayerService');
+    expect(navigation).not.toContain("{ label: '图层通用操作'");
+    expect(navigation).not.toContain("{ label: 'PointLayer 点图层'");
+    expect(router).not.toContain("path: 'components/layer-common'");
   });
 
   it('covers PointLayer own methods and inherited Base methods with runnable examples', async () => {
@@ -56,10 +57,7 @@ describe('layer method demo coverage', () => {
   });
 
   it('lists every common-layer example in the page anchor and links its API references with the documented styles', async () => {
-    const [commonView, rules] = await Promise.all([
-      readFile('website/src/views/LayerCommonView.vue', 'utf8'),
-      readFile('website/AGENTS.md', 'utf8')
-    ]);
+    const [commonView, rules] = await Promise.all([readFile('website/src/views/LayerCommonView.vue', 'utf8'), readFile('website/AGENTS.md', 'utf8')]);
 
     expect(commonView).toContain("{ id: 'example-common-operations', label: '查询、显示控制与生命周期' }");
     expect(commonView).toContain('<div id="example-common-operations">');
@@ -79,7 +77,7 @@ describe('layer method demo coverage', () => {
     for (const method of ['flyTo', 'animateFlyTo', 'flyHome', 'setMouseStyleToCrosshair', 'disabledMapDrag']) {
       expect(globalMethodsView).toContain(`<code class=&quot;code-fn&quot;><a href=&quot;#api-methods&quot;>${method}</a></code>`);
     }
-    expect(earthCreateView).toContain('<code><a href=&quot;#api-constructor&quot;>Earth</a></code>');
+    expect(earthCreateView).toContain('<ApiReference kind="type" to="#api-type-earth">Earth</ApiReference>');
     expect(globalMethodsView).not.toContain('code-fn-inline');
     expect(earthCreateView).not.toContain('code-fn-inline');
   });

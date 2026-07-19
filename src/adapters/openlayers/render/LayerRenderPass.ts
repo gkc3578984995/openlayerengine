@@ -26,6 +26,7 @@ import type {
   LayerRenderTargetSpec
 } from '../../../core/ports/LayerRenderPort.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
+import type { StyleSpec } from '../../../core/style/types.js';
 import { styleVisualOutsetPx } from '../../../core/style/visualOutset.js';
 import type { FeatureBinding } from '../FeatureBinding.js';
 import { projectRenderGeometry } from '../GeometryCodec.js';
@@ -386,7 +387,16 @@ export class LayerRenderPass implements LayerRenderPort {
           const opacity = normalizeOpacity(item.primitive.opacity);
           if (opacity === 0) return;
           drawing ??= getVectorContext(event);
-          this.#drawCachedPrimitive(drawing, event, record.layer, item.cached, item.primitive.dynamicStyle, opacity, frame.resolution);
+          this.#drawCachedPrimitive(
+            drawing,
+            event,
+            record.layer,
+            item.cached,
+            item.primitive.dynamicStyle,
+            item.primitive.pathReveal,
+            opacity,
+            frame.resolution
+          );
         },
         item.kind === 'base' ? 'draw-presentation' : 'draw-overlay',
         item.targetId
@@ -426,6 +436,7 @@ export class LayerRenderPass implements LayerRenderPort {
 
   /** 复用一个稳定 slot 的 Feature、Geometry 和编译样式。 */
   #prepareSlot(slots: Map<string, CachedPrimitive>, key: string, canonicalFeature: Feature<Geometry>, primitive: LayerRenderPrimitive): CachedPrimitive {
+    assertPathReveal(primitive.pathReveal);
     let cached = slots.get(key);
     if (cached !== undefined && (cached.geometryCleared || cached.styleDisposed || cached.disposed)) {
       this.#disposeCachedPrimitive(cached);
@@ -483,6 +494,7 @@ export class LayerRenderPass implements LayerRenderPort {
     layer: VectorLayer,
     cached: CachedPrimitive,
     dynamicStyle: LayerRenderDynamicStyle | undefined,
+    pathReveal: LayerRenderPrimitive['pathReveal'],
     opacity: number,
     resolution: number
   ): void {
@@ -497,12 +509,12 @@ export class LayerRenderPass implements LayerRenderPort {
           if (delta !== 0) geometry.translate(delta, 0);
           appliedOffset = offset;
           restoreDynamicStyle(cached.dynamicDefaults);
-          const styles = cached.compiledStyle.resolve(cached.feature, resolution);
+          const styles = cached.compiledStyle.resolve(cached.feature, resolution, pathReveal);
           if (cached.compiledStyleRevision !== cached.compiledStyle.revision) {
             cached.dynamicDefaults.clear();
             cached.compiledStyleRevision = cached.compiledStyle.revision;
           }
-          applyDynamicStyle(styles, dynamicStyle, cached.dynamicDefaults);
+          applyDynamicStyle(styles, dynamicStyle, cached.dynamicDefaults, cached.styleInput);
           for (const style of styles) vectorContext.drawFeature(cached.feature, style);
         }
       });
@@ -674,8 +686,14 @@ function assertSlotReservation(reservation: LayerRenderSlotReservation): void {
 }
 
 /** 用公开 setter 应用动态标量；字段缺省时恢复模板基线。 */
-function applyDynamicStyle(styles: readonly Style[], dynamic: LayerRenderDynamicStyle | undefined, defaults: Map<Style, DynamicStyleDefaults>): void {
+function applyDynamicStyle(
+  styles: readonly Style[],
+  dynamic: LayerRenderDynamicStyle | undefined,
+  defaults: Map<Style, DynamicStyleDefaults>,
+  styleInput: StyleSpec
+): void {
   assertDynamicStyle(dynamic);
+  const lineworkBasePhase = styleInput.linework?.tracks.length === 1 ? (styleInput.linework.tracks[0]?.stroke.lineDashOffset ?? 0) : undefined;
   let strokeIndex = 0;
   for (const style of styles) {
     let baseline = defaults.get(style);
@@ -694,7 +712,9 @@ function applyDynamicStyle(styles: readonly Style[], dynamic: LayerRenderDynamic
     }
     if (stroke !== null) {
       if (dynamic?.lineDashOffset !== undefined && (dynamic.lineDashOffsetStrokeIndex === undefined || dynamic.lineDashOffsetStrokeIndex === strokeIndex)) {
-        stroke.setLineDashOffset(dynamic.lineDashOffset);
+        stroke.setLineDashOffset(
+          lineworkBasePhase === undefined ? dynamic.lineDashOffset : (stroke.getLineDashOffset() ?? 0) + dynamic.lineDashOffset - lineworkBasePhase
+        );
       }
       strokeIndex += 1;
     }
@@ -739,6 +759,20 @@ function assertDynamicStyle(dynamic: LayerRenderDynamicStyle | undefined): void 
     (!Number.isSafeInteger(dynamic.lineDashOffsetStrokeIndex) || dynamic.lineDashOffsetStrokeIndex < 0 || dynamic.lineDashOffset === undefined)
   ) {
     throw new InvalidArgumentError('Layer render dynamic style lineDashOffset stroke index is invalid');
+  }
+}
+
+function assertPathReveal(pathReveal: LayerRenderPrimitive['pathReveal']): void {
+  if (pathReveal === undefined) return;
+  if (
+    pathReveal === null ||
+    typeof pathReveal !== 'object' ||
+    !Number.isFinite(pathReveal.progress) ||
+    pathReveal.progress < 0 ||
+    pathReveal.progress > 1 ||
+    (pathReveal.direction !== 'forward' && pathReveal.direction !== 'reverse')
+  ) {
+    throw new InvalidArgumentError('Layer render pathReveal must contain a progress from 0 to 1 and a supported direction');
   }
 }
 

@@ -1,23 +1,33 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_MAP_SOURCES, createTileUrl, getMapSource, loadMapSources, setMapSources } from '../website/src/config/mapSources';
+import { DEFAULT_MAP_SOURCES, createConfiguredLayer, createTileUrl, getMapSource, loadMapSources, setMapSources } from '../website/src/config/mapSources';
 
 afterEach(() => setMapSources(undefined));
 
 describe('website runtime map sources', () => {
   it('uses a valid runtime configuration and expands XYZ placeholders', () => {
     setMapSources({
-      vector: { urlTemplate: 'https://maps.example/vector/{z}/{x}/{y}.png' },
-      satellite: { urlTemplate: 'https://maps.example/satellite/{z}/{y}/{x}.jpg', opacity: 0.4 }
+      vector: { urlTemplate: 'https://maps.example/vector/{z}/{x}/{y}.png', attributions: '© Vector provider' },
+      satellite: { urlTemplate: 'https://maps.example/satellite/{z}/{y}/{x}.jpg', opacity: 0.4, attributions: ['© Imagery provider'] }
     });
 
     expect(getMapSource('satellite')).toEqual({
       urlTemplate: 'https://maps.example/satellite/{z}/{y}/{x}.jpg',
-      opacity: 0.4
+      opacity: 0.4,
+      attributions: ['© Imagery provider']
     });
     expect(createTileUrl(getMapSource('vector').urlTemplate, [6, 11, 22])).toBe('https://maps.example/vector/6/11/22.png');
     expect(DEFAULT_MAP_SOURCES.vector.urlTemplate).toContain('{z}');
+    expect(DEFAULT_MAP_SOURCES.vector.attributions).toContain('OpenStreetMap');
+  });
+
+  it('passes the configured attribution to the public tile-layer API', () => {
+    const add = vi.fn(() => ({}));
+
+    createConfiguredLayer({ layers: { add } } as never, 'vector');
+
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({ attributions: DEFAULT_MAP_SOURCES.vector.attributions }));
   });
 
   it('falls back to defaults when configuration is incomplete or malformed', () => {
@@ -45,6 +55,8 @@ describe('website runtime map sources', () => {
 
     expect(mapSources.vector.urlTemplate).toMatch(/\{z\}.*\{x\}.*\{y\}|\{z\}.*\{y\}.*\{x\}/);
     expect(mapSources.satellite.urlTemplate).toMatch(/\{z\}.*\{x\}.*\{y\}|\{z\}.*\{y\}.*\{x\}/);
+    expect(mapSources.vector.attributions).toContain('OpenStreetMap');
+    expect(mapSources.satellite.attributions).toContain('Esri');
   });
 
   it('keeps tile service URLs out of documentation examples', async () => {

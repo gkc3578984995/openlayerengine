@@ -66,13 +66,13 @@ import '@vrsim/earth-engine-ol/style.css';
 
 ### 2.1 OpenLayers 由业务项目安装
 
-1.x 使用 `ol@^7.5.2`。2.0.0 的公开基线为 `ol@^10.9.0`，并将 OL 声明为可选 peer dependency。
+1.x 使用 `ol@^7.5.2`。2.0.0 的公开基线为 `ol@^10.9.0`，并将 OL 声明为安装时可选的 peer dependency。
 
 ```bash
-npm install ol@10.9.0
+npm install @vrsim/earth-engine-ol@2.0.0 ol@10.9.0
 ```
 
-引擎包不会自动下载 OL。安装引擎 tgz 后，如果业务项目没有安装 OL，包可以完成安装，但地图功能无法正常构建或运行。
+`optional` 只表示引擎 tgz 可以单独完成安装，不表示 OL 是可选的地图运行依赖。业务项目没有安装 OL 时，地图功能无法正常构建或运行。
 
 2.0.0 已按 OL 10 调整为显式公开 ESM 模块，不再依赖 OL barrel、私有字段或 renderer 内部类型。业务代码如果直接使用 OL，也应优先从带 `.js` 后缀的公开模块导入：
 
@@ -105,11 +105,11 @@ import VectorSource from 'ol/source/Vector.js';
 
 推荐流程：
 
-1. 在有网络的环境准备 `ol@10.9.0` 的 npm 缓存或离线包。
-2. 执行 `npm pack` 生成引擎 tgz。
-3. 将引擎 tgz 和 OL 离线材料一起带入离线环境。
-4. 离线安装 OL，再安装引擎 tgz。
-5. 在真实业务项目中执行类型检查和构建。
+1. 从正式发布物取得引擎 tgz；仓库维护者也可以在源码仓库执行 `npm pack`。
+2. 在有网络的真实业务项目或其 `package.json`、`package-lock.json` 完整副本中，把引擎 tgz 与 `ol@10.9.0` 写入同一锁文件。
+3. 按该锁文件执行 `npm ci --cache ./npm-cache`，预热业务项目的完整依赖闭包，而不只是 OL 的闭包。
+4. 保持相对路径，将业务依赖文件、引擎 tgz 和已预热的 npm 缓存一起带入离线环境。
+5. 使用同一锁文件和缓存执行 `npm ci --offline`，再完成类型检查、构建和运行验证。
 
 引擎包本身可以这样验证：
 
@@ -117,15 +117,22 @@ import VectorSource from 'ol/source/Vector.js';
 npm install --offline --ignore-scripts ./vrsim-earth-engine-ol-2.0.0.tgz
 ```
 
+完整业务项目应在联网环境生成并验证锁文件，然后在离线环境按同一锁文件安装：
+
+```bash
+npm ci --offline --cache ./npm-cache --ignore-scripts --no-audit --no-fund
+```
+
+只携带两个裸 tgz 或只预热 OL 依赖都不足以保证完整业务项目可离线安装；业务锁文件中的全部依赖都必须已经存在于缓存或离线制品中。
+
 ### 2.5 Node 运行环境
 
-2.0.0 是纯 ESM 包，发布代码目标为 ES2022。当前包没有声明 `engines`，因此不能据此认定 Node 16 已受支持。
+2.0.0 是纯 ESM 包，发布代码目标为 ES2022。`package.json` 已声明并验证以下工具链范围：
 
-- 当前自动化消费者验证运行在 Node 18.17，现阶段建议使用 Node 18.17 或更高版本。
-- Node 直接运行时，运行环境必须支持原生 ESM 和本包使用的 ES2022 语法。
-- Node 16 不在当前消费者验证契约内，不建议直接承诺兼容。
-- 仍使用 Node 16 的浏览器项目，应由业务构建工具转译依赖，并完成真实构建和运行验证。
-- 只在浏览器运行并不代表项目的 Node 构建阶段一定兼容，仍要检查构建工具版本。
+- Node `>=24.18.0 <25`
+- npm `>=11 <12`
+
+Node 16、18、20、22 和 25 均不在 2.0.0 的发布契约内。即使代码最终只在浏览器运行，安装、类型检查和构建阶段也必须使用上述 Node 与 npm 范围。
 
 ## 3. Earth 和 useEarth
 
@@ -275,7 +282,7 @@ earth.controls;
 | `earth.view`，原生 OL View | `earth.view.olView` |
 | `earth.camera`、根导出的 `Camera` | `earth.view` |
 | 根导出的 `Controls` | `earth.controls` |
-| `earth.center` | 创建时传入 `view.center`；`flyHome()` 使用创建时保存的中心点 |
+| `earth.center` | 创建时传入 `view.center`；它只设置初始视图，不会改变 `flyHome()` 的内置目标 |
 | `earth.containerId` | `earth.target`，返回值可能是字符串或 `HTMLElement` |
 | `earth.flyHome()` | `earth.view.flyHome()` |
 | `earth.animateFlyTo(center, zoom, duration)` | `earth.view.animateFlyTo(center, { zoom, duration })` |
@@ -301,7 +308,7 @@ earth.controls;
 
 `earth.map` 仍然公开，类型仍是 OL `Map`。
 
-`earth.center` 不再是可随时修改的 home 状态。V2 会在创建 `ViewService` 时保存 home 中心点；需要自定义 home 时，应在首次创建 Earth 时传入 `view.center`。
+`earth.center` 不再是可随时修改的 home 状态。V2 的 `view.center` 只设置初始视图；`earth.view.flyHome()` 当前返回引擎内置中心（默认投影下由经纬度 `[119, 39]` 转换）和 zoom 4，不读取创建时传入的 `view.center`。业务需要自定义 home 时，应自行保存目标坐标并调用 `earth.view.animateFlyTo()`。
 
 V1 的 `addLayer()` 返回字符串句柄；V2 的 `earth.layers.add()` 返回公开 `Layer` 句柄。V1 的 `removeLayer()` 无参只删除带底图标记的图层，V2 没有这个快捷语义；不要用 `earth.layers.clear()` 直接替代，因为它会清除当前 Earth 管理的全部图层。
 
@@ -524,7 +531,9 @@ const circle = earth.elements.add({
   }
 });
 
-console.log(circle.state.geometry.radius); // 1000，单位为米
+const geometry = circle.state.geometry;
+if (geometry.type !== 'circle') throw new Error('Expected circle geometry');
+console.log(geometry.radius); // 1000，单位为米
 ```
 
 `earth.view.toProjectedCoordinates()` 会把 EPSG:4326 经纬度转换到当前 Earth 的 View 投影。它接受单组或多组扁平坐标，也接受一层嵌套的二维或三维坐标，并保持输入结构。空数组、奇数长度的扁平数组、稀疏数组、混合结构和非有限数值会抛出 `InvalidArgumentError`。
@@ -717,7 +726,7 @@ earth.styles.set(
 
 - 不反向解析为 `StyleSpec`。
 - 不能使用结构化 `StylePatch` 修改。
-- 不参与属性动画。
+- 不支持任何 2.0 内置动画；动画管理器会在创建播放记录前拒绝 `NativeStyleRef`。
 - 不承诺跨 OpenLayers 主版本兼容。
 
 V1 根导出的 `createPatternFill()`、`drawPatternFill()`、`isPatternFill()` 和 `normalizePatternFill()` 已删除。业务侧不再直接创建 CanvasPattern；改为把 `PatternFillSpec` 交给 `StyleSpec.fill`、`symbol.fill` 或文字填充，由样式编译器统一处理。
@@ -860,7 +869,6 @@ const session = earth.measure.start({
   unit: 'km',
   precision: 2,
   formatter: (value, unit) => `${value.toFixed(2)} ${unit}`,
-  showTotal: true,
   policy: 'replace'
 });
 
@@ -1468,17 +1476,21 @@ transformSession.on('translateEnd', callback);
 ```ts
 import {
   animationTypes,
+  lineStyles,
   measureTypes,
   shapeTypes,
   stylePresets
 } from '@vrsim/earth-engine-ol';
 ```
 
+V2 还提供 `lineStyles.polyline()` 与 `lineStyles.polygon()`，用于生成受支持的结构化线样式；它们替代业务对旧 Layer 专用线型参数和内部 Canvas 样式构造的依赖。
+
 ## 13. 最终迁移检查清单
 
 - [ ] 将全部 CommonJS `require()` 改为 ESM `import`。
 - [ ] 将旧 CSS 深路径替换为 `@vrsim/earth-engine-ol/style.css`。
 - [ ] 删除所有 `dist/*` 和功能子路径导入。
+- [ ] 使用 Node `>=24.18.0 <25` 与 npm `>=11 <12` 安装、检查和构建。
 - [ ] 在业务项目中显式安装并离线准备 `ol@10.9.0`。
 - [ ] 删除 `WindLayer`、`WindLayerInstance`、`ol-wind` 和 `wind-core` 调用。
 - [ ] 将 Earth 和 `useEarth` 的两个参数合并为 `{ target, view, controls }`。
@@ -1493,6 +1505,7 @@ import {
 - [ ] 经纬度写入 Element 前调用 `earth.view.toProjectedCoordinates()`，读取后调用 `earth.view.toGeographicCoordinates()`。
 - [ ] 将几何圆的 `radius` 统一改为米，不要持久化 `element.olFeature` 中使用投影单位的半径。
 - [ ] 将旧图层样式参数迁移为 `StyleSpec` 和 `earth.styles`。
+- [ ] 将可复用的线型参数迁移到 `lineStyles.polyline()` 或 `lineStyles.polygon()`。
 - [ ] 将 DynamicDraw、PlotDraw、PlotEdit 迁移到 `earth.draw` 会话。
 - [ ] 将 Measure 迁移到 `earth.measure` 会话。
 - [ ] 将 Transform 类迁移到 `earth.transform` 会话。
@@ -1504,5 +1517,4 @@ import {
 - [ ] 检查 `AnimationType` 的 exhaustive switch 与 `Record`，为后续尾部追加的内置类型保留未知成员兜底。
 - [ ] 将 Utils 和旧枚举迁移到新服务、根导出函数和字符串联合。
 - [ ] 检查 `EPlotType` 字符串、Utils 参数顺序和 `throttle(..., 100)` 默认节流差异。
-- [ ] Node 16 项目完成实际转译、构建和运行验证，不直接假定兼容。
 - [ ] 执行 `npm run typecheck`、`npm run test:code`、`npm run build` 和 `npm run test:package`。

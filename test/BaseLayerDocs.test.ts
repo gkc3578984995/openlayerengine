@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { getCircleLayerMethodRows } from '../website/src/docs/circleLayerApi';
 
 const readOptional = async (path: string) => readFile(path, 'utf8').catch(() => '');
 
@@ -58,10 +57,18 @@ const layers = [
 ] as const;
 
 describe('base layer documentation pages', () => {
-  it('escapes unmatched generic types in generated CircleLayer API values', () => {
-    const [row] = getCircleLayerMethodRows([{ name: 'add(param)', desc: '', params: '', returns: '' }]);
+  it('uses the V2 type catalog instead of the legacy CircleLayer API generator', async () => {
+    const [shapesView, publicApiSection, router] = await Promise.all([
+      readFile('website/src/views/elements/ShapesView.vue', 'utf8'),
+      readFile('website/src/components/docs/PublicApiSection.vue', 'utf8'),
+      readFile('website/src/router/index.ts', 'utf8')
+    ]);
 
-    expect(row.returns).toBe('Feature&lt;Circle&gt;');
+    expect(shapesView).toContain("import PublicApiSection from '../../components/docs/PublicApiSection.vue';");
+    expect(shapesView).toContain('<PublicApiSection');
+    expect(shapesView).toContain(':runtime-names="runtimeApi"');
+    expect(publicApiSection).toContain("import { apiCatalog, apiRuntimeExports } from '../../generated/api';");
+    expect(router).not.toContain('CircleLayerView');
   });
 
   it.each(layers)('$name follows the runnable page contract', async ({ name, view, api, examples, methods, types }) => {
@@ -127,19 +134,25 @@ describe('base layer documentation pages', () => {
     expect(viewSource).toMatch(/name: 'options\.register',[^\n]+default: 'true'/);
   });
 
-  it('registers all five pages without adding WindLayer', async () => {
-    const [navigation, router, layout] = await Promise.all([
+  it('keeps legacy layer pages out of the V2 menu and routes', async () => {
+    const [navigation, router, layersView, shapesView] = await Promise.all([
       readFile('website/src/config/navigation.ts', 'utf8'),
       readFile('website/src/router/index.ts', 'utf8'),
-      readFile('website/src/layouts/DocsLayout.vue', 'utf8')
+      readFile('website/src/views/LayerServiceView.vue', 'utf8'),
+      readFile('website/src/views/elements/ShapesView.vue', 'utf8')
     ]);
 
+    expect(navigation).toContain("{ label: '图层（Layers）', to: '/components/core/layers' }");
+    expect(navigation).toContain("{ label: '图形类型（Shapes）', to: '/components/elements/shapes' }");
+    expect(router).toContain("path: 'components/core/layers', name: 'core-layers', component: LayerServiceView");
+    expect(router).toContain("path: 'components/elements/shapes', name: 'element-shapes', component: ShapesView");
+    expect(layersView).toContain('<h1>图层（Layers）</h1>');
+    expect(shapesView).toContain('<h1>图形类型（Shapes）</h1>');
+
     for (const { label, route, view } of layers) {
-      expect(navigation).toContain(label);
-      expect(navigation).toContain(route);
-      expect(router).toContain(view.replace('.vue', ''));
-      expect(router).toContain(route.replace(/^\//, ''));
-      expect(layout).toContain(label);
+      expect(navigation).not.toContain(label);
+      expect(navigation).not.toContain(route);
+      expect(router).not.toContain(view.replace('.vue', ''));
     }
     expect(navigation).not.toContain('WindLayer');
     expect(router).not.toContain('WindLayerView');

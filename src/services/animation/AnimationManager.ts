@@ -1052,6 +1052,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       let removesPresentationAfterFrame = false;
       let targetOpacity = 1;
       let effectiveGeometry: RenderGeometryState | undefined = prepared.geometry;
+      let effectiveReveal: AnimationFrameBuffer['targetReveal'];
       const hasPresentationModifier = group.some(
         ({ definition }) => definition.writeDomains.has('target-opacity') || definition.writeDomains.has('target-geometry')
       );
@@ -1083,6 +1084,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
           }
           if (contributesFinalState && record.definition.writeDomains.has('target-geometry')) {
             effectiveGeometry = record.buffer.targetGeometry;
+            effectiveReveal = record.buffer.targetReveal;
           }
           if (sample.finished && !record.retained) finished.push({ record, retain: sample.retain === true, status: 'finished' });
           removesPresentationAfterFrame ||=
@@ -1110,13 +1112,15 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
           const slot = slots[index];
           assertDynamicParameters(slot.dynamicParameters, value);
           const dynamicStyle = dynamicStyleValue(value);
+          const pathReveal = value.geometryKind === 'effective-target' ? effectiveReveal : undefined;
           primitives.push(
             Object.freeze({
               slotKey: `${record.channel}/${slot.slotKey}`,
               geometry,
               style: slot.style,
               opacity,
-              ...(dynamicStyle === undefined ? {} : { dynamicStyle })
+              ...(dynamicStyle === undefined ? {} : { dynamicStyle }),
+              ...(pathReveal === undefined ? {} : { pathReveal })
             })
           );
         }
@@ -1124,7 +1128,13 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
 
       const presentation =
         hasPresentationModifier && effectiveGeometry !== undefined
-          ? Object.freeze({ slotKey: 'base', geometry: effectiveGeometry, style: prepared.target.style, opacity: targetOpacity })
+          ? Object.freeze({
+              slotKey: 'base',
+              geometry: effectiveGeometry,
+              style: prepared.target.style,
+              opacity: targetOpacity,
+              ...(effectiveReveal === undefined ? {} : { pathReveal: effectiveReveal })
+            })
           : undefined;
       if (presentation !== undefined || primitives.length > 0) {
         contributions.push(

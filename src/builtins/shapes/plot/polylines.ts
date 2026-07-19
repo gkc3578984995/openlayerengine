@@ -49,6 +49,7 @@ function polylineRender(generator: (points: readonly Coordinate[]) => Coordinate
 
 const lunePolylineDefinition = createControlPointDefinition({
   type: 'lune-polyline',
+  pathContour: 'open',
   previewMin: 2,
   completeMin: 3,
   completeMax: 3,
@@ -67,6 +68,7 @@ const lunePolylineDefinition = createControlPointDefinition({
 
 const curvePolylineDefinition = createControlPointDefinition({
   type: 'curve-polyline',
+  pathContour: 'open',
   previewMin: 2,
   completeMin: 2,
   capabilities: structuralPathCapabilities,

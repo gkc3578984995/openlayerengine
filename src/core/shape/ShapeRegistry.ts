@@ -9,6 +9,7 @@ import {
   type ShapeDefinition,
   type ShapeEditTopology,
   type ShapeFreehandPolicy,
+  type ShapePathContourKind,
   type ShapeState,
   type ShapeType
 } from './types.js';
@@ -85,6 +86,11 @@ function parsePolicy(input: unknown): ControlPointPolicy {
 function parseCapability(value: unknown): ShapeCapability {
   if (typeof value !== 'string' || !canonicalCapabilities.has(value)) throw new InvalidArgumentError(`Unknown shape capability: ${String(value)}`);
   return value as ShapeCapability;
+}
+
+function parsePathContour(value: unknown): ShapePathContourKind {
+  if (value !== 'open' && value !== 'closed') throw new InvalidArgumentError(`Unknown shape path contour: ${String(value)}`);
+  return value;
 }
 
 function parseEditTopology<S extends ShapeState>(input: unknown): ShapeEditTopology<S> {
@@ -164,6 +170,8 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
     Object.prototype.hasOwnProperty.call(record, 'freehand') && record.freehand !== undefined ? parseFreehandPolicy<S>(record.freehand) : undefined;
   const animation =
     Object.prototype.hasOwnProperty.call(record, 'animation') && record.animation !== undefined ? parseAnimationProfile<S>(record.animation) : undefined;
+  const pathContour =
+    Object.prototype.hasOwnProperty.call(record, 'pathContour') && record.pathContour !== undefined ? parsePathContour(record.pathContour) : undefined;
   assertCapabilityContracts(capabilities, editTopology, freehand);
   const snapshot = {
     type,
@@ -172,6 +180,7 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
     ...(editTopology === undefined ? {} : { editTopology }),
     ...(freehand === undefined ? {} : { freehand }),
     ...(animation === undefined ? {} : { animation }),
+    ...(pathContour === undefined ? {} : { pathContour }),
     createDraft: requiredFunction(record, 'createDraft'),
     normalize: requiredFunction(record, 'normalize'),
     clone: requiredFunction(record, 'clone'),

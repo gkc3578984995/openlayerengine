@@ -100,6 +100,9 @@ export type RenderGeometryState =
       readonly radius: number;
     };
 
+/** ShapeDefinition 为最终路径几何声明的轮廓语义。 */
+export type ShapePathContourKind = 'open' | 'closed';
+
 /** 路径或面箭头的揭示方向。 */
 export type ShapeAnimationDirection = 'forward' | 'reverse';
 
@@ -301,6 +304,8 @@ export interface ShapeDefinition<S extends ShapeState = ShapeState> {
   readonly freehand?: ShapeFreehandPolicy<S>;
   /** 提供动画揭示或径向语义；provider 的存在即为对应能力声明。 */
   readonly animation?: ShapeAnimationProfile<S>;
+  /** 最终 RenderGeometry 可被路径样式提取时声明其开放或闭合语义。 */
+  readonly pathContour?: ShapePathContourKind;
   /**
    * 从控制点创建可预览的草图。
    *

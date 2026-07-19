@@ -23,6 +23,7 @@ export { throttle } from './utils/throttle.js';
 export { animationTypes } from './builtins/animations/index.js';
 export { measureTypes } from './facade/measureTypes.js';
 export { shapeTypes } from './core/shape/types.js';
+export { lineStyles } from './builtins/styles/lineStyles.js';
 export { stylePresets } from './builtins/styles/presets.js';
 export { useEarth } from './useEarth.js';
 
@@ -53,7 +54,17 @@ export type {
   CircleSymbolSpec,
   ElementStyleState,
   IconSymbolSpec,
+  InlinePathTextSpec,
+  LineworkSpec,
   NativeStyleRef,
+  PathCapSpec,
+  PathContourPolicySpec,
+  PathDecorationSpec,
+  PathGlyphPrimitiveSpec,
+  PathGlyphSpec,
+  PathGlyphStrokeSpec,
+  PathTrackSpec,
+  PathTrackStrokeSpec,
   PatternFillSpec,
   SolidFillSpec,
   StrokeSpec,
@@ -125,4 +136,16 @@ export type { FlyToOptions, ViewAnimationOptions, ViewService } from './facade/V
 export type { UseEarthOptions } from './useEarth.js';
 export type { InteractionPolicy, InteractionStatus } from './services/events/types.js';
 export type { StylePresetName } from './builtins/styles/presets.js';
+export type {
+  DecorationOnlyLineType,
+  InlineLineTextStyleOptions,
+  InlineTextLineDecorationType,
+  LineCapsOptions,
+  LineCapType,
+  LinePattern,
+  LineStyleFactories,
+  PolygonLineStyleOptions,
+  PolylineLineStyleOptions,
+  TrackedLineDecorationType
+} from './builtins/styles/lineStyles.js';
 export type { ThrottleOptions, ThrottledFunction } from './utils/throttle.js';

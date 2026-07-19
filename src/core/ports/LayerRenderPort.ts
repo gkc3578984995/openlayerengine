@@ -31,6 +31,12 @@ export interface LayerRenderDynamicStyle {
   readonly rotation?: number;
 }
 
+/** grow 对完整目标路径的真实揭示窗口；避免 Adapter 从中间 Geometry 反推进度。 */
+export interface LayerRenderPathReveal {
+  readonly progress: number;
+  readonly direction: 'forward' | 'reverse';
+}
+
 export interface LayerRenderPrimitive {
   /** Runtime 生命周期内稳定的图元位置；旧动画可省略并由 Adapter 生成兼容键。 */
   readonly slotKey?: string;
@@ -42,6 +48,8 @@ export interface LayerRenderPrimitive {
   readonly opacity?: number;
   /** 仅通过 OpenLayers 公开 setter 更新的动态样式标量。 */
   readonly dynamicStyle?: LayerRenderDynamicStyle;
+  /** target-geometry 来自 grow 时携带的固定目标路径揭示语义。 */
+  readonly pathReveal?: LayerRenderPathReveal;
 }
 
 export interface LayerRenderValue {
