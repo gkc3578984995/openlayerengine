@@ -1,20 +1,28 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import ApiTable from '../../components/docs/ApiTable.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
 import PageAnchor from '../../components/docs/PageAnchor.vue';
 import PublicApiSection from '../../components/docs/PublicApiSection.vue';
+import PatternFillDemo from '../../examples/elements/PatternFillDemo.vue';
+import patternFillSource from '../../examples/elements/PatternFillDemo.vue?raw';
 import StylesDemo from '../../examples/elements/StylesDemo.vue';
 import stylesSource from '../../examples/elements/StylesDemo.vue?raw';
 import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const stylesSnippet = `${extractExampleSnippet(stylesSource, 'style-preset')}\n\n${extractExampleSnippet(stylesSource, 'style-patch')}`;
+const patternFillSnippet = `${extractExampleSnippet(patternFillSource, 'pattern-fill-set')}\n\n${extractExampleSnippet(patternFillSource, 'pattern-fill-patch')}`;
+const patternFillDemoRef = ref<InstanceType<typeof PatternFillDemo> | null>(null);
+const resetPatternFillDemo = () => patternFillDemoRef.value?.reset();
+const focusPatternFillDemo = () => patternFillDemoRef.value?.focus();
 
 const anchors = [
   { id: 'overview', label: '结构化样式模型' },
   { id: 'style-fields', label: 'StyleSpec 字段' },
   { id: 'presets', label: '内置 stylePresets' },
   { id: 'example-element-styles', label: '预设、set 与 patch' },
+  { id: 'example-pattern-fill', label: '五种纹理与应用目标' },
   { id: 'native-style', label: 'nativeStyle 边界' },
   { id: 'api-actions', label: '样式方法' },
   { id: 'api', label: '完整 API' }
@@ -151,6 +159,34 @@ const runtimeApi = ['stylePresets'] as const;
             </p>
           </template>
           <template #preview><StylesDemo /></template>
+        </ExampleBlock>
+      </section>
+
+      <section id="example-pattern-fill" class="doc-prose">
+        <ExampleBlock
+          title="五种纹理与应用目标"
+          :source="patternFillSource"
+          :snippet="patternFillSnippet"
+          source-lang="vue"
+          snippet-lang="typescript"
+          show-reset
+          show-focus
+          @reset="resetPatternFillDemo"
+          @focus="focusPatternFillDemo"
+        >
+          <template #description>
+            <p>
+              上排同时展示 <code>diagonal</code>、<code>cross</code>、<code>dot</code>、<code>horizontal</code> 与 <code>vertical</code> 五种
+              <ApiReference kind="type" to="/api/types#api-type-pattern-fill-spec">PatternFillSpec</ApiReference>。下排把同一纹理应用到
+              <ApiReference kind="property" to="/api/types#api-type-style-spec-property-fill">Polygon.fill</ApiReference>、
+              <ApiReference kind="property" to="/api/types#api-type-circle-symbol-spec-property-fill">CircleSymbol.fill</ApiReference>、
+              <ApiReference kind="property" to="/api/types#api-type-text-spec-property-fill">Text.fill</ApiReference> 与
+              <ApiReference kind="property" to="/api/types#api-type-text-spec-property-background-fill">Text.backgroundFill</ApiReference>，并可用
+              <ApiReference kind="method" to="#api-method-style-set">styles.set</ApiReference> 完整替换或
+              <ApiReference kind="method" to="#api-method-style-patch">styles.patch</ApiReference> 局部调整颜色、尺寸、线宽和圆点半径。
+            </p>
+          </template>
+          <template #preview><PatternFillDemo ref="patternFillDemoRef" /></template>
         </ExampleBlock>
       </section>
 

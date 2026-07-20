@@ -131,7 +131,7 @@ addPolyline(
     [-340, -215],
     [-40, -215]
   ],
-  lineStyles.polyline({ lines: 'dashed', caps: { start: 'bar', end: 'arrow' }, decoration: 'none' })
+  lineStyles.polyline({ lines: 'dashed', caps: { start: 'bar', end: 'arrow' }, decoration: 'tick' })
 );
 addPolyline(
   'visual-slash',

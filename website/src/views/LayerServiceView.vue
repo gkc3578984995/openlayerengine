@@ -14,6 +14,12 @@ import { extractExampleSnippet } from '../utils/exampleSource';
 
 const layerServiceSnippet = extractExampleSnippet(layerServiceSource, 'layer-lifecycle');
 const layerKindsSnippet = extractExampleSnippet(layerKindsSource, 'layer-kinds');
+const layerServiceDemoRef = ref<InstanceType<typeof LayerServiceDemo> | null>(null);
+const layerKindsDemoRef = ref<InstanceType<typeof LayerKindsDemo> | null>(null);
+const resetLayerServiceDemo = () => layerServiceDemoRef.value?.reset();
+const focusLayerServiceDemo = () => layerServiceDemoRef.value?.focus();
+const resetLayerKindsDemo = () => layerKindsDemoRef.value?.reset();
+const focusLayerKindsDemo = () => layerKindsDemoRef.value?.focus();
 
 const activeSpec = ref('vector');
 
@@ -222,7 +228,9 @@ const native = earth.layers.add({
           <el-col :xs="24" :sm="8"
             ><el-statistic title="初始默认图层" :value="1"><template #suffix>个</template></el-statistic></el-col
           >
-          <el-col :xs="24" :sm="8"><el-statistic title="状态真源" value="LayerState" /></el-col>
+          <el-col :xs="24" :sm="8"
+            ><el-statistic title="状态真源" :value="1"><template #suffix>份 LayerState</template></el-statistic></el-col
+          >
         </el-row>
         <el-alert type="info" :closable="false" show-icon title="每个 Earth 初始包含 default 矢量图层">
           <code>earth.layers.query()</code> 会包含它；Element 未指定 layerId 时使用该图层。default 被移除后，后续创建默认归属的 Element 会按需重建它。
@@ -238,50 +246,67 @@ const native = earth.layers.add({
         <el-tabs v-model="activeSpec" class="core-spec-tabs">
           <el-tab-pane label="Vector" name="vector">
             <p>
-              <ApiReference kind="type" to="/api/types#api-type-vector-layer-spec">VectorLayerSpec</ApiReference> 由引擎创建
-              VectorSource，适合承载 Element。
+              <ApiReference kind="type" to="/api/types#api-type-vector-layer-spec">VectorLayerSpec</ApiReference> 由引擎创建 VectorSource，适合承载 Element。
             </p>
             <CodeBlock :code="vectorCode" lang="ts" />
           </el-tab-pane>
           <el-tab-pane label="Tile" name="tile">
             <p>
-              <ApiReference kind="type" to="/api/types#api-type-tile-layer-spec">TileLayerSpec</ApiReference> 支持 OSM、XYZ、compact-xyz 与原生
-              TileSource 分支。
+              <ApiReference kind="type" to="/api/types#api-type-tile-layer-spec">TileLayerSpec</ApiReference> 支持 OSM、XYZ、compact-xyz 与原生 TileSource
+              分支。
             </p>
             <CodeBlock :code="tileCode" lang="ts" />
           </el-tab-pane>
           <el-tab-pane label="Native" name="native">
-            <p>
-              <ApiReference kind="type" to="/api/types#api-type-native-layer-spec">NativeLayerSpec</ApiReference> 接入调用方已有的 OpenLayers
-              图层。
-            </p>
+            <p><ApiReference kind="type" to="/api/types#api-type-native-layer-spec">NativeLayerSpec</ApiReference> 接入调用方已有的 OpenLayers 图层。</p>
             <CodeBlock :code="nativeCode" lang="ts" />
           </el-tab-pane>
         </el-tabs>
       </section>
 
       <section id="example-layer-management" class="doc-prose">
-        <ExampleBlock title="创建、查询与更新图层" :source="layerServiceSource" :snippet="layerServiceSnippet">
+        <ExampleBlock
+          title="创建、查询与更新图层"
+          :source="layerServiceSource"
+          :snippet="layerServiceSnippet"
+          show-reset
+          show-focus
+          @reset="resetLayerServiceDemo"
+          @focus="focusLayerServiceDemo"
+        >
           <template #description>
             <p>
               示例通过 <ApiReference kind="method" to="#api-method-add">add</ApiReference> 创建业务图层，用
-              <ApiReference kind="method" to="#api-method-query">query</ApiReference> 展示实时列表，并调用 Layer 的 update、show、hide 与 remove。
+              <ApiReference kind="method" to="#api-method-query">query</ApiReference> 展示实时列表，并调用 Layer 的
+              <ApiReference kind="method" to="#api-method-layer-update">update</ApiReference>、
+              <ApiReference kind="method" to="#api-method-layer-show">show</ApiReference>、
+              <ApiReference kind="method" to="#api-method-layer-hide">hide</ApiReference> 与
+              <ApiReference kind="method" to="#api-method-layer-remove">remove</ApiReference>。
             </p>
           </template>
-          <template #preview><LayerServiceDemo /></template>
+          <template #preview><LayerServiceDemo ref="layerServiceDemoRef" /></template>
         </ExampleBlock>
       </section>
 
       <section id="example-layer-kinds" class="doc-prose">
-        <ExampleBlock title="Vector、Tile、Native 与所有权" :source="layerKindsSource" :snippet="layerKindsSnippet">
+        <ExampleBlock
+          title="Vector、Tile、Native 与所有权"
+          :source="layerKindsSource"
+          :snippet="layerKindsSnippet"
+          show-reset
+          show-focus
+          @reset="resetLayerKindsDemo"
+          @focus="focusLayerKindsDemo"
+        >
           <template #description>
             <p>
-              示例并列创建三种 <ApiReference kind="type" to="/api/types#api-type-public-layer-spec">PublicLayerSpec</ApiReference>， 使用
+              示例并列创建三种 <ApiReference kind="type" to="/api/types#api-type-public-layer-spec">PublicLayerSpec</ApiReference>：蓝色纹理圆来自 Earth
+              vector，橙色点来自 external native，底图来自部署期配置。使用
               <ApiReference kind="method" to="#api-method-layer-remove">Layer.remove</ApiReference> 移除句柄，并通过
               <ApiReference kind="method" to="#api-method-clear">LayerService.clear</ApiReference> 显式清空全部图层。
             </p>
           </template>
-          <template #preview><LayerKindsDemo /></template>
+          <template #preview><LayerKindsDemo ref="layerKindsDemoRef" /></template>
         </ExampleBlock>
       </section>
 

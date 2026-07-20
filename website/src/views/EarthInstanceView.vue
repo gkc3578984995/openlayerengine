@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../components/docs/ApiReference.vue';
 import ApiTable from '../components/docs/ApiTable.vue';
 import CodeBlock from '../components/docs/CodeBlock.vue';
@@ -9,14 +10,24 @@ import EarthConstructorDemo from '../examples/EarthConstructorDemo.vue';
 import earthConstructorSource from '../examples/EarthConstructorDemo.vue?raw';
 import EarthInstanceDemo from '../examples/EarthInstanceDemo.vue';
 import earthInstanceSource from '../examples/EarthInstanceDemo.vue?raw';
+import MultiEarthDemo from '../examples/MultiEarthDemo.vue';
+import multiEarthSource from '../examples/MultiEarthDemo.vue?raw';
 import { extractExampleSnippet } from '../utils/exampleSource';
 
 const earthInstanceSnippet = extractExampleSnippet(earthInstanceSource, 'earth-registry-lifecycle');
 const earthConstructorSnippet = extractExampleSnippet(earthConstructorSource, 'earth-constructor');
+const multiEarthSnippet = [
+  extractExampleSnippet(multiEarthSource, 'multi-earth-create'),
+  extractExampleSnippet(multiEarthSource, 'multi-earth-isolation')
+].join('\n\n');
+const multiEarthDemoRef = ref<InstanceType<typeof MultiEarthDemo> | null>(null);
+const resetMultiEarthDemo = () => multiEarthDemoRef.value?.reset();
+const focusMultiEarthDemo = () => multiEarthDemoRef.value?.focus();
 
 const anchors = [
   { id: 'overview', label: '选择创建入口' },
   { id: 'example-earth-lifecycle', label: '实例复用与生命周期' },
+  { id: 'example-multi-earth', label: '多地图实例与隔离' },
   { id: 'example-earth-constructor', label: '公共构造器与自管实例' },
   {
     id: 'api',
@@ -262,6 +273,28 @@ new Earth(options?: EarthOptions): Earth;`;
             </p>
           </template>
           <template #preview><EarthInstanceDemo /></template>
+        </ExampleBlock>
+      </section>
+
+      <section id="example-multi-earth" class="doc-prose">
+        <ExampleBlock
+          title="多地图实例与隔离"
+          :source="multiEarthSource"
+          :snippet="multiEarthSnippet"
+          show-reset
+          show-focus
+          @reset="resetMultiEarthDemo"
+          @focus="focusMultiEarthDemo"
+        >
+          <template #description>
+            <p>
+              两个命名 <ApiReference kind="type" to="/api/types#api-type-earth">Earth</ApiReference> 实例拥有独立的容器、视图、图层、Element
+              与服务。示例可分别销毁并重建任意一张地图，用于验证
+              <ApiReference kind="method" to="/guide/earth-create#api-method-use-earth">useEarth</ApiReference>
+              注册隔离和完整生命周期清理。
+            </p>
+          </template>
+          <template #preview><MultiEarthDemo ref="multiEarthDemoRef" /></template>
         </ExampleBlock>
       </section>
 

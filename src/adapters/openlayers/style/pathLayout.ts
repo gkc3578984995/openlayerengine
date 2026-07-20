@@ -47,6 +47,12 @@ export interface RepeatedPathAnchor {
   readonly distance: number;
 }
 
+/** 开放路径需要从完整重复序列中排除的首末锚点边界。 */
+export interface RepeatPathAnchorExclusion {
+  readonly startBoundary?: number;
+  readonly endBoundary?: number;
+}
+
 const TANGENT_EPSILON = 1e-9;
 
 /**
@@ -125,13 +131,14 @@ export function repeatPathDistances(length: number, spacing: number, closed: boo
   return repeatPathAnchors(length, spacing, closed).map((anchor) => anchor.distance);
 }
 
-/** 只物化给定累计距离区间内的固定间距锚点，同时保留完整 contour 的全局相位。 */
+/** 只物化给定累计距离区间内的固定间距锚点，同时保留完整 contour 的全局相位与端点避让。 */
 export function repeatPathAnchors(
   length: number,
   spacing: number,
   closed: boolean,
   intervals?: readonly (readonly [start: number, end: number])[],
-  phase = 0
+  phase = 0,
+  exclusion?: RepeatPathAnchorExclusion
 ): RepeatedPathAnchor[] {
   if (!Number.isFinite(length) || length <= 0 || !Number.isFinite(spacing) || spacing <= 0) return [];
   const normalizedIntervals = intervals === undefined ? ([[0, length]] as const) : mergeIntervals(intervals, length);
@@ -141,7 +148,7 @@ export function repeatPathAnchors(
   if (!closed) {
     count = Math.floor(length / spacing) + 1;
     first = (length - (count - 1) * spacing) / 2 + phase;
-    return anchorsInIntervals(count, first, spacing, length, normalizedIntervals, false);
+    return excludeOpenEndpointAnchors(anchorsInIntervals(count, first, spacing, length, normalizedIntervals, false), count, first, spacing, length, exclusion);
   }
   count = Math.max(1, Math.floor(length / spacing));
   if (count === 1) {
@@ -151,6 +158,33 @@ export function repeatPathAnchors(
   const seamGap = length - (count - 1) * spacing;
   first = seamGap / 2 + normalizeClosedDistance(phase, length);
   return anchorsInIntervals(count, first, spacing, length, normalizedIntervals, true);
+}
+
+function excludeOpenEndpointAnchors(
+  anchors: RepeatedPathAnchor[],
+  count: number,
+  first: number,
+  spacing: number,
+  length: number,
+  exclusion: RepeatPathAnchorExclusion | undefined
+): RepeatedPathAnchor[] {
+  if (exclusion === undefined || anchors.length === 0) return anchors;
+  const firstValidIndex = Math.max(0, Math.ceil((-first - TANGENT_EPSILON) / spacing));
+  const lastValidIndex = Math.min(count - 1, Math.floor((length - first + TANGENT_EPSILON) / spacing));
+  if (lastValidIndex < firstValidIndex) return anchors;
+  const startIndex =
+    exclusion.startBoundary === undefined
+      ? undefined
+      : Math.max(firstValidIndex, Math.ceil((clamp(exclusion.startBoundary, 0, length) - first - TANGENT_EPSILON) / spacing));
+  const endIndex =
+    exclusion.endBoundary === undefined
+      ? undefined
+      : Math.min(lastValidIndex, Math.floor((clamp(exclusion.endBoundary, 0, length) - first + TANGENT_EPSILON) / spacing));
+  return anchors.filter(
+    (anchor) =>
+      (startIndex === undefined || startIndex > lastValidIndex || anchor.index !== startIndex) &&
+      (endIndex === undefined || endIndex < firstValidIndex || anchor.index !== endIndex)
+  );
 }
 
 /** 计算 path 与当前 View（含 wrapX 世界副本）相交的累计距离区间。 */

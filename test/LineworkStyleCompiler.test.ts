@@ -5,10 +5,12 @@ import MultiPoint from 'ol/geom/MultiPoint.js';
 import MultiPolygon from 'ol/geom/MultiPolygon.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
+import CircleStyle from 'ol/style/Circle.js';
 import Style, { type StyleFunction } from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
+import { lineStyles } from '../src/builtins/styles/lineStyles.js';
 import type { PathGlyphSpec, StyleSpec } from '../src/core/style/types.js';
 
 const redSegment = (from: [number, number], to: [number, number]): PathGlyphSpec => ({
@@ -124,10 +126,197 @@ describe('StyleCompiler linework', () => {
       [0, 6]
     ]);
     expect((arrow?.getGeometry() as MultiPolygon).getPolygons()).toHaveLength(1);
-    expect((circles?.getGeometry() as MultiPoint).getCoordinates()).toEqual([
-      [10, 0],
+    expect((circles?.getGeometry() as MultiPoint).getCoordinates()).toEqual([[50, 0]]);
+  });
+
+  it.each([
+    ['none', undefined, [10, 50, 90]],
+    ['start', { start: { glyph: redSegment([0, -6], [0, 6]) } }, [50, 90]],
+    ['end', { end: { glyph: redSegment([0, -6], [0, 6]) } }, [10, 50]],
+    [
+      'both',
+      {
+        start: { glyph: redSegment([0, -6], [0, 6]) },
+        end: { glyph: redSegment([0, -6], [0, 6]) }
+      },
+      [50]
+    ]
+  ] as const)('%s cap 只跳过对应端点的重复装饰', (_name, caps, expectedXs) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          ...(caps === undefined ? {} : { caps }),
+          decorations: [
+            {
+              placement: { kind: 'repeat', spacing: 40 },
+              sequence: [
+                {
+                  primitives: [{ type: 'circle', center: [0, 0], radius: 3, fill: { type: 'solid', color: '#ff0000' } }]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    const markers = styles.find((style) => style.getGeometry() instanceof MultiPoint)?.getGeometry();
+    expect((markers as MultiPoint).getCoordinates().map(([x]) => x)).toEqual(expectedXs);
+  });
+
+  it('让 bar、arrow 与 tick 工厂组合只保留路径内部装饰', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      lineStyles.polyline({ lines: 'dashed', caps: { start: 'bar', end: 'arrow' }, decoration: 'tick' }),
+      new Feature(
+        new LineString([
+          [0, 0],
+          [300, 0]
+        ])
+      )
+    );
+
+    const tickGeometry = styles.find((style) => style.getGeometry() instanceof MultiLineString && style.getStroke()?.getWidth() === 1.5)?.getGeometry();
+    expect(tickGeometry).toBeInstanceOf(MultiLineString);
+    expect((tickGeometry as MultiLineString).getCoordinates().map((segment) => segment.map(([x, y]) => [Math.round(x), y]))).toEqual(
+      [38, 70, 102, 134, 166, 198, 230, 262].map((x) => [
+        [x, 7],
+        [x, -7]
+      ])
+    );
+  });
+
+  it('极短路径的首末装饰为同一锚点时只跳过一次', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          caps: { start: { glyph: redSegment([0, -6], [0, 6]) } },
+          decorations: [
+            {
+              placement: { kind: 'repeat', spacing: 40 },
+              sequence: [
+                {
+                  primitives: [{ type: 'circle', center: [0, 0], radius: 3, fill: { type: 'solid', color: '#ff0000' } }]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [20, 0]
+        ])
+      )
+    );
+
+    expect(styles.some((style) => style.getGeometry() instanceof MultiPoint)).toBe(false);
+  });
+
+  it('跳过起点装饰后保留交替序列的全局 index', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          caps: { start: { glyph: redSegment([0, -6], [0, 6]) } },
+          decorations: [
+            {
+              placement: { kind: 'repeat', spacing: 20 },
+              sequence: [
+                { primitives: [{ type: 'circle', center: [0, 0], radius: 3, fill: { type: 'solid', color: '#ff0000' } }] },
+                { primitives: [{ type: 'circle', center: [0, 0], radius: 4, fill: { type: 'solid', color: '#ff0000' } }] }
+              ]
+            }
+          ]
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    const markerCoordinates = (radius: number) => {
+      const geometry = styles
+        .find((style) => style.getImage() instanceof CircleStyle && (style.getImage() as CircleStyle).getRadius() === radius)
+        ?.getGeometry();
+      expect(geometry).toBeInstanceOf(MultiPoint);
+      return (geometry as MultiPoint).getCoordinates();
+    };
+    expect(markerCoordinates(3)).toEqual([
+      [40, 0],
+      [80, 0]
+    ]);
+    expect(markerCoordinates(4)).toEqual([
+      [20, 0],
+      [60, 0],
+      [100, 0]
+    ]);
+  });
+
+  it('为 MultiLineString 的每个开放 contour 独立跳过首末装饰', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          caps: {
+            start: { glyph: redSegment([0, -6], [0, 6]) },
+            end: { glyph: redSegment([0, -6], [0, 6]) }
+          },
+          decorations: [
+            {
+              placement: { kind: 'repeat', spacing: 40 },
+              sequence: [
+                {
+                  primitives: [{ type: 'circle', center: [0, 0], radius: 3, fill: { type: 'solid', color: '#ff0000' } }]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      new Feature(
+        new MultiLineString([
+          [
+            [0, 0],
+            [100, 0]
+          ],
+          [
+            [0, 20],
+            [100, 20]
+          ]
+        ])
+      )
+    );
+
+    const markers = styles.find((style) => style.getGeometry() instanceof MultiPoint)?.getGeometry();
+    expect((markers as MultiPoint).getCoordinates()).toEqual([
       [50, 0],
-      [90, 0]
+      [50, 20]
     ]);
   });
 

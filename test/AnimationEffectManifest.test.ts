@@ -76,14 +76,15 @@ describe('2.0 动画效果 manifest', () => {
     expect(acceptanceSource).toContain("radarTrailStyle.value === 'gradient'");
     expect(acceptanceSource).toContain('radarGradientTail.value');
 
-    const websiteDemoSource = sourceOf('website/src/examples/AnimationEffectsDemo.vue');
-    expect(websiteDemoSource).toContain("ref<AnimationType>('radar-scan')");
+    const websiteDemoSource = sourceOf('website/src/examples/presentation/AnimationManagerDemo.vue');
+    expect(websiteDemoSource).toContain("'radar-scan': 'Sector'");
+    expect(websiteDemoSource).toContain('radarTrailStyle');
     expect(websiteDemoSource).toContain('radarGradientFront');
 
-    const websiteSource = sourceOf('website/src/views/AnimationView.vue');
-    expect(websiteSource).toContain('default: "\'#00e676\'"');
+    const websiteSource = sourceOf('website/src/views/presentation/AnimationsView.vue');
+    expect(websiteSource).toContain("field('RadarScanAnimationSpec', 'color', \"'#00e676'\"");
     expect(websiteSource).toContain('0 表示最旧尾端、1 表示扫描前沿');
-    expect(websiteSource).toContain('不能与 color 同时设置');
+    expect(websiteSource).toContain('gradient 不能与 color 同时设置');
   });
 
   it('中心扩散在 Sector 上演示可调绿色波纹带，并记录默认值与退化行为', () => {
@@ -108,14 +109,15 @@ describe('2.0 动画效果 manifest', () => {
     expect(acceptanceSource).toContain("centerSpreadTrailStyle.value === 'gradient'");
     expect(acceptanceSource).toContain('centerSpreadTrailLength.valueAsNumber');
 
-    const websiteDemoSource = sourceOf('website/src/examples/AnimationEffectsDemo.vue');
+    const websiteDemoSource = sourceOf('website/src/examples/presentation/AnimationManagerDemo.vue');
     expect(websiteDemoSource).toContain('centerSpreadGradientFront');
     expect(websiteDemoSource).toContain('centerSpreadTrailLength');
 
-    const websiteSource = sourceOf('website/src/views/AnimationView.vue');
-    expect(websiteSource).toContain('0 表示内侧最旧尾迹、1 表示外侧波纹前沿');
-    expect(websiteSource).toContain("default: '0.18'");
-    expect(websiteSource).toContain('设置为 0 时退化为旧版线环');
+    const websiteSource = sourceOf('website/src/views/presentation/AnimationsView.vue');
+    expect(websiteSource).toContain('内侧最旧尾迹');
+    expect(websiteSource).toContain('外侧波纹前沿');
+    expect(websiteSource).toContain("field('CenterSpreadAnimationSpec', 'trailLength', '0.18'");
+    expect(websiteSource).toContain('0 只保留前沿线环或裁剪弧');
   });
 
   it('每项实现、Shape、测试证据、网站锚点和验收场景都真实存在', () => {
@@ -142,10 +144,13 @@ describe('2.0 动画效果 manifest', () => {
 
       const websiteSource = sourceOf(entry.websitePage.source);
       const [route, anchor] = entry.websitePage.route.split('#');
-      expect(route).toBe('/components/animation');
+      expect(route).toBe('/components/presentation/animations');
       expect(anchor, `${entry.animationType}.websitePage`).toBeTruthy();
-      expect(routerSource).toContain("path: 'components/animation'");
-      expect(websiteSource, `${entry.animationType}.websitePage`).toContain(`id: '${anchor}'`);
+      expect(anchor).toBe(`effect-${entry.animationType}`);
+      expect(entry.websitePage.source).toBe('website/src/views/presentation/AnimationsView.vue');
+      expect(routerSource).toContain("path: 'components/presentation/animations'");
+      expect(routerSource).toContain("import('../views/presentation/AnimationsView.vue')");
+      expect(websiteSource, `${entry.animationType}.websitePage`).toContain(':id="`effect-${effect.animationType}`"');
 
       const acceptanceSource = acceptanceSources.get(entry.acceptanceScenario) ?? sourceOf(entry.acceptanceScenario);
       acceptanceSources.set(entry.acceptanceScenario, acceptanceSource);
@@ -155,7 +160,7 @@ describe('2.0 动画效果 manifest', () => {
 
   it('验收台和网站示例的效果选项都由同一 manifest 生成', () => {
     const acceptanceSource = sourceOf('.test/scenarios/animations.ts');
-    const websiteDemoSource = sourceOf('website/src/examples/AnimationEffectsDemo.vue');
+    const websiteDemoSource = sourceOf('website/src/examples/presentation/AnimationManagerDemo.vue');
 
     expect(acceptanceSource).toContain('animationEffectManifest.map');
     expect(acceptanceSource).toContain('entry.createDefaultSpec');
@@ -164,10 +169,37 @@ describe('2.0 动画效果 manifest', () => {
     expect(acceptanceSource).toContain('card.dataset.animationDemo = entry.animationType');
     expect(acceptanceSource).toContain("playButton.dataset.animationAction = 'play'");
     expect(acceptanceSource).toContain('warning.dataset.animationPhotosensitivityWarning');
-    expect(websiteDemoSource).toContain("from '../../../.test/animationEffectManifest'");
+    expect(websiteDemoSource).toContain("from '../../../../.test/animationEffectManifest'");
     expect(websiteDemoSource).toContain('animationEffectManifest.map');
-    expect(websiteDemoSource).toContain('entry.createDemoSpec');
+    expect(websiteDemoSource).toContain('animationEffectManifestByType[type].createDemoSpec');
     expect(websiteDemoSource).not.toContain('animationDemoManifest');
+  });
+
+  it('活动动画页用十个隔离目标和显式组合模式展示全部公开效果', () => {
+    const websiteSource = sourceOf('website/src/views/presentation/AnimationsView.vue');
+    const websiteDemoSource = sourceOf('website/src/examples/presentation/AnimationManagerDemo.vue');
+
+    expect(websiteSource).toContain('const effectCards = animationTypes.map');
+    expect(websiteSource).toContain('animationEffectManifestByType[animationType]');
+    expect(websiteSource).toContain('effect.targetSummary');
+    expect(websiteSource).toContain('effect.writeDomains');
+    expect(websiteSource).toContain('effect.minimalCall');
+    expect(websiteSource).toContain('show-reset');
+    expect(websiteSource).toContain('show-focus');
+
+    for (const type of animationTypes) {
+      const escapedType = type.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+      expect(websiteDemoSource, type).toMatch(new RegExp(`(?:${escapedType}|'${escapedType}'): \\[`, 'u'));
+    }
+    expect(websiteDemoSource).toContain("grow: 'FineArrow'");
+    expect(websiteDemoSource).toContain("'radar-scan': 'Sector'");
+    expect(websiteDemoSource).toContain('if (!compositionMode.value) stopAll()');
+    expect(websiteDemoSource).toContain("new Set<AnimationType>(['blink', 'highlight', 'alert', 'fade'])");
+    expect(websiteDemoSource).toContain("play('highlight', id, { channel: 'composition-highlight'");
+    expect(websiteDemoSource).toContain("play('alert', id, { channel: 'composition-alert' });");
+    expect(websiteDemoSource).toContain("play('grow', id, { channel: 'grow-reverse', direction: 'reverse' });");
+    expect(websiteDemoSource).toContain('defineExpose({ reset, focusSelected })');
+    expect(websiteDemoSource).toContain('本示例不会自动播放');
   });
 
   it('本地验收台为每种动画提供独立、兼容且不重复的目标', () => {

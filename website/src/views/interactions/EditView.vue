@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
 import PageAnchor from '../../components/docs/PageAnchor.vue';
@@ -10,7 +11,7 @@ import { extractExampleSnippet } from '../../utils/exampleSource';
 const anchors = [
   { id: 'overview', label: '编辑工作态' },
   { id: 'method-examples', label: 'API 与示例' },
-  { id: 'example-edit-session', label: '编辑与提交' },
+  { id: 'example-edit-session', label: '多类型目标的控制点编辑、历史与提交回滚' },
   { id: 'operations', label: '控制点与快捷操作' },
   { id: 'events', label: '事件和生命周期' },
   { id: 'transaction-boundary', label: '事务与互斥边界' },
@@ -18,6 +19,9 @@ const anchors = [
 ];
 
 const editSessionSnippet = extractExampleSnippet(editSessionSource, 'edit-session-control-points');
+const editSessionDemoRef = ref<InstanceType<typeof EditSessionDemo> | null>(null);
+const resetEditSessionDemo = () => editSessionDemoRef.value?.reset();
+const focusEditSessionDemo = () => editSessionDemoRef.value?.focus();
 
 const methodExampleRows = [
   { owner: 'DrawService', members: 'edit()', focus: '传入实时 Element 和 EditOptions' },
@@ -57,8 +61,8 @@ const apiMembers = { DrawService: ['edit'] } as const;
       <section id="overview" class="doc-prose">
         <h2 class="doc-h2">编辑的是 Session 工作态，不是 Store</h2>
         <p>
-          通过 <ApiReference kind="method" to="/api/types#api-type-draw-service-method-edit">earth.draw.edit</ApiReference> 传入当前 Earth
-          的实时 <ApiReference kind="type" to="/api/types#api-type-element">Element</ApiReference>。
+          通过 <ApiReference kind="method" to="/api/types#api-type-draw-service-method-edit">earth.draw.edit</ApiReference> 传入当前 Earth 的实时
+          <ApiReference kind="type" to="/api/types#api-type-element">Element</ApiReference>。
           <ApiReference kind="type" to="/api/types#api-type-edit-session">EditSession</ApiReference>
           会隔离持久 Feature，工作图形保留真实业务样式并叠加蓝色编辑强调层。
         </p>
@@ -82,18 +86,25 @@ const apiMembers = { DrawService: ['edit'] } as const;
       </section>
 
       <section id="example-edit-session" class="doc-prose">
-        <ExampleBlock title="控制点编辑、历史与提交回滚" :source="editSessionSource" :snippet="editSessionSnippet">
+        <ExampleBlock
+          title="多类型目标的控制点编辑、历史与提交回滚"
+          :source="editSessionSource"
+          :snippet="editSessionSnippet"
+          show-reset
+          show-focus
+          @reset="resetEditSessionDemo"
+          @focus="focusEditSessionDemo"
+        >
           <template #description>
             <p>
-              拖拽时监听 <ApiReference kind="method" to="/api/types#api-type-edit-session-method-on">on</ApiReference> 的
-              <code>modifying</code> 事件；通过
+              拖拽时监听 <ApiReference kind="method" to="/api/types#api-type-edit-session-method-on">on</ApiReference> 的 <code>modifying</code> 事件；通过
               <ApiReference kind="method" to="/api/types#api-type-edit-session-method-finish">finish</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-edit-session-method-cancel">cancel</ApiReference> 或
               <ApiReference kind="method" to="/api/types#api-type-edit-session-method-destroy">destroy</ApiReference>
               进入确定的终态。地图上用不同强度的蓝色锚点区分已有控制点和可插入位置，结果区只展示当前状态，不输出日志。
             </p>
           </template>
-          <template #preview><EditSessionDemo /></template>
+          <template #preview><EditSessionDemo ref="editSessionDemoRef" /></template>
         </ExampleBlock>
       </section>
 
@@ -116,10 +127,7 @@ const apiMembers = { DrawService: ['edit'] } as const;
           <el-table-column prop="meaning" label="语义" min-width="320" />
         </el-table>
         <ul>
-          <li>
-            <ApiReference kind="method" to="/api/types#api-type-edit-session-method-finish">finish</ApiReference> 原子提交当前工作几何并解析
-            finished。
-          </li>
+          <li><ApiReference kind="method" to="/api/types#api-type-edit-session-method-finish">finish</ApiReference> 原子提交当前工作几何并解析 finished。</li>
           <li>
             <ApiReference kind="method" to="/api/types#api-type-edit-session-method-cancel">cancel</ApiReference>
             丢弃工作态，不影响进入编辑前的 ElementState。

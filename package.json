@@ -46,6 +46,7 @@
     "pack:offline": "npm pack",
     "test": "vitest run",
     "test:browser": "playwright test",
+    "test:docs:browser": "npm run build && playwright test --config playwright.docs.config.ts",
     "test:performance": "playwright test --config playwright.performance.config.ts",
     "test:performance:animation": "node test/browser/run-animation-benchmark.mjs --assert",
     "test:performance:animation:record": "node test/browser/run-animation-benchmark.mjs",

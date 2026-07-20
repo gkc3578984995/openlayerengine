@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue';
+import { animationTypes, type AnimationSpec, type AnimationType } from '@vrsim/earth-engine-ol';
+import { animationEffectManifestByType } from '../../../../.test/animationEffectManifest';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import CodeBlock from '../../components/docs/CodeBlock.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
@@ -22,6 +25,11 @@ interface EffectDetail {
   fields: EffectField[];
 }
 
+interface AnimationManagerDemoExposed {
+  reset(): void;
+  focusSelected(): void;
+}
+
 const slug = (value: string) => value.replace(/([a-z\d])([A-Z])/gu, '$1-$2').toLowerCase();
 const typeHref = (type: string) => `/api/types#api-type-${slug(type)}`;
 const field = (spec: string, name: string, defaultValue: string, constraint: string): EffectField => ({
@@ -33,7 +41,9 @@ const field = (spec: string, name: string, defaultValue: string, constraint: str
 
 const anchors = [
   { id: 'overview', label: '唯一播放入口' },
+  { id: 'effect-catalog', label: '十种效果目录' },
   { id: 'example-animation-manager', label: '十种效果演示' },
+  { id: 'variant-lab', label: '重点变体实验' },
   { id: 'compatibility', label: '兼容矩阵' },
   { id: 'effect-specs', label: '配置、默认值与范围' },
   { id: 'composition', label: 'channel 与写入域' },
@@ -42,6 +52,48 @@ const anchors = [
   { id: 'rendering-boundary', label: '渲染与命中边界' },
   { id: 'performance', label: '性能与资源预算' },
   { id: 'api', label: '完整 API' }
+];
+
+const animationDemoRef = ref<AnimationManagerDemoExposed | null>(null);
+const resetAnimationDemo = () => animationDemoRef.value?.reset();
+const focusAnimationDemo = () => animationDemoRef.value?.focusSelected();
+const formatMinimalSpec = (spec: AnimationSpec) =>
+  JSON.stringify(spec)
+    .replace(/"([\w-]+)":/gu, '$1: ')
+    .replace(/"/gu, "'");
+const summarizeTargets = (types: readonly string[]) => (types.length <= 5 ? types.join('、') : `${types.slice(0, 4).join('、')} 等 ${types.length} 种 Shape`);
+const effectCards = animationTypes.map((animationType) => {
+  const entry = animationEffectManifestByType[animationType];
+  return {
+    animationType,
+    label: entry.label,
+    capabilities: entry.targetCapability,
+    targetSummary: summarizeTargets(entry.supportedShapeTypes),
+    targetTitle: entry.supportedShapeTypes.join('、'),
+    writeDomains: entry.writeDomains,
+    minimalCall: `earth.animations.play({ id: '${entry.acceptanceTarget}-1' }, ${formatMinimalSpec(entry.createDefaultSpec())});`
+  };
+}) satisfies readonly {
+  animationType: AnimationType;
+  label: string;
+  capabilities: readonly string[];
+  targetSummary: string;
+  targetTitle: string;
+  writeDomains: readonly string[];
+  minimalCall: string;
+}[];
+
+const variantRows = [
+  {
+    family: '路径与箭头',
+    variants: 'grow 的 FineArrow；forward / reverse；path-travel gradient',
+    result: '箭头按 Shape provider 路径完整揭示，路径尾迹显示渐变方向'
+  },
+  { family: '径向效果', variants: 'Sector radar-scan；clockwise / counterclockwise；纯色 / gradient', result: '扫描束严格裁剪在 Sector sweep 内' },
+  { family: '三种 gradient', variants: 'path-travel、radar-scan、center-spread', result: '路径尾迹、扫描尾迹和径向波纹分别展示渐变色标方向' },
+  { family: '透明度与终态', variants: 'fade in / out；out retain；blink + fade', result: 'in 完成后 remove；out 保留最后一帧并由 stop 清理' },
+  { family: '高亮', variants: 'highlight steady / breathe', result: 'steady 不持续请求帧；breathe 显示光敏提示且只能手动启动' },
+  { family: '组合与冲突', variants: '跨 channel 合成、同 channel replace、双 grow 冲突', result: '显式组合才叠加；replace 原子提交；geometry 冲突保留旧记录' }
 ];
 
 const compatibilityRows = [
@@ -316,8 +368,8 @@ const apiTypes = [
         <h2 class="doc-h2">唯一入口：earth.animations.play()</h2>
         <p>
           从 <ApiReference kind="property" to="/api/types#api-type-earth-property-animations">earth.animations</ApiReference> 调用
-          <ApiReference kind="method" to="/api/types#api-type-animation-manager-method-play">play</ApiReference>；不要为 blink、grow 或 radar
-          建立独立 Manager。 Selector 支持 id、ids、module、layerId、type、visible 和 predicate，返回
+          <ApiReference kind="method" to="/api/types#api-type-animation-manager-method-play">play</ApiReference>；不要为 blink、grow 或 radar 建立独立 Manager。
+          Selector 支持 id、ids、module、layerId、type、visible 和 predicate，返回
           <ApiReference kind="type" to="/api/types#api-type-animation-handle">AnimationHandle</ApiReference>。
         </p>
         <el-alert type="warning" :closable="false" show-icon title="光敏性风险">
@@ -328,18 +380,84 @@ const apiTypes = [
         </el-alert>
       </section>
 
+      <section id="effect-catalog" class="doc-prose">
+        <h2 class="doc-h2">十种内置效果一览</h2>
+        <p>
+          目录严格按根导出的 <ApiReference kind="property" to="/api/types#api-value-animation-types">animationTypes</ApiReference>
+          顺序生成，并与动画 acceptance manifest 共用兼容能力、写入域和最小 Spec；新增内置效果时不会依赖手写下拉分支。
+        </p>
+        <div class="animation-doc__catalog">
+          <el-card
+            v-for="effect in effectCards"
+            :id="`effect-${effect.animationType}`"
+            :key="effect.animationType"
+            class="animation-doc__effect-card"
+            shadow="never"
+          >
+            <template #header>
+              <div class="animation-doc__card-title">
+                <strong>{{ effect.label }}</strong>
+                <code>{{ effect.animationType }}</code>
+              </div>
+            </template>
+            <dl class="animation-doc__card-meta">
+              <div>
+                <dt>兼容目标</dt>
+                <dd :title="effect.targetTitle">{{ effect.targetSummary }}</dd>
+              </div>
+              <div>
+                <dt>目标能力</dt>
+                <dd>
+                  <el-tag v-for="capability in effect.capabilities" :key="capability" size="small">{{ capability }}</el-tag>
+                </dd>
+              </div>
+              <div>
+                <dt>写入域</dt>
+                <dd>
+                  <el-tag v-for="domain in effect.writeDomains" :key="domain" size="small" type="warning">{{ domain }}</el-tag>
+                </dd>
+              </div>
+            </dl>
+            <CodeBlock class="animation-doc__minimal-call" :code="effect.minimalCall" lang="ts" />
+          </el-card>
+        </div>
+      </section>
+
       <section id="example-animation-manager" class="doc-prose">
-        <ExampleBlock title="十种 AnimationType 的手动播放与 Handle 控制" :source="animationManagerSource">
+        <ExampleBlock
+          title="十种独立目标、参数实验室与 Handle 控制"
+          :source="animationManagerSource"
+          show-reset
+          show-focus
+          @reset="resetAnimationDemo"
+          @focus="focusAnimationDemo"
+        >
           <template #description>
             <p>
-              选择器直接来自根导出的 <code>animationTypes</code>，覆盖全部十种效果；启动后使用
+              地图以 5 × 2 分布十个互不重叠的目标：每种效果都有自己的兼容
+              Shape，点击目录按钮可选中并聚焦。普通模式切换效果会自动停止旧句柄；只有显式开启组合模式，才会把 blink、highlight、alert、fade 放到共享 Polygon
+              上验证跨 channel 合成。启动后使用
               <ApiReference kind="method" to="/api/types#api-type-animation-handle-method-pause">pause</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-animation-handle-method-resume">resume</ApiReference> 与
               <ApiReference kind="method" to="/api/types#api-type-animation-handle-method-stop">stop</ApiReference> 控制本次播放。
             </p>
           </template>
-          <template #preview><AnimationManagerDemo /></template>
+          <template #preview><AnimationManagerDemo ref="animationDemoRef" /></template>
         </ExampleBlock>
+      </section>
+
+      <section id="variant-lab" class="doc-prose">
+        <h2 class="doc-h2">重点变体实验清单</h2>
+        <p>上方参数实验室把容易遗漏的公开变体集中在一张地图中；闪烁、呼吸和告警不会随页面加载自动播放。</p>
+        <el-table :data="variantRows" border>
+          <el-table-column prop="family" label="行为族" min-width="150" />
+          <el-table-column prop="variants" label="可运行变体" min-width="360" />
+          <el-table-column prop="result" label="应观察到的结果" min-width="360" />
+        </el-table>
+        <el-alert type="info" :closable="false" show-icon title="gradient 色标方向与互斥规则">
+          path-travel 的 offset 0 → 1 沿尾迹前进；radar-scan 的 0 表示最旧尾端、1 表示扫描前沿；center-spread 的 0 表示内侧最旧尾迹、1
+          表示外侧波纹前沿。radar-scan 与 center-spread 的 gradient 不能与 color 同时设置，实验室通过“渐变 / 纯色”切换保证二选一。
+        </el-alert>
       </section>
 
       <section id="compatibility" class="doc-prose">
@@ -403,8 +521,8 @@ const apiTypes = [
         <h2 class="doc-h2">Handle、Element 变化与 retain</h2>
         <ul>
           <li>
-            <ApiReference kind="property" to="/api/types#api-type-animation-handle-property-status">status</ApiReference> 为 running / paused /
-            stopped / finished；pause 冻结 elapsed，resume 从原位置继续。
+            <ApiReference kind="property" to="/api/types#api-type-animation-handle-property-status">status</ApiReference> 为 running / paused / stopped /
+            finished；pause 冻结 elapsed，resume 从原位置继续。
           </li>
           <li>
             <ApiReference kind="property" to="/api/types#api-type-animation-handle-property-finished">finished</ApiReference>
@@ -413,8 +531,7 @@ const apiTypes = [
           <li>Element hide 会暂停并撤下展示资源，show 以最新 View 状态继续；remove 与 earth.destroy() 会停止记录并释放全部资源。</li>
           <li>layerId、geometry 或 style 变化会重绑定最新状态，但不会重置动画 elapsed；copy、snapshot 和事务历史不复制动画。</li>
           <li>
-            <ApiReference kind="method" to="/api/types#api-type-animation-manager-method-stop-all">stopAll</ApiReference> 只影响当前
-            Earth，不跨实例清理。
+            <ApiReference kind="method" to="/api/types#api-type-animation-manager-method-stop-all">stopAll</ApiReference> 只影响当前 Earth，不跨实例清理。
           </li>
         </ul>
         <p>
@@ -506,6 +623,62 @@ const apiTypes = [
 </template>
 
 <style scoped>
+.animation-doc__catalog {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.animation-doc__effect-card {
+  min-width: 0;
+  scroll-margin-top: 88px;
+}
+
+.animation-doc__card-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.animation-doc__card-title code {
+  color: var(--doc-primary-deep);
+}
+
+.animation-doc__card-meta {
+  display: grid;
+  gap: 9px;
+  margin: 0 0 12px;
+}
+
+.animation-doc__card-meta > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.animation-doc__card-meta dt {
+  color: var(--doc-muted);
+  font-size: 12px;
+}
+
+.animation-doc__card-meta dd {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  color: var(--doc-text);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.animation-doc__minimal-call {
+  margin: 0;
+  font-size: 12px;
+}
+
 .animation-doc__effect-title {
   display: inline-flex;
   align-items: center;
@@ -514,5 +687,11 @@ const apiTypes = [
 
 .animation-doc__effect-title code {
   color: var(--doc-primary-deep);
+}
+
+@media (max-width: 780px) {
+  .animation-doc__catalog {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

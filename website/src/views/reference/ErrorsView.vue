@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import ApiTable from '../../components/docs/ApiTable.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
@@ -10,7 +11,7 @@ import errorsSource from '../../examples/reference/ErrorsDemo.vue?raw';
 const anchors = [
   { id: 'overview', label: '稳定错误族' },
   { id: 'error-catalog', label: '7 种错误类型' },
-  { id: 'example-error-recognition', label: '抛出并识别全部错误类型' },
+  { id: 'example-error-recognition', label: '真实 API 失败、识别与恢复' },
   { id: 'recognition', label: '识别与恢复策略' },
   { id: 'api', label: '完整 API' }
 ];
@@ -82,6 +83,10 @@ const relatedTypes = [
   'InteractionConflictError',
   'UnsupportedOperationError'
 ] as const;
+
+const errorsDemoRef = ref<InstanceType<typeof ErrorsDemo> | null>(null);
+const resetErrorsDemo = () => errorsDemoRef.value?.reset();
+const focusErrorsDemo = () => errorsDemoRef.value?.focus();
 </script>
 
 <template>
@@ -110,13 +115,14 @@ const relatedTypes = [
       </section>
 
       <section id="example-error-recognition" class="doc-prose">
-        <ExampleBlock title="抛出并识别全部错误类型" :source="errorsSource">
+        <ExampleBlock title="真实 API 失败、识别与恢复" :source="errorsSource" show-reset show-focus @reset="resetErrorsDemo" @focus="focusErrorsDemo">
           <template #description>
             <p>
-              示例从包根导入 7 个构造器，实际抛出实例，并用 <code>error instanceof ErrorClass</code> 识别。类型名称可以点击上表或下方完整 API 查看构造签名。
+              示例分别通过无效 Shape 输入、重复 ID、空破坏性选择器、失效句柄、不兼容动画、reject 交互冲突和 nativeStyle 结构化更新触发七类真实错误；捕获后用
+              <code>instanceof</code> 识别并立即执行可运行的恢复动作，不手工构造或抛出错误实例。
             </p>
           </template>
-          <template #preview><ErrorsDemo /></template>
+          <template #preview><ErrorsDemo ref="errorsDemoRef" /></template>
         </ExampleBlock>
       </section>
 
@@ -130,8 +136,7 @@ const relatedTypes = [
         </el-steps>
         <p>
           对
-          <ApiReference kind="type" to="/api/types#api-type-object-disposed-error">ObjectDisposedError</ApiReference
-          >，恢复方式通常是丢弃旧句柄并重新获取；对
+          <ApiReference kind="type" to="/api/types#api-type-object-disposed-error">ObjectDisposedError</ApiReference>，恢复方式通常是丢弃旧句柄并重新获取；对
           <ApiReference kind="type" to="/api/types#api-type-invalid-argument-error">InvalidArgumentError</ApiReference
           >，应回到输入边界修正参数，而不是自动重复调用。
         </p>

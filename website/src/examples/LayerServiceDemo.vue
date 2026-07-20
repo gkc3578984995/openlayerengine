@@ -104,6 +104,26 @@ const removeBusinessLayer = () => {
   refreshLayers();
 };
 
+const focus = () => {
+  const earth = earthRef.value;
+  if (earth === null) return;
+  earth.view.animateFlyTo(earth.view.toProjectedCoordinates([116.4074, 39.9042]), { zoom: 5, duration: 450 });
+};
+
+const reset = () => {
+  opacity.value = 0.75;
+  if (businessLayer.value === null) {
+    addBusinessLayer();
+  } else {
+    businessLayer.value.update({ visible: true, opacity: opacity.value });
+    operationResult.value = '已恢复业务图层、显隐与透明度';
+    refreshLayers();
+  }
+  focus();
+};
+
+defineExpose({ reset, focus });
+
 onMounted(() => {
   if (mapTarget.value === null) return;
   const earth = useEarth({
@@ -113,9 +133,9 @@ onMounted(() => {
     controls: { zoom: true, rotate: false, attribution: true }
   });
   createConfiguredLayer(earth, 'vector');
-  earth.view.flyTo(earth.view.toProjectedCoordinates([116.4074, 39.9042]), 5);
   earthRef.value = earth;
   addBusinessLayer();
+  focus();
 });
 
 onBeforeUnmount(() => {

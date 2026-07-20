@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import ApiTable from '../../components/docs/ApiTable.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
@@ -9,11 +10,14 @@ import eventsSource from '../../examples/services/EventsDemo.vue?raw';
 import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const eventsSnippet = extractExampleSnippet(eventsSource, 'event-subscriptions');
+const eventsDemoRef = ref<InstanceType<typeof EventsDemo> | null>(null);
+const resetEventsDemo = () => eventsDemoRef.value?.reset();
+const focusEventsDemo = () => eventsDemoRef.value?.focusSelected();
 
 const anchors = [
   { id: 'overview', label: '重要提示' },
   { id: 'event-types', label: '事件与载荷' },
-  { id: 'example-event-lifecycle', label: '订阅、一次性事件与模块清理' },
+  { id: 'example-event-lifecycle', label: '七类事件、三种路由与 signal' },
   { id: 'filters-and-lifecycle', label: '过滤与生命周期' },
   { id: 'method-reference', label: '服务方法' },
   { id: 'api', label: '完整 API' }
@@ -108,14 +112,26 @@ const relatedTypes = ['EventService', 'EarthEventType', 'EarthEventMap', 'EarthP
       </section>
 
       <section id="example-event-lifecycle" class="doc-prose">
-        <ExampleBlock title="订阅、一次性事件与模块清理" :source="eventsSource" :snippet="eventsSnippet" source-lang="vue" snippet-lang="typescript">
+        <ExampleBlock
+          title="七类事件、三种路由与 AbortSignal 生命周期"
+          :source="eventsSource"
+          :snippet="eventsSnippet"
+          source-lang="vue"
+          snippet-lang="typescript"
+          show-reset
+          show-focus
+          @reset="resetEventsDemo"
+          @focus="focusEventsDemo"
+        >
           <template #description>
             <p>
-              示例保存四个 disposer，运行 <ApiReference kind="method" to="#api-method-has">has</ApiReference> 展示订阅状态，并对 module 订阅调用
-              <ApiReference kind="method" to="#api-method-clear-module">clearModule</ApiReference>。注意批量清理 module 不会影响全局 click 与 keydown。
+              示例为全部七类事件显示独立计数与当前载荷卡片，并同时覆盖 global、module、selector 三种路由，以及 AbortSignal 订阅生命周期。它运行
+              <ApiReference kind="method" to="#api-method-has">has</ApiReference> 展示订阅状态，并对 module 订阅调用
+              <ApiReference kind="method" to="#api-method-clear-module">clearModule</ApiReference>；批量清理不会影响其他两种路由，也不会替代 signal 或单次
+              disposer。
             </p>
           </template>
-          <template #preview><EventsDemo /></template>
+          <template #preview><EventsDemo ref="eventsDemoRef" /></template>
         </ExampleBlock>
       </section>
 

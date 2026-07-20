@@ -7,6 +7,7 @@ export type AnimationDemoTargetKey = 'point' | 'area' | 'line' | 'arrow' | 'circ
 export interface AnimationManifestDemoControls {
   readonly fadeDirection: 'in' | 'out';
   readonly growDirection: 'forward' | 'reverse';
+  readonly highlightMode: 'steady' | 'breathe';
   readonly radarDirection: 'clockwise' | 'counterclockwise';
   readonly radarTrailStyle: 'solid' | 'gradient';
   readonly radarColor: string;
@@ -45,6 +46,7 @@ export interface AnimationEffectManifestEntry {
 export const defaultAnimationManifestDemoControls = Object.freeze({
   fadeDirection: 'out',
   growDirection: 'forward',
+  highlightMode: 'breathe',
   radarDirection: 'clockwise',
   radarTrailStyle: 'gradient',
   radarColor: '#00e676',
@@ -114,7 +116,8 @@ const revealShapeTypes = [
 ] as const satisfies readonly ShapeType[];
 const radialShapeTypes = ['circle', 'sector'] as const satisfies readonly ShapeType[];
 
-const websiteSource = 'website/src/views/AnimationView.vue';
+const websiteSource = 'website/src/views/presentation/AnimationsView.vue';
+const websiteRoute = '/components/presentation/animations';
 const acceptanceScenario = '.test/scenarios/animations.ts';
 
 export const animationEffectManifest = [
@@ -126,7 +129,7 @@ export const animationEffectManifest = [
     writeDomains: ['overlay'],
     implementation: 'src/builtins/animations/pulse.ts',
     testFiles: ['test/AnimationBuiltins.test.ts', 'test/AnimationLifecycle.test.ts'],
-    websitePage: { route: '/components/animation#api-type-pulseanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-pulse`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['point'],
@@ -142,7 +145,7 @@ export const animationEffectManifest = [
     writeDomains: ['overlay'],
     implementation: 'src/builtins/animations/dashFlow.ts',
     testFiles: ['test/AnimationBuiltins.test.ts', 'test/AnimationLifecycle.test.ts'],
-    websitePage: { route: '/components/animation#api-type-dashflowanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-dash-flow`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['line'],
@@ -158,7 +161,7 @@ export const animationEffectManifest = [
     writeDomains: ['overlay'],
     implementation: 'src/builtins/animations/pathTravel.ts',
     testFiles: ['test/AnimationBuiltins.test.ts', 'test/AnimationLifecycle.test.ts'],
-    websitePage: { route: '/components/animation#api-type-pathtravelanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-path-travel`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['line'],
@@ -186,7 +189,7 @@ export const animationEffectManifest = [
     writeDomains: ['target-opacity'],
     implementation: 'src/builtins/animations/blink.ts',
     testFiles: ['test/AnimationEffects.test.ts', 'test/AnimationEffectComposition.test.ts'],
-    websitePage: { route: '/components/animation#api-type-blinkanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-blink`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['area', 'line', 'arrow', 'point', 'circle', 'sector'],
@@ -202,13 +205,20 @@ export const animationEffectManifest = [
     writeDomains: ['overlay'],
     implementation: 'src/builtins/animations/highlight.ts',
     testFiles: ['test/AnimationEffects.test.ts', 'test/AnimationEffectComposition.test.ts'],
-    websitePage: { route: '/components/animation#api-type-highlightanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-highlight`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['area', 'arrow', 'circle', 'sector'],
     acceptanceTarget: 'area',
     createDefaultSpec: () => ({ type: 'highlight' }),
-    createDemoSpec: () => ({ type: 'highlight', mode: 'breathe', periodMs: 1400, color: '#ffc107', fillOpacity: 0.2, strokeWidth: 4 })
+    createDemoSpec: ({ highlightMode }) => ({
+      type: 'highlight',
+      mode: highlightMode,
+      ...(highlightMode === 'breathe' ? { periodMs: 1400 } : {}),
+      color: '#ffc107',
+      fillOpacity: 0.2,
+      strokeWidth: 4
+    })
   },
   {
     animationType: 'alert',
@@ -218,7 +228,7 @@ export const animationEffectManifest = [
     writeDomains: ['overlay'],
     implementation: 'src/builtins/animations/alert.ts',
     testFiles: ['test/AnimationEffects.test.ts', 'test/AnimationEffectComposition.test.ts'],
-    websitePage: { route: '/components/animation#api-type-alertanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-alert`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['area', 'arrow', 'circle', 'sector'],
@@ -234,7 +244,7 @@ export const animationEffectManifest = [
     writeDomains: ['target-geometry'],
     implementation: 'src/builtins/animations/grow.ts',
     testFiles: ['test/AnimationEffects.test.ts', 'test/AnimationEffectComposition.test.ts', 'test/ShapeAnimationProfile.test.ts'],
-    websitePage: { route: '/components/animation#api-type-growanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-grow`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['line', 'arrow'],
@@ -250,7 +260,7 @@ export const animationEffectManifest = [
     writeDomains: ['overlay'],
     implementation: 'src/builtins/animations/radarScan.ts',
     testFiles: ['test/AnimationEffects.test.ts', 'test/ShapeAnimationProfile.test.ts'],
-    websitePage: { route: '/components/animation#api-type-radarscananimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-radar-scan`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['circle', 'sector'],
@@ -282,7 +292,7 @@ export const animationEffectManifest = [
     writeDomains: ['overlay'],
     implementation: 'src/builtins/animations/centerSpread.ts',
     testFiles: ['test/AnimationEffects.test.ts', 'test/ShapeAnimationProfile.test.ts'],
-    websitePage: { route: '/components/animation#api-type-centerspreadanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-center-spread`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['circle', 'sector'],
@@ -323,7 +333,7 @@ export const animationEffectManifest = [
     writeDomains: ['target-opacity'],
     implementation: 'src/builtins/animations/fade.ts',
     testFiles: ['test/AnimationEffects.test.ts', 'test/AnimationEffectComposition.test.ts', 'test/AnimationLifecycle.test.ts'],
-    websitePage: { route: '/components/animation#api-type-fadeanimationspec', source: websiteSource },
+    websitePage: { route: `${websiteRoute}#effect-fade`, source: websiteSource },
     acceptanceScenario,
     nativeStylePolicy: 'unsupported',
     demoTargets: ['point', 'area', 'line', 'arrow', 'circle', 'sector'],

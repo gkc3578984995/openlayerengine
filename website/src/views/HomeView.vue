@@ -50,27 +50,27 @@ const capabilityHighlights: CapabilityHighlight[] = [
 const coreModules: CoreModule[] = [
   {
     name: '01 / FOUNDATION',
-    title: 'Earth 创建',
-    description: '初始化地图实例、视图与基础图层。',
-    to: '/guide/earth-create'
+    title: '创建 Earth',
+    description: '创建具名地图实例，理解生命周期、服务访问与完整销毁。',
+    to: '/components/core/earth'
   },
   {
     name: '02 / LAYER',
-    title: 'PointLayer',
-    description: '以类型化参数管理点位、样式与状态。',
-    to: '/components/point-layer'
+    title: '组织图层',
+    description: '配置底图与业务图层，明确 Earth 托管和外部图层的所有权。',
+    to: '/components/core/layers'
   },
   {
-    name: '03 / TOOL',
-    title: 'Measure',
-    description: '构建距离、面积与连续测量流程。',
-    to: '/components/measure'
+    name: '03 / ELEMENT',
+    title: '添加 Element',
+    description: '使用统一 Element 模型创建 Shape，并配置样式、查询和更新。',
+    to: '/components/elements/overview'
   },
   {
     name: '04 / INTERACTION',
-    title: 'DynamicDraw',
-    description: '组合动态绘制、编辑与清理能力。',
-    to: '/components/dynamic-draw'
+    title: '接入地图交互',
+    description: '从 Draw 开始，继续组合 Edit、Measure 与 Transform。',
+    to: '/components/interactions/draw'
   }
 ];
 </script>

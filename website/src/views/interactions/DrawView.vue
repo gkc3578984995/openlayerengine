@@ -1,23 +1,34 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
 import PageAnchor from '../../components/docs/PageAnchor.vue';
 import PublicApiSection from '../../components/docs/PublicApiSection.vue';
 import DrawSessionDemo from '../../examples/interactions/DrawSessionDemo.vue';
 import drawSessionSource from '../../examples/interactions/DrawSessionDemo.vue?raw';
+import InteractionPolicyDemo from '../../examples/interactions/InteractionPolicyDemo.vue';
+import interactionPolicySource from '../../examples/interactions/InteractionPolicyDemo.vue?raw';
 import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const anchors = [
   { id: 'overview', label: '会话模型' },
   { id: 'method-examples', label: 'API 与示例' },
-  { id: 'example-draw-session', label: '启动与清理' },
+  { id: 'example-draw-session', label: '20 种 Shape 的启动、历史、结果查询与释放' },
   { id: 'events', label: '事件与提交边界' },
   { id: 'lifecycle', label: '完成、取消与销毁' },
+  { id: 'example-interaction-policy', label: 'replace / reject 交互仲裁与资源恢复' },
   { id: 'interaction-visuals', label: '预览与互斥' },
   { id: 'api', label: '完整 API' }
 ];
 
 const drawSessionSnippet = extractExampleSnippet(drawSessionSource, 'draw-session-lifecycle');
+const interactionPolicySnippet = extractExampleSnippet(interactionPolicySource, 'interaction-policy-replace-reject');
+const drawSessionDemoRef = ref<InstanceType<typeof DrawSessionDemo> | null>(null);
+const interactionPolicyDemoRef = ref<InstanceType<typeof InteractionPolicyDemo> | null>(null);
+const resetDrawSessionDemo = () => drawSessionDemoRef.value?.reset();
+const focusDrawSessionDemo = () => drawSessionDemoRef.value?.focus();
+const resetInteractionPolicyDemo = () => interactionPolicyDemoRef.value?.reset();
+const focusInteractionPolicyDemo = () => interactionPolicyDemoRef.value?.focus();
 
 const methodExampleRows = [
   { owner: 'DrawService', members: 'start()', focus: '启动 Session、配置 Shape 与监听事件' },
@@ -89,7 +100,15 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
       </section>
 
       <section id="example-draw-session" class="doc-prose">
-        <ExampleBlock title="启动、历史、结果查询与释放 Draw Session" :source="drawSessionSource" :snippet="drawSessionSnippet">
+        <ExampleBlock
+          title="20 种 Shape 的启动、历史、结果查询与释放"
+          :source="drawSessionSource"
+          :snippet="drawSessionSnippet"
+          show-reset
+          show-focus
+          @reset="resetDrawSessionDemo"
+          @focus="focusDrawSessionDemo"
+        >
           <template #description>
             <p>
               示例展示 <ApiReference kind="method" to="/api/types#api-type-draw-service-method-start">start</ApiReference>、
@@ -100,7 +119,7 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
               的完整流程。示例面板还可直接验证 <code>results</code>、<code>query()</code> 与 <code>clear()</code>；展开的代码与正在运行的组件来自同一文件。
             </p>
           </template>
-          <template #preview><DrawSessionDemo /></template>
+          <template #preview><DrawSessionDemo ref="drawSessionDemoRef" /></template>
         </ExampleBlock>
       </section>
 
@@ -135,6 +154,28 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
           适合串联后续流程，但组件卸载仍应主动调用
           <ApiReference kind="method" to="/api/types#api-type-draw-session-method-destroy">destroy</ApiReference>，最后再销毁 Earth。
         </p>
+      </section>
+
+      <section id="example-interaction-policy" class="doc-prose">
+        <ExampleBlock
+          title="replace / reject 交互仲裁与资源恢复"
+          :source="interactionPolicySource"
+          :snippet="interactionPolicySnippet"
+          show-reset
+          show-focus
+          @reset="resetInteractionPolicyDemo"
+          @focus="focusInteractionPolicyDemo"
+        >
+          <template #description>
+            <p>
+              先启动 Draw、Measure、Edit 或 Transform，再直接启动另一种交互。<code>replace</code> 会先让旧 Session 收到
+              <code>replaced</code> 并释放临时资源；<code>reject</code> 会抛出
+              <ApiReference kind="type" to="/api/types#api-type-interaction-conflict-error">InteractionConflictError</ApiReference>
+              且不改变旧会话。结果区同时核对 OpenLayers Interaction 数量是否回到预期基线。
+            </p>
+          </template>
+          <template #preview><InteractionPolicyDemo ref="interactionPolicyDemoRef" /></template>
+        </ExampleBlock>
       </section>
 
       <section id="interaction-visuals" class="doc-prose">

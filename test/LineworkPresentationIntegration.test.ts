@@ -145,6 +145,65 @@ describe('linework animation presentation integration', () => {
     compiled.destroy();
   });
 
+  it('preserves repeat sequence index and stable slots after excluding the start cap anchor', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const canonical = line(100);
+    const presentation = line(100);
+    const compiled = compiler.compilePresentation(
+      {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#f00', width: 2 } }],
+          caps: {
+            start: {
+              glyph: { primitives: [{ type: 'circle', center: [0, 0], radius: 3, fill: { type: 'solid', color: '#f00' } }] }
+            }
+          },
+          decorations: [
+            {
+              placement: { kind: 'repeat', spacing: 20 },
+              sequence: [
+                { primitives: [{ type: 'circle', center: [0, 0], radius: 4, fill: { type: 'solid', color: '#f00' } }] },
+                { primitives: [{ type: 'circle', center: [0, 0], radius: 6, fill: { type: 'solid', color: '#f00' } }] }
+              ]
+            }
+          ],
+          contour: { kind: 'open' }
+        }
+      },
+      canonical
+    );
+    const complete = compiled.resolve(presentation, 1);
+    const evenStyle = circleStyleByRadius(complete, 4);
+    const oddStyle = circleStyleByRadius(complete, 6);
+    const evenGeometry = evenStyle?.getGeometry();
+    const oddGeometry = oddStyle?.getGeometry();
+    expect((evenGeometry as MultiPoint).getCoordinates()).toEqual([
+      [40, 0],
+      [80, 0]
+    ]);
+    expect((oddGeometry as MultiPoint).getCoordinates()).toEqual([
+      [20, 0],
+      [60, 0],
+      [100, 0]
+    ]);
+
+    presentation.getGeometry().setCoordinates([
+      [0, 0],
+      [70, 0]
+    ]);
+    const partial = compiled.resolve(presentation, 1);
+    expect(partial).toContain(evenStyle);
+    expect(partial).toContain(oddStyle);
+    expect(evenStyle?.getGeometry()).toBe(evenGeometry);
+    expect(oddStyle?.getGeometry()).toBe(oddGeometry);
+    expect((evenGeometry as MultiPoint).getCoordinates()).toEqual([[40, 0]]);
+    expect((oddGeometry as MultiPoint).getCoordinates()).toEqual([
+      [20, 0],
+      [60, 0]
+    ]);
+    compiled.destroy();
+  });
+
   it('reveals inline text only after the fixed full-path midpoint', () => {
     const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
     const canonical = line(100);
@@ -321,6 +380,7 @@ describe('linework animation presentation integration', () => {
     const endStyle = circleStyleByRadius(complete, 5);
     const startGeometry = startStyle?.getGeometry();
     const repeatGeometry = repeatStyle?.getGeometry();
+    expect((repeatGeometry as MultiPoint).getCoordinates()).toEqual([[50, 0]]);
 
     presentation.getGeometry().setCoordinates([
       [60, 0],
@@ -328,12 +388,12 @@ describe('linework animation presentation integration', () => {
     ]);
     const partial = compiled.resolve(presentation, 1);
     expect(partial).toContain(startStyle);
-    expect(partial).toContain(repeatStyle);
+    expect(partial).not.toContain(repeatStyle);
     expect(partial).not.toContain(endStyle);
     expect(startStyle?.getGeometry()).toBe(startGeometry);
     expect(repeatStyle?.getGeometry()).toBe(repeatGeometry);
     expect((startGeometry as MultiPoint).getCoordinates()).toEqual([[60, 0]]);
-    expect((repeatGeometry as MultiPoint).getCoordinates()).toEqual([[90, 0]]);
+    expect((repeatGeometry as MultiPoint).getCoordinates()).toEqual([]);
     compiled.destroy();
   });
 
@@ -355,6 +415,7 @@ describe('linework animation presentation integration', () => {
     const startGeometry = startStyle?.getGeometry();
     const repeatGeometry = repeatStyle?.getGeometry();
     const endGeometry = endStyle?.getGeometry();
+    expect((repeatGeometry as MultiPoint).getCoordinates()).toEqual([[50, 0]]);
 
     viewportExtent = [worldWidth, -10, worldWidth + 100, 10];
     presentation.getGeometry().setCoordinates([
@@ -363,12 +424,12 @@ describe('linework animation presentation integration', () => {
     ]);
     const wrapped = compiled.resolve(presentation, 1);
     expect(wrapped).toContain(startStyle);
-    expect(wrapped).toContain(repeatStyle);
+    expect(wrapped).not.toContain(repeatStyle);
     expect(wrapped).not.toContain(endStyle);
     expect(startStyle?.getGeometry()).toBe(startGeometry);
     expect(repeatStyle?.getGeometry()).toBe(repeatGeometry);
     expect((startGeometry as MultiPoint).getCoordinates()[0][0]).toBeCloseTo(worldWidth + 60);
-    expect((repeatGeometry as MultiPoint).getCoordinates()[0][0]).toBeCloseTo(worldWidth + 90);
+    expect((repeatGeometry as MultiPoint).getCoordinates()).toEqual([]);
 
     presentation.getGeometry().setCoordinates([
       [worldWidth, 0],
@@ -376,8 +437,10 @@ describe('linework animation presentation integration', () => {
     ]);
     const wrappedComplete = compiled.resolve(presentation, 1);
     expect(wrappedComplete).toContain(endStyle);
+    expect(wrappedComplete).toContain(repeatStyle);
     expect(endStyle?.getGeometry()).toBe(endGeometry);
     expect((endGeometry as MultiPoint).getCoordinates()[0][0]).toBeCloseTo(worldWidth + 100);
+    expect((repeatGeometry as MultiPoint).getCoordinates()[0][0]).toBeCloseTo(worldWidth + 50);
     compiled.destroy();
   });
 
@@ -396,6 +459,7 @@ describe('linework animation presentation integration', () => {
     const endStyle = circleStyleByRadius(complete, 5);
     const startGeometry = startStyle?.getGeometry();
     const repeatGeometry = repeatStyle?.getGeometry();
+    expect(roundedMarkerXs(repeatGeometry as MultiPoint)).toEqual(Array.from({ length: 19 }, (_, index) => (index + 1) * 40));
 
     viewportExtent = [600, -10, 800, 10];
     presentation.getGeometry().setCoordinates([
@@ -404,9 +468,10 @@ describe('linework animation presentation integration', () => {
     ]);
     const sameWorld = compiled.resolve(presentation, 1);
     expect(sameWorld).toContain(startStyle);
+    expect(sameWorld).toContain(repeatStyle);
     expect(sameWorld).not.toContain(endStyle);
     expect((startGeometry as MultiPoint).getCoordinates()).toEqual([[600, 0]]);
-    expect(roundedMarkerXs(repeatGeometry as MultiPoint)).toEqual([600, 640, 680, 720, 760, 800]);
+    expect(roundedMarkerXs(repeatGeometry as MultiPoint)).toEqual([640, 680, 720, 760]);
 
     viewportExtent = [1_600, -10, 1_800, 10];
     presentation.getGeometry().setCoordinates([
@@ -415,11 +480,12 @@ describe('linework animation presentation integration', () => {
     ]);
     const adjacentWorld = compiled.resolve(presentation, 1);
     expect(adjacentWorld).toContain(startStyle);
+    expect(adjacentWorld).toContain(repeatStyle);
     expect(adjacentWorld).not.toContain(endStyle);
     expect(startStyle?.getGeometry()).toBe(startGeometry);
     expect(repeatStyle?.getGeometry()).toBe(repeatGeometry);
     expect((startGeometry as MultiPoint).getCoordinates()).toEqual([[1_600, 0]]);
-    expect(roundedMarkerXs(repeatGeometry as MultiPoint)).toEqual([1_600, 1_640, 1_680, 1_720, 1_760, 1_800]);
+    expect(roundedMarkerXs(repeatGeometry as MultiPoint)).toEqual([1_640, 1_680, 1_720, 1_760]);
     compiled.destroy();
   });
 

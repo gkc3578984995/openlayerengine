@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
 import PageAnchor from '../../components/docs/PageAnchor.vue';
@@ -10,7 +11,7 @@ import { extractExampleSnippet } from '../../utils/exampleSource';
 const anchors = [
   { id: 'overview', label: '选择与模式' },
   { id: 'method-examples', label: 'API 与示例' },
-  { id: 'example-transform-session', label: '变换与顶点编辑' },
+  { id: 'example-transform-session', label: '多类型目标的选择、替换、变换与 Toolbar 管理' },
   { id: 'events', label: '事件族' },
   { id: 'working-state', label: '工作态与事务' },
   { id: 'visual-animation', label: '视觉和动画边界' },
@@ -19,6 +20,9 @@ const anchors = [
 ];
 
 const transformSessionSnippet = extractExampleSnippet(transformSessionSource, 'transform-session-and-toolbar');
+const transformSessionDemoRef = ref<InstanceType<typeof TransformSessionDemo> | null>(null);
+const resetTransformSessionDemo = () => transformSessionDemoRef.value?.reset();
+const focusTransformSessionDemo = () => transformSessionDemoRef.value?.focus();
 
 const methodExampleRows = [
   { owner: 'TransformService', members: 'start() / select()', focus: '地图查询选择与直接选择' },
@@ -109,18 +113,26 @@ const apiTypes = [
       </section>
 
       <section id="example-transform-session" class="doc-prose">
-        <ExampleBlock title="选择、替换、变换与 Toolbar 管理" :source="transformSessionSource" :snippet="transformSessionSnippet">
+        <ExampleBlock
+          title="多类型目标的选择、替换、变换与 Toolbar 管理"
+          :source="transformSessionSource"
+          :snippet="transformSessionSnippet"
+          show-reset
+          show-focus
+          @reset="resetTransformSessionDemo"
+          @focus="focusTransformSessionDemo"
+        >
           <template #description>
             <p>
               示例通过 <ApiReference kind="method" to="/api/types#api-type-transform-service-method-select">transform.select</ApiReference>
               启动已选中会话，展示模式切换、
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-undo">undo</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-redo">redo</ApiReference>、
-              <ApiReference kind="method" to="/api/types#api-type-transform-session-method-copy">copy</ApiReference>、
-              <code>replaceSelected</code> 与 Toolbar 的显隐、更新和销毁。状态区只显示当前结果，不输出事件日志。
+              <ApiReference kind="method" to="/api/types#api-type-transform-session-method-copy">copy</ApiReference>、 <code>replaceSelected</code> 与 Toolbar
+              的显隐、更新和销毁。状态区只显示当前结果，不输出事件日志。
             </p>
           </template>
-          <template #preview><TransformSessionDemo /></template>
+          <template #preview><TransformSessionDemo ref="transformSessionDemoRef" /></template>
         </ExampleBlock>
       </section>
 
@@ -144,8 +156,7 @@ const apiTypes = [
         <ul>
           <li>拖拽帧只更新临时目标；一次完整操作结束后形成一条 Session 历史命令。</li>
           <li>
-            <ApiReference kind="method" to="/api/types#api-type-transform-session-method-finish">finish</ApiReference> 在整个 Session
-            结束时一次提交最终事务。
+            <ApiReference kind="method" to="/api/types#api-type-transform-session-method-finish">finish</ApiReference> 在整个 Session 结束时一次提交最终事务。
           </li>
           <li>
             <ApiReference kind="method" to="/api/types#api-type-transform-session-method-cancel">cancel</ApiReference>

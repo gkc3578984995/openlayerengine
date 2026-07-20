@@ -77,8 +77,8 @@ describe('website service documentation', () => {
       read(servicePages[3].demo)
     ]);
 
-    expect(contextMenu).toContain("text: '右键这个标记'");
-    expect(events).toContain("text: '移动指针到这里'");
+    for (const label of ['② module', '③ Element', 'map 菜单结果']) expect(contextMenu).toContain(label);
+    for (const label of ['橙色：module', '蓝色：selector']) expect(events).toContain(label);
     expect(overlays).toContain('background: var(--el-color-primary);');
     expect(overlays).toContain("overlayElement('外部所有权 Overlay')");
     expect(descriptor).toContain("text: 'Descriptor 定位点'");
@@ -106,5 +106,43 @@ describe('website service documentation', () => {
 
     expect(overlays).toContain("const apiMembers = { OverlayService: ['add', 'get', 'query', 'remove', 'clear'] } as const;");
     expect(descriptor).toContain("const apiMembers = { OverlayService: ['createDescriptor'] } as const;");
+  });
+
+  it('keeps context-menu routing exclusive, visible and safe across registration cleanup', async () => {
+    const [view, demo] = await Promise.all([read(servicePages[0].view), read(servicePages[0].demo)]);
+
+    expect(view).toContain('Element → module → map');
+    expect(view).toContain('不会把三套项目合并');
+    expect(demo).toContain("earth.contextMenu.register('map'");
+    expect(demo).toContain('{ module: MODULE }');
+    expect(demo).toContain('earth.contextMenu.register(elementMarker');
+    expect(demo).toContain('showMapResult(coordinate');
+    expect(demo).toContain('moduleMarker.update({');
+    expect(demo).toContain('elementMarker.update({');
+    expect(demo).toContain('if (earth === null || !registered.value)');
+    expect(demo).toContain('mapItemState.value = undefined;');
+    expect(demo).toMatch(/onBeforeUnmount\(\(\) => \{\s+try \{\s+destroyRegistrations\(\);\s+\} finally \{\s+try \{\s+earthRef\.value\?\.destroy\(\);/u);
+    expect(demo).toContain('defineExpose({ reset, focusSelected: focusScenes })');
+    expect(view).toContain('show-reset');
+    expect(view).toContain('show-focus');
+  });
+
+  it('shows all seven event types with global, module, selector and AbortSignal routing', async () => {
+    const [view, demo] = await Promise.all([read(servicePages[1].view), read(servicePages[1].demo)]);
+
+    for (const type of ['pointermove', 'click', 'leftdown', 'leftup', 'doubleclick', 'rightclick', 'keydown']) {
+      expect(demo).toContain(`type: '${type}'`);
+      expect(demo).toContain(`${type}: 0`);
+    }
+    expect(demo).toContain('{ module: MODULE }');
+    expect(demo).toContain('{ selector: { id: SELECTOR_ID } }');
+    expect(demo).toContain('rightClickAbort = new AbortController();');
+    expect(demo).toContain('{ signal: rightClickAbort.signal }');
+    expect(demo).toContain('v-for="card in eventCards"');
+    expect(demo).toContain('当前事件');
+    expect(demo).toContain('defineExpose({ reset, focusSelected: focusScenes })');
+    expect(view).toContain('七类事件、三种路由与 AbortSignal 生命周期');
+    expect(view).toContain('show-reset');
+    expect(view).toContain('show-focus');
   });
 });

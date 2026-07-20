@@ -5,6 +5,7 @@ import {
   extractPathContours,
   measurePath,
   projectLocalPoint,
+  repeatPathAnchors,
   repeatPathDistances,
   samplePath,
   sliceMeasuredPath,
@@ -131,6 +132,35 @@ describe('pathLayout', () => {
     expect(repeatPathDistances(20, 40, false)).toEqual([10]);
     expect(repeatPathDistances(100, 40, true)).toEqual([30, 70]);
     expect(repeatPathDistances(20, 40, true)).toEqual([10]);
+  });
+
+  it('按端帽独立排除完整开放路径的首末重复锚点', () => {
+    const distances = (exclusion?: { readonly startBoundary?: number; readonly endBoundary?: number }) =>
+      repeatPathAnchors(100, 40, false, undefined, 0, exclusion).map(({ distance }) => distance);
+
+    expect(distances()).toEqual([10, 50, 90]);
+    expect(distances({ startBoundary: 0 })).toEqual([50, 90]);
+    expect(distances({ endBoundary: 100 })).toEqual([10, 50]);
+    expect(distances({ startBoundary: 0, endBoundary: 100 })).toEqual([50]);
+    expect(repeatPathAnchors(20, 40, false, undefined, 0, { startBoundary: 0, endBoundary: 20 })).toEqual([]);
+    expect(repeatPathAnchors(40, 40, false, undefined, 0, { startBoundary: 0 }).map(({ distance }) => distance)).toEqual([40]);
+    expect(repeatPathAnchors(40, 40, false, undefined, 0, { endBoundary: 40 }).map(({ distance }) => distance)).toEqual([0]);
+    expect(repeatPathAnchors(100, 40, false, undefined, 15, { startBoundary: 0 }).map(({ distance }) => distance)).toEqual([65]);
+    expect(repeatPathAnchors(100, 40, false, undefined, 15, { endBoundary: 100 }).map(({ distance }) => distance)).toEqual([25]);
+  });
+
+  it('端点避让使用全局锚点序号，不误删视口内首末装饰', () => {
+    expect(repeatPathAnchors(100, 20, false, [[40, 80]], 0, { startBoundary: 0, endBoundary: 100 })).toEqual([
+      { index: 2, distance: 40 },
+      { index: 3, distance: 60 },
+      { index: 4, distance: 80 }
+    ]);
+  });
+
+  it('移动起点端帽跳过 reveal 窗口内的首个全局锚点', () => {
+    expect(repeatPathAnchors(800, 40, false, [[600, 800]], 0, { startBoundary: 600, endBoundary: 800 }).map(({ distance }) => distance)).toEqual([
+      640, 680, 720, 760
+    ]);
   });
 
   it('按累计长度切分轨道并保留切口两侧折点', () => {

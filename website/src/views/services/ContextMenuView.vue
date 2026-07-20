@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import ApiReference from '../../components/docs/ApiReference.vue';
 import ApiTable from '../../components/docs/ApiTable.vue';
 import ExampleBlock from '../../components/docs/ExampleBlock.vue';
@@ -9,19 +10,22 @@ import contextMenuSource from '../../examples/services/ContextMenuDemo.vue?raw';
 import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const contextMenuSnippet = extractExampleSnippet(contextMenuSource, 'context-menu-register');
+const contextMenuDemoRef = ref<InstanceType<typeof ContextMenuDemo> | null>(null);
+const resetContextMenuDemo = () => contextMenuDemoRef.value?.reset();
+const focusContextMenuDemo = () => contextMenuDemoRef.value?.focusSelected();
 
 const anchors = [
   { id: 'overview', label: '目标与菜单树' },
-  { id: 'example-context-menu-lifecycle', label: '注册、状态与清理' },
+  { id: 'example-context-menu-lifecycle', label: '三层优先级、状态与清理' },
   { id: 'lifecycle', label: '三种生命周期动作' },
   { id: 'method-reference', label: '服务方法' },
   { id: 'api', label: '完整 API' }
 ];
 
 const targetRows = [
-  { target: "'map'", scope: 'map', state: '支持', desc: '地图空白与未被更具体目标覆盖的右键菜单' },
-  { target: '{ module: string }', scope: 'module', state: '不保存项目状态', desc: '命中具有同名 module 的 Element 时参与菜单组合' },
-  { target: 'Element', scope: 'element', state: '支持', desc: '只接受当前 Earth 中仍有效的 Element 句柄' }
+  { target: "'map'", scope: 'map', state: '支持', desc: '兜底级：地图空白或没有更具体注册时命中' },
+  { target: '{ module: string }', scope: 'module', state: '按 Element 保存', desc: '中间级：命中同名 module 且没有精确 Element 注册时命中' },
+  { target: 'Element', scope: 'element', state: '支持', desc: '最高级：精确命中当前 Earth 中仍有效的 Element 句柄' }
 ];
 
 const targetColumns = [
@@ -139,7 +143,7 @@ const relatedTypes = [
         <p>
           <ApiReference kind="method" to="#api-method-register">register</ApiReference> 接受
           <ApiReference kind="type" to="/api/types#api-type-context-menu-target">ContextMenuTarget</ApiReference>。右键命中 Element
-          时，地图、module 与 Element 注册可以共同参与；同一注册内的 <code>children</code> 构成级联菜单。
+          时只选择一项注册，固定优先级为 <strong>Element → module → map</strong>，不会把三套项目合并；同一注册内的 <code>children</code> 构成级联菜单。
         </p>
         <ApiTable :columns="targetColumns" :rows="targetRows" />
         <el-alert class="doc-prose__alert" type="info" :closable="false" show-icon title="before 是显示前守卫">
@@ -149,17 +153,27 @@ const relatedTypes = [
       </section>
 
       <section id="example-context-menu-lifecycle" class="doc-prose">
-        <ExampleBlock title="注册、状态与清理" :source="contextMenuSource" :snippet="contextMenuSnippet" source-lang="vue" snippet-lang="typescript">
+        <ExampleBlock
+          title="三层优先级、状态与清理"
+          :source="contextMenuSource"
+          :snippet="contextMenuSnippet"
+          source-lang="vue"
+          snippet-lang="typescript"
+          show-reset
+          show-focus
+          @reset="resetContextMenuDemo"
+          @focus="focusContextMenuDemo"
+        >
           <template #description>
             <p>
-              示例同时注册 map、module 和 Element 菜单，运行
+              示例在三个可区分位置注册 map、module 和 Element 菜单，菜单动作会直接放置或改变地图标记；同时运行
               <ApiReference kind="method" to="#api-method-get-item-state">getItemState</ApiReference>、
               <ApiReference kind="method" to="#api-method-set-item-state">setItemState</ApiReference>、主题与互斥操作，并明确区分
               <ApiReference kind="method" to="#api-method-handle-destroy">handle.destroy</ApiReference> 和
               <ApiReference kind="method" to="#api-method-close">service.close</ApiReference>。
             </p>
           </template>
-          <template #preview><ContextMenuDemo /></template>
+          <template #preview><ContextMenuDemo ref="contextMenuDemoRef" /></template>
         </ExampleBlock>
       </section>
 

@@ -29,7 +29,7 @@ const optionColumns = [
 const optionRows = [
   { name: 'color', type: 'Color', desc: '轨道、端帽和装饰共用颜色；默认红色' },
   { name: 'lines', type: 'LinePattern | readonly [LinePattern, LinePattern] | "none"', desc: '单轨、双轨或无轨道；省略为单轨实线' },
-  { name: 'caps', type: 'LineCapsOptions', desc: '只允许开放的单轨路径；Polygon、双轨和纯装饰路径禁止端帽' },
+  { name: 'caps', type: 'LineCapsOptions', desc: '只允许开放的单轨路径；对应端帽会跳过该端首枚重复装饰，Polygon、双轨和纯装饰路径禁止端帽' },
   {
     name: 'decoration',
     type: 'TrackedLineDecorationType | DecorationOnlyLineType | InlineTextLineDecorationType',
@@ -128,6 +128,7 @@ const runtimeApi = ['lineStyles'] as const;
         <h2 class="doc-h2">工厂选项</h2>
         <ApiTable :columns="optionColumns" :rows="optionRows" />
         <p>带轨道装饰包括 none、tick、alternating-tick、double-tick、square、circle、center-cross、center-dot 和 center-dot-pair。</p>
+        <p>开放路径配置起点或终点端帽时，会分别跳过该端的首枚或末枚重复装饰，避免两类 glyph 重叠；无端帽和中点装饰的布局不变。</p>
       </section>
 
       <section id="shape-compatibility" class="doc-prose">

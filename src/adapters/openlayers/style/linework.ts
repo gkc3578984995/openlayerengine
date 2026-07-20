@@ -10,15 +10,7 @@ import Style from 'ol/style/Style.js';
 import Text from 'ol/style/Text.js';
 import type { Color } from '../../../core/common/types.js';
 import type { LayerRenderPathReveal } from '../../../core/ports/LayerRenderPort.js';
-import type {
-  InlinePathTextSpec,
-  LineworkSpec,
-  PathDecorationSpec,
-  PathGlyphPrimitiveSpec,
-  PathGlyphSpec,
-  PathGlyphStrokeSpec,
-  StrokeSpec
-} from '../../../core/style/types.js';
+import type { InlinePathTextSpec, LineworkSpec, PathGlyphPrimitiveSpec, PathGlyphSpec, PathGlyphStrokeSpec, StrokeSpec } from '../../../core/style/types.js';
 import {
   extractPathContours,
   measurePath,
@@ -31,7 +23,8 @@ import {
   type MeasuredPath,
   type PathCoordinate,
   type PathSample,
-  type PathViewport
+  type PathViewport,
+  type RepeatPathAnchorExclusion
 } from './pathLayout.js';
 
 /** Adapter 注入的文字宽度度量函数。 */
@@ -154,7 +147,7 @@ export function compileLineworkStyles(spec: LineworkSpec, context: LineworkCompi
 
   const glyphPlacements: GlyphPlacement[] = [];
   if (!expectedClosed) collectCaps(spec, measured, glyphPlacements);
-  collectDecorations(spec.decorations, measured, context.resolution, context.viewport, glyphPlacements);
+  collectDecorations(spec, measured, context.resolution, context.viewport, glyphPlacements);
   styles.push(...compileGlyphPlacements(glyphPlacements, context));
 
   if (spec.inlineText !== undefined) styles.push(...compileInlineText(spec.inlineText, measured, context));
@@ -506,7 +499,14 @@ function collectPresentationPlacements(
       const phase = (decoration.placement.phase ?? 0) * resolution;
       const renderBuffer = (viewport?.renderBufferPx ?? 0) * resolution;
       const intervals = visiblePathIntervals(path, viewport, spacing + renderBuffer);
-      const anchors = repeatPathAnchors(path.length, spacing, path.contour.closed, intervals, phase);
+      const anchors = repeatPathAnchors(
+        path.length,
+        spacing,
+        path.contour.closed,
+        intervals,
+        phase,
+        repeatAnchorExclusion(spec, window.startDistance, path.length)
+      );
       for (const anchor of anchors) {
         if (!windowReveals(window, anchor.distance)) continue;
         const sample = samplePath(path, anchor.distance);
@@ -814,12 +814,13 @@ function collectCaps(spec: LineworkSpec, paths: readonly MeasuredPath[], output:
 }
 
 function collectDecorations(
-  decorations: readonly PathDecorationSpec[] | undefined,
+  spec: Pick<LineworkSpec, 'caps' | 'decorations'>,
   paths: readonly MeasuredPath[],
   resolution: number,
   viewport: PathViewport | undefined,
   output: GlyphPlacement[]
 ): void {
+  const decorations = spec.decorations;
   if (decorations === undefined) return;
   for (const decoration of decorations) {
     for (const path of paths) {
@@ -836,7 +837,7 @@ function collectDecorations(
       const phase = (decoration.placement.phase ?? 0) * resolution;
       const renderBuffer = (viewport?.renderBufferPx ?? 0) * resolution;
       const intervals = visiblePathIntervals(path, viewport, spacing + renderBuffer);
-      const anchors = repeatPathAnchors(path.length, spacing, path.contour.closed, intervals, phase);
+      const anchors = repeatPathAnchors(path.length, spacing, path.contour.closed, intervals, phase, repeatAnchorExclusion(spec, 0, path.length));
       for (const anchor of anchors) {
         const sample = samplePath(path, anchor.distance);
         const glyph = sequence[anchor.index % sequence.length];
@@ -844,6 +845,16 @@ function collectDecorations(
       }
     }
   }
+}
+
+function repeatAnchorExclusion(spec: Pick<LineworkSpec, 'caps'>, startBoundary: number, endBoundary: number): RepeatPathAnchorExclusion | undefined {
+  const hasStart = spec.caps?.start !== undefined;
+  const hasEnd = spec.caps?.end !== undefined;
+  if (!hasStart && !hasEnd) return undefined;
+  return {
+    ...(hasStart ? { startBoundary } : {}),
+    ...(hasEnd ? { endBoundary } : {})
+  };
 }
 
 function compileGlyphPlacements(placements: readonly GlyphPlacement[], context: LineworkCompilationContext): Style[] {
