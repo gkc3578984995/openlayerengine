@@ -437,19 +437,40 @@ describe('StyleCompiler linework', () => {
     );
 
     expect(styles[0].getFill()?.getColor()).toEqual([255, 0, 0, 0.1]);
-    const tracks = styles.filter((style) => style.getGeometry() instanceof MultiLineString && style.getStroke()?.getColor() === '#ff0000');
+    const tracks = styles.filter((style) => style.getGeometry() instanceof MultiPolygon && style.getStroke()?.getColor() === '#ff0000');
     expect(tracks).toHaveLength(2);
-    expect((tracks[0].getGeometry() as MultiLineString).getCoordinates()).toEqual([
+    expect((tracks[0].getGeometry() as MultiPolygon).getCoordinates()).toEqual([
+      [
+        [
+          [0, 0],
+          [20, 0],
+          [20, 20],
+          [0, 20],
+          [0, 0]
+        ]
+      ]
+    ]);
+    expect(tracks[0].getStroke()?.getOffset()).toBe(3);
+    expect(tracks[1].getStroke()?.getOffset()).toBe(-3);
+  });
+
+  it.each(['tick', 'alternating-tick', 'double-tick', 'square', 'circle'] as const)('Polygon 双轨与 %s 重复装饰始终编译为完整闭环', (decoration) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const polygon = new Polygon([
       [
         [0, 0],
-        [20, 0],
-        [20, 20],
-        [0, 20],
+        [40, 0],
+        [40, 30],
+        [0, 30],
         [0, 0]
       ]
     ]);
-    expect(tracks[0].getStroke()?.getOffset()).toBe(-3);
-    expect(tracks[1].getStroke()?.getOffset()).toBe(3);
+    const styles = render(compiler, lineStyles.polygon({ lines: ['solid', 'dashed'], decoration }), new Feature(polygon));
+    const tracks = styles.filter((style) => style.getGeometry() instanceof MultiPolygon && style.getStroke()?.getWidth() === 2);
+
+    expect(tracks).toHaveLength(2);
+    expect(tracks.map((style) => style.getStroke()?.getOffset())).toEqual([3, -3]);
+    expect(tracks.every((style) => (style.getGeometry() as MultiPolygon).getCoordinates()[0]?.[0]?.length === 5)).toBe(true);
   });
 
   it('同 geometry revision、resolution 和 rotation 复用缓存 Style，rotation 变化才重编译文本', () => {

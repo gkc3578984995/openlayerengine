@@ -6,6 +6,7 @@ import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
+import Observable from 'ol/Observable.js';
 import VectorSource from 'ol/source/Vector.js';
 import { getWidth } from 'ol/extent.js';
 import { get as getProjection } from 'ol/proj.js';
@@ -343,7 +344,7 @@ function createKernelHarness(states: readonly ElementState[]): KernelHarness {
 
 function createPassHarness(states: readonly ElementState[]): PassHarness {
   const render = vi.fn();
-  const map = { render } as unknown as OlMap;
+  const map = Object.assign(new Observable(), { render }) as unknown as OlMap;
   const source = new VectorSource({ wrapX: true });
   const layer = new VectorLayer({ source });
   const features = new Map<string, Feature<Geometry>>();

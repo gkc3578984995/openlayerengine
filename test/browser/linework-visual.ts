@@ -13,6 +13,7 @@ interface LineworkVisualPreparation {
 interface LineworkVisualFixture {
   readonly ready: boolean;
   prepare(input: LineworkVisualPreparation): void;
+  probePolygonTracks(): Record<string, { readonly inner: number; readonly center: number; readonly outer: number }>;
   destroy(): void;
 }
 
@@ -143,20 +144,24 @@ addPolyline(
   lineStyles.polyline({ lines: 'none', decoration: 'slash' })
 );
 
-const polygonBoundary = lineStyles.polygon({ color: '#e11d48', lines: ['solid', 'dashed'], decoration: 'square' });
-earth.elements.add({
-  id: 'visual-polygon',
-  geometry: {
-    type: 'polygon',
-    controlPoints: [
-      [-110, -325],
-      [110, -325],
-      [85, -260],
-      [-85, -260]
-    ]
-  },
-  style: { ...polygonBoundary, fill: { type: 'solid', color: 'rgba(225,29,72,0.14)' } }
-});
+const polygonDecorations = ['tick', 'alternating-tick', 'double-tick', 'square', 'circle'] as const;
+const polygonFixtures = polygonDecorations.map((decoration, index) => ({ decoration, centerX: -300 + index * 150 }));
+for (const { decoration, centerX } of polygonFixtures) {
+  const polygonBoundary = lineStyles.polygon({ color: '#e11d48', lines: ['solid', 'dashed'], decoration });
+  earth.elements.add({
+    id: `visual-polygon-${decoration}`,
+    geometry: {
+      type: 'polygon',
+      controlPoints: [
+        [centerX - 50, -325],
+        [centerX + 50, -325],
+        [centerX + 42, -260],
+        [centerX - 42, -260]
+      ]
+    },
+    style: { ...polygonBoundary, fill: { type: 'solid', color: 'rgba(225,29,72,0.14)' } }
+  });
+}
 
 const projectionExtent = earth.map.getView().getProjection().getExtent();
 const worldWidth = projectionExtent[2] - projectionExtent[0];
@@ -170,6 +175,51 @@ window.__OL_ENGINE_LINEWORK_VISUAL__ = {
     view.setResolution(input.resolution);
     view.setRotation(input.rotation);
     earth.map.renderSync();
+  },
+  probePolygonTracks() {
+    earth.map.renderSync();
+    const viewport = earth.map.getViewport();
+    const viewportRect = viewport.getBoundingClientRect();
+    const canvases = Array.from(viewport.querySelectorAll('canvas')).flatMap((canvas) => {
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      const rect = canvas.getBoundingClientRect();
+      return context === null || rect.width <= 0 || rect.height <= 0 ? [] : [{ canvas, context, rect }];
+    });
+    const alphaAt = (pixelX: number, pixelY: number): number => {
+      const pageX = viewportRect.left + pixelX;
+      const pageY = viewportRect.top + pixelY;
+      let alpha = 0;
+      for (const { canvas, context, rect } of canvases) {
+        const x = Math.floor(((pageX - rect.left) * canvas.width) / rect.width);
+        const y = Math.floor(((pageY - rect.top) * canvas.height) / rect.height);
+        if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) continue;
+        alpha = Math.max(alpha, context.getImageData(x, y, 1, 1).data[3] ?? 0);
+      }
+      return alpha;
+    };
+    const strongPixelCount = (centerX: number, offsetY: number): number => {
+      const pixel = earth.map.getPixelFromCoordinate([centerX, -325]);
+      if (pixel === null) return 0;
+      let maximum = 0;
+      for (let row = offsetY - 1; row <= offsetY + 1; row += 1) {
+        let count = 0;
+        for (let column = -30; column <= 30; column += 1) {
+          if (alphaAt(pixel[0] + column, pixel[1] + row) > 180) count += 1;
+        }
+        maximum = Math.max(maximum, count);
+      }
+      return maximum;
+    };
+    return Object.fromEntries(
+      polygonFixtures.map(({ decoration, centerX }) => [
+        decoration,
+        {
+          inner: strongPixelCount(centerX, -3),
+          center: strongPixelCount(centerX, 0),
+          outer: strongPixelCount(centerX, 3)
+        }
+      ])
+    );
   },
   destroy() {
     earth.elements.clear();

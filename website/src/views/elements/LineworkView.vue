@@ -29,14 +29,14 @@ const optionColumns = [
 const optionRows = [
   { name: 'color', type: 'Color', desc: '轨道、端帽和装饰共用颜色；默认红色' },
   { name: 'lines', type: 'LinePattern | readonly [LinePattern, LinePattern] | "none"', desc: '单轨、双轨或无轨道；省略为单轨实线' },
-  { name: 'caps', type: 'LineCapsOptions', desc: '只允许开放的单轨路径；对应端帽会跳过该端首枚重复装饰，Polygon、双轨和纯装饰路径禁止端帽' },
+  { name: 'caps', type: 'LineCapsOptions', desc: '仅开放单轨可用' },
   {
     name: 'decoration',
     type: 'TrackedLineDecorationType | DecorationOnlyLineType | InlineTextLineDecorationType',
-    desc: '固定内置装饰；无轨道时只能使用 slash'
+    desc: '选择沿线装饰、斜杠或中点文字'
   },
-  { name: 'text', type: 'string', desc: '只在 decoration 为 inline-text 时必填，固定放在累计长度中点' },
-  { name: 'textStyle', type: 'InlineLineTextStyleOptions', desc: '只控制中点文字外观；位置、旋转和轨道切口由引擎固定' }
+  { name: 'text', type: 'string', desc: '仅 inline-text 必填；显示在路径中点' },
+  { name: 'textStyle', type: 'InlineLineTextStyleOptions', desc: '仅调整中点文字外观' }
 ];
 
 const methodColumns = [
@@ -127,8 +127,11 @@ const runtimeApi = ['lineStyles'] as const;
       <section id="factory-options" class="doc-prose">
         <h2 class="doc-h2">工厂选项</h2>
         <ApiTable :columns="optionColumns" :rows="optionRows" />
-        <p>带轨道装饰包括 none、tick、alternating-tick、double-tick、square、circle、center-cross、center-dot 和 center-dot-pair。</p>
-        <p>开放路径配置起点或终点端帽时，会分别跳过该端的首枚或末枚重复装饰，避免两类 glyph 重叠；无端帽和中点装饰的布局不变。</p>
+        <ul>
+          <li>开放单轨可组合端帽和重复装饰；端帽会避让对应端点的首枚或末枚装饰。</li>
+          <li>双轨与 Polygon 不使用端帽；无轨道时只允许 <code>slash</code>。</li>
+          <li>选择 <code>inline-text</code> 时必须提供文字，并且不能再组合其他沿线装饰。</li>
+        </ul>
       </section>
 
       <section id="shape-compatibility" class="doc-prose">
@@ -166,7 +169,8 @@ const runtimeApi = ['lineStyles'] as const;
       <PublicApiSection
         :type-names="apiTypes"
         :runtime-names="runtimeApi"
-        description="完整列出 lineStyles、两个工厂方法、严格判别选项，以及 Track、Cap、Glyph、Decoration、InlineText 和 Contour 类型树。"
+        compact
+        description="先展示工厂与状态类型的用途；精确签名和属性按需展开。常规创建只需使用上方两个工厂方法。"
       />
     </article>
 

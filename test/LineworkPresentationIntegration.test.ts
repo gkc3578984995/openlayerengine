@@ -11,6 +11,7 @@ import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
+import { lineStyles } from '../src/builtins/styles/lineStyles.js';
 import type { StyleSpec } from '../src/core/style/types.js';
 
 describe('linework animation presentation integration', () => {
@@ -618,6 +619,34 @@ describe('linework animation presentation integration', () => {
     compiled.destroy();
   });
 
+  it.each(['tick', 'alternating-tick', 'double-tick', 'square', 'circle'] as const)(
+    '%s 闭环完整帧使用 Polygon offset，grow 中间帧复用开放 reveal slot',
+    (decoration) => {
+      const compiler = new StyleCompiler(new NativeRefRegistry());
+      const canonical = square(0, 100);
+      const compiled = compiler.compilePresentation(lineStyles.polygon({ lines: ['solid', 'dashed'], decoration }), canonical);
+
+      const completeTracks = compiled.resolve(canonical, 1).filter((style) => style.getStroke()?.getWidth() === 2);
+      expect(completeTracks).toHaveLength(2);
+      expect(completeTracks.every((style) => style.getGeometry() instanceof Polygon)).toBe(true);
+      expect(completeTracks.map((style) => style.getStroke()?.getOffset())).toEqual([3, -3]);
+
+      const revealedTracks = compiled.resolve(canonical, 1, { progress: 0.5, direction: 'forward' }).filter((style) => style.getStroke()?.getWidth() === 2);
+      expect(revealedTracks).toHaveLength(2);
+      expect(revealedTracks.every((style) => style.getGeometry() instanceof LineString)).toBe(true);
+      expect(revealedTracks.map((style) => style.getStroke()?.getOffset())).toEqual([-3, 3]);
+      for (const style of revealedTracks) {
+        const coordinates = (style.getGeometry() as LineString).getCoordinates();
+        expect(coordinates[0]).not.toEqual(coordinates.at(-1));
+      }
+
+      const restored = compiled.resolve(canonical, 1, { progress: 1, direction: 'forward' });
+      expect(restored.filter((style) => style.getStroke()?.getWidth() === 2)).toHaveLength(2);
+      expect(completeTracks.every((style) => restored.includes(style))).toBe(true);
+      compiled.destroy();
+    }
+  );
+
   it('requests worldWidth for grow linework without repeat decorations', () => {
     const worldWidth = 1_000;
     const getLineworkViewport = vi.fn(() => ({ extent: [worldWidth, -10, worldWidth + 100, 10] as const, worldWidth }));
@@ -703,7 +732,8 @@ function circleStyleByRadius(styles: readonly Style[], radius: number): Style | 
 function activeLineCoordinates(styles: readonly Style[]): number[][][] {
   return styles.flatMap((style) => {
     const geometry = style.getGeometry();
-    return geometry instanceof LineString ? [geometry.getCoordinates()] : [];
+    if (geometry instanceof LineString) return [geometry.getCoordinates()];
+    return geometry instanceof Polygon ? geometry.getCoordinates().slice(0, 1) : [];
   });
 }
 

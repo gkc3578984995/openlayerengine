@@ -35,17 +35,17 @@ const fieldColumns = [
 ];
 
 const styleFields = [
-  { anchor: 'api-style-symbol', name: 'symbol', type: 'CircleSymbolSpec | IconSymbolSpec', desc: 'Point 的圆点或图片符号；两种分支用 type 判别' },
-  { anchor: 'api-style-strokes', name: 'strokes', type: 'StrokeSpec[]', desc: '按数组顺序叠加一层或多层描边' },
+  { anchor: 'api-style-symbol', name: 'symbol', type: 'CircleSymbolSpec | IconSymbolSpec', desc: 'Point 的圆点或图标' },
+  { anchor: 'api-style-strokes', name: 'strokes', type: 'StrokeSpec[]', desc: '一层或多层描边，按数组顺序叠加' },
   {
     anchor: 'api-style-fill',
     name: 'fill',
     type: 'SolidFillSpec | PatternFillSpec',
-    desc: '面图形的纯色或内置纹理填充；文字背景由 TextSpec.backgroundFill 控制'
+    desc: '面图形的纯色或纹理填充'
   },
-  { anchor: 'api-style-text', name: 'text', type: 'TextSpec', desc: '点位或沿线文字的完整外观' },
-  { anchor: 'api-style-decorations', name: 'decorations', type: 'ArrowDecorationSpec[]', desc: '普通路径箭头装饰；复杂固定线饰见 linework 页面' },
-  { anchor: 'api-style-linework', name: 'linework', type: 'LineworkSpec', desc: '由 lineStyles 工厂生成的高级路径线饰状态' },
+  { anchor: 'api-style-text', name: 'text', type: 'TextSpec', desc: '文字内容与外观' },
+  { anchor: 'api-style-decorations', name: 'decorations', type: 'ArrowDecorationSpec[]', desc: '普通路径箭头；固定线饰使用 linework' },
+  { anchor: 'api-style-linework', name: 'linework', type: 'LineworkSpec', desc: '由 lineStyles 生成的路径线饰' },
   { anchor: 'api-style-z-index', name: 'zIndex', type: 'number', desc: '同一图层内的样式绘制顺序' }
 ];
 
@@ -212,7 +212,8 @@ const runtimeApi = ['stylePresets'] as const;
       <PublicApiSection
         :type-names="apiTypes"
         :runtime-names="runtimeApi"
-        description="完整列出 StyleService、结构化样式、Patch、全部符号/描边/填充/文字字段、nativeStyle 分支和内置预设。"
+        compact
+        description="先展示每个类型的用途；精确签名、联合分支和属性按需展开。日常配置优先参考上方字段表与示例。"
       />
     </article>
 

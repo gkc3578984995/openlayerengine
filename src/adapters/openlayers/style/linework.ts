@@ -3,6 +3,7 @@ import MultiLineString from 'ol/geom/MultiLineString.js';
 import MultiPoint from 'ol/geom/MultiPoint.js';
 import MultiPolygon from 'ol/geom/MultiPolygon.js';
 import Point from 'ol/geom/Point.js';
+import Polygon from 'ol/geom/Polygon.js';
 import CircleStyle from 'ol/style/Circle.js';
 import Fill from 'ol/style/Fill.js';
 import Stroke from 'ol/style/Stroke.js';
@@ -93,13 +94,23 @@ interface OrderedStyle {
   readonly style: Style;
 }
 
-interface StableTrackSlot {
+interface StableLineTrackSlot {
   readonly style: Style;
-  readonly geometry: LineString | MultiLineString;
+  readonly geometry: LineString;
   readonly trackIndex: number;
   readonly contourIndex: number | undefined;
-  readonly side: 'full' | 'before' | 'after';
+  readonly side: 'open' | 'reveal' | 'before' | 'after';
 }
+
+interface StableClosedTrackSlot {
+  readonly style: Style;
+  readonly geometry: Polygon;
+  readonly trackIndex: number;
+  readonly contourIndex: number | undefined;
+  readonly side: 'closed';
+}
+
+type StableTrackSlot = StableLineTrackSlot | StableClosedTrackSlot;
 
 interface StableGlyphSlot {
   readonly key: string;
@@ -525,6 +536,7 @@ function windowReveals(window: RevealedPathWindow, distance: number): boolean {
 function createStableTrackSlots(spec: LineworkSpec, maximumPathCount: number, zIndex: number | undefined): StableTrackSlot[] {
   const slots: StableTrackSlot[] = [];
   const cutout = hasTrackCutout(spec);
+  const closed = spec.contour?.kind === 'closed';
   for (let trackIndex = 0; trackIndex < spec.tracks.length; trackIndex += 1) {
     const track = spec.tracks[trackIndex];
     if (!cutout) {
@@ -535,7 +547,21 @@ function createStableTrackSlots(spec: LineworkSpec, maximumPathCount: number, zI
           geometry,
           trackIndex,
           contourIndex,
-          side: 'full'
+          side: closed ? 'reveal' : 'open'
+        });
+        if (!closed) continue;
+
+        const closedGeometry = new Polygon([]);
+        slots.push({
+          style: new Style({
+            geometry: closedGeometry,
+            stroke: compileTrackStroke(track.stroke, closedTrackOffset(track.offset)),
+            ...(zIndex === undefined ? {} : { zIndex })
+          }),
+          geometry: closedGeometry,
+          trackIndex,
+          contourIndex,
+          side: 'closed'
         });
       }
       continue;
@@ -551,6 +577,20 @@ function createStableTrackSlots(spec: LineworkSpec, maximumPathCount: number, zI
           side
         });
       }
+      if (!closed) continue;
+
+      const closedGeometry = new Polygon([]);
+      slots.push({
+        style: new Style({
+          geometry: closedGeometry,
+          stroke: compileTrackStroke(track.stroke, closedTrackOffset(track.offset)),
+          ...(zIndex === undefined ? {} : { zIndex })
+        }),
+        geometry: closedGeometry,
+        trackIndex,
+        contourIndex,
+        side: 'closed'
+      });
     }
   }
   return slots;
@@ -574,15 +614,35 @@ function updateStableTrackSlots(
       slot.geometry.setCoordinates([]);
       continue;
     }
-    if (slot.side === 'full') {
+    if (slot.side === 'closed') {
+      const cutout = cutouts[slot.contourIndex ?? -1];
+      if (!window.full || cutout !== undefined) {
+        slot.geometry.setCoordinates([]);
+        continue;
+      }
+      const coordinates = renderPathCoordinates(window.maximum);
+      slot.geometry.setCoordinates([coordinates as [number, number][]]);
+      stroke?.setLineDashOffset(track.stroke.lineDashOffset ?? 0);
+      if (coordinates.length >= 4) active.push(slot.style);
+      continue;
+    }
+    if (slot.side === 'open' || slot.side === 'reveal') {
+      if (slot.side === 'reveal' && window.full) {
+        slot.geometry.setCoordinates([]);
+        continue;
+      }
       const coordinates = renderPathCoordinates(current);
-      (slot.geometry as LineString).setCoordinates(coordinates as [number, number][]);
+      slot.geometry.setCoordinates(coordinates as [number, number][]);
       stroke?.setLineDashOffset((track.stroke.lineDashOffset ?? 0) - window.startDistance / resolution);
       if (coordinates.length >= 2) active.push(slot.style);
       continue;
     }
 
     const cutout = cutouts[slot.contourIndex ?? -1];
+    if (cutout === undefined && window.full && spec.contour?.kind === 'closed') {
+      slot.geometry.setCoordinates([]);
+      continue;
+    }
     let coordinates: PathCoordinate[];
     let globalStartDistance = window.startDistance;
     const mappedCutout = cutout === undefined ? undefined : mapMaximumCutoutToCurrent(cutout, window);
@@ -594,7 +654,7 @@ function updateStableTrackSlots(
       coordinates = sliceMeasuredPath(current, mappedCutout[1], current.length);
       globalStartDistance = Math.max(window.startDistance, cutout?.[1] ?? window.startDistance);
     }
-    (slot.geometry as LineString).setCoordinates(coordinates as [number, number][]);
+    slot.geometry.setCoordinates(coordinates as [number, number][]);
     stroke?.setLineDashOffset((track.stroke.lineDashOffset ?? 0) - globalStartDistance / resolution);
     if (coordinates.length >= 2) active.push(slot.style);
   }
@@ -739,13 +799,16 @@ function compileTracks(
   context: LineworkCompilationContext
 ): Style[] {
   const styles: Style[] = [];
+  const closed = spec.contour?.kind === 'closed';
   for (const track of spec.tracks) {
     if (cutouts.every((cutout) => cutout === undefined)) {
       const coordinates = paths.map(renderPathCoordinates);
       styles.push(
         new Style({
-          geometry: new MultiLineString(coordinates as [number, number][][]),
-          stroke: compileTrackStroke(track.stroke, track.offset),
+          geometry: closed
+            ? new MultiPolygon(coordinates.map((ring) => [ring]) as [number, number][][][])
+            : new MultiLineString(coordinates as [number, number][][]),
+          stroke: compileTrackStroke(track.stroke, closed ? closedTrackOffset(track.offset) : track.offset),
           ...(context.zIndex === undefined ? {} : { zIndex: context.zIndex })
         })
       );
@@ -756,10 +819,11 @@ function compileTracks(
       const path = paths[index];
       const cutout = cutouts[index];
       if (cutout === undefined) {
+        const coordinates = renderPathCoordinates(path);
         styles.push(
           new Style({
-            geometry: new LineString(renderPathCoordinates(path) as [number, number][]),
-            stroke: compileTrackStroke(track.stroke, track.offset),
+            geometry: path.contour.closed ? new Polygon([coordinates as [number, number][]]) : new LineString(coordinates as [number, number][]),
+            stroke: compileTrackStroke(track.stroke, path.contour.closed ? closedTrackOffset(track.offset) : track.offset),
             ...(context.zIndex === undefined ? {} : { zIndex: context.zIndex })
           })
         );
@@ -802,6 +866,11 @@ function compileTrackStroke(spec: StrokeSpec, offset: number, additionalDashOffs
     ...(spec.miterLimit === undefined ? {} : { miterLimit: spec.miterLimit }),
     offset
   });
+}
+
+/** Polygon renderer 会按左手规则重排 outer ring，因此反转 offset 以保持工厂轨道的内外侧语义。 */
+function closedTrackOffset(offset: number): number {
+  return offset === 0 ? 0 : -offset;
 }
 
 function collectCaps(spec: LineworkSpec, paths: readonly MeasuredPath[], output: GlyphPlacement[]): void {

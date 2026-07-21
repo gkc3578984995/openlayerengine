@@ -1,3 +1,4 @@
+import type MapEvent from 'ol/MapEvent.js';
 import {
   useEarth,
   type AnimationHandle,
@@ -36,6 +37,14 @@ interface SerializableMeasureResult {
   readonly formatted: string;
   readonly coordinateCount: number;
   readonly segmentCount: number;
+}
+
+interface AnimationRestartResult {
+  readonly firstProgressed: boolean;
+  readonly cleanupRendered: boolean;
+  readonly secondProgressed: boolean;
+  readonly secondStatus: string;
+  readonly secondFrames: number;
 }
 
 interface Runtime {
@@ -133,6 +142,7 @@ interface BrowserFixture {
   createCycleEarth(): unknown;
   prepareCycleResources(): unknown;
   cycleSummary(): unknown;
+  restartOverlayAnimation(): Promise<AnimationRestartResult>;
 }
 
 declare global {
@@ -568,6 +578,9 @@ window.__OL_ENGINE_TEST__ = Object.freeze<BrowserFixture>({
   },
   cycleSummary() {
     return Object.freeze({ snapshot: runtimeSnapshot(a), transform: transformSummary(a), measure: measureSummary(a) });
+  },
+  restartOverlayAnimation() {
+    return probeOverlayAnimationRestart(a);
   }
 });
 
@@ -593,6 +606,77 @@ function createRuntime(earth: Earth): Runtime {
     measureEvents: [],
     transformEvents: []
   };
+}
+
+/** 验证最后一个 overlay RenderPass 清理后，新动画无需地图交互即可重新驱动地图帧。 */
+async function probeOverlayAnimationRestart(current: Runtime): Promise<AnimationRestartResult> {
+  const elementId = 'browser-animation-restart-point';
+  current.earth.elements.remove({ id: elementId });
+  current.earth.elements.add({
+    id: elementId,
+    geometry: { type: 'point', controlPoints: [[0, 0]] },
+    style: {
+      symbol: {
+        type: 'circle',
+        radius: 8,
+        fill: { type: 'solid', color: '#ef4444' },
+        stroke: { color: '#ffffff', width: 2 }
+      }
+    }
+  });
+
+  const frameTimes: number[] = [];
+  const recordFrame = (event: MapEvent): void => {
+    const time = event.frameState?.time;
+    if (Number.isFinite(time) && frameTimes.at(-1) !== time) frameTimes.push(time);
+  };
+  current.earth.map.on('postrender', recordFrame);
+  let first: AnimationHandle | undefined;
+  let second: AnimationHandle | undefined;
+  try {
+    first = current.earth.animations.play({ id: elementId }, { type: 'pulse', periodMs: 240, repeat: true });
+    const firstProgressed = await waitForAdditionalMapFrames(current.earth, frameTimes, 3);
+
+    const cleanupFrame = waitForAdditionalMapFrames(current.earth, frameTimes, 1);
+    first.stop();
+    const cleanupRendered = await cleanupFrame;
+
+    const baseline = frameTimes.length;
+    second = current.earth.animations.play({ id: elementId }, { type: 'pulse', periodMs: 240, repeat: true });
+    const secondProgressed = await waitForAdditionalMapFrames(current.earth, frameTimes, 4);
+    return Object.freeze({
+      firstProgressed,
+      cleanupRendered,
+      secondProgressed,
+      secondStatus: second.status,
+      secondFrames: frameTimes.length - baseline
+    });
+  } finally {
+    first?.stop();
+    second?.stop();
+    current.earth.map.un('postrender', recordFrame);
+    current.earth.elements.remove({ id: elementId });
+  }
+}
+
+function waitForAdditionalMapFrames(earth: Earth, frameTimes: readonly number[], additional: number): Promise<boolean> {
+  const target = frameTimes.length + additional;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      earth.map.un('postrender', check);
+      resolve(result);
+    };
+    const check = (): void => {
+      if (frameTimes.length >= target) finish(true);
+    };
+    const timer = setTimeout(() => finish(false), 2_000);
+    earth.map.on('postrender', check);
+    check();
+  });
 }
 
 function runtime(name: MapName): Runtime {

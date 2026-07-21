@@ -12,6 +12,7 @@ interface LineworkVisualPreparation {
 interface LineworkVisualFixture {
   readonly ready: boolean;
   prepare(input: LineworkVisualPreparation): void;
+  probePolygonTracks(): Record<string, { readonly inner: number; readonly center: number; readonly outer: number }>;
 }
 
 test.describe('路径线饰像素级视觉回归', () => {
@@ -21,6 +22,20 @@ test.describe('路径线饰像素级视觉回归', () => {
     await openFixture(page);
     await prepare(page, { theme: 'light', resolution: 1, rotation: 0, worldCopy: 0 });
     await expect(page.getByTestId('linework-map')).toHaveScreenshot('linework-all-light-dpr1.png', screenshotOptions);
+  });
+
+  test('闭合 Polygon 的五种重复装饰都保留内外双轨像素', async ({ page }) => {
+    await openFixture(page);
+    await prepare(page, { theme: 'light', resolution: 1, rotation: 0, worldCopy: 0 });
+    const probes = await page.evaluate(() =>
+      (window as unknown as { __OL_ENGINE_LINEWORK_VISUAL__: LineworkVisualFixture }).__OL_ENGINE_LINEWORK_VISUAL__.probePolygonTracks()
+    );
+
+    for (const decoration of ['tick', 'alternating-tick', 'double-tick', 'square', 'circle'] as const) {
+      expect(probes[decoration]?.inner, `${decoration} inner track`).toBeGreaterThanOrEqual(45);
+      expect(probes[decoration]?.outer, `${decoration} outer track`).toBeGreaterThanOrEqual(20);
+      expect(probes[decoration]?.center, `${decoration} logical center`).toBeLessThan(35);
+    }
   });
 });
 

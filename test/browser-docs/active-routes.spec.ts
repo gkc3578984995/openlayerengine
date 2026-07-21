@@ -68,11 +68,77 @@ test('三类 Layer 在地图与表格中可区分，并证明 external 解绑语
   await expect(example.locator('.el-table__body tbody tr')).toHaveCount(3);
 });
 
+test('样式与路径线饰的完整 API 默认显示摘要，并按需展开详细定义', async ({ page }) => {
+  const cases = [
+    {
+      route: '/components/elements/styles',
+      entryAnchor: 'api-type-style-spec',
+      propertyAnchor: 'api-type-style-spec-property-fill'
+    },
+    {
+      route: '/components/elements/linework',
+      entryAnchor: 'api-type-linework-spec',
+      propertyAnchor: 'api-type-linework-spec-property-tracks'
+    }
+  ] as const;
+
+  for (const item of cases) {
+    await test.step(item.route, async () => {
+      await page.goto(item.route);
+      const entry = page.locator(`[data-api-entry="${item.entryAnchor}"]`);
+      const toggle = entry.locator('.public-api-section__details-toggle');
+      const property = entry.locator(`#${item.propertyAnchor}`);
+
+      await expect(entry.locator(`#${item.entryAnchor}`)).toBeVisible();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(property).toBeHidden();
+
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(property).toBeVisible();
+
+      await toggle.click();
+      await expect(property).toBeHidden();
+      await page.evaluate((anchor) => {
+        window.location.hash = anchor;
+      }, item.propertyAnchor);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(property).toBeVisible();
+    });
+  }
+});
+
 test('纹理示例同时渲染五种纹理并支持重置和定位', async ({ page }) => {
+  await page.setViewportSize({ width: 1_440, height: 900 });
   await page.goto('/components/elements/styles');
   const example = page.locator('#example-pattern-fill');
   await example.scrollIntoViewIfNeeded();
   await expect(example.locator('canvas')).toBeVisible();
+  const layout = await example.locator('.pattern-fill-demo').evaluate((root) => {
+    const rect = (selector: string) => {
+      const element = root.querySelector<HTMLElement>(selector);
+      if (element === null) throw new Error(`缺少纹理示例布局节点：${selector}`);
+      const bounds = element.getBoundingClientRect();
+      return { top: bounds.top, bottom: bounds.bottom };
+    };
+    const controls = root.querySelector<HTMLElement>('.pattern-fill-demo__controls');
+    if (controls === null) throw new Error('缺少纹理示例控制区');
+    return {
+      rootOverflow: root.scrollWidth - root.clientWidth,
+      controlsOverflow: controls.scrollWidth - controls.clientWidth,
+      controls: rect('.pattern-fill-demo__controls'),
+      actions: rect('.pattern-fill-demo__actions'),
+      buttons: rect('.pattern-fill-demo__action-buttons'),
+      status: rect('.pattern-fill-demo__status'),
+      panel: rect('.pattern-fill-demo__control-panel'),
+      stage: rect('.pattern-fill-demo__stage')
+    };
+  });
+  expect(layout.rootOverflow).toBeLessThanOrEqual(1);
+  expect(layout.controlsOverflow).toBeLessThanOrEqual(1);
+  expect(layout.actions.top - layout.controls.bottom).toBeGreaterThanOrEqual(12);
+  expect(layout.status.top - layout.buttons.bottom).toBeGreaterThanOrEqual(10);
+  expect(layout.stage.top - layout.panel.bottom).toBeGreaterThanOrEqual(16);
   const patternSelect = example.getByRole('combobox', { name: '纹理类型' });
   await patternSelect.press('Enter');
   for (const label of ['斜线 diagonal', '交叉 cross', '圆点 dot', '水平 horizontal', '垂直 vertical']) {
@@ -82,6 +148,23 @@ test('纹理示例同时渲染五种纹理并支持重置和定位', async ({ pa
   await expect(example.locator('.el-tag').filter({ hasText: '交叉 cross' })).toBeVisible();
   await example.getByRole('button', { name: '重置五种纹理与应用目标运行示例' }).click();
   await example.getByRole('button', { name: '定位五种纹理与应用目标运行示例' }).click();
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  const demo = example.locator('.pattern-fill-demo');
+  await expect(demo).toHaveAttribute('data-preview-mode', 'narrow');
+  const narrowLayout = await demo.evaluate((root) => {
+    const panel = root.querySelector<HTMLElement>('.pattern-fill-demo__control-panel');
+    const stage = root.querySelector<HTMLElement>('.pattern-fill-demo__stage');
+    if (panel === null || stage === null) throw new Error('缺少窄屏纹理示例布局节点');
+    return {
+      rootOverflow: root.scrollWidth - root.clientWidth,
+      panelOverflow: panel.scrollWidth - panel.clientWidth,
+      stageHeight: stage.getBoundingClientRect().height
+    };
+  });
+  expect(narrowLayout.rootOverflow).toBeLessThanOrEqual(1);
+  expect(narrowLayout.panelOverflow).toBeLessThanOrEqual(1);
+  expect(narrowLayout.stageHeight).toBe(420);
 });
 
 test('右键菜单按 map、module、Element 优先级真实显示并执行动作', async ({ page }) => {

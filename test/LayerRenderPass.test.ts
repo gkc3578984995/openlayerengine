@@ -5,6 +5,7 @@ import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
+import Observable from 'ol/Observable.js';
 import VectorSource from 'ol/source/Vector.js';
 import { getWidth } from 'ol/extent.js';
 import { get as getProjection } from 'ol/proj.js';
@@ -51,8 +52,7 @@ beforeEach(() => {
 
 describe('LayerRenderPass', () => {
   it('同一 frame time 的多个图层只请求一次下一帧', () => {
-    const render = vi.fn();
-    const map = { render } as unknown as OlMap;
+    const { map, render } = createRenderMap();
     const firstLayer = new VectorLayer({ source: new VectorSource() });
     const secondLayer = new VectorLayer({ source: new VectorSource() });
     const layers = {
@@ -75,6 +75,8 @@ describe('LayerRenderPass', () => {
     render.mockClear();
     dispatchFrame(firstLayer, 100, 0);
     dispatchFrame(secondLayer, 100, 0);
+    dispatchMapFrame(map, 100);
+    firstLoop.requestRender();
     expect(render).toHaveBeenCalledOnce();
 
     render.mockClear();
@@ -82,6 +84,35 @@ describe('LayerRenderPass', () => {
     dispatchFrame(secondLayer, 116, 0);
     expect(render).toHaveBeenCalledOnce();
     pass.destroy();
+  });
+
+  it('最后一个图层循环关闭后仍由地图帧释放门闩，让新循环请求首帧', () => {
+    const harness = createPassHarness([]);
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, harness.styles);
+    const firstLoop = pass.open('default', () => ({ contributions: [], requestNextFrame: false }));
+
+    firstLoop.requestRender();
+    expect(harness.render).toHaveBeenCalledTimes(1);
+
+    firstLoop.destroy();
+    expect(pass.activeLoopCount).toBe(0);
+    expect(harness.layer.hasListener('postrender')).toBe(false);
+
+    dispatchMapFrame(harness.map, Number.NaN);
+    const blockedLoop = pass.open('default', () => ({ contributions: [], requestNextFrame: false }));
+    blockedLoop.requestRender();
+    expect(harness.render).toHaveBeenCalledTimes(1);
+    blockedLoop.destroy();
+
+    dispatchMapFrame(harness.map, 100);
+    const secondLoop = pass.open('default', () => ({ contributions: [], requestNextFrame: false }));
+    secondLoop.requestRender();
+
+    expect(harness.render).toHaveBeenCalledTimes(2);
+    secondLoop.destroy();
+    pass.destroy();
+    pass.destroy();
+    expect(harness.map.hasListener('postrender')).toBe(false);
   });
 
   it('同层一千个元素动画与 Transform 临时目标只安装一个 postrender，下一帧不使业务图层缓存失效', () => {
@@ -635,10 +666,17 @@ describe('LayerRenderPass', () => {
     expect(styles).toHaveLength(1);
     expect(styles[0].getStroke()?.getLineDashOffset()).toBe(-10);
     const geometry = styles[0].getGeometry();
-    expect(geometry).toBeInstanceOf(LineString);
-    if (geometry instanceof LineString) {
-      expect(geometry.getCoordinates()[0]).toEqual([0, 0]);
-      expect(geometry.getCoordinates().at(-1)).toEqual([0, 0]);
+    expect(geometry).toBeInstanceOf(Polygon);
+    if (geometry instanceof Polygon) {
+      expect(geometry.getCoordinates()).toEqual([
+        [
+          [0, 0],
+          [100, 0],
+          [100, 100],
+          [0, 100],
+          [0, 0]
+        ]
+      ]);
     }
     manager.destroy();
     pass.destroy();
@@ -1385,8 +1423,7 @@ function cutoutLineworkStyle(kind: 'inline-text' | 'center-decoration'): StyleSp
 }
 
 function createPassHarness(states: readonly ElementState[], wrapX = true): PassHarness {
-  const render = vi.fn();
-  const map = { render } as unknown as OlMap;
+  const { map, render } = createRenderMap();
   const layer = new VectorLayer({ source: new VectorSource({ wrapX }) });
   const features = new Map<string, Feature<Geometry>>();
   const renderOrders = new Map<string, number>();
@@ -1458,6 +1495,16 @@ function createPassHarness(states: readonly ElementState[], wrapX = true): PassH
   });
   const styles = { compile, compilePresentation } as unknown as PassHarness['styles'];
   return { map, render, layer, layers, binding, styles };
+}
+
+function createRenderMap(): Readonly<{ map: OlMap; render: ReturnType<typeof vi.fn> }> {
+  const render = vi.fn();
+  const map = Object.assign(new Observable(), { render }) as unknown as OlMap;
+  return { map, render };
+}
+
+function dispatchMapFrame(map: OlMap, time: number): void {
+  map.dispatchEvent({ type: 'postrender', frameState: { time } } as never);
 }
 
 function dispatchFrame(

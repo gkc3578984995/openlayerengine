@@ -2,6 +2,7 @@ import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
 import VectorLayer from 'ol/layer/Vector.js';
 import type OlMap from 'ol/Map.js';
+import type MapEvent from 'ol/MapEvent.js';
 import { unByKey } from 'ol/Observable.js';
 import { getWidth } from 'ol/extent.js';
 import type { EventsKey } from 'ol/events.js';
@@ -106,6 +107,8 @@ export class LayerRenderPass implements LayerRenderPort {
   readonly #errorReporter: ErrorReporter;
   readonly #loops = new Map<string, LoopRecord>();
   readonly #targets = new Map<string, LayerRenderTargetSpec>();
+  readonly #mapFrameListener: (event: MapEvent) => void;
+  #mapFrameSubscribed = false;
   #observedFrameTime: number | undefined;
   #renderRequested = false;
   #disposed = false;
@@ -120,6 +123,9 @@ export class LayerRenderPass implements LayerRenderPort {
     this.#binding = binding;
     this.#styles = styles;
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
+    this.#mapFrameListener = (event) => this.#observeFrameTime(event.frameState?.time);
+    map.on('postrender', this.#mapFrameListener);
+    this.#mapFrameSubscribed = true;
   }
 
   /** 当前活动的图层渲染循环数。 */
@@ -259,6 +265,10 @@ export class LayerRenderPass implements LayerRenderPort {
     this.#destroying = true;
     try {
       runFinalizers([...this.#loops.values()].map((loop) => () => this.#destroyLoop(loop)));
+      if (this.#mapFrameSubscribed) {
+        this.#map.un('postrender', this.#mapFrameListener);
+        this.#mapFrameSubscribed = false;
+      }
       this.#loops.clear();
       this.#targets.clear();
       this.#disposed = true;
@@ -279,10 +289,7 @@ export class LayerRenderPass implements LayerRenderPort {
       !validExtent(frameState.extent)
     )
       return;
-    if (this.#observedFrameTime !== frameState.time) {
-      this.#observedFrameTime = frameState.time;
-      this.#renderRequested = false;
-    }
+    this.#observeFrameTime(frameState.time);
     const projection = frameState.viewState.projection;
     const candidateWorldWidth = record.layer.getSource()?.getWrapX() === true && projection.canWrapX() ? getWidth(projection.getExtent()) : undefined;
     const frame: LayerRenderFrame = Object.freeze({
@@ -432,6 +439,13 @@ export class LayerRenderPass implements LayerRenderPort {
       this.#renderRequested = false;
       throw error;
     }
+  }
+
+  /** 由图层或地图帧释放共享请求门闩，避免最后一个图层循环关闭后饿死后续动画。 */
+  #observeFrameTime(time: number | undefined): void {
+    if (!Number.isFinite(time) || this.#observedFrameTime === time) return;
+    this.#observedFrameTime = time;
+    this.#renderRequested = false;
   }
 
   /** 复用一个稳定 slot 的 Feature、Geometry 和编译样式。 */

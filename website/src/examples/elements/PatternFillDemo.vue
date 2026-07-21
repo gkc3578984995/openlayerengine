@@ -7,22 +7,33 @@ import { createConfiguredLayer } from '../../config/mapSources';
 
 type PatternName = PatternFillSpec['pattern'];
 type PatternSize = 4 | 8 | 16 | 32 | 64 | 128;
+type PreviewMode = 'wide' | 'narrow';
 
 const EARTH_ID = 'docs-elements-pattern-fill';
 const LAYER_ID = 'pattern-fill-elements';
+const PREVIEW_ZOOM = 7;
+const NARROW_PREVIEW_ZOOM = 6.25;
 const patterns = [
-  { value: 'diagonal', label: '斜线 diagonal' },
-  { value: 'cross', label: '交叉 cross' },
-  { value: 'dot', label: '圆点 dot' },
-  { value: 'horizontal', label: '水平 horizontal' },
-  { value: 'vertical', label: '垂直 vertical' }
-] as const satisfies readonly { value: PatternName; label: string }[];
+  { value: 'diagonal', label: '斜线 diagonal', mapLabel: '斜线' },
+  { value: 'cross', label: '交叉 cross', mapLabel: '交叉' },
+  { value: 'dot', label: '圆点 dot', mapLabel: '圆点' },
+  { value: 'horizontal', label: '水平 horizontal', mapLabel: '水平' },
+  { value: 'vertical', label: '垂直 vertical', mapLabel: '垂直' }
+] as const satisfies readonly { value: PatternName; label: string; mapLabel: string }[];
 const patternSizes = [4, 8, 16, 32, 64, 128] as const satisfies readonly PatternSize[];
+const galleryPositions = [
+  [115, 40.75],
+  [116.45, 40.75],
+  [117.9, 40.75],
+  [115.75, 39.95],
+  [117.2, 39.95]
+] as const;
 
 const previewIds = ['pattern-preview-polygon', 'pattern-preview-symbol', 'pattern-preview-text-fill', 'pattern-preview-text-background'] as const;
 const mapTarget = ref<HTMLDivElement | null>(null);
 const earthRef = shallowRef<Earth | null>(null);
 const focusCenter = shallowRef<Coordinate | null>(null);
+const previewMode = ref<PreviewMode>('wide');
 const selectedPattern = ref<PatternName>('diagonal');
 const foreground = ref<string | null>('#2563eb');
 const background = ref<string | null>('rgba(255, 255, 255, 0.78)');
@@ -30,8 +41,12 @@ const size = ref<PatternSize>(16);
 const lineWidth = ref(3);
 const dotRadius = ref(3);
 const latestAction = ref<'set' | 'patch'>('set');
+let previewResizeObserver: ResizeObserver | null = null;
 
 const selectedPatternLabel = computed(() => patterns.find(({ value }) => value === selectedPattern.value)?.label ?? selectedPattern.value);
+const previewModeForWidth = (width: number): PreviewMode => (width <= 520 ? 'narrow' : 'wide');
+const previewZoomForMode = (mode: PreviewMode) => (mode === 'narrow' ? NARROW_PREVIEW_ZOOM : PREVIEW_ZOOM);
+const previewZoom = () => previewZoomForMode(mapTarget.value === null ? previewMode.value : previewModeForWidth(mapTarget.value.clientWidth));
 
 const patternFill = (): PatternFillSpec => ({
   type: 'pattern',
@@ -80,14 +95,14 @@ const galleryStyle = (pattern: PatternName, label: string): StyleSpec => ({
 });
 
 const addGallery = (earth: Earth) => {
-  const longitudes = [115.25, 115.85, 116.45, 117.05, 117.65];
-  patterns.forEach(({ value, label }, index) => {
+  patterns.forEach(({ value, mapLabel }, index) => {
+    const [longitude, latitude] = galleryPositions[index] ?? [116.45, 40.75];
     earth.elements.add({
       id: `pattern-gallery-${value}`,
       layerId: LAYER_ID,
       module: 'pattern-gallery',
-      geometry: { type: 'polygon', controlPoints: polygonAround(earth, longitudes[index] ?? 116.45, 40.45) },
-      style: galleryStyle(value, label)
+      geometry: { type: 'polygon', controlPoints: polygonAround(earth, longitude, latitude, 0.28, 0.18) },
+      style: galleryStyle(value, mapLabel)
     });
   });
 };
@@ -97,25 +112,25 @@ const addPreviewTargets = (earth: Earth) => {
     id: previewIds[0],
     layerId: LAYER_ID,
     module: 'pattern-preview',
-    geometry: { type: 'polygon', controlPoints: polygonAround(earth, 115.55, 39.55, 0.32, 0.24) }
+    geometry: { type: 'polygon', controlPoints: polygonAround(earth, 115.2, 38.9, 0.38, 0.25) }
   });
   earth.elements.add({
     id: previewIds[1],
     layerId: LAYER_ID,
     module: 'pattern-preview',
-    geometry: { type: 'point', controlPoints: earth.view.toProjectedCoordinates([[116.35, 39.55]]) }
+    geometry: { type: 'point', controlPoints: earth.view.toProjectedCoordinates([[117.7, 38.9]]) }
   });
   earth.elements.add({
     id: previewIds[2],
     layerId: LAYER_ID,
     module: 'pattern-preview',
-    geometry: { type: 'point', controlPoints: earth.view.toProjectedCoordinates([[117.05, 39.62]]) }
+    geometry: { type: 'point', controlPoints: earth.view.toProjectedCoordinates([[115.2, 37.85]]) }
   });
   earth.elements.add({
     id: previewIds[3],
     layerId: LAYER_ID,
     module: 'pattern-preview',
-    geometry: { type: 'point', controlPoints: earth.view.toProjectedCoordinates([[117.65, 39.5]]) }
+    geometry: { type: 'point', controlPoints: earth.view.toProjectedCoordinates([[117.7, 37.85]]) }
   });
 };
 
@@ -161,7 +176,8 @@ const applyPattern = () => {
         fontWeight: 'bold',
         fill,
         stroke: { color: '#ffffff', width: 4 },
-        backgroundFill: { type: 'solid', color: 'rgba(255, 255, 255, 0.72)' },
+        backgroundFill: { type: 'solid', color: 'rgba(15, 23, 42, 0.88)' },
+        backgroundStroke: { color: 'rgba(255, 255, 255, 0.92)', width: 2 },
         padding: [8, 10, 8, 10]
       }
     }
@@ -205,7 +221,7 @@ const focus = () => {
   const earth = earthRef.value;
   const center = focusCenter.value;
   if (earth === null || center === null) return;
-  earth.view.animateFlyTo(center, { zoom: 7.2, duration: 450 });
+  earth.view.animateFlyTo(center, { zoom: previewZoom(), duration: 450 });
 };
 
 const reset = () => {
@@ -223,23 +239,35 @@ defineExpose({ reset, focus });
 
 onMounted(() => {
   if (mapTarget.value === null) return;
+  previewMode.value = previewModeForWidth(mapTarget.value.clientWidth);
   const earth = useEarth({
     id: EARTH_ID,
     target: mapTarget.value,
-    view: { zoom: 7.2 },
+    view: { zoom: previewZoom() },
     controls: { zoom: true, rotate: false, attribution: true }
   });
   createConfiguredLayer(earth, 'vector').update({ opacity: 0.42 });
   earth.layers.add({ kind: 'vector', id: LAYER_ID, zIndex: 30, declutter: false });
-  focusCenter.value = earth.view.toProjectedCoordinates([116.45, 40]);
+  focusCenter.value = earth.view.toProjectedCoordinates([116.45, 39.3]);
   earthRef.value = earth;
   addGallery(earth);
   addPreviewTargets(earth);
   applyPattern();
   focus();
+
+  previewResizeObserver = new ResizeObserver(([entry]) => {
+    if (entry === undefined) return;
+    const nextMode = previewModeForWidth(entry.contentRect.width);
+    if (nextMode === previewMode.value) return;
+    previewMode.value = nextMode;
+    earth.view.setZoom(previewZoomForMode(nextMode));
+  });
+  previewResizeObserver.observe(mapTarget.value);
 });
 
 onBeforeUnmount(() => {
+  previewResizeObserver?.disconnect();
+  previewResizeObserver = null;
   earthRef.value?.destroy();
   earthRef.value = null;
   focusCenter.value = null;
@@ -247,60 +275,85 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="example-demo pattern-fill-demo">
-    <el-alert
-      class="example-demo__alert"
-      type="info"
-      :closable="false"
-      show-icon
-      title="纹理尺寸使用 4 / 8 / 16 / 32 / 64 / 128 六档缓存值；dot 调整圆点半径，其余纹理调整线宽。"
-    />
-    <div class="pattern-fill-demo__controls">
-      <el-form-item label="纹理类型">
-        <el-select v-model="selectedPattern" aria-label="纹理类型" @change="applyPattern">
-          <el-option v-for="item in patterns" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="前景色">
-        <el-color-picker v-model="foreground" show-alpha aria-label="纹理前景色" />
-      </el-form-item>
-      <el-form-item label="背景色">
-        <el-color-picker v-model="background" show-alpha aria-label="纹理背景色" />
-      </el-form-item>
-      <el-form-item label="单元尺寸（离散）">
-        <el-select v-model="size" aria-label="纹理单元尺寸">
-          <el-option v-for="item in patternSizes" :key="item" :label="`${item}px`" :value="item" />
-        </el-select>
-      </el-form-item>
-      <el-form-item v-if="selectedPattern !== 'dot'" label="线宽">
-        <el-slider v-model="lineWidth" :min="1" :max="8" :step="0.5" show-input aria-label="纹理线宽" />
-      </el-form-item>
-      <el-form-item v-else label="圆点半径">
-        <el-slider v-model="dotRadius" :min="1" :max="8" :step="0.5" show-input aria-label="纹理圆点半径" />
-      </el-form-item>
-    </div>
+  <div class="example-demo pattern-fill-demo" :data-preview-mode="previewMode">
+    <div class="pattern-fill-demo__control-panel">
+      <el-alert
+        class="pattern-fill-demo__alert"
+        type="info"
+        :closable="false"
+        show-icon
+        title="纹理尺寸使用 4 / 8 / 16 / 32 / 64 / 128 六档缓存值；dot 调整圆点半径，其余纹理调整线宽。"
+      />
+      <div class="pattern-fill-demo__controls">
+        <el-form-item label="纹理类型">
+          <el-select v-model="selectedPattern" aria-label="纹理类型" @change="applyPattern">
+            <el-option v-for="item in patterns" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="前景色">
+          <el-color-picker v-model="foreground" show-alpha aria-label="纹理前景色" />
+        </el-form-item>
+        <el-form-item label="背景色">
+          <el-color-picker v-model="background" show-alpha aria-label="纹理背景色" />
+        </el-form-item>
+        <el-form-item label="单元尺寸（离散）">
+          <el-select v-model="size" aria-label="纹理单元尺寸">
+            <el-option v-for="item in patternSizes" :key="item" :label="`${item}px`" :value="item" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="selectedPattern !== 'dot'" label="线宽">
+          <el-slider v-model="lineWidth" :min="1" :max="8" :step="0.5" show-input aria-label="纹理线宽" />
+        </el-form-item>
+        <el-form-item v-else label="圆点半径">
+          <el-slider v-model="dotRadius" :min="1" :max="8" :step="0.5" show-input aria-label="纹理圆点半径" />
+        </el-form-item>
+      </div>
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="applyPattern">应用 styles.set()</el-button>
-      <el-button @click="patchPatternParameters">应用 styles.patch()</el-button>
-      <el-tag effect="plain">{{ selectedPatternLabel }}</el-tag>
-      <el-tag :type="latestAction === 'set' ? 'success' : 'warning'" effect="plain">最近操作：{{ latestAction }}</el-tag>
+      <div class="pattern-fill-demo__actions">
+        <div class="pattern-fill-demo__action-buttons">
+          <el-button type="primary" @click="applyPattern">应用 styles.set()</el-button>
+          <el-button @click="patchPatternParameters">应用 styles.patch()</el-button>
+        </div>
+        <div class="pattern-fill-demo__status" aria-label="纹理示例当前状态">
+          <el-tag effect="plain">{{ selectedPatternLabel }}</el-tag>
+          <el-tag :type="latestAction === 'set' ? 'success' : 'warning'" effect="plain">最近操作：{{ latestAction }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div class="pattern-fill-demo__stage-wrap">
       <div ref="mapTarget" class="example-stage pattern-fill-demo__stage"></div>
       <div class="pattern-fill-demo__legend">
-        <strong>上排：</strong>五种纹理画廊　<strong>下排：</strong>Polygon、CircleSymbol、Text.fill、Text.backgroundFill
+        <span><strong>纹理画廊：</strong>地图上部按 3 + 2 排列五种纹理。</span>
+        <span><strong>应用目标：</strong>地图下部按 2 + 2 展示 Polygon、CircleSymbol、Text.fill 与 Text.backgroundFill。</span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.pattern-fill-demo {
+  container: pattern-fill / inline-size;
+}
+
+.pattern-fill-demo__control-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--doc-border);
+  border-radius: 12px;
+  background: var(--doc-surface);
+}
+
+.pattern-fill-demo__alert {
+  margin: 0;
+}
+
 .pattern-fill-demo__controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 110px 110px repeat(3, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 14px 16px;
   align-items: end;
 }
 
@@ -313,8 +366,28 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.pattern-fill-demo__actions {
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--doc-border);
+}
+
+.pattern-fill-demo__action-buttons,
+.pattern-fill-demo__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pattern-fill-demo__action-buttons :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
 .pattern-fill-demo__stage-wrap {
-  position: relative;
+  display: grid;
+  gap: 10px;
 }
 
 .pattern-fill-demo__stage {
@@ -322,40 +395,23 @@ onBeforeUnmount(() => {
 }
 
 .pattern-fill-demo__legend {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  z-index: 2;
-  max-width: calc(100% - 80px);
-  padding: 6px 10px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
   border: 1px solid var(--doc-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--doc-surface) 92%, transparent);
+  border-radius: 10px;
+  background: var(--doc-surface);
   color: var(--doc-text);
   font-size: 12px;
-  text-align: center;
-  transform: translateX(-50%);
-  pointer-events: none;
 }
 
-@media (max-width: 1400px) {
-  .pattern-fill-demo__controls {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  .pattern-fill-demo__controls {
-    grid-template-columns: 1fr;
-  }
-
+@container pattern-fill (max-width: 520px) {
   .pattern-fill-demo__stage {
     height: 420px;
   }
 
-  .pattern-fill-demo__legend {
-    max-width: calc(100% - 28px);
-    border-radius: 10px;
+  .pattern-fill-demo__control-panel {
+    padding: 14px;
   }
 }
 </style>
