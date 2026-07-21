@@ -87,6 +87,13 @@ export function radarScanProgressAt(elapsedMs: number, periodMs: number, repeat:
   return animationProgressAt(elapsedMs, periodMs, repeat);
 }
 
+/** 计算 radar-scan 往返模式经过的单程数量；整数 1 和 2 分别对应折返点与返回起点。 */
+export function radarScanRoundTripTravelAt(elapsedMs: number, periodMs: number, repeat: boolean): number {
+  const raw = Math.max(0, elapsedMs) / periodMs;
+  if (!repeat || raw <= 1) return clampAnimationProgress(raw) * 2;
+  return 2 + positiveModulo(raw, 1) * 2;
+}
+
 /** 计算指定扩散环 slot 的当前进度；未发射或已结束时返回 undefined。 */
 export function centerSpreadRingProgressAt(elapsedMs: number, periodMs: number, ringCount: number, slotIndex: number, repeat: boolean): number | undefined {
   const firstEmission = (slotIndex * periodMs) / ringCount;

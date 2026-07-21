@@ -16,9 +16,26 @@ const coordinate = ref<Coordinate | null>(null);
 const worldWidth = ref<number | undefined>();
 const worldIndex = ref<number | undefined>();
 const cursor = ref('auto');
+const detailsColumn = ref<1 | 2>(2);
+let detailsMediaQuery: MediaQueryList | null = null;
 
 const pixelLabel = computed(() => (centerPixel.value === null ? '—' : centerPixel.value.map((value) => value.toFixed(0)).join(', ')));
 const coordinateLabel = computed(() => (coordinate.value === null ? '—' : coordinate.value.map((value) => value.toFixed(2)).join(', ')));
+
+const syncDetailsColumn = () => {
+  detailsColumn.value = detailsMediaQuery?.matches === true ? 1 : 2;
+};
+
+const observeDetailsLayout = () => {
+  detailsMediaQuery = window.matchMedia('(max-width: 640px)');
+  syncDetailsColumn();
+  detailsMediaQuery.addEventListener('change', syncDetailsColumn);
+};
+
+const stopObservingDetailsLayout = () => {
+  detailsMediaQuery?.removeEventListener('change', syncDetailsColumn);
+  detailsMediaQuery = null;
+};
 
 const viewportCenterPixel = (): Pixel | undefined => {
   const target = mapTarget.value;
@@ -65,6 +82,7 @@ const setPointerCursor = () => {
 // #endregion view-world-pixel
 
 onMounted(() => {
+  observeDetailsLayout();
   if (mapTarget.value === null) return;
   const earth = useEarth({ id: EARTH_ID, target: mapTarget.value, controls: { zoom: true, rotate: false, attribution: true } });
   createConfiguredLayer(earth, 'vector');
@@ -88,6 +106,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopObservingDetailsLayout();
   earthRef.value?.destroy();
   earthRef.value = null;
 });
@@ -103,12 +122,12 @@ onBeforeUnmount(() => {
 
     <div ref="mapTarget" class="example-stage"></div>
 
-    <el-descriptions class="view-world-demo__details" :column="2" border>
+    <el-descriptions class="view-world-demo__details" :column="detailsColumn" border>
       <el-descriptions-item label="中心像素">{{ pixelLabel }}</el-descriptions-item>
       <el-descriptions-item label="当前 zoom">{{ zoom ?? '—' }}</el-descriptions-item>
       <el-descriptions-item label="对应坐标">{{ coordinateLabel }}</el-descriptions-item>
       <el-descriptions-item label="世界副本索引">{{ worldIndex ?? '—' }}</el-descriptions-item>
-      <el-descriptions-item label="世界宽度" :span="2">{{ worldWidth?.toFixed(2) ?? '—' }}</el-descriptions-item>
+      <el-descriptions-item label="世界宽度" :span="detailsColumn">{{ worldWidth?.toFixed(2) ?? '—' }}</el-descriptions-item>
     </el-descriptions>
   </div>
 </template>
@@ -116,5 +135,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .view-world-demo__details {
   margin-top: 16px;
+}
+
+.view-world-demo__details :deep(.el-descriptions__content) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 </style>

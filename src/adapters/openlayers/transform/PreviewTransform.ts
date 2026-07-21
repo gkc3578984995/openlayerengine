@@ -1,44 +1,13 @@
 import type { Coordinate } from '../../../core/common/types.js';
+import { calculateRenderGeometryExtent, type RenderGeometryExtent } from '../../../core/shape/geometryDetails.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 
 /** Transform 预览几何的二维外接范围。 */
-export type TransformExtent = readonly [number, number, number, number];
+export type TransformExtent = RenderGeometryExtent;
 
 /** 计算渲染几何的外接范围。 */
 export function renderExtent(geometry: RenderGeometryState): TransformExtent {
-  if (geometry.type === 'point') {
-    return Object.freeze([geometry.coordinates[0], geometry.coordinates[1], geometry.coordinates[0], geometry.coordinates[1]]);
-  }
-  if (geometry.type === 'circle') {
-    return Object.freeze([
-      geometry.center[0] - geometry.radius,
-      geometry.center[1] - geometry.radius,
-      geometry.center[0] + geometry.radius,
-      geometry.center[1] + geometry.radius
-    ]);
-  }
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  if (geometry.type === 'polyline') {
-    for (const coordinate of geometry.coordinates) {
-      minX = Math.min(minX, coordinate[0]);
-      minY = Math.min(minY, coordinate[1]);
-      maxX = Math.max(maxX, coordinate[0]);
-      maxY = Math.max(maxY, coordinate[1]);
-    }
-  } else {
-    for (const ring of geometry.coordinates) {
-      for (const coordinate of ring) {
-        minX = Math.min(minX, coordinate[0]);
-        minY = Math.min(minY, coordinate[1]);
-        maxX = Math.max(maxX, coordinate[0]);
-        maxY = Math.max(maxY, coordinate[1]);
-      }
-    }
-  }
-  return Object.freeze([minX, minY, maxX, maxY]);
+  return calculateRenderGeometryExtent(geometry);
 }
 
 /** 计算范围中心坐标。 */

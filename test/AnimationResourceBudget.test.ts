@@ -150,6 +150,26 @@ describe('动画性能与资源预算', () => {
       expect(radarBuffer.overlays.filter(({ active }) => active).length).toBeLessThanOrEqual(10);
     }
 
+    const roundTripSpec = radarScanAnimationDefinition.normalize({ type: 'radar-scan', periodMs: 1000, scanMode: 'round-trip' });
+    const roundTripRadar = radarScanAnimationDefinition.create(radialTarget, roundTripSpec);
+    const roundTripSlots = roundTripRadar.slots;
+    const roundTripBuffer = createAnimationFrameBuffer(roundTripSlots);
+    const roundTripGeometryBySlot = new Map<number, RenderGeometryState>();
+    expect(roundTripSlots).toHaveLength(10);
+    for (let frame = 0; frame < 300; frame += 1) {
+      roundTripRadar.sample(frameContext(radialTarget, frame * 17), roundTripBuffer);
+      expect(roundTripRadar.slots).toBe(roundTripSlots);
+      expect(roundTripBuffer.overlays.filter(({ active }) => active).length).toBeLessThanOrEqual(10);
+      for (let index = 0; index < roundTripBuffer.overlays.length; index += 1) {
+        const geometry = roundTripBuffer.overlays[index].geometry;
+        if (geometry === undefined) continue;
+        const stableGeometry = roundTripGeometryBySlot.get(index);
+        if (stableGeometry === undefined) roundTripGeometryBySlot.set(index, geometry);
+        else expect(geometry).toBe(stableGeometry);
+      }
+    }
+    expect(roundTripGeometryBySlot.size).toBe(10);
+
     const spreadSpec = centerSpreadAnimationDefinition.normalize({ type: 'center-spread', ringCount: 5 });
     const spread = centerSpreadAnimationDefinition.create(radialTarget, spreadSpec);
     const spreadSlots = spread.slots;
@@ -194,6 +214,7 @@ describe('动画性能与资源预算', () => {
     expect(geometryBySlot.size).toBeGreaterThan(0);
 
     radar.destroy();
+    roundTripRadar.destroy();
     spread.destroy();
     path.destroy();
   });

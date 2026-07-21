@@ -61,23 +61,23 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <div class="control-service-demo__settings">
-      <div class="control-service-demo__setting">
-        <span>经纬网</span>
-        <el-switch v-model="graticuleEnabled" active-text="显示" inactive-text="隐藏" @change="changeGraticule" />
-        <el-tag :type="graticuleEnabled ? 'success' : 'info'" effect="plain">
+    <div class="example-demo__control-panel control-service-demo__settings">
+      <div class="control-service-demo__setting control-service-demo__setting--graticule">
+        <span class="control-service-demo__label">经纬网</span>
+        <el-switch class="control-service-demo__toggle" v-model="graticuleEnabled" active-text="显示" inactive-text="隐藏" @change="changeGraticule" />
+        <el-tag class="control-service-demo__status" :type="graticuleEnabled ? 'success' : 'info'" effect="plain">
           {{ graticuleEnabled ? 'graticule 已创建' : 'graticule 未启用' }}
         </el-tag>
       </div>
 
       <div class="control-service-demo__setting">
-        <span>比例尺</span>
-        <el-switch v-model="scaleLineEnabled" active-text="显示" inactive-text="隐藏" @change="changeScaleLine" />
-        <el-select v-model="scaleUnits" aria-label="比例尺单位" :disabled="!scaleLineEnabled" @change="changeScaleUnits">
+        <span class="control-service-demo__label">比例尺</span>
+        <el-switch class="control-service-demo__toggle" v-model="scaleLineEnabled" active-text="显示" inactive-text="隐藏" @change="changeScaleLine" />
+        <el-select class="control-service-demo__unit" v-model="scaleUnits" aria-label="比例尺单位" :disabled="!scaleLineEnabled" @change="changeScaleUnits">
           <el-option label="公制 metric" value="metric" />
           <el-option label="英制 imperial" value="imperial" />
         </el-select>
-        <el-tag :type="scaleLineEnabled ? 'success' : 'info'" effect="plain">
+        <el-tag class="control-service-demo__status" :type="scaleLineEnabled ? 'success' : 'info'" effect="plain">
           {{ scaleLineEnabled ? 'scaleLine 已创建' : 'scaleLine 未启用' }}
         </el-tag>
       </div>
@@ -89,26 +89,82 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .control-service-demo__settings {
-  display: grid;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
 .control-service-demo__setting {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 56px max-content minmax(150px, 1fr) max-content;
   align-items: center;
-  gap: 14px;
+  gap: 10px 14px;
   color: var(--el-text-color-primary);
   font-size: 14px;
 }
 
-.control-service-demo__setting > span:first-child {
-  min-width: 48px;
+.control-service-demo__label,
+.control-service-demo__toggle,
+.control-service-demo__unit,
+.control-service-demo__status {
+  grid-row: 1;
+}
+
+.control-service-demo__label {
+  grid-column: 1;
   font-weight: 600;
 }
 
-.control-service-demo__setting :deep(.el-select) {
-  width: 150px;
+.control-service-demo__toggle {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.control-service-demo__unit {
+  grid-column: 3;
+  width: min(180px, 100%);
+  max-width: 100%;
+}
+
+.control-service-demo__status {
+  grid-column: 4;
+  justify-self: start;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+}
+
+.control-service-demo__setting--graticule .control-service-demo__status {
+  grid-column: 3 / 5;
+}
+
+@media (max-width: 640px) {
+  .control-service-demo__setting {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 10px 12px;
+  }
+
+  .control-service-demo__label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .control-service-demo__toggle {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .control-service-demo__unit {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .control-service-demo__status,
+  .control-service-demo__setting--graticule .control-service-demo__status {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .control-service-demo__setting--graticule .control-service-demo__status {
+    grid-row: 2;
+  }
 }
 </style>

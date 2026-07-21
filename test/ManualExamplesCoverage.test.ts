@@ -47,6 +47,8 @@ const auditedOwners = [
   'ElementPatch',
   'ElementCopyOptions',
   'ElementState',
+  'ElementGeometryDetails',
+  'ElementRenderGeometry',
   'ShapeInput',
   'StyleService',
   'StyleSpec',

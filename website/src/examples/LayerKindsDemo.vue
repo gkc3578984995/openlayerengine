@@ -168,16 +168,20 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <div class="layer-kinds-demo__source">
-      <span>部署期底图配置</span>
-      <el-segmented v-model="selectedBasemap" :options="basemapOptions" aria-label="选择底图配置" @change="switchBasemap" />
-      <el-tag effect="plain">{{ selectedBasemap }}</el-tag>
-    </div>
+    <div class="example-demo__control-panel">
+      <div class="layer-kinds-demo__source">
+        <span>部署期底图配置</span>
+        <el-segmented v-model="selectedBasemap" :options="basemapOptions" aria-label="选择底图配置" @change="switchBasemap" />
+        <el-tag effect="plain">{{ selectedBasemap }}</el-tag>
+      </div>
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="createLayerKinds">创建三类图层</el-button>
-      <el-button :disabled="nativeLayer === null" @click="removeNativeByHandle">用 Layer.remove() 移除 native</el-button>
-      <el-button type="danger" plain :disabled="rows.length === 0" @click="clearAllLayers">清空全部图层</el-button>
+      <div class="example-demo__action-group">
+        <div class="example-demo__action-buttons example-demo__actions">
+          <el-button type="primary" @click="createLayerKinds">创建三类图层</el-button>
+          <el-button :disabled="nativeLayer === null" @click="removeNativeByHandle">用 Layer.remove() 移除 native</el-button>
+          <el-button type="danger" plain :disabled="rows.length === 0" @click="clearAllLayers">清空全部图层</el-button>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
@@ -189,7 +193,7 @@ onBeforeUnmount(() => {
       <el-table-column prop="ownership" label="资源所有权" min-width="140" />
     </el-table>
 
-    <el-alert class="example-demo__alert" type="info" :closable="false" show-icon>
+    <el-alert class="example-demo__alert layer-kinds-demo__alert" type="info" :closable="false" show-icon>
       <template #title>external 只解绑，不替调用方销毁原生资源</template>
       {{ externalResourceState }}。地图中的蓝色纹理圆来自 Earth vector，橙色点来自 external native。
     </el-alert>
@@ -206,8 +210,22 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-bottom: 14px;
   color: var(--doc-muted);
   font-size: 14px;
+}
+
+.layer-kinds-demo__source :deep(.el-segmented) {
+  max-width: 100%;
+}
+
+.layer-kinds-demo__alert {
+  margin-top: 16px;
+}
+
+@media (max-width: 640px) {
+  .layer-kinds-demo__source :deep(.el-segmented) {
+    flex: 1 1 100%;
+    width: 100%;
+  }
 }
 </style>

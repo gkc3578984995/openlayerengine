@@ -41,10 +41,18 @@ onBeforeUnmount(destroyMap);
 
 <template>
   <div class="example-demo">
-    <div class="example-demo__toolbar">
-      <el-button type="primary" :disabled="earthRef !== null" @click="createMap">创建地图</el-button>
-      <el-button type="danger" plain :disabled="earthRef === null" @click="destroyMap">销毁地图</el-button>
-      <el-tag :type="status === 'ready' ? 'success' : status === 'destroyed' ? 'warning' : 'info'">{{ status }}</el-tag>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" :disabled="earthRef !== null" @click="createMap">创建地图</el-button>
+            <el-button type="danger" plain :disabled="earthRef === null" @click="destroyMap">销毁地图</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback" aria-live="polite">
+          <el-tag :type="status === 'ready' ? 'success' : status === 'destroyed' ? 'warning' : 'info'">{{ status }}</el-tag>
+        </div>
+      </div>
     </div>
     <div ref="mapTarget" class="example-stage"></div>
   </div>

@@ -285,6 +285,22 @@ describe('内置动画定义', () => {
           contour: { kind: 'open' }
         }
       } satisfies StyleSpec
+    },
+    {
+      name: 'repeated center decoration',
+      style: {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 4] } }],
+          decorations: [
+            {
+              placement: { kind: 'repeat', spacing: 32, phase: 0 },
+              sequence: [{ primitives: [{ type: 'circle', center: [0, 0], radius: 4, fill: { type: 'solid', color: '#000' } }] }],
+              cutoutPadding: 3
+            }
+          ],
+          contour: { kind: 'open' }
+        }
+      } satisfies StyleSpec
     }
   ])('dash-flow keeps a transparent $name placeholder for the linework cutout', ({ style }) => {
     const state = polylineElement('cutout');
@@ -295,9 +311,14 @@ describe('内置动画定义', () => {
     if (style.linework?.inlineText !== undefined) {
       expect(overlay?.inlineText?.fill.color).toEqual([0, 0, 0, 0]);
     } else {
-      const primitive = overlay?.decorations?.[0]?.glyph?.primitives[0];
+      const decoration = overlay?.decorations?.[0];
+      const primitive = decoration?.placement.kind === 'repeat' ? decoration.sequence[0]?.primitives[0] : decoration?.glyph.primitives[0];
       expect(primitive?.type).toBe('circle');
       if (primitive?.type === 'circle') expect(primitive.fill?.color).toEqual([0, 0, 0, 0]);
+      if (decoration?.placement.kind === 'repeat') {
+        expect(decoration.placement).toEqual({ kind: 'repeat', spacing: 32, phase: 0 });
+        expect(decoration.cutoutPadding).toBe(3);
+      }
     }
   });
 

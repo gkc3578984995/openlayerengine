@@ -44,9 +44,10 @@ function setup() {
   const layers = new LayerServiceImpl(manager, adapter, refs);
   layers.add({ kind: 'vector', id: 'second' });
   const compiler = new StyleCompiler(refs, { getViewRotation: () => 0.25 });
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), compiler);
+  const geometry = new GeometryCodec(shapes, identityShapeProjection);
+  const binding = new FeatureBinding(store, adapter, geometry, compiler);
   const hitTest = new HitTestAdapter(map, store, manager, adapter, binding, { hitTolerance: 7 });
-  const elements = new ElementServiceImpl(store, manager, binding, layers, refs, hitTest);
+  const elements = new ElementServiceImpl(store, manager, binding, geometry, layers, refs, hitTest);
   return { adapter, binding, elements, hitTest, layers, manager, map, store };
 }
 

@@ -299,7 +299,7 @@ onBeforeUnmount(() => {
       title="每一项都调用真实 Earth API 触发错误，捕获后立即执行对应恢复路径；示例没有手工 new 或 throw 错误实例。"
     />
 
-    <div class="errors-demo__controls">
+    <div class="example-demo__toolbar errors-demo__controls" role="group" aria-label="错误场景控制">
       <el-select v-model="selected" aria-label="选择错误类型">
         <el-option v-for="definition in definitions" :key="definition.name" :label="definition.name" :value="definition.name" />
       </el-select>
@@ -330,14 +330,20 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .errors-demo__controls {
-  display: flex;
-  flex-wrap: wrap;
   gap: 10px;
-  margin: 14px 0;
 }
 
 .errors-demo__controls :deep(.el-select) {
   width: min(100%, 280px);
+}
+
+.errors-demo__controls > *,
+.errors-demo__controls :deep(.el-button) {
+  max-width: 100%;
+}
+
+.errors-demo__controls :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .errors-demo__map-shell {
@@ -366,5 +372,30 @@ onBeforeUnmount(() => {
   text-align: center;
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+@media (max-width: 560px) {
+  .errors-demo__controls {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .errors-demo__controls :deep(.el-select),
+  .errors-demo__controls :deep(.el-button) {
+    width: 100%;
+  }
+
+  .errors-demo__controls :deep(.el-button) {
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
+  }
+
+  .errors-demo__map-guide {
+    position: static;
+    max-width: none;
+    border-radius: 0;
+    transform: none;
+  }
 }
 </style>

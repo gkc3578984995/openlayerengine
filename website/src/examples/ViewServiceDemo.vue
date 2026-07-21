@@ -116,25 +116,29 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <el-form class="view-service-demo__form" inline label-position="top">
-      <el-form-item label="经度">
-        <el-input-number v-model="longitude" :min="-180" :max="180" :step="0.1" :precision="4" />
-      </el-form-item>
-      <el-form-item label="纬度">
-        <el-input-number v-model="latitude" :min="-85" :max="85" :step="0.1" :precision="4" />
-      </el-form-item>
-      <el-form-item label="缩放级别">
-        <el-input-number v-model="zoom" :min="2" :max="18" :step="1" />
-      </el-form-item>
-    </el-form>
+    <div class="example-demo__control-panel">
+      <el-form class="example-demo__control-grid view-service-demo__form" inline label-position="top">
+        <el-form-item label="经度">
+          <el-input-number v-model="longitude" :min="-180" :max="180" :step="0.1" :precision="4" />
+        </el-form-item>
+        <el-form-item label="纬度">
+          <el-input-number v-model="latitude" :min="-85" :max="85" :step="0.1" :precision="4" />
+        </el-form-item>
+        <el-form-item label="缩放级别">
+          <el-input-number v-model="zoom" :min="2" :max="18" :step="1" />
+        </el-form-item>
+      </el-form>
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="flyTo">立即定位</el-button>
-      <el-button @click="animateFlyTo">动画定位</el-button>
-      <el-button @click="flyHome">返回初始位置</el-button>
-      <el-button :type="cursor === 'crosshair' ? 'primary' : undefined" plain @click="useCrosshair">十字光标</el-button>
-      <el-button :type="cursor === 'default' ? 'primary' : undefined" plain @click="useDefaultCursor">默认光标</el-button>
-      <el-switch v-model="dragEnabled" active-text="允许拖拽" inactive-text="禁止拖拽" @change="changeDrag" />
+      <div class="example-demo__action-group">
+        <div class="example-demo__action-buttons example-demo__actions">
+          <el-button type="primary" @click="flyTo">立即定位</el-button>
+          <el-button @click="animateFlyTo">动画定位</el-button>
+          <el-button @click="flyHome">返回初始位置</el-button>
+          <el-button :type="cursor === 'crosshair' ? 'primary' : undefined" plain @click="useCrosshair">十字光标</el-button>
+          <el-button :type="cursor === 'default' ? 'primary' : undefined" plain @click="useDefaultCursor">默认光标</el-button>
+          <el-switch v-model="dragEnabled" active-text="允许拖拽" inactive-text="禁止拖拽" @change="changeDrag" />
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
@@ -149,7 +153,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .view-service-demo__form {
-  margin-bottom: 2px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
 }
 
 .view-service-demo__details {

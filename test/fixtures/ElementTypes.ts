@@ -1,6 +1,7 @@
 import { Element } from '../../src/facade/Element.js';
 import { Layer } from '../../src/facade/Layer.js';
 import type { ShapeInput, ShapeState } from '../../src/core/shape/types.js';
+import type { ElementGeometryDetails, ElementRenderGeometry, MapExtent } from '../../src/facade/elementGeometryTypes.js';
 import type { ElementCreateInput, ElementHit } from '../../src/facade/types.js';
 import { fromLonLat } from 'ol/proj.js';
 
@@ -36,6 +37,9 @@ const invalidCircle: ElementCreateInput = { geometry: { type: 'circle', controlP
 
 declare const element: Element<{ label: string }>;
 element.update({ geometry: { type: 'point', controlPoints: [1, 2] } });
+const geometryDetails: ElementGeometryDetails = element.geometryDetails;
+const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
+const mapExtent: MapExtent = geometryDetails.extent;
 declare const layer: ElementHit<{ label: string }>['layer'];
 const hit: ElementHit<{ label: string }> = { element, layer };
 
@@ -54,5 +58,8 @@ void [
   unknownKey,
   undefinedVisible,
   invalidCircle,
+  geometryDetails,
+  renderGeometry,
+  mapExtent,
   hit
 ];

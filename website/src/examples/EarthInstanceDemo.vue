@@ -12,6 +12,8 @@ const earthRef = shallowRef<Earth | null>(null);
 const lastLifecycle = ref<Earth['lifecycle'] | 'not-created'>('not-created');
 const reuseMatches = ref<boolean | null>(null);
 const creationCount = ref(0);
+const detailsColumn = ref<1 | 2>(2);
+let detailsMediaQuery: MediaQueryList | null = null;
 
 const lifecycle = computed(() => earthRef.value?.lifecycle ?? lastLifecycle.value);
 const lifecycleTagType = computed(() => {
@@ -19,6 +21,21 @@ const lifecycleTagType = computed(() => {
   if (lifecycle.value === 'destroyed') return 'warning';
   return 'info';
 });
+
+const syncDetailsColumn = () => {
+  detailsColumn.value = detailsMediaQuery?.matches === true ? 1 : 2;
+};
+
+const observeDetailsLayout = () => {
+  detailsMediaQuery = window.matchMedia('(max-width: 640px)');
+  syncDetailsColumn();
+  detailsMediaQuery.addEventListener('change', syncDetailsColumn);
+};
+
+const stopObservingDetailsLayout = () => {
+  detailsMediaQuery?.removeEventListener('change', syncDetailsColumn);
+  detailsMediaQuery = null;
+};
 
 // #region earth-registry-lifecycle
 const createEarth = () => {
@@ -56,22 +73,37 @@ const destroyEarth = () => {
 };
 // #endregion earth-registry-lifecycle
 
-onMounted(createEarth);
-onBeforeUnmount(destroyEarth);
+onMounted(() => {
+  observeDetailsLayout();
+  createEarth();
+});
+
+onBeforeUnmount(() => {
+  stopObservingDetailsLayout();
+  destroyEarth();
+});
 </script>
 
 <template>
   <div class="example-demo">
-    <div class="example-demo__toolbar">
-      <el-button type="primary" :disabled="earthRef !== null" @click="createEarth">创建 / 重建实例</el-button>
-      <el-button :disabled="earthRef === null" @click="verifyReuse">验证 useEarth 复用</el-button>
-      <el-button type="danger" plain :disabled="earthRef === null" @click="destroyEarth">销毁实例</el-button>
-      <el-tag :type="lifecycleTagType">{{ lifecycle }}</el-tag>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" :disabled="earthRef !== null" @click="createEarth">创建 / 重建实例</el-button>
+            <el-button :disabled="earthRef === null" @click="verifyReuse">验证 useEarth 复用</el-button>
+            <el-button type="danger" plain :disabled="earthRef === null" @click="destroyEarth">销毁实例</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback" aria-live="polite">
+          <el-tag :type="lifecycleTagType">{{ lifecycle }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
 
-    <el-descriptions class="earth-instance-demo__details" :column="2" border>
+    <el-descriptions class="earth-instance-demo__details" :column="detailsColumn" border>
       <el-descriptions-item label="实例 ID">
         <el-tag effect="plain">{{ EARTH_ID }}</el-tag>
       </el-descriptions-item>
@@ -92,9 +124,8 @@ onBeforeUnmount(destroyEarth);
   margin-top: 16px;
 }
 
-@media (max-width: 640px) {
-  .earth-instance-demo__details {
-    --el-descriptions-table-border: 1px solid var(--el-border-color-lighter);
-  }
+.earth-instance-demo__details :deep(.el-descriptions__content) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 </style>

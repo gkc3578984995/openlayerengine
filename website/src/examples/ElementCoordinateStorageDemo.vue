@@ -57,7 +57,7 @@ onBeforeUnmount(() => {
       <el-button type="primary" @click="run">重新转换并读取</el-button>
     </div>
     <div :id="mapId" class="example-stage"></div>
-    <el-descriptions :column="1" border>
+    <el-descriptions class="element-coordinate-storage-demo__details" :column="1" border>
       <el-descriptions-item label="业务经纬度输入">{{ JSON.stringify(input) }}</el-descriptions-item>
       <el-descriptions-item label="View 投影坐标">{{ JSON.stringify(projected) }}</el-descriptions-item>
       <el-descriptions-item label="Element.state geometry">{{ JSON.stringify(normalized) }}</el-descriptions-item>
@@ -67,3 +67,14 @@ onBeforeUnmount(() => {
     </el-descriptions>
   </div>
 </template>
+
+<style scoped>
+.element-coordinate-storage-demo__details {
+  margin-top: 16px;
+}
+
+.element-coordinate-storage-demo__details :deep(.el-descriptions__content) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+</style>

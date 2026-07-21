@@ -255,8 +255,8 @@ export type PathDecorationSpec =
       sequence: PathGlyphSpec[];
       /** 重复装饰不使用单个中点 glyph。 */
       glyph?: never;
-      /** 重复装饰不切出中点留白。 */
-      cutoutPadding?: never;
+      /** 每个重复 glyph 外侧额外切出的 CSS 像素留白。 */
+      cutoutPadding?: number;
     }
   | {
       /** 固定放在完整渲染路径累计长度的中点。 */
@@ -272,10 +272,27 @@ export type PathDecorationSpec =
       sequence?: never;
     };
 
-/** 路径内嵌文本的完整、可序列化外观。 */
+/** 路径内嵌文本的单点或固定像素间距放置策略。 */
+export type InlinePathTextPlacementSpec =
+  | {
+      /** 固定放在完整渲染路径累计长度的中点。 */
+      kind: 'center';
+    }
+  | {
+      /** 按固定 CSS 像素间距重复放置。 */
+      kind: 'repeat';
+      /** 相邻文本锚点的 CSS 像素间距。 */
+      spacing: number;
+      /** 第一个文本锚点相对默认相位的 CSS 像素偏移。 */
+      phase?: number;
+    };
+
+/** 路径内嵌文本的完整、可序列化外观与放置策略。 */
 export interface InlinePathTextSpec {
-  /** 显示在完整渲染路径累计长度中点的非空文本。 */
+  /** 显示在路径上的非空文本。 */
   text: string;
+  /** 省略时仅在完整渲染路径的累计长度中点放置一次。 */
+  placement?: InlinePathTextPlacementSpec;
   /** 文本字体族。 */
   fontFamily: string;
   /** 文本字号，单位为 CSS 像素。 */
@@ -325,7 +342,7 @@ export interface PathTrackSpec {
   stroke: PathTrackStrokeSpec;
 }
 
-/** 可组合的轨道、端帽、装饰与中点文本路径线饰。 */
+/** 可组合的轨道、端帽、装饰与路径文本线饰。 */
 export interface LineworkSpec {
   /** 零条或多条独立轨道；纯装饰路径使用空数组。 */
   tracks: PathTrackSpec[];
@@ -338,7 +355,7 @@ export interface LineworkSpec {
   };
   /** 重复装饰或严格位于累计长度中点的固定装饰。 */
   decorations?: PathDecorationSpec[];
-  /** 严格位于累计长度中点并切断全部轨道的文本占位。 */
+  /** 默认位于累计长度中点，也可按固定像素间距重复并切断全部轨道的文本占位。 */
   inlineText?: InlinePathTextSpec;
   /** 省略时按开放路径解释；内置工厂始终显式写入。 */
   contour?: PathContourPolicySpec;

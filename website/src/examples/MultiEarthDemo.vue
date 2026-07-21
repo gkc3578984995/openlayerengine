@@ -167,25 +167,39 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo multi-earth-demo">
-    <el-alert type="info" :closable="false" show-icon title="两张地图使用不同命名键、底图、View、Layer、Element 与服务实例；销毁其中一张不会影响另一张。" />
+    <el-alert
+      class="example-demo__alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="两张地图使用不同命名键、底图、View、Layer、Element 与服务实例；销毁其中一张不会影响另一张。"
+    />
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="createMaps">创建 / 重建缺失地图</el-button>
-      <el-button @click="verifyIsolation">验证命名实例隔离</el-button>
-      <el-button @click="focus">同时定位</el-button>
-      <el-tag :type="leftEarth && rightEarth ? 'success' : 'warning'">{{ leftEarth && rightEarth ? '两张地图均 ready' : '存在已销毁地图' }}</el-tag>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="createMaps">创建 / 重建缺失地图</el-button>
+            <el-button @click="verifyIsolation">验证命名实例隔离</el-button>
+            <el-button @click="focus">同时定位</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback" aria-live="polite">
+          <el-tag :type="leftEarth && rightEarth ? 'success' : 'warning'">{{ leftEarth && rightEarth ? '两张地图均 ready' : '存在已销毁地图' }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div class="multi-earth-demo__grid">
       <section class="multi-earth-demo__panel">
         <div class="multi-earth-demo__heading">
-          <div>
+          <div class="multi-earth-demo__heading-meta">
             <strong>{{ slots[0].label }}</strong>
             <span
               ><code>{{ slots[0].id }}</code> · {{ stateLabel.left }}</span
             >
           </div>
-          <div>
+          <div class="multi-earth-demo__heading-actions">
             <el-button size="small" :disabled="leftEarth === null" @click="focusMap(slots[0])">定位北京</el-button>
             <el-button size="small" type="danger" plain :disabled="leftEarth === null" @click="destroyMap(slots[0])">只销毁左图</el-button>
           </div>
@@ -195,13 +209,13 @@ onBeforeUnmount(() => {
 
       <section class="multi-earth-demo__panel">
         <div class="multi-earth-demo__heading">
-          <div>
+          <div class="multi-earth-demo__heading-meta">
             <strong>{{ slots[1].label }}</strong>
             <span
               ><code>{{ slots[1].id }}</code> · {{ stateLabel.right }}</span
             >
           </div>
-          <div>
+          <div class="multi-earth-demo__heading-actions">
             <el-button size="small" :disabled="rightEarth === null" @click="focusMap(slots[1])">定位上海</el-button>
             <el-button size="small" type="danger" plain :disabled="rightEarth === null" @click="destroyMap(slots[1])">只销毁右图</el-button>
           </div>
@@ -245,6 +259,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.multi-earth-demo__heading-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .multi-earth-demo__heading span {

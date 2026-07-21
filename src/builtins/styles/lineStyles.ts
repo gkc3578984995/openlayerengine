@@ -26,8 +26,40 @@ export type TrackedLineDecorationType =
 /** 不绘制轨道时可以使用的内置装饰。 */
 export type DecorationOnlyLineType = 'slash';
 
-/** 选择严格位于路径累计长度中点的文本占位。 */
+/** 选择默认位于路径中点的内嵌文本。 */
 export type InlineTextLineDecorationType = 'inline-text';
+
+type TrackedDecorationOptions =
+  | {
+      /** 普通固定装饰，默认不绘制。 */
+      decoration?: Exclude<TrackedLineDecorationType, 'center-cross' | 'center-dot' | 'center-dot-pair'>;
+      /** 非中心装饰不允许配置重复间距。 */
+      repeatSpacingPx?: never;
+      /** 普通装饰不能传入文本。 */
+      text?: never;
+      /** 普通装饰不能传入文本样式。 */
+      textStyle?: never;
+    }
+  | {
+      /** 位于路径中心或按固定像素间距重复的单 glyph 装饰。 */
+      decoration: Extract<TrackedLineDecorationType, 'center-cross' | 'center-dot' | 'center-dot-pair'>;
+      /** 省略时仅在路径中心放置一次；传入时按该 CSS 像素间距重复。 */
+      repeatSpacingPx?: number;
+      /** 中心 glyph 装饰不能传入文本。 */
+      text?: never;
+      /** 中心 glyph 装饰不能传入文本样式。 */
+      textStyle?: never;
+    }
+  | {
+      /** 选择路径文本占位。 */
+      decoration: InlineTextLineDecorationType;
+      /** 放在路径上的非空文本。 */
+      text: string;
+      /** 文本外观；旋转和轨道切口由引擎固定。 */
+      textStyle?: InlineLineTextStyleOptions;
+      /** 省略时仅在路径中心放置一次；传入时按该 CSS 像素间距重复。 */
+      repeatSpacingPx?: number;
+    };
 
 /** 开放单轨路径的起点和终点端帽选项。 */
 export interface LineCapsOptions {
@@ -85,24 +117,7 @@ export type PolylineLineStyleOptions =
           caps?: never;
         }
     ) &
-      (
-        | {
-            /** 普通固定装饰，默认不绘制。 */
-            decoration?: TrackedLineDecorationType;
-            /** 普通装饰不能传入文本。 */
-            text?: never;
-            /** 普通装饰不能传入文本样式。 */
-            textStyle?: never;
-          }
-        | {
-            /** 固定选择路径中点文本占位。 */
-            decoration: InlineTextLineDecorationType;
-            /** 放在路径累计长度中点的非空文本。 */
-            text: string;
-            /** 文本外观；位置、旋转和轨道切口由引擎固定。 */
-            textStyle?: InlineLineTextStyleOptions;
-          }
-      ))
+      TrackedDecorationOptions)
   | {
       /** 纯装饰路径使用的颜色，默认红色。 */
       color?: Color;
@@ -110,6 +125,8 @@ export type PolylineLineStyleOptions =
       lines: 'none';
       /** 纯装饰路径不允许端帽。 */
       caps?: never;
+      /** 纯装饰路径不允许配置文本或中心 glyph 重复间距。 */
+      repeatSpacingPx?: never;
       /** 第一版纯装饰路径固定为斜杠。 */
       decoration: DecorationOnlyLineType;
       /** 纯装饰路径不能传入文本。 */
@@ -127,24 +144,7 @@ export type PolygonLineStyleOptions =
       lines?: LinePattern | readonly [LinePattern, LinePattern];
       /** Polygon 闭合边界不允许端帽。 */
       caps?: never;
-    } & (
-      | {
-          /** 普通固定装饰，默认不绘制。 */
-          decoration?: TrackedLineDecorationType;
-          /** 普通装饰不能传入文本。 */
-          text?: never;
-          /** 普通装饰不能传入文本样式。 */
-          textStyle?: never;
-        }
-      | {
-          /** 固定选择路径中点文本占位。 */
-          decoration: InlineTextLineDecorationType;
-          /** 放在外环累计周长中点的非空文本。 */
-          text: string;
-          /** 文本外观；位置、旋转和轨道切口由引擎固定。 */
-          textStyle?: InlineLineTextStyleOptions;
-        }
-    ))
+    } & TrackedDecorationOptions)
   | {
       /** 纯装饰边界使用的颜色，默认红色。 */
       color?: Color;
@@ -154,6 +154,8 @@ export type PolygonLineStyleOptions =
       decoration: DecorationOnlyLineType;
       /** Polygon 闭合边界不允许端帽。 */
       caps?: never;
+      /** 纯装饰边界不允许配置文本或中心 glyph 重复间距。 */
+      repeatSpacingPx?: never;
       /** 纯装饰边界不能传入文本。 */
       text?: never;
       /** 纯装饰边界不能传入文本样式。 */
@@ -165,7 +167,7 @@ export interface LineStyleFactories {
   /**
    * 创建直线、折线或曲线使用的开放路径线饰。
    *
-   * @param options - 选择轨道、统一颜色、端帽、装饰或中点文本。
+   * @param options - 选择轨道、统一颜色、端帽、装饰或路径文本。
    * @returns 可直接传给 `elements.add()` 或 Draw 的独立 `StyleSpec`。
    * @example
    * ```ts
@@ -181,7 +183,7 @@ export interface LineStyleFactories {
   /**
    * 创建只作用于 Polygon 外环的闭合边界线饰。
    *
-   * @param options - 选择边界轨道、统一颜色、装饰或中点文本。
+   * @param options - 选择边界轨道、统一颜色、装饰或路径文本。
    * @returns 可与现有 `fill` 组合的独立 `StyleSpec`。
    * @example
    * ```ts
@@ -202,6 +204,7 @@ interface NormalizedLineOptions {
   readonly lines: NormalizedLines;
   readonly caps?: LineCapsOptions;
   readonly decoration: TrackedLineDecorationType | DecorationOnlyLineType | InlineTextLineDecorationType;
+  readonly repeatSpacingPx?: number;
   readonly inlineText?: InlinePathTextSpec;
 }
 
@@ -209,7 +212,7 @@ const defaultLineColor = '#ff0000';
 const defaultTextColor = '#000000';
 const defaultOutlineColor = '#ffffff';
 const dashedPattern = [8, 6] as const;
-const optionFields = new Set(['color', 'lines', 'caps', 'decoration', 'text', 'textStyle']);
+const optionFields = new Set(['color', 'lines', 'caps', 'decoration', 'text', 'textStyle', 'repeatSpacingPx']);
 const capFields = new Set(['start', 'end']);
 const textStyleFields = new Set(['fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'color', 'outline', 'background']);
 const outlineFields = new Set(['color', 'width']);
@@ -227,6 +230,7 @@ const trackedDecorationTypes: readonly TrackedLineDecorationType[] = [
   'center-dot',
   'center-dot-pair'
 ];
+const centeredDecorationTypes = ['center-cross', 'center-dot', 'center-dot-pair'] as const;
 
 /** 两个工厂共享同一个纯数据展开内核，不保存调用方对象或运行时回调。 */
 export const lineStyles: Readonly<LineStyleFactories> = Object.freeze({
@@ -247,7 +251,7 @@ function createLineStyle(kind: LineFactoryKind, options: PolylineLineStyleOption
     ...(normalized.caps === undefined ? {} : { caps: createCaps(normalized.caps, normalized.color) }),
     ...(normalized.decoration === 'none' || normalized.decoration === 'inline-text'
       ? {}
-      : { decorations: [createDecoration(normalized.decoration, normalized.color)] }),
+      : { decorations: [createDecoration(normalized.decoration, normalized.color, normalized.repeatSpacingPx)] }),
     ...(normalized.inlineText === undefined ? {} : { inlineText: normalized.inlineText }),
     contour
   };
@@ -268,6 +272,7 @@ function normalizeOptions(kind: LineFactoryKind, options: PolylineLineStyleOptio
   if (lines.length !== 1 && hasCaps) throw new InvalidArgumentError('Only single-track polyline styles can contain caps');
 
   const decoration = normalizeDecoration(record.decoration, lines);
+  const repeatSpacingPx = normalizeRepeatSpacing(record, decoration);
   const hasText = hasOwn(record, 'text');
   const hasTextStyle = hasOwn(record, 'textStyle');
   let inlineText: InlinePathTextSpec | undefined;
@@ -275,7 +280,7 @@ function normalizeOptions(kind: LineFactoryKind, options: PolylineLineStyleOptio
     if (!hasText || typeof record.text !== 'string' || record.text.trim().length === 0) {
       throw new InvalidArgumentError('Inline-text line styles require non-blank text');
     }
-    inlineText = normalizeInlineText(record.text, record.textStyle);
+    inlineText = normalizeInlineText(record.text, record.textStyle, repeatSpacingPx);
   } else if (hasText || hasTextStyle) {
     throw new InvalidArgumentError('Only inline-text line styles can contain text or textStyle');
   }
@@ -287,7 +292,14 @@ function normalizeOptions(kind: LineFactoryKind, options: PolylineLineStyleOptio
 
   const color = normalizeColor(record.color === undefined ? defaultLineColor : record.color, 'Line style color');
   const caps = lines.length === 1 && record.caps !== undefined ? normalizeCaps(record.caps) : undefined;
-  return { color, lines, decoration, ...(caps === undefined ? {} : { caps }), ...(inlineText === undefined ? {} : { inlineText }) };
+  return {
+    color,
+    lines,
+    decoration,
+    ...(caps === undefined ? {} : { caps }),
+    ...(repeatSpacingPx === undefined ? {} : { repeatSpacingPx }),
+    ...(inlineText === undefined ? {} : { inlineText })
+  };
 }
 
 /** 把单轨、双轨和纯装饰判别值转换成稳定元组。 */
@@ -320,6 +332,19 @@ function normalizeDecoration(value: unknown, lines: NormalizedLines): Normalized
   throw new InvalidArgumentError('Line style decoration is invalid');
 }
 
+/** 只让单个中心占位切换为固定像素间距重复。 */
+function normalizeRepeatSpacing(record: Record<string, unknown>, decoration: NormalizedLineOptions['decoration']): number | undefined {
+  if (!hasOwn(record, 'repeatSpacingPx') || record.repeatSpacingPx === undefined) return undefined;
+  if (decoration !== 'inline-text' && !centeredDecorationTypes.includes(decoration as (typeof centeredDecorationTypes)[number])) {
+    throw new InvalidArgumentError('Line style repeatSpacingPx requires a center decoration or inline-text');
+  }
+  const spacing = record.repeatSpacingPx;
+  if (typeof spacing !== 'number' || !Number.isFinite(spacing) || spacing <= 0) {
+    throw new InvalidArgumentError('Line style repeatSpacingPx must be a positive finite CSS pixel distance');
+  }
+  return spacing;
+}
+
 /** 校验并展开单轨端帽默认值。 */
 function normalizeCaps(value: unknown): LineCapsOptions | undefined {
   const caps = plainRecord(value, 'Line caps options');
@@ -336,8 +361,8 @@ function normalizeCap(value: unknown, endpoint: string): LineCapType {
   throw new InvalidArgumentError(`Line ${endpoint} cap is invalid`);
 }
 
-/** 展开只允许修改外观的中点文本参数。 */
-function normalizeInlineText(text: string, value: unknown): InlinePathTextSpec {
+/** 展开路径文本的外观与可选重复放置参数。 */
+function normalizeInlineText(text: string, value: unknown, repeatSpacingPx: number | undefined): InlinePathTextSpec {
   const style = value === undefined ? {} : plainRecord(value, 'Inline line text style');
   assertKnownFields(style, textStyleFields, 'Inline line text style');
   const outline = style.outline === undefined ? undefined : plainRecord(style.outline, 'Inline line text outline');
@@ -352,6 +377,7 @@ function normalizeInlineText(text: string, value: unknown): InlinePathTextSpec {
 
   const normalized: InlinePathTextSpec = {
     text,
+    ...(repeatSpacingPx === undefined ? {} : { placement: { kind: 'repeat' as const, spacing: repeatSpacingPx, phase: 0 } }),
     fontFamily: style.fontFamily === undefined ? 'sans-serif' : (style.fontFamily as string),
     fontSize: style.fontSize === undefined ? 12 : (style.fontSize as number),
     fontWeight: style.fontWeight === undefined ? 'normal' : (style.fontWeight as InlinePathTextSpec['fontWeight']),
@@ -421,7 +447,11 @@ function createCap(type: LineCapType, color: Color): PathCapSpec | undefined {
 }
 
 /** 把装饰枚举展开成固定尺寸和固定间距的矢量定义。 */
-function createDecoration(type: Exclude<NormalizedLineOptions['decoration'], 'none' | 'inline-text'>, color: Color): PathDecorationSpec {
+function createDecoration(
+  type: Exclude<NormalizedLineOptions['decoration'], 'none' | 'inline-text'>,
+  color: Color,
+  repeatSpacingPx: number | undefined
+): PathDecorationSpec {
   if (type === 'slash') return repeatDecoration(12, [glyph([segment([-3, 6], [3, -6], color, 2)])]);
   if (type === 'tick') return repeatDecoration(32, [glyph([segment([0, -7], [0, 7], color, 1.5)])]);
   if (type === 'alternating-tick') {
@@ -454,16 +484,20 @@ function createDecoration(type: Exclude<NormalizedLineOptions['decoration'], 'no
     ]);
   }
   if (type === 'circle') return repeatDecoration(32, [glyph([circle([0, 0], 4, color)])]);
-  if (type === 'center-cross') {
-    return centerDecoration(glyph([segment([-4, -4], [4, 4], color, 1.5), segment([-4, 4], [4, -4], color, 1.5)]), 4);
-  }
-  if (type === 'center-dot') return centerDecoration(glyph([circle([0, 0], 2, color)]), 3);
-  return centerDecoration(glyph([circle([-4, 0], 2, color), circle([4, 0], 2, color)]), 3);
+  const centered =
+    type === 'center-cross'
+      ? { glyph: glyph([segment([-4, -4], [4, 4], color, 1.5), segment([-4, 4], [4, -4], color, 1.5)]), cutoutPadding: 4 }
+      : type === 'center-dot'
+        ? { glyph: glyph([circle([0, 0], 2, color)]), cutoutPadding: 3 }
+        : { glyph: glyph([circle([-4, 0], 2, color), circle([4, 0], 2, color)]), cutoutPadding: 3 };
+  return repeatSpacingPx === undefined
+    ? centerDecoration(centered.glyph, centered.cutoutPadding)
+    : repeatDecoration(repeatSpacingPx, [centered.glyph], centered.cutoutPadding);
 }
 
 /** 创建重复装饰结构。 */
-function repeatDecoration(spacing: number, sequence: PathGlyphSpec[]): PathDecorationSpec {
-  return { placement: { kind: 'repeat', spacing, phase: 0 }, sequence };
+function repeatDecoration(spacing: number, sequence: PathGlyphSpec[], cutoutPadding?: number): PathDecorationSpec {
+  return { placement: { kind: 'repeat', spacing, phase: 0 }, sequence, ...(cutoutPadding === undefined ? {} : { cutoutPadding }) };
 }
 
 /** 创建会在中心 glyph 两侧切出留白的装饰结构。 */

@@ -335,24 +335,48 @@ onBeforeUnmount(() => {
       </el-col>
     </el-row>
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" :disabled="registered" @click="registerMenus">重新注册三层菜单</el-button>
-      <el-button :disabled="!registered" @click="setInspectDisabled">切换 map 项禁用状态</el-button>
-      <el-button :disabled="!registered" @click="toggleLabels">切换 map 互斥项</el-button>
-      <el-button :disabled="!registered" @click="closeMenu">关闭当前菜单</el-button>
-      <el-button :disabled="!registered" type="danger" plain @click="destroyRegistrations">注销三项注册</el-button>
-    </div>
+    <div class="example-demo__control-panel context-menu-demo__controls">
+      <div class="example-demo__actions context-menu-demo__toolbar">
+        <div class="example-demo__action-group context-menu-demo__action-group" role="group" aria-label="注册与项目状态">
+          <span>注册与项目状态</span>
+          <div class="example-demo__action-buttons context-menu-demo__action-buttons">
+            <el-button type="primary" :disabled="registered" @click="registerMenus">重新注册三层菜单</el-button>
+            <el-button :disabled="!registered" @click="setInspectDisabled">切换 map 项禁用状态</el-button>
+            <el-button :disabled="!registered" @click="toggleLabels">切换 map 互斥项</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group context-menu-demo__action-group" role="group" aria-label="菜单与注册清理">
+          <span>菜单与注册清理</span>
+          <div class="example-demo__action-buttons context-menu-demo__action-buttons">
+            <el-button :disabled="!registered" @click="closeMenu">关闭当前菜单</el-button>
+            <el-button :disabled="!registered" type="danger" plain @click="destroyRegistrations">注销三项注册</el-button>
+          </div>
+        </div>
+      </div>
 
-    <div class="context-menu-demo__settings">
-      <el-segmented v-model="theme" :options="['light', 'dark']" aria-label="右键菜单主题" @change="setMenuTheme" />
-      <el-button plain @click="toggleMenuTheme">切换菜单主题</el-button>
-      <el-button plain :disabled="!registered" @click="clearMarkerState">清除 Element 状态</el-button>
-      <el-tag :type="registered ? 'success' : 'info'" effect="plain">{{ registered ? '已注册' : '已注销' }}</el-tag>
+      <div class="example-demo__action-row context-menu-demo__settings-row">
+        <div class="example-demo__control-grid context-menu-demo__settings">
+          <div class="example-demo__action-group context-menu-demo__setting-group" role="group" aria-label="菜单主题控制">
+            <div class="example-demo__action-buttons context-menu-demo__setting-buttons">
+              <el-segmented v-model="theme" :options="['light', 'dark']" aria-label="右键菜单主题" @change="setMenuTheme" />
+              <el-button plain @click="toggleMenuTheme">切换菜单主题</el-button>
+            </div>
+          </div>
+          <div class="example-demo__action-group context-menu-demo__setting-group" role="group" aria-label="菜单状态控制">
+            <div class="example-demo__action-buttons context-menu-demo__setting-buttons">
+              <el-button plain :disabled="!registered" @click="clearMarkerState">清除 Element 状态</el-button>
+            </div>
+          </div>
+        </div>
+        <div class="example-demo__feedback context-menu-demo__feedback" aria-live="polite">
+          <el-tag :type="registered ? 'success' : 'info'" effect="plain">{{ registered ? '已注册' : '已注销' }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
 
-    <el-descriptions class="context-menu-demo__result" :column="1" border>
+    <el-descriptions class="context-menu-demo__result" :column="1" border aria-live="polite">
       <el-descriptions-item label="最近可见结果">{{ selectedAction }}</el-descriptions-item>
       <el-descriptions-item label="map inspect 状态">{{ stateLabel }}</el-descriptions-item>
       <el-descriptions-item label="当前菜单主题">{{ theme }}</el-descriptions-item>
@@ -361,6 +385,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.context-menu-demo__toolbar {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.context-menu-demo__action-group {
+  max-width: 100%;
+}
+
 .context-menu-demo__scenarios {
   margin-top: 14px;
   margin-bottom: 14px;
@@ -393,20 +426,50 @@ onBeforeUnmount(() => {
 }
 
 .context-menu-demo__settings {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 14px;
+  flex: 2 1 420px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+.context-menu-demo__setting-buttons > *,
+.context-menu-demo__setting-buttons :deep(.el-segmented) {
+  max-width: 100%;
 }
 
 .context-menu-demo__result {
   margin-top: 14px;
 }
 
+.context-menu-demo__result :deep(.el-descriptions__content) {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 767px) {
   .context-menu-demo__scenario {
     margin-bottom: 8px;
+  }
+}
+
+@media (max-width: 560px) {
+  .context-menu-demo__toolbar,
+  .context-menu-demo__action-buttons,
+  .context-menu-demo__settings,
+  .context-menu-demo__setting-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .context-menu-demo__action-group,
+  .context-menu-demo__action-buttons :deep(.el-button),
+  .context-menu-demo__setting-group,
+  .context-menu-demo__setting-buttons :deep(.el-button) {
+    width: 100%;
+  }
+
+  .context-menu-demo__action-buttons :deep(.el-button),
+  .context-menu-demo__setting-buttons :deep(.el-button) {
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
   }
 }
 </style>

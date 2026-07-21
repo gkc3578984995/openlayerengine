@@ -227,22 +227,41 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="说明" :span="2">{{ selectedTarget.description }}</el-descriptions-item>
     </el-descriptions>
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="start">开始编辑当前目标</el-button>
-      <el-button :disabled="!isActive" @click="undo">撤销</el-button>
-      <el-button :disabled="!isActive" @click="redo">重做</el-button>
-      <el-button :disabled="!isActive" @click="finish">完成并提交</el-button>
-      <el-button :disabled="!isActive" @click="cancel">取消并回滚</el-button>
-      <el-button :disabled="sessionRef === null" @click="destroySession">销毁 Session</el-button>
-      <el-button plain :disabled="isActive" @click="reset">恢复当前目标</el-button>
-    </div>
-    <div class="edit-session-demo__options">
-      <span>显示原始轮廓</span>
-      <el-switch v-model="underlay" :disabled="isActive" />
-      <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
-      <el-tag type="primary" effect="plain">控制点：拖拽</el-tag>
-      <el-tag v-if="selectedTarget.edit.insert" type="info" effect="plain">插入 / 删除：Alt + 单击</el-tag>
-      <el-tag v-else type="info" effect="plain">固定拓扑：不支持插入 / 删除</el-tag>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__control-grid edit-session-demo__controls">
+        <div class="example-demo__action-group">
+          <span>会话启动</span>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="start">开始编辑当前目标</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>历史</span>
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="!isActive" @click="undo">撤销</el-button>
+            <el-button :disabled="!isActive" @click="redo">重做</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>会话结束</span>
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="!isActive" @click="finish">完成并提交</el-button>
+            <el-button :disabled="!isActive" @click="cancel">取消并回滚</el-button>
+            <el-button :disabled="sessionRef === null" @click="destroySession">销毁 Session</el-button>
+            <el-button plain :disabled="isActive" @click="reset">恢复当前目标</el-button>
+          </div>
+        </div>
+      </div>
+      <div class="example-demo__field edit-session-demo__field">
+        <span>显示原始轮廓</span>
+        <el-switch v-model="underlay" :disabled="isActive" />
+      </div>
+      <div class="example-demo__feedback" aria-live="polite">
+        <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
+        <el-tag type="primary" effect="plain">控制点：拖拽</el-tag>
+        <el-tag v-if="selectedTarget.edit.insert" type="info" effect="plain">插入 / 删除：Alt + 单击</el-tag>
+        <el-tag v-else type="info" effect="plain">固定拓扑：不支持插入 / 删除</el-tag>
+      </div>
     </div>
     <div class="edit-session-demo__map-shell">
       <div ref="mapTarget" class="example-stage"></div>
@@ -295,14 +314,14 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
-.edit-session-demo__options {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 12px;
-  color: var(--doc-muted);
-  font-size: 13px;
+.edit-session-demo__controls {
+  grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr);
+  align-items: stretch;
+}
+
+.edit-session-demo__field {
+  width: max-content;
+  max-width: 100%;
 }
 
 .edit-session-demo__map-shell {
@@ -335,5 +354,11 @@ onBeforeUnmount(() => {
 .edit-session-demo__matrix-title {
   margin: 18px 0 10px;
   color: var(--doc-text);
+}
+
+@media (max-width: 640px) {
+  .edit-session-demo__controls {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

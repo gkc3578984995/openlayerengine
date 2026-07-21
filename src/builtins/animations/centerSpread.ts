@@ -85,6 +85,7 @@ const centerSpreadTailSlotCount = 4;
 
 function centerSpreadRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedCenterSpreadAnimationSpec): AnimationRuntime {
   let radialFrame = initialFrame;
+  const usesGradient = spec.gradient !== undefined;
   const completionElapsedMs = spec.periodMs + ((spec.ringCount - 1) * spec.periodMs) / spec.ringCount;
   const hasVisibleOutput = spec.opacity > 0 && (spec.trailLength > 0 || spec.strokeWidth > 0);
   const runningSample = hasVisibleOutput
@@ -146,7 +147,7 @@ function centerSpreadRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedCen
       for (let ringIndex = 0; ringIndex < spec.ringCount; ringIndex += 1) {
         const progress = centerSpreadRingProgressAt(context.elapsedMs, spec.periodMs, spec.ringCount, ringIndex, spec.repeat);
         if (progress === undefined || progress <= Number.EPSILON || spec.opacity <= 0) continue;
-        const progressOpacity = spec.opacity * (1 - progress);
+        const progressOpacity = usesGradient ? spec.opacity * (1 - progress) : spec.opacity;
         if (normalizedBandWidth > 0) {
           for (let tailIndex = 0; tailIndex < centerSpreadTailSlotCount; tailIndex += 1) {
             const outerProgress = progress - tailIndex * normalizedBandWidth;
@@ -163,7 +164,7 @@ function centerSpreadRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedCen
               fullCircle,
               arcSampling.segmentCount
             );
-            slot.opacity = progressOpacity * (1 - tailIndex / centerSpreadTailSlotCount);
+            slot.opacity = usesGradient ? progressOpacity * (1 - tailIndex / centerSpreadTailSlotCount) : progressOpacity;
           }
         }
         if (spec.strokeWidth > 0) {

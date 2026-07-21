@@ -4,8 +4,11 @@ import type {
   Coordinate,
   DrawService,
   EarthOptions,
+  ElementGeometryDetails,
+  ElementRenderGeometry,
   ElementService,
   LayerService,
+  MapExtent,
   MeasureService,
   OverlayService,
   StyleService,
@@ -23,6 +26,9 @@ declare const element: Element;
 declare const layer: Layer;
 
 const elements: ElementService = earth.elements;
+const geometryDetails: ElementGeometryDetails = element.geometryDetails;
+const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
+const mapExtent: MapExtent = geometryDetails.extent;
 const layers: LayerService = earth.layers;
 const styles: StyleService = earth.styles;
 const animations: AnimationManager = earth.animations;
@@ -38,6 +44,9 @@ void [
   throttled,
   lineStyle,
   elements,
+  geometryDetails,
+  renderGeometry,
+  mapExtent,
   layers,
   styles,
   animations,

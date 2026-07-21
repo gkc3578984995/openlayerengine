@@ -271,6 +271,168 @@ describe('linework animation presentation integration', () => {
     compiled.destroy();
   });
 
+  it('按完整路径锚点逐步 reveal 重复文字，并在稳定帧复用预热的文字与切口 slot', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const canonical = line(100);
+    const compiled = compiler.compilePresentation(repeatInlineTextSpec(), canonical);
+    const complete = compiled.resolve(canonical, 1);
+    const completeStyles = [...complete];
+    const textStyles = complete.filter((style) => style.getText() !== null);
+    const textGeometries = textStyles.map((style) => style.getGeometry());
+    const revision = compiled.revision;
+    expect(textCoordinates(complete)).toEqual([
+      [10, 0],
+      [50, 0],
+      [90, 0]
+    ]);
+
+    const firstPrefix = line(40);
+    const first = compiled.resolve(firstPrefix, 1, { progress: 0.4, direction: 'forward' });
+    expect(textCoordinates(first)).toEqual([[10, 0]]);
+    expect(first.filter((style) => style.getText() !== null)).toEqual([textStyles[0]]);
+    expect(activeLineCoordinates(first)).toEqual([
+      [
+        [0, 0],
+        [4, 0]
+      ],
+      [
+        [16, 0],
+        [40, 0]
+      ]
+    ]);
+
+    const secondPrefix = line(60);
+    const second = compiled.resolve(secondPrefix, 1, { progress: 0.6, direction: 'forward' });
+    expect(textCoordinates(second)).toEqual([
+      [10, 0],
+      [50, 0]
+    ]);
+    expect(second.filter((style) => style.getText() !== null)).toEqual(textStyles.slice(0, 2));
+    expect(second.every((style) => completeStyles.includes(style))).toBe(true);
+
+    for (let frame = 0; frame < 300; frame += 1) {
+      const stable = compiled.resolve(secondPrefix, 1, { progress: 0.6, direction: 'forward' });
+      expect(stable).toBe(complete);
+      expect(stable.every((style) => completeStyles.includes(style))).toBe(true);
+    }
+    expect(compiled.revision).toBe(revision);
+    expect(textStyles.map((style) => style.getGeometry())).toEqual(textGeometries);
+    compiled.destroy();
+  });
+
+  it('反向 grow 只激活已 reveal 的重复文字锚点', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const canonical = line(100);
+    const suffix = new Feature(
+      new LineString([
+        [60, 0],
+        [100, 0]
+      ])
+    );
+    const compiled = compiler.compilePresentation(repeatInlineTextSpec(), canonical);
+    compiled.resolve(canonical, 1);
+
+    const partial = compiled.resolve(suffix, 1, { progress: 0.4, direction: 'reverse' });
+    expect(textCoordinates(partial)).toEqual([[90, 0]]);
+    expect(activeLineCoordinates(partial)).toEqual([
+      [
+        [60, 0],
+        [84, 0]
+      ],
+      [
+        [96, 0],
+        [100, 0]
+      ]
+    ]);
+    compiled.destroy();
+  });
+
+  it('重复文字随 viewport 物化，并在平移到另一段路径时复用相同文字 slot', () => {
+    let viewportExtent: [number, number, number, number] = [490, -10, 510, 10];
+    const compiler = new StyleCompiler(new NativeRefRegistry(), {
+      measureTextWidth: () => 8,
+      getLineworkViewport: () => ({ extent: viewportExtent, renderBufferPx: 0 })
+    });
+    const canonical = line(100_000);
+    const compiled = compiler.compilePresentation(repeatInlineTextSpec(10, false), canonical);
+    const first = compiled.resolve(canonical, 1);
+    const styles = first.filter((style) => style.getText() !== null);
+    const geometries = styles.map((style) => style.getGeometry());
+    expect(textCoordinates(first).map(([x]) => Math.round(x))).toEqual([480, 490, 500, 510, 520]);
+
+    viewportExtent = [990, -10, 1_010, 10];
+    const moved = compiled.resolve(canonical, 1);
+    expect(moved.filter((style) => style.getText() !== null)).toEqual(styles);
+    expect(styles.map((style) => style.getGeometry())).toEqual(geometries);
+    expect(textCoordinates(moved).map(([x]) => Math.round(x))).toEqual([980, 990, 1_000, 1_010, 1_020]);
+    compiled.destroy();
+  });
+
+  it.each(['forward', 'reverse'] as const)('闭环 %s grow 按 preserve-spacing 激活重复文字', (direction) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const canonical = square(0, 100);
+    const compiled = compiler.compilePresentation(repeatClosedInlineTextSpec(), canonical);
+    const complete = compiled.resolve(canonical, 1);
+    const textStyles = complete.filter((style) => style.getText() !== null);
+    const partial = compiled.resolve(canonical, 1, { progress: 0.4, direction });
+
+    expect(textCoordinates(partial)).toEqual(
+      direction === 'forward'
+        ? [
+            [50, 0],
+            [100, 50]
+          ]
+        : [
+            [50, 100],
+            [0, 50]
+          ]
+    );
+    expect(partial.filter((style) => style.getText() !== null).every((style) => textStyles.includes(style))).toBe(true);
+    compiled.destroy();
+  });
+
+  it('presentation 为带 cutoutPadding 的重复 glyph 复用多切口轨道 slot', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const canonical = line(100);
+    const spec: StyleSpec = {
+      linework: {
+        tracks: [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 6] } }],
+        decorations: [
+          {
+            placement: { kind: 'repeat', spacing: 40 },
+            sequence: [{ primitives: [{ type: 'circle', center: [0, 0], radius: 2, fill: { type: 'solid', color: '#f00' } }] }],
+            cutoutPadding: 3
+          }
+        ],
+        contour: { kind: 'open' }
+      }
+    };
+    const compiled = compiler.compilePresentation(spec, canonical);
+    const complete = compiled.resolve(canonical, 1);
+    const lineStyles = complete.filter((style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#f00');
+    const lineGeometries = lineStyles.map((style) => style.getGeometry());
+
+    const prefix = line(60);
+    const partial = compiled.resolve(prefix, 1, { progress: 0.6, direction: 'forward' });
+    expect(activeLineCoordinates(partial)).toEqual([
+      [
+        [0, 0],
+        [5, 0]
+      ],
+      [
+        [15, 0],
+        [45, 0]
+      ],
+      [
+        [55, 0],
+        [60, 0]
+      ]
+    ]);
+    expect(partial.filter((style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#f00')).toEqual(lineStyles.slice(0, 3));
+    expect(lineStyles.map((style) => style.getGeometry())).toEqual(lineGeometries);
+    compiled.destroy();
+  });
+
   it('reveals a center glyph at the fixed full-path midpoint without replacing its batch', () => {
     const compiler = new StyleCompiler(new NativeRefRegistry());
     const canonical = line(100);
@@ -745,6 +907,12 @@ function roundedMarkerCoordinates(geometry: MultiPoint): number[][] {
   return geometry.getCoordinates().map(([x, y]) => [Math.round(x), Math.round(y)]);
 }
 
+function textCoordinates(styles: readonly Style[]): number[][] {
+  return styles
+    .filter((style) => style.getText() !== null && style.getGeometry() instanceof Point)
+    .map((style) => (style.getGeometry() as Point).getCoordinates());
+}
+
 function capAndRepeatSpec(): StyleSpec {
   return {
     linework: {
@@ -886,6 +1054,44 @@ function inlineTextSpec(): StyleSpec {
         gapPadding: 2
       },
       contour: { kind: 'open' }
+    }
+  };
+}
+
+function repeatInlineTextSpec(spacing = 40, tracks = true): StyleSpec {
+  return {
+    linework: {
+      tracks: tracks ? [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 6] } }] : [],
+      inlineText: {
+        text: 'AB',
+        placement: { kind: 'repeat', spacing, phase: 0 },
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        fill: { type: 'solid', color: '#000' },
+        gapPadding: 2
+      },
+      contour: { kind: 'open' }
+    }
+  };
+}
+
+function repeatClosedInlineTextSpec(): StyleSpec {
+  return {
+    linework: {
+      tracks: [{ offset: 0, stroke: { color: '#f00', width: 2, lineDash: [8, 6] } }],
+      inlineText: {
+        text: 'AB',
+        placement: { kind: 'repeat', spacing: 100, phase: 0 },
+        fontFamily: 'sans-serif',
+        fontSize: 12,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        fill: { type: 'solid', color: '#000' },
+        gapPadding: 2
+      },
+      contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' }
     }
   };
 }

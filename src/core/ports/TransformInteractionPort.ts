@@ -11,7 +11,12 @@ export type TransformInteractionMode = 'transform' | 'edit';
 
 export type TransformDelta =
   | Readonly<{ type: 'translate'; x: number; y: number }>
-  | Readonly<{ type: 'rotate'; angle: number; center: Coordinate }>
+  | Readonly<{
+      type: 'rotate';
+      /** 投影坐标系中的有符号弧度增量，正值表示逆时针。 */
+      angle: number;
+      center: Coordinate;
+    }>
   | Readonly<{ type: 'scale' | 'stretch'; scaleX: number; scaleY: number; center: Coordinate }>
   | Readonly<{ type: 'vertex'; index: number; coordinate: Coordinate }>;
 

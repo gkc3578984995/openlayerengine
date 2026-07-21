@@ -217,20 +217,45 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <div class="example-demo__toolbar element-update-demo__toolbar">
-      <el-select v-model="selectedId" aria-label="选择 Element" @change="focusSelected">
-        <el-option v-for="row in rows" :key="row.id" :label="`${row.label} · ${row.id}`" :value="row.id" />
-      </el-select>
-      <el-input-number v-model="offsetKm" :min="-20" :max="20" :step="2" aria-label="横向移动千米" />
-      <el-color-picker v-model="color" aria-label="更新颜色" />
-      <el-button type="primary" :disabled="!selectedId" @click="updateHandle">句柄 update()</el-button>
-      <el-button :disabled="!selectedId" @click="copySelected">copy()</el-button>
-      <el-button @click="batchUpdate">批量 update()</el-button>
-      <el-button :disabled="!selectedId" @click="hideSelected">hide()</el-button>
-      <el-button :disabled="!selectedId" @click="showSelected">show()</el-button>
-      <el-tag type="primary" effect="plain">当前：{{ selectedRow?.label ?? '无' }}</el-tag>
-      <el-tag type="success" effect="plain">本次影响 {{ affectedCount }} 个</el-tag>
-      <el-tag effect="plain">{{ status }}</el-tag>
+    <div class="example-demo__control-panel element-update-demo__controls">
+      <div class="example-demo__control-grid element-update-demo__settings">
+        <div class="example-demo__field element-update-demo__field">
+          <span>当前 Element</span>
+          <el-select v-model="selectedId" aria-label="选择 Element" @change="focusSelected">
+            <el-option v-for="row in rows" :key="row.id" :label="`${row.label} · ${row.id}`" :value="row.id" />
+          </el-select>
+        </div>
+        <div class="example-demo__field element-update-demo__field">
+          <span>横向移动（千米）</span>
+          <el-input-number v-model="offsetKm" :min="-20" :max="20" :step="2" aria-label="横向移动千米" />
+        </div>
+        <div class="example-demo__field element-update-demo__field">
+          <span>更新颜色</span>
+          <el-color-picker v-model="color" aria-label="更新颜色" />
+        </div>
+      </div>
+      <div class="example-demo__action-row">
+        <div class="example-demo__actions element-update-demo__actions">
+          <div class="example-demo__action-group element-update-demo__action-group" role="group" aria-label="更新与复制操作">
+            <div class="example-demo__action-buttons">
+              <el-button type="primary" :disabled="!selectedId" @click="updateHandle">句柄 update()</el-button>
+              <el-button :disabled="!selectedId" @click="copySelected">copy()</el-button>
+              <el-button @click="batchUpdate">批量 update()</el-button>
+            </div>
+          </div>
+          <div class="example-demo__action-group element-update-demo__action-group" role="group" aria-label="显隐操作">
+            <div class="example-demo__action-buttons">
+              <el-button :disabled="!selectedId" @click="hideSelected">hide()</el-button>
+              <el-button :disabled="!selectedId" @click="showSelected">show()</el-button>
+            </div>
+          </div>
+        </div>
+        <div class="example-demo__feedback element-update-demo__feedback" aria-live="polite">
+          <el-tag type="primary" effect="plain">当前：{{ selectedRow?.label ?? '无' }}</el-tag>
+          <el-tag type="success" effect="plain">本次影响 {{ affectedCount }} 个</el-tag>
+          <el-tag effect="plain">{{ status }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
@@ -258,12 +283,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.element-update-demo__toolbar :deep(.el-select) {
-  width: 220px;
+.element-update-demo__settings {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
 }
 
-.element-update-demo__toolbar :deep(.el-input-number) {
-  width: 150px;
+.element-update-demo__field :deep(.el-select) {
+  width: 100%;
+  max-width: 220px;
+}
+
+.element-update-demo__field :deep(.el-input-number) {
+  width: 100%;
+  max-width: 150px;
 }
 
 .element-update-demo__table {

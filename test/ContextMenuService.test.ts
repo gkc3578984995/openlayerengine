@@ -294,6 +294,7 @@ describe('ContextMenuService', () => {
       feature,
       isCurrent: () => true,
       getState: () => elementState,
+      getGeometryDetails: () => ({ renderGeometry: { type: 'point', coordinates: [1, 2] }, extent: [1, 2, 1, 2] }),
       update: vi.fn(),
       remove: vi.fn(),
       removedByHandle: false
@@ -334,6 +335,7 @@ describe('ContextMenuService', () => {
       feature: new Feature(),
       isCurrent: () => true,
       getState: () => elementState,
+      getGeometryDetails: () => ({ renderGeometry: { type: 'point', coordinates: [1, 2] }, extent: [1, 2, 1, 2] }),
       update: vi.fn(),
       remove: vi.fn(),
       removedByHandle: false
@@ -411,6 +413,7 @@ describe('ContextMenuService', () => {
       feature: new Feature(),
       isCurrent: () => false,
       getState: () => element(),
+      getGeometryDetails: () => ({ renderGeometry: { type: 'point', coordinates: [1, 2] }, extent: [1, 2, 1, 2] }),
       update: vi.fn(),
       remove: vi.fn(),
       removedByHandle: false

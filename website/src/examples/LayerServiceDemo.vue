@@ -155,19 +155,23 @@ onBeforeUnmount(() => {
       show-icon
     />
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" :disabled="businessLayer !== null" @click="addBusinessLayer">新增业务图层</el-button>
-      <el-button :disabled="businessLayer === null || businessState?.visible === true" @click="showBusinessLayer">显示</el-button>
-      <el-button :disabled="businessLayer === null || businessState?.visible === false" @click="hideBusinessLayer">隐藏</el-button>
-      <el-button type="danger" plain :disabled="businessLayer === null" @click="removeBusinessLayer">移除业务图层</el-button>
-      <el-button @click="refreshLayers()">查询全部</el-button>
-      <el-button @click="refreshLayers('vector')">只查 vector</el-button>
-    </div>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__action-group">
+        <div class="example-demo__action-buttons example-demo__actions">
+          <el-button type="primary" :disabled="businessLayer !== null" @click="addBusinessLayer">新增业务图层</el-button>
+          <el-button :disabled="businessLayer === null || businessState?.visible === true" @click="showBusinessLayer">显示</el-button>
+          <el-button :disabled="businessLayer === null || businessState?.visible === false" @click="hideBusinessLayer">隐藏</el-button>
+          <el-button type="danger" plain :disabled="businessLayer === null" @click="removeBusinessLayer">移除业务图层</el-button>
+          <el-button @click="refreshLayers()">查询全部</el-button>
+          <el-button @click="refreshLayers('vector')">只查 vector</el-button>
+        </div>
+      </div>
 
-    <div class="layer-service-demo__opacity">
-      <span>业务图层透明度</span>
-      <el-slider v-model="opacity" :min="0" :max="1" :step="0.05" :disabled="businessLayer === null" @change="updateOpacity" />
-      <el-tag effect="plain">{{ opacity.toFixed(2) }}</el-tag>
+      <div class="layer-service-demo__opacity">
+        <span>业务图层透明度</span>
+        <el-slider v-model="opacity" :min="0" :max="1" :step="0.05" :disabled="businessLayer === null" @change="updateOpacity" />
+        <el-tag effect="plain">{{ opacity.toFixed(2) }}</el-tag>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
@@ -198,7 +202,6 @@ onBeforeUnmount(() => {
   grid-template-columns: auto minmax(160px, 320px) auto;
   align-items: center;
   gap: 14px;
-  margin: 0 0 14px;
   color: var(--el-text-color-regular);
   font-size: 14px;
 }

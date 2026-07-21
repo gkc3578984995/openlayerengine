@@ -194,6 +194,32 @@ describe('TransformInteractionAdapter', () => {
     expect(map.layers.getLength()).toBe(0);
   });
 
+  it('emits clockwise quarter-turn rotation deltas in radians around the target center', () => {
+    const map = new MapHarness();
+    const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const received: unknown[] = [];
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open('transform-rotate-radians', options, (event) => received.push(event));
+    handle.setTarget(polygonTarget());
+    map.hitHandleKey = 'rotate';
+    const input = map.interactions.item(0);
+    if (input === null) throw new Error('Transform interaction was not installed.');
+
+    input.handleEvent(pointerGestureEvent('pointerdown', [0, 5]));
+    input.handleEvent(pointerGestureEvent('pointerdrag', [5, 0]));
+    input.handleEvent(pointerGestureEvent('pointerup', [5, 0]));
+
+    for (const type of ['operation-change', 'operation-end']) {
+      const event = received.find((candidate) => (candidate as { type?: string }).type === type) as
+        Readonly<{ delta: Readonly<{ type: string; angle: number; center: readonly number[] }> }> | undefined;
+      expect(event?.delta).toMatchObject({ type: 'rotate', center: [0, 0] });
+      expect(event?.delta.angle).toBeCloseTo(-Math.PI / 2);
+    }
+    handle.destroy();
+  });
+
   it('keeps rectangle corner scaling proportional while Shift is pressed', () => {
     const map = new MapHarness();
     const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;

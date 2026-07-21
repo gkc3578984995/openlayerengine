@@ -14,7 +14,7 @@ import {
   stableUntil,
   writeDomains
 } from './effectRuntime.js';
-import { animationFinishedAt, radarScanProgressAt } from './timeline.js';
+import { animationFinishedAt, radarScanProgressAt, radarScanRoundTripTravelAt } from './timeline.js';
 import { RadialArcSamplingCache } from './radialArcSampling.js';
 import { normalizeColorGradient, sampleColorGradient } from './colorGradient.js';
 import { animationRecord, boolean, channel, choice, color, literal, positive, unitInterval } from './validation.js';
@@ -30,7 +30,18 @@ export type NormalizedRadarScanAnimationSpec = Readonly<
 
 /** 严格校验并补齐 radar-scan 配置。 */
 export function normalizeRadarScanAnimationSpec(input: unknown): NormalizedRadarScanAnimationSpec {
-  const record = animationRecord(input, 'radar-scan', ['type', 'channel', 'periodMs', 'direction', 'color', 'gradient', 'opacity', 'beamWidthDeg', 'repeat']);
+  const record = animationRecord(input, 'radar-scan', [
+    'type',
+    'channel',
+    'periodMs',
+    'direction',
+    'scanMode',
+    'color',
+    'gradient',
+    'opacity',
+    'beamWidthDeg',
+    'repeat'
+  ]);
   if (record.color !== undefined && record.gradient !== undefined) {
     throw new InvalidArgumentError('Radar-scan color and gradient are mutually exclusive');
   }
@@ -41,6 +52,7 @@ export function normalizeRadarScanAnimationSpec(input: unknown): NormalizedRadar
     channel: channel(record.channel, 'radar-scan', 'Radar-scan channel'),
     periodMs: positive(record.periodMs, 2000, 'Radar-scan periodMs'),
     direction: choice(record.direction, 'clockwise', ['clockwise', 'counterclockwise'], 'Radar-scan direction'),
+    scanMode: choice(record.scanMode, 'one-way', ['one-way', 'round-trip'], 'Radar-scan scanMode'),
     ...(record.gradient === undefined
       ? { color: color(record.color, '#00e676', 'Radar-scan color') }
       : { gradient: normalizeColorGradient(record.gradient, 'Radar-scan gradient') }),
@@ -70,6 +82,7 @@ export const radarScanAnimationDefinition = Object.freeze({
 
 function radarScanRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedRadarScanAnimationSpec): AnimationRuntime {
   let radialFrame = initialFrame;
+  const usesGradient = spec.gradient !== undefined;
   const runningSample =
     spec.opacity > 0 ? (spec.repeat ? continuousSample : continuousUntil(spec.periodMs)) : spec.repeat ? stableSample : stableUntil(spec.periodMs);
   const slots: readonly AnimationSlotDefinition[] = Object.freeze(
@@ -83,6 +96,7 @@ function radarScanRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedRadarS
   );
   const geometryBuffers = radarTailSlotKeys.map(() => createRadarGeometryBuffer());
   const arcSampling = new RadialArcSamplingCache();
+  const foldedRange: MutableAngularRange = { start: 0, end: 0 };
   return {
     slots,
     rebind(target) {
@@ -91,12 +105,53 @@ function radarScanRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedRadarS
     sample(context, output) {
       output.reset();
       if (animationFinishedAt(context.elapsedMs, spec.periodMs, spec.repeat)) return finishedSample;
-      const phase = radarScanProgressAt(context.elapsedMs, spec.periodMs, spec.repeat);
       const beamWidthRad = Math.min((spec.beamWidthDeg * Math.PI) / 180, radialFrame.sweepAngleRad);
       const sliceWidth = beamWidthRad / radarTailSlotCount;
       if (arcSampling.update(radialFrame.radius, sliceWidth, context.resolution, radialFrame.center.length)) {
         for (const geometryBuffer of geometryBuffers) prepareRadarGeometryBuffer(geometryBuffer, arcSampling.segmentCount, radialFrame.center.length);
       }
+      if (spec.scanMode === 'round-trip') {
+        const travel = radarScanRoundTripTravelAt(context.elapsedMs, spec.periodMs, spec.repeat);
+        const sliceProgress = sliceWidth / radialFrame.sweepAngleRad;
+        let hasCoveredRange = false;
+        let coveredStart = 0;
+        let coveredEnd = 0;
+        for (let index = 0; index < radarTailSlotCount; index += 1) {
+          const newerTravel = travel - index * sliceProgress;
+          if (newerTravel <= 0) continue;
+          const olderTravel = Math.max(0, newerTravel - sliceProgress);
+          if (newerTravel - olderTravel <= Number.EPSILON) continue;
+          writeFoldedRange(foldedRange, olderTravel, newerTravel);
+          const rawStart = foldedRange.start;
+          const rawEnd = foldedRange.end;
+          const visible = !hasCoveredRange || subtractCoveredRange(foldedRange, coveredStart, coveredEnd);
+          if (!hasCoveredRange) {
+            coveredStart = rawStart;
+            coveredEnd = rawEnd;
+            hasCoveredRange = true;
+          } else {
+            coveredStart = Math.min(coveredStart, rawStart);
+            coveredEnd = Math.max(coveredEnd, rawEnd);
+          }
+          if (!visible || foldedRange.end - foldedRange.start <= Number.EPSILON) continue;
+          const geometryBuffer = geometryBuffers[index];
+          writeRadarWedge(
+            geometryBuffer,
+            radialFrame,
+            foldedRange.start * radialFrame.sweepAngleRad,
+            foldedRange.end * radialFrame.sweepAngleRad,
+            spec.direction,
+            arcSampling.segmentCount
+          );
+          const slot = output.overlay(radarTailSlotKeys[index]);
+          slot.active = true;
+          slot.geometryKind = 'snapshot';
+          slot.geometry = geometryBuffer.geometry;
+          slot.opacity = usesGradient ? spec.opacity * (1 - index / radarTailSlotCount) : spec.opacity;
+        }
+        return runningSample;
+      }
+      const phase = radarScanProgressAt(context.elapsedMs, spec.periodMs, spec.repeat);
       const distance = phase * radialFrame.sweepAngleRad;
       const wraps = spec.repeat && radialFrame.sweepAngleRad >= Math.PI * 2 - Number.EPSILON;
       for (let index = 0; index < radarTailSlotCount; index += 1) {
@@ -113,7 +168,7 @@ function radarScanRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedRadarS
         slot.active = true;
         slot.geometryKind = 'snapshot';
         slot.geometry = geometryBuffer.geometry;
-        slot.opacity = spec.opacity * (1 - index / radarTailSlotCount);
+        slot.opacity = usesGradient ? spec.opacity * (1 - index / radarTailSlotCount) : spec.opacity;
       }
       return runningSample;
     },
@@ -124,6 +179,51 @@ function radarScanRuntime(initialFrame: ShapeRadialFrame, spec: NormalizedRadarS
       }
     }
   };
+}
+
+interface MutableAngularRange {
+  start: number;
+  end: number;
+}
+
+function writeFoldedRange(output: MutableAngularRange, olderTravel: number, newerTravel: number): void {
+  const olderProgress = foldRoundTripTravel(olderTravel);
+  const newerProgress = foldRoundTripTravel(newerTravel);
+  output.start = Math.min(olderProgress, newerProgress);
+  output.end = Math.max(olderProgress, newerProgress);
+
+  const turn = Math.floor(olderTravel) + 1;
+  if (turn <= olderTravel || turn >= newerTravel) return;
+  const turnProgress = foldRoundTripTravel(turn);
+  output.start = Math.min(output.start, turnProgress);
+  output.end = Math.max(output.end, turnProgress);
+}
+
+function foldRoundTripTravel(travel: number): number {
+  const leg = Math.floor(travel);
+  const offset = travel - leg;
+  return leg % 2 === 0 ? offset : 1 - offset;
+}
+
+function subtractCoveredRange(range: MutableAngularRange, coveredStart: number, coveredEnd: number): boolean {
+  const start = range.start;
+  const end = range.end;
+  if (end <= coveredStart || start >= coveredEnd) return end - start > Number.EPSILON;
+  if (start >= coveredStart && end <= coveredEnd) return false;
+  if (start < coveredStart && end <= coveredEnd) {
+    range.end = coveredStart;
+    return range.end - range.start > Number.EPSILON;
+  }
+  if (start >= coveredStart && end > coveredEnd) {
+    range.start = coveredEnd;
+    return range.end - range.start > Number.EPSILON;
+  }
+
+  const leftWidth = coveredStart - start;
+  const rightWidth = end - coveredEnd;
+  if (leftWidth >= rightWidth) range.end = coveredStart;
+  else range.start = coveredEnd;
+  return range.end - range.start > Number.EPSILON;
 }
 
 interface RadarGeometryBuffer {

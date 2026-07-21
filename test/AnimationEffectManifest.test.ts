@@ -58,12 +58,16 @@ describe('2.0 动画效果 manifest', () => {
     }
   });
 
-  it('雷达运行示例使用可调绿色渐变，且文档说明色标方向与纯色互斥规则', () => {
+  it('雷达运行示例覆盖单向与往复扫描、可调绿色渐变及对应文档语义', () => {
     const radarEntry = animationEffectManifest.find(({ animationType }) => animationType === 'radar-scan');
     const demoSpec = radarEntry?.createDemoSpec(defaultAnimationManifestDemoControls);
+    const roundTripSpec = radarEntry?.createDemoSpec({ ...defaultAnimationManifestDemoControls, radarScanMode: 'round-trip' });
+    const solidSpec = radarEntry?.createDemoSpec({ ...defaultAnimationManifestDemoControls, radarTrailStyle: 'solid', radarColor: '#14c86a' });
 
     expect(demoSpec).toMatchObject({
       type: 'radar-scan',
+      direction: 'clockwise',
+      scanMode: 'one-way',
       gradient: [
         [0, 'rgba(0, 230, 118, 0.05)'],
         [0.6, 'rgba(0, 230, 118, 0.45)'],
@@ -71,6 +75,9 @@ describe('2.0 动画效果 manifest', () => {
       ]
     });
     expect(demoSpec).not.toHaveProperty('color');
+    expect(roundTripSpec).toMatchObject({ type: 'radar-scan', direction: 'clockwise', scanMode: 'round-trip' });
+    expect(solidSpec).toMatchObject({ type: 'radar-scan', color: '#14c86a' });
+    expect(solidSpec).not.toHaveProperty('gradient');
 
     const acceptanceSource = sourceOf('.test/scenarios/animations.ts');
     expect(acceptanceSource).toContain("radarTrailStyle.value === 'gradient'");
@@ -78,18 +85,30 @@ describe('2.0 动画效果 manifest', () => {
 
     const websiteDemoSource = sourceOf('website/src/examples/presentation/AnimationManagerDemo.vue');
     expect(websiteDemoSource).toContain("'radar-scan': 'Sector'");
+    expect(websiteDemoSource).toContain('radarScanMode');
+    expect(websiteDemoSource).toContain('<el-radio-button value="one-way">单向</el-radio-button>');
+    expect(websiteDemoSource).toContain('<el-radio-button value="round-trip">往复</el-radio-button>');
     expect(websiteDemoSource).toContain('radarTrailStyle');
     expect(websiteDemoSource).toContain('radarGradientFront');
 
     const websiteSource = sourceOf('website/src/views/presentation/AnimationsView.vue');
+    expect(websiteSource).toMatch(/field\(\s*'RadarScanAnimationSpec',\s*'scanMode'/u);
+    expect(websiteSource).toContain('periodMs / 2 到达对侧边界并折返');
+    expect(websiteSource).toContain('direction 只表示首程方向');
     expect(websiteSource).toContain("field('RadarScanAnimationSpec', 'color', \"'#00e676'\"");
     expect(websiteSource).toContain('0 表示最旧尾端、1 表示扫描前沿');
     expect(websiteSource).toContain('gradient 不能与 color 同时设置');
+    expect(websiteSource).toContain('纯色模式对全部可见槽恒定应用');
   });
 
   it('中心扩散在 Sector 上演示可调绿色波纹带，并记录默认值与退化行为', () => {
     const centerSpreadEntry = animationEffectManifest.find(({ animationType }) => animationType === 'center-spread');
     const demoSpec = centerSpreadEntry?.createDemoSpec(defaultAnimationManifestDemoControls);
+    const solidSpec = centerSpreadEntry?.createDemoSpec({
+      ...defaultAnimationManifestDemoControls,
+      centerSpreadTrailStyle: 'solid',
+      centerSpreadColor: '#14c86a'
+    });
 
     expect(centerSpreadEntry?.acceptanceTarget).toBe('sector');
     expect(animationDemoElementsByType['center-spread'].geometry.type).toBe('sector');
@@ -101,9 +120,12 @@ describe('2.0 动画效果 manifest', () => {
         [1, 'rgba(0, 230, 118, 1)']
       ],
       opacity: 0.7,
-      trailLength: 0.18
+      trailLength: 0.18,
+      strokeWidth: 0
     });
     expect(demoSpec).not.toHaveProperty('color');
+    expect(solidSpec).toMatchObject({ type: 'center-spread', color: '#14c86a', strokeWidth: 0 });
+    expect(solidSpec).not.toHaveProperty('gradient');
 
     const acceptanceSource = sourceOf('.test/scenarios/animations.ts');
     expect(acceptanceSource).toContain("centerSpreadTrailStyle.value === 'gradient'");
@@ -112,12 +134,14 @@ describe('2.0 动画效果 manifest', () => {
     const websiteDemoSource = sourceOf('website/src/examples/presentation/AnimationManagerDemo.vue');
     expect(websiteDemoSource).toContain('centerSpreadGradientFront');
     expect(websiteDemoSource).toContain('centerSpreadTrailLength');
+    expect(websiteDemoSource).toContain("strokes: [{ color: 'rgba(16,185,129,0.72)', width: 1.5 }]");
 
     const websiteSource = sourceOf('website/src/views/presentation/AnimationsView.vue');
     expect(websiteSource).toContain('内侧最旧尾迹');
     expect(websiteSource).toContain('外侧波纹前沿');
     expect(websiteSource).toContain("field('CenterSpreadAnimationSpec', 'trailLength', '0.18'");
     expect(websiteSource).toContain('0 只保留前沿线环或裁剪弧');
+    expect(websiteSource).toContain('纯色模式在整个传播生命周期内恒定应用');
   });
 
   it('每项实现、Shape、测试证据、网站锚点和验收场景都真实存在', () => {

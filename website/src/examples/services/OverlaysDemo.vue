@@ -192,47 +192,95 @@ onBeforeUnmount(() => {
   <div class="example-demo">
     <el-alert type="info" :closable="false" show-icon title="普通 Overlay 由 OverlayService 查询；Descriptor 是独立复合句柄，但 clear() 会统一清理两者。" />
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="addOverlays">重新 add</el-button>
-      <el-button @click="getOverlay">get</el-button>
-      <el-button @click="queryOverlays">query</el-button>
-      <el-button :disabled="mainRef === null" @click="updateOverlay">update</el-button>
-      <el-button :disabled="mainRef === null" @click="moveOverlay">setPosition</el-button>
-      <el-button :disabled="mainRef === null" @click="showOverlay">show</el-button>
-      <el-button :disabled="mainRef === null" @click="hideOverlay">hide</el-button>
-      <el-button :disabled="mainRef === null" @click="panIntoView">panIntoView</el-button>
-      <el-button :disabled="mainRef === null" type="danger" plain @click="destroyMain">handle.destroy</el-button>
-      <el-button type="warning" plain @click="removeModule">remove(module)</el-button>
-      <el-button type="danger" plain @click="clearAll">clear</el-button>
+    <div class="example-demo__control-panel overlays-demo__toolbar">
+      <div class="example-demo__actions overlays-demo__actions">
+        <div class="example-demo__action-group overlays-demo__action-group" role="group" aria-label="创建与查询">
+          <span>创建与查询</span>
+          <div class="example-demo__action-buttons overlays-demo__action-buttons">
+            <el-button type="primary" @click="addOverlays">重新 add</el-button>
+            <el-button @click="getOverlay">get</el-button>
+            <el-button @click="queryOverlays">query</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group overlays-demo__action-group" role="group" aria-label="主句柄操作">
+          <span>主句柄操作</span>
+          <div class="example-demo__action-buttons overlays-demo__action-buttons">
+            <el-button :disabled="mainRef === null" @click="updateOverlay">update</el-button>
+            <el-button :disabled="mainRef === null" @click="moveOverlay">setPosition</el-button>
+            <el-button :disabled="mainRef === null" @click="showOverlay">show</el-button>
+            <el-button :disabled="mainRef === null" @click="hideOverlay">hide</el-button>
+            <el-button :disabled="mainRef === null" @click="panIntoView">panIntoView</el-button>
+            <el-button :disabled="mainRef === null" type="danger" plain @click="destroyMain">handle.destroy</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group overlays-demo__action-group" role="group" aria-label="批量清理">
+          <span>批量清理</span>
+          <div class="example-demo__action-buttons overlays-demo__action-buttons">
+            <el-button type="warning" plain @click="removeModule">remove(module)</el-button>
+            <el-button type="danger" plain @click="clearAll">clear</el-button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
 
-    <el-descriptions class="overlays-demo__result" :column="2" border>
+    <el-descriptions class="overlays-demo__result" :column="1" border aria-live="polite">
       <el-descriptions-item label="主 Overlay ID">{{ mainState.id }}</el-descriptions-item>
       <el-descriptions-item label="可见">{{ mainState.visible ? '是' : '否' }}</el-descriptions-item>
       <el-descriptions-item label="位置">{{ mainState.position }}</el-descriptions-item>
       <el-descriptions-item label="外部 DOM 监听触发次数">{{ externalClickCount }}</el-descriptions-item>
-      <el-descriptions-item label="查询结果" :span="2">{{ queryResult }}</el-descriptions-item>
-      <el-descriptions-item label="最近操作" :span="2">{{ operationResult }}</el-descriptions-item>
+      <el-descriptions-item label="查询结果">{{ queryResult }}</el-descriptions-item>
+      <el-descriptions-item label="最近操作">{{ operationResult }}</el-descriptions-item>
     </el-descriptions>
   </div>
 </template>
 
 <style scoped>
+.overlays-demo__action-group {
+  max-width: 100%;
+}
+
 .overlays-demo__result {
   margin-top: 14px;
 }
 
+.overlays-demo__result :deep(.el-descriptions__content) {
+  overflow-wrap: anywhere;
+}
+
 :global(.docs-overlay-chip) {
+  box-sizing: border-box;
+  max-width: min(240px, calc(100vw - 32px));
+  overflow: hidden;
   padding: 9px 13px;
-  color: #ffffff;
+  color: var(--el-color-white);
   background: var(--el-color-primary);
   border: 3px solid var(--el-bg-color-overlay);
   border-radius: var(--el-border-radius-base);
-  box-shadow: 0 8px 22px rgba(31, 45, 61, 0.28);
+  box-shadow: var(--el-box-shadow-light);
   font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 560px) {
+  .overlays-demo__toolbar,
+  .overlays-demo__action-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .overlays-demo__action-group,
+  .overlays-demo__action-buttons :deep(.el-button) {
+    width: 100%;
+  }
+
+  .overlays-demo__action-buttons :deep(.el-button) {
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
+  }
 }
 </style>

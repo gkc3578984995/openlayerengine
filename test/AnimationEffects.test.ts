@@ -17,7 +17,8 @@ import {
   growProgressAt,
   highlightIntensityAt,
   nextBlinkDeadlineAt,
-  radarScanProgressAt
+  radarScanProgressAt,
+  radarScanRoundTripTravelAt
 } from '../src/builtins/animations/timeline.js';
 import type { Coordinate } from '../src/core/common/types.js';
 import { CapabilityError, InvalidArgumentError, UnsupportedOperationError } from '../src/core/errors.js';
@@ -68,6 +69,7 @@ describe('可组合动画效果配置', () => {
       channel: 'radar-scan',
       periodMs: 2000,
       direction: 'clockwise',
+      scanMode: 'one-way',
       color: '#00e676',
       opacity: 0.35,
       beamWidthDeg: 45,
@@ -105,6 +107,7 @@ describe('可组合动画效果配置', () => {
       () => normalizeGrowAnimationSpec({ type: 'grow', direction: 'backward' }),
       () => normalizeGrowAnimationSpec({ type: 'grow', easing: 'quadratic' }),
       () => normalizeRadarScanAnimationSpec({ type: 'radar-scan', beamWidthDeg: 361 }),
+      () => normalizeRadarScanAnimationSpec({ type: 'radar-scan', scanMode: 'alternate' }),
       () => normalizeRadarScanAnimationSpec({ type: 'radar-scan', opacity: Number.NaN }),
       () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 0 }),
       () => normalizeCenterSpreadAnimationSpec({ type: 'center-spread', ringCount: 2.5 }),
@@ -160,6 +163,7 @@ describe('可组合动画效果配置', () => {
       channel: 'custom-radar',
       periodMs: 2000,
       direction: 'clockwise',
+      scanMode: 'one-way',
       gradient: [
         [0, [0, 32, 0, 0.1]],
         [0.4, [0, 170, 68, 1]],
@@ -392,6 +396,12 @@ describe('可组合动画纯时间函数', () => {
     expect(alertIntensityAt(624, 1200, false)).toBe(0);
     expect(growProgressAt(500, 1000, false, 'ease-in')).toBe(0.125);
     expect(radarScanProgressAt(500, 2000, true)).toBe(0.25);
+    expect(radarScanRoundTripTravelAt(0, 2000, true)).toBe(0);
+    expect(radarScanRoundTripTravelAt(1000, 2000, true)).toBe(1);
+    expect(radarScanRoundTripTravelAt(2000, 2000, true)).toBe(2);
+    expect(radarScanRoundTripTravelAt(2500, 2000, true)).toBe(2.5);
+    expect(radarScanRoundTripTravelAt(4000, 2000, true)).toBe(2);
+    expect(radarScanRoundTripTravelAt(3000, 2000, false)).toBe(2);
     expect(fadeOpacityAt(250, 500, 'in', 'ease-in-out')).toBe(0.5);
     expect(fadeOpacityAt(250, 500, 'out', 'ease-in-out')).toBe(0.5);
     expect(animationFinishedAt(1000, 1000, false)).toBe(true);
@@ -600,12 +610,56 @@ describe('可组合动画 Runtime 草案', () => {
     expect(spread.slots[4].style.strokes).toEqual([{ color: '#00e676', width: 2 }]);
     expect(spreadBuffer.overlays[0].geometry?.type).toBe('polygon');
     expect(spreadBuffer.overlays[4].geometry).toEqual({ type: 'circle', center: [0, 0], radius: 50 });
-    expect(spreadBuffer.overlays[0].opacity).toBeCloseTo(0.35);
-    expect(spreadBuffer.overlays[1].opacity).toBeCloseTo(0.2625);
+    expect(spreadBuffer.overlays.filter(({ active }) => active).every(({ opacity }) => opacity === 0.7)).toBe(true);
     expect(spreadBuffer.overlays.slice(10).every(({ active }) => !active)).toBe(true);
     const stableSpreadGeometry = spreadBuffer.overlays[0].geometry;
     sample(spread, spreadBuffer, target, 700);
     expect(spreadBuffer.overlays[0].geometry).toBe(stableSpreadGeometry);
+  });
+
+  it('纯色径向效果的全部 active 槽保持所选颜色和恒定透明度', () => {
+    const target = radialTarget();
+    const selectedColor = '#14c86a';
+    for (const scanMode of ['one-way', 'round-trip'] as const) {
+      const radar = createRuntime(radarScanAnimationDefinition, target, {
+        type: 'radar-scan',
+        periodMs: 1000,
+        scanMode,
+        color: selectedColor,
+        opacity: 0.8,
+        beamWidthDeg: 90
+      });
+      expect(radar.slots).toHaveLength(10);
+      expect(radar.slots.every(({ style }) => style.fill?.type === 'solid' && style.fill.color === selectedColor && style.strokes === undefined)).toBe(true);
+      const radarBuffer = createAnimationFrameBuffer(radar.slots);
+      sample(radar, radarBuffer, target, scanMode === 'one-way' ? 500 : 750);
+      const activeRadarSlots = radarBuffer.overlays.filter(({ active }) => active);
+      expect(activeRadarSlots).toHaveLength(10);
+      expect(activeRadarSlots.every(({ opacity }) => opacity === 0.8)).toBe(true);
+    }
+
+    const spread = createRuntime(centerSpreadAnimationDefinition, target, {
+      type: 'center-spread',
+      periodMs: 1000,
+      color: selectedColor,
+      opacity: 0.8,
+      trailLength: 0.4,
+      ringCount: 1,
+      strokeWidth: 2,
+      repeat: false
+    });
+    expect(
+      spread.slots.slice(0, 4).every(({ style }) => style.fill?.type === 'solid' && style.fill.color === selectedColor && style.strokes === undefined)
+    ).toBe(true);
+    expect(spread.slots[4].style).toEqual({ strokes: [{ color: selectedColor, width: 2 }] });
+    const spreadBuffer = createAnimationFrameBuffer(spread.slots);
+    for (const elapsedMs of [500, 800]) {
+      sample(spread, spreadBuffer, target, elapsedMs);
+      expect(spreadBuffer.overlays.slice(0, 4).every(({ active, opacity }) => active && opacity === 0.8)).toBe(true);
+      expect(spreadBuffer.overlays[4]).toEqual(expect.objectContaining({ active: true, opacity: 0.8 }));
+    }
+    expect(sample(spread, spreadBuffer, target, 1000).finished).toBe(true);
+    expect(spreadBuffer.overlays.every(({ active }) => !active)).toBe(true);
   });
 
   it('center-spread 每环固定四个尾迹填充槽和一个独立前沿槽', () => {
@@ -628,7 +682,7 @@ describe('可组合动画 Runtime 草案', () => {
 
     sample(spread, buffer, target, 500);
     expect(buffer.overlays.slice(0, 4).every(({ active }) => !active)).toBe(true);
-    expect(buffer.overlays[4]).toEqual(expect.objectContaining({ active: true, geometry: { type: 'circle', center: [0, 0], radius: 50 }, opacity: 0.35 }));
+    expect(buffer.overlays[4]).toEqual(expect.objectContaining({ active: true, geometry: { type: 'circle', center: [0, 0], radius: 50 }, opacity: 0.7 }));
     expect(buffer.overlays.slice(5).every(({ active }) => !active)).toBe(true);
   });
 
@@ -710,18 +764,29 @@ describe('可组合动画 Runtime 草案', () => {
     for (const coordinate of front) expect(coordinate[1]).toBeGreaterThanOrEqual(-1e-10);
   });
 
-  it('radar-scan 渐变从 offset 0 的最旧端过渡到 offset 1 的扫描前沿', () => {
+  it.each(['one-way', 'round-trip'] as const)('radar-scan %s 渐变从旧端过渡到扫描前沿并保留年龄透明度衰减', (scanMode) => {
     const target = radialTarget();
     const radar = createRuntime(radarScanAnimationDefinition, target, {
       type: 'radar-scan',
+      periodMs: 1000,
+      scanMode,
       gradient: [
         [0, '#001100'],
         [1, '#00ff00']
-      ]
+      ],
+      opacity: 0.8,
+      beamWidthDeg: 90
     });
 
     expect(radar.slots[0].style.fill).toEqual({ type: 'solid', color: [0, 255, 0, 1] });
     expect(radar.slots.at(-1)?.style.fill).toEqual({ type: 'solid', color: [0, 17, 0, 1] });
+    const buffer = createAnimationFrameBuffer(radar.slots);
+    sample(radar, buffer, target, scanMode === 'one-way' ? 500 : 750);
+    expect(buffer.overlays.filter(({ active }) => active)).toHaveLength(10);
+    for (let index = 0; index < 10; index += 1) {
+      expect(buffer.overlays[index].active).toBe(true);
+      expect(buffer.overlays[index].opacity).toBeCloseTo(0.8 * (1 - index / 10));
+    }
   });
 
   it.each(['clockwise', 'counterclockwise'] as const)('radar-scan full Circle repeat 在非 slot 对齐的早期 %s 帧完整跨越正北', (direction) => {
@@ -793,6 +858,77 @@ describe('可组合动画 Runtime 草案', () => {
     const oneShotBuffer = createAnimationFrameBuffer(oneShotRadar.slots);
     sample(oneShotRadar, oneShotBuffer, circle, 100);
     expect(activeRadarSweep(oneShotBuffer)).toBeCloseTo(Math.PI * 0.2, 10);
+  });
+
+  it('radar-scan 往返模式以最近行程折叠尾迹，并在折返点保持连续且优先保留新尾迹', () => {
+    const sector = sectorRadialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, sector, {
+      type: 'radar-scan',
+      periodMs: 1000,
+      direction: 'counterclockwise',
+      scanMode: 'round-trip',
+      beamWidthDeg: 90,
+      repeat: true
+    });
+    const buffer = createAnimationFrameBuffer(radar.slots);
+    const beamWidthRad = Math.PI / 2;
+
+    sample(radar, buffer, sector, 499.999);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(beamWidthRad, 5);
+    sample(radar, buffer, sector, 500);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(beamWidthRad, 10);
+    const turnGeometries = buffer.overlays.map(({ geometry }) => geometry);
+    expect(activeRadarAngularRange(buffer)).toEqual([expect.closeTo(Math.PI / 2, 10), expect.closeTo(Math.PI, 10)]);
+
+    sample(radar, buffer, sector, 500.0001);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(beamWidthRad, 5);
+    sample(radar, buffer, sector, 625);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(beamWidthRad / 2, 10);
+    expect(buffer.overlays.filter(({ active }) => active)).toHaveLength(5);
+
+    sample(radar, buffer, sector, 750);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(beamWidthRad, 10);
+    expect(buffer.overlays.map(({ geometry }) => geometry)).toEqual(turnGeometries);
+    sample(radar, buffer, sector, 1000);
+    expect(activeRadarSweep(buffer)).toBeCloseTo(beamWidthRad, 10);
+    expect(activeRadarAngularRange(buffer)).toEqual([expect.closeTo(0, 10), expect.closeTo(Math.PI / 2, 10)]);
+  });
+
+  it.each([
+    ['counterclockwise', [Math.PI / 2, Math.PI], [0, Math.PI / 2]],
+    ['clockwise', [0, Math.PI / 2], [Math.PI / 2, Math.PI]]
+  ] as const)('radar-scan 往返模式由 %s 决定首程方向，并在完整周期返回对应起点', (direction, turnRange, returnRange) => {
+    const sector = sectorRadialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, sector, {
+      type: 'radar-scan',
+      periodMs: 1000,
+      direction,
+      scanMode: 'round-trip',
+      beamWidthDeg: 90,
+      repeat: true
+    });
+    const buffer = createAnimationFrameBuffer(radar.slots);
+
+    sample(radar, buffer, sector, 500);
+    expect(activeRadarAngularRange(buffer)).toEqual([expect.closeTo(turnRange[0], 10), expect.closeTo(turnRange[1], 10)]);
+    sample(radar, buffer, sector, 1000);
+    expect(activeRadarAngularRange(buffer)).toEqual([expect.closeTo(returnRange[0], 10), expect.closeTo(returnRange[1], 10)]);
+  });
+
+  it('radar-scan 单次往返在完整周期自然完成', () => {
+    const sector = sectorRadialTarget();
+    const radar = createRuntime(radarScanAnimationDefinition, sector, {
+      type: 'radar-scan',
+      periodMs: 1000,
+      scanMode: 'round-trip',
+      repeat: false
+    });
+    const buffer = createAnimationFrameBuffer(radar.slots);
+
+    expect(sample(radar, buffer, sector, 999.999).finished).toBe(false);
+    expect(buffer.overlays.some(({ active }) => active)).toBe(true);
+    expect(sample(radar, buffer, sector, 1000).finished).toBe(true);
+    expect(buffer.overlays.every(({ active }) => !active)).toBe(true);
   });
 
   it('radar-scan 按 resolution 桶调整采样并保持槽内几何与坐标容器稳定', () => {
@@ -935,6 +1071,18 @@ function activeRadarArcCoordinateSets(buffer: ReturnType<typeof createAnimationF
     arcs.push(overlay.geometry.coordinates[0].slice(1, -1));
   }
   return arcs;
+}
+
+function activeRadarAngularRange(buffer: ReturnType<typeof createAnimationFrameBuffer>): readonly [number, number] {
+  let minimum = Number.POSITIVE_INFINITY;
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (const coordinate of activeRadarArcCoordinates(buffer)) {
+    const angle = Math.atan2(coordinate[1], coordinate[0]);
+    minimum = Math.min(minimum, angle);
+    maximum = Math.max(maximum, angle);
+  }
+  if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) throw new Error('Expected active radar arc coordinates');
+  return [minimum, maximum];
 }
 
 function radarArcSweep(arc: readonly Coordinate[]): number {

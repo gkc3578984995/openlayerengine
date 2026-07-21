@@ -36,6 +36,7 @@ describe('lineStyles', () => {
     ]);
     const decoration = style.linework?.decorations?.[0];
     expect(decoration?.placement).toEqual({ kind: 'repeat', spacing: 32, phase: 0 });
+    expect(decoration).not.toHaveProperty('cutoutPadding');
     expect(decoration !== undefined && 'sequence' in decoration ? decoration.sequence[0].primitives[0] : undefined).toMatchObject({
       type: 'segment',
       stroke: { color: '#1677ff' }
@@ -87,6 +88,22 @@ describe('lineStyles', () => {
     expect(primitive).not.toHaveProperty('lineDash');
   });
 
+  it.each([
+    ['center-cross', 4],
+    ['center-dot', 3],
+    ['center-dot-pair', 3]
+  ] as const)('让 %s 按固定 CSS 像素间距整体重复并保留轨道切口', (decoration, cutoutPadding) => {
+    const style = lineStyles.polyline({ decoration, repeatSpacingPx: 36 });
+    const repeated = style.linework?.decorations?.[0];
+
+    expect(repeated).toMatchObject({
+      placement: { kind: 'repeat', spacing: 36, phase: 0 },
+      cutoutPadding,
+      sequence: [{ primitives: expect.any(Array) }]
+    });
+    expect(repeated).not.toHaveProperty('glyph');
+  });
+
   it('把 inline-text 展开为默认 12px 黑色文本并支持独立外观', () => {
     const defaults = lineStyles.polyline({ decoration: 'inline-text', text: '供水管线' });
     expect(defaults.linework?.inlineText).toEqual({
@@ -127,6 +144,9 @@ describe('lineStyles', () => {
       backgroundPadding: 2,
       gapPadding: 6
     });
+
+    const repeated = lineStyles.polygon({ decoration: 'inline-text', text: '重复路径文字', repeatSpacingPx: 64 });
+    expect(repeated.linework?.inlineText?.placement).toEqual({ kind: 'repeat', spacing: 64, phase: 0 });
   });
 
   it('不修改输入，并让每次输出及内部可变颜色互相隔离', () => {
@@ -160,10 +180,23 @@ describe('lineStyles', () => {
     [{ lines: 'none', decoration: 'slash', text: '非法' }],
     [{ decoration: 'inline-text', text: '   ' }],
     [{ decoration: 'circle', textStyle: { fontSize: 14 } }],
+    [{ decoration: 'tick', repeatSpacingPx: 20 }],
+    [{ decoration: 'circle', repeatSpacingPx: 20 }],
+    [{ decoration: 'none', repeatSpacingPx: 20 }],
+    [{ lines: 'none', decoration: 'slash', repeatSpacingPx: 20 }],
+    [{ decoration: 'center-dot', repeatSpacingPx: 0 }],
+    [{ decoration: 'center-dot', repeatSpacingPx: Number.NaN }],
+    [{ decoration: 'center-dot', repeatSpacingPx: Number.POSITIVE_INFINITY }],
+    [{ decoration: 'inline-text', text: '文字', repeatSpacingPx: -1 }],
     [{ decoration: 'inline-text', text: '文字', textStyle: { fontSize: Number.NaN } }],
     [{ decoration: 'inline-text', text: '文字', textStyle: { background: {} } }]
   ])('同步拒绝非法 polyline 工厂参数 %#', (options) => {
     expect(() => lineStyles.polyline(options as never)).toThrow(InvalidArgumentError);
+  });
+
+  it('把显式 undefined 的 repeatSpacingPx 按省略处理', () => {
+    expect(lineStyles.polyline({ decoration: 'center-dot', repeatSpacingPx: undefined })).toEqual(lineStyles.polyline({ decoration: 'center-dot' }));
+    expect(lineStyles.polyline({ decoration: 'tick', repeatSpacingPx: undefined })).toEqual(lineStyles.polyline({ decoration: 'tick' }));
   });
 
   it('同步拒绝 Polygon caps、未知字段和非法双轨长度', () => {
@@ -208,6 +241,42 @@ describe('linework StyleSpec contract', () => {
     ).toThrow(/fitPatternOnce/);
   });
 
+  it('严格校验重复文本 placement 与重复 glyph 切口', () => {
+    const repeatedText = lineStyles.polyline({ decoration: 'inline-text', text: '管线', repeatSpacingPx: 48 });
+    const repeatedGlyph = lineStyles.polyline({ decoration: 'center-cross', repeatSpacingPx: 32 });
+    const explicitCenterText = lineStyles.polyline({ decoration: 'inline-text', text: '中点' });
+    if (explicitCenterText.linework?.inlineText !== undefined) explicitCenterText.linework.inlineText.placement = { kind: 'center' };
+    expect(() => assertStructuredStyleSpec(repeatedText)).not.toThrow();
+    expect(() => assertStructuredStyleSpec(repeatedGlyph)).not.toThrow();
+    expect(() => assertStructuredStyleSpec(explicitCenterText)).not.toThrow();
+
+    const invalidTextPlacements = [
+      { kind: 'repeat' },
+      { kind: 'repeat', spacing: 0 },
+      { kind: 'repeat', spacing: Number.NaN },
+      { kind: 'repeat', spacing: 24, phase: Number.POSITIVE_INFINITY },
+      { kind: 'center', spacing: 24 },
+      { kind: 'unknown' }
+    ];
+    for (const placement of invalidTextPlacements) {
+      const invalid = lineStyles.polyline({ decoration: 'inline-text', text: '管线' });
+      if (invalid.linework?.inlineText !== undefined) invalid.linework.inlineText.placement = placement as never;
+      expect(() => assertStructuredStyleSpec(invalid)).toThrow(InvalidArgumentError);
+    }
+
+    for (const cutoutPadding of [-1, Number.NaN]) {
+      const invalidCutout = lineStyles.polyline({ decoration: 'center-dot', repeatSpacingPx: 32 });
+      const decoration = invalidCutout.linework?.decorations?.[0];
+      if (decoration !== undefined) decoration.cutoutPadding = cutoutPadding;
+      expect(() => assertStructuredStyleSpec(invalidCutout)).toThrow(InvalidArgumentError);
+    }
+
+    const lowLevelCutout = lineStyles.polyline({ decoration: 'tick' });
+    const ordinaryRepeat = lowLevelCutout.linework?.decorations?.[0];
+    if (ordinaryRepeat !== undefined) ordinaryRepeat.cutoutPadding = 2;
+    expect(() => assertStructuredStyleSpec(lowLevelCutout)).not.toThrow();
+  });
+
   it('整体替换或删除 linework patch，不深层合并旧轨道', () => {
     const store = new ElementStore(new ShapeRegistry(basicShapeDefinitions));
     const service = new StyleService(store);
@@ -244,7 +313,8 @@ describe('linework StyleSpec contract', () => {
       color: [10, 20, 30, 0.5],
       lines: ['dashed', 'solid'] as const,
       decoration: 'inline-text',
-      text: '中点'
+      text: '中点',
+      repeatSpacingPx: 48
     });
     const cloned = service.clone(source) as StyleSpec;
     const serialized = service.serialize(source);
@@ -258,10 +328,13 @@ describe('linework StyleSpec contract', () => {
     const clonedColor = cloned.linework?.tracks[0].stroke.color;
     if (typeof clonedColor !== 'string' && clonedColor !== undefined) clonedColor[0] = 255;
     if (serialized.linework?.inlineText !== undefined) serialized.linework.inlineText.text = '已序列化';
+    const clonedPlacement = cloned.linework?.inlineText?.placement;
+    if (clonedPlacement?.kind === 'repeat') clonedPlacement.phase = 12;
 
     expect(source.linework?.tracks[0].stroke.lineDash).toEqual([8, 6]);
     expect(source.linework?.tracks[0].stroke.color).toEqual([10, 20, 30, 0.5]);
     expect(source.linework?.inlineText?.text).toBe('中点');
+    expect(source.linework?.inlineText?.placement).toEqual({ kind: 'repeat', spacing: 48, phase: 0 });
   });
 
   it('同步校验 Shape 与开放、闭合 contour 的兼容性', () => {

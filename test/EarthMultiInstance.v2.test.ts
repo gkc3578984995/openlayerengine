@@ -110,9 +110,33 @@ describe('Earth v2 多实例真实装配隔离', () => {
       expect(mercatorGeometry.getRadius()).toBeGreaterThan(1_900);
       expect(geographicRadius).toBeGreaterThan(0.01);
       expect(geographicRadius).toBeLessThan(0.02);
+      const mercatorDetails = mercatorElement.geometryDetails;
+      const geographicDetails = geographicElement.geometryDetails;
+      expect(mercatorDetails.renderGeometry.type).toBe('circle');
+      expect(geographicDetails.renderGeometry.type).toBe('circle');
+      if (mercatorDetails.renderGeometry.type !== 'circle' || geographicDetails.renderGeometry.type !== 'circle') {
+        throw new Error('测试需要参数化 Circle 详情');
+      }
+      expect(mercatorDetails.renderGeometry.center).toEqual(mercatorCenter);
+      expect(mercatorDetails.renderGeometry.radius).toBeCloseTo(mercatorGeometry.getRadius(), 10);
+      expect(mercatorDetails.extent[0]).toBeCloseTo(mercatorCenter[0] - mercatorDetails.renderGeometry.radius, 10);
+      expect(mercatorDetails.extent[3]).toBeCloseTo(mercatorCenter[1] + mercatorDetails.renderGeometry.radius, 10);
+      expect(geographicDetails.renderGeometry.center).toEqual(geographicCenter);
+      expect(geographicDetails.renderGeometry.radius).toBeCloseTo(geographicRadius, 12);
 
       mercatorElement.update({ geometry: { type: 'circle', center: [0, 0], radius: 1_000 } });
       expect(mercatorGeometry.getRadius()).toBeCloseTo(1_000, 6);
+      const updatedDetails = mercatorElement.geometryDetails;
+      expect(updatedDetails.renderGeometry.type).toBe('circle');
+      if (updatedDetails.renderGeometry.type !== 'circle') throw new Error('测试需要参数化 Circle 详情');
+      expect(updatedDetails.renderGeometry.center).toEqual([0, 0]);
+      expect(updatedDetails.renderGeometry.radius).toBeCloseTo(1_000, 10);
+      expect(updatedDetails.extent).toEqual([
+        -updatedDetails.renderGeometry.radius,
+        -updatedDetails.renderGeometry.radius,
+        updatedDetails.renderGeometry.radius,
+        updatedDetails.renderGeometry.radius
+      ]);
       expect(geographicGeometry.getRadius()).toBe(geographicRadius);
       expect(geographicElement.state.geometry).toEqual({ type: 'circle', center: geographicCenter, radius: 1_000 });
     } finally {
@@ -166,9 +190,11 @@ describe('Earth v2 多实例真实装配隔离', () => {
 
     const firstAnimation = first.animations.play({ id: 'animated' }, { type: 'pulse' });
     const secondAnimation = second.animations.play({ id: 'animated' }, { type: 'pulse' });
+    const secondGeometryDetails = second.elements.get('animated')?.geometryDetails;
     expect(first.animations.stop({ id: 'animated' })).toBe(1);
     expect(firstAnimation.status).toBe('stopped');
     expect(secondAnimation.status).toBe('running');
+    expect(second.elements.get('animated')?.geometryDetails).toEqual(secondGeometryDetails);
 
     firstDraw.destroy();
     secondDraw.destroy();
@@ -189,9 +215,11 @@ describe('Earth v2 多实例真实装配隔离', () => {
     expect(firstMap.disposeCount).toBe(1);
     expect(firstMap.getLayers().getArray()).toEqual([]);
     expect(() => firstElement.state).toThrow(ObjectDisposedError);
+    expect(() => firstElement.geometryDetails).toThrow(ObjectDisposedError);
     const secondGeometry = secondElement.state.geometry;
     if (secondGeometry.type !== 'point') throw new Error('测试需要点元素状态');
     expect(secondGeometry.controlPoints).toEqual([[1, 1]]);
+    expect(secondElement.geometryDetails).toEqual({ renderGeometry: { type: 'point', coordinates: [1, 1] }, extent: [1, 1, 1, 1] });
     expect(secondAnimation.status).toBe('running');
     expect(useEarth('map-b')).toBe(second);
     expect(useEarth('map-a')).not.toBe(first);

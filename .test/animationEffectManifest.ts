@@ -9,6 +9,7 @@ export interface AnimationManifestDemoControls {
   readonly growDirection: 'forward' | 'reverse';
   readonly highlightMode: 'steady' | 'breathe';
   readonly radarDirection: 'clockwise' | 'counterclockwise';
+  readonly radarScanMode: 'one-way' | 'round-trip';
   readonly radarTrailStyle: 'solid' | 'gradient';
   readonly radarColor: string;
   readonly radarGradientTail: string;
@@ -48,6 +49,7 @@ export const defaultAnimationManifestDemoControls = Object.freeze({
   growDirection: 'forward',
   highlightMode: 'breathe',
   radarDirection: 'clockwise',
+  radarScanMode: 'one-way',
   radarTrailStyle: 'gradient',
   radarColor: '#00e676',
   radarGradientTail: 'rgba(0, 230, 118, 0.05)',
@@ -266,10 +268,11 @@ export const animationEffectManifest = [
     demoTargets: ['circle', 'sector'],
     acceptanceTarget: 'circle',
     createDefaultSpec: () => ({ type: 'radar-scan' }),
-    createDemoSpec: ({ radarDirection, radarTrailStyle, radarColor, radarGradientTail, radarGradientMiddle, radarGradientFront }) => ({
+    createDemoSpec: ({ radarDirection, radarScanMode, radarTrailStyle, radarColor, radarGradientTail, radarGradientMiddle, radarGradientFront }) => ({
       type: 'radar-scan',
       periodMs: 2200,
       direction: radarDirection,
+      scanMode: radarScanMode,
       ...(radarTrailStyle === 'gradient'
         ? {
             gradient: [
@@ -320,7 +323,7 @@ export const animationEffectManifest = [
         : { color: centerSpreadColor }),
       opacity: centerSpreadOpacity,
       trailLength: centerSpreadTrailLength,
-      strokeWidth: 3,
+      strokeWidth: centerSpreadTrailLength === 0 ? 3 : 0,
       ringCount: 3,
       repeat: true
     })

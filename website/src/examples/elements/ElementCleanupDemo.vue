@@ -194,22 +194,37 @@ onBeforeUnmount(() => {
       title="批量 remove() 必须传入至少一个选择条件；清空全部对象请显式调用 clear()。"
     />
 
-    <div class="example-demo__toolbar element-cleanup-demo__toolbar">
-      <el-select v-model="selectedId" aria-label="选择 Element" @change="focusSelected">
-        <el-option v-for="row in rows" :key="row.id" :label="`${row.label} · ${row.id}`" :value="row.id" />
-      </el-select>
-      <el-button type="danger" plain :disabled="!selectedId" @click="removeSelectedHandle">句柄 remove()</el-button>
-      <el-button type="danger" plain @click="removeTemporary">移除 temporary 模块</el-button>
-      <el-popconfirm title="确定显式清空全部 Element？" @confirm="clearAll">
-        <template #reference><el-button type="danger">clear()</el-button></template>
-      </el-popconfirm>
-      <el-button type="primary" @click="seed">重建示例</el-button>
-      <el-tag type="warning" effect="dark">temporary · 橙色</el-tag>
-      <el-tag type="primary" effect="dark">permanent · 蓝色</el-tag>
-      <el-tag type="primary" effect="plain">当前：{{ selectedRow?.label ?? '无' }}</el-tag>
-      <el-tag type="success" effect="plain">剩余 {{ rows.length }} 个</el-tag>
-      <el-tag type="danger" effect="plain">本次删除 {{ deletedCount }} 个</el-tag>
-      <el-tag effect="plain">{{ status }}</el-tag>
+    <div class="example-demo__control-panel element-cleanup-demo__controls">
+      <div class="example-demo__action-row element-cleanup-demo__action-row">
+        <div class="example-demo__field example-demo__action-group element-cleanup-demo__field">
+          <span>当前 Element</span>
+          <el-select v-model="selectedId" aria-label="选择 Element" @change="focusSelected">
+            <el-option v-for="row in rows" :key="row.id" :label="`${row.label} · ${row.id}`" :value="row.id" />
+          </el-select>
+        </div>
+        <div class="example-demo__action-group element-cleanup-demo__action-group" role="group" aria-label="删除操作">
+          <div class="example-demo__action-buttons">
+            <el-button type="danger" plain :disabled="!selectedId" @click="removeSelectedHandle">句柄 remove()</el-button>
+            <el-button type="danger" plain @click="removeTemporary">移除 temporary 模块</el-button>
+            <el-popconfirm title="确定显式清空全部 Element？" @confirm="clearAll">
+              <template #reference><el-button type="danger">clear()</el-button></template>
+            </el-popconfirm>
+          </div>
+        </div>
+        <div class="example-demo__action-group element-cleanup-demo__action-group" role="group" aria-label="恢复操作">
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="seed">重建示例</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback element-cleanup-demo__feedback" aria-live="polite">
+          <el-tag type="warning" effect="dark">temporary · 橙色</el-tag>
+          <el-tag type="primary" effect="dark">permanent · 蓝色</el-tag>
+          <el-tag type="primary" effect="plain">当前：{{ selectedRow?.label ?? '无' }}</el-tag>
+          <el-tag type="success" effect="plain">剩余 {{ rows.length }} 个</el-tag>
+          <el-tag type="danger" effect="plain">本次删除 {{ deletedCount }} 个</el-tag>
+          <el-tag effect="plain">{{ status }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
@@ -236,12 +251,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.element-cleanup-demo__toolbar {
-  margin-top: 14px;
+.element-cleanup-demo__field :deep(.el-select) {
+  width: 100%;
+  max-width: 225px;
 }
 
-.element-cleanup-demo__toolbar :deep(.el-select) {
-  width: 225px;
+.element-cleanup-demo__field {
+  flex: 0 1 140px;
 }
 
 .element-cleanup-demo__table {

@@ -64,7 +64,7 @@ export const apiModules: readonly ApiModuleDefinition[] = [
     id: 'elements-overview',
     label: 'Element 概览',
     group: '地图元素',
-    typeNames: ['Element', 'ElementService', 'ElementState'],
+    typeNames: ['Element', 'ElementService', 'ElementState', 'ElementGeometryDetails', 'ElementRenderGeometry', 'MapExtent'],
     runtimeNames: []
   },
   {
@@ -148,6 +148,7 @@ export const apiModules: readonly ApiModuleDefinition[] = [
       'PathGlyphPrimitiveSpec',
       'PathGlyphStrokeSpec',
       'PathDecorationSpec',
+      'InlinePathTextPlacementSpec',
       'InlinePathTextSpec',
       'PathContourPolicySpec'
     ],

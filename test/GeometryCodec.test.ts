@@ -9,6 +9,7 @@ import { GeometryCodec, projectRenderGeometry } from '../src/adapters/openlayers
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import { createRenderGeometryDetails } from '../src/core/shape/geometryDetails.js';
 import { shapeTypes, type RenderGeometryState, type ShapeState, type ShapeType } from '../src/core/shape/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
@@ -185,6 +186,27 @@ describe('GeometryCodec', () => {
     }
 
     expect(counts).toEqual({ Point: 1, LineString: 3, Polygon: 15, Circle: 1 });
+  });
+
+  it('derives complete frozen geometry details for all 20 registered shapes', () => {
+    const codec = createCodec();
+
+    for (const type of shapeTypes) {
+      const rendered = codec.render(inputs[type]);
+      const details = createRenderGeometryDetails(rendered);
+
+      expect(details.renderGeometry, type).toEqual(rendered);
+      expect(details.extent.every(Number.isFinite), type).toBe(true);
+      expect(Object.isFrozen(details), type).toBe(true);
+      expect(Object.isFrozen(details.renderGeometry), type).toBe(true);
+      expect(Object.isFrozen(details.extent), type).toBe(true);
+      if (details.renderGeometry.type === 'point') expect(Object.isFrozen(details.renderGeometry.coordinates), type).toBe(true);
+      else if (details.renderGeometry.type === 'polyline') expect(details.renderGeometry.coordinates.every(Object.isFrozen), type).toBe(true);
+      else if (details.renderGeometry.type === 'polygon') {
+        expect(details.renderGeometry.coordinates.every(Object.isFrozen), type).toBe(true);
+        expect(details.renderGeometry.coordinates.flat().every(Object.isFrozen), type).toBe(true);
+      } else expect(Object.isFrozen(details.renderGeometry.center), type).toBe(true);
+    }
   });
 
   it.each([

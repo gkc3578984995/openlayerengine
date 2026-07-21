@@ -149,19 +149,21 @@ export interface RadarScanAnimationSpec {
   readonly type: 'radar-scan';
   /** 独立控制这组动画的通道。 */
   readonly channel?: AnimationChannel;
-  /** 完整扫描一轮的时长，单位为毫秒。 */
+  /** 完整扫描模式周期，单位为毫秒；往返模式在半周期折返并于周期末回到起点。 */
   readonly periodMs?: number;
-  /** 最终屏幕上的扫描方向。 */
+  /** 最终屏幕上的首程扫描方向。 */
   readonly direction?: 'clockwise' | 'counterclockwise';
-  /** 雷达尾迹使用的纯色；不能和 `gradient` 同时设置。 */
+  /** 单向扫描，或按 `direction` 完成首程后原路返回。 */
+  readonly scanMode?: 'one-way' | 'round-trip';
+  /** 雷达尾迹使用的纯色；全部可见尾迹槽保持同一透明度，不能和 `gradient` 同时设置。 */
   readonly color?: Color;
-  /** 从尾迹最旧端 `0` 到扫描前沿 `1` 的颜色渐变；支持确定性 RGBA 颜色语法，不能和 `color` 同时设置。 */
+  /** 从尾迹最旧端 `0` 到扫描前沿 `1` 的颜色渐变；同时保留尾迹年龄透明度衰减，不能和 `color` 同时设置。 */
   readonly gradient?: readonly (readonly [offset: number, color: Color])[];
-  /** 雷达尾迹相对颜色 alpha 的透明度乘数。 */
+  /** 雷达尾迹相对颜色 alpha 的透明度乘数；纯色模式对全部可见槽恒定应用。 */
   readonly opacity?: number;
   /** 雷达尾迹角宽，单位为度。 */
   readonly beamWidthDeg?: number;
-  /** 完成一轮扫描后是否重新开始。 */
+  /** 完成一个所选扫描模式的完整周期后是否重新开始。 */
   readonly repeat?: boolean;
 }
 
@@ -173,11 +175,11 @@ export interface CenterSpreadAnimationSpec {
   readonly channel?: AnimationChannel;
   /** 单个扩散环从中心传播到外半径的时长，单位为毫秒。 */
   readonly periodMs?: number;
-  /** 扩散波纹使用的纯色；不能和 `gradient` 同时设置。 */
+  /** 扩散波纹使用的纯色；全部可见波纹带保持同一透明度，不能和 `gradient` 同时设置。 */
   readonly color?: Color;
-  /** 从内侧最旧尾迹 `0` 到外侧波纹前沿 `1` 的颜色渐变；支持确定性 RGBA 颜色语法，不能和 `color` 同时设置。 */
+  /** 从内侧最旧尾迹 `0` 到外侧波纹前沿 `1` 的颜色渐变；同时保留尾迹与传播进度透明度衰减，不能和 `color` 同时设置。 */
   readonly gradient?: readonly (readonly [offset: number, color: Color])[];
-  /** 扩散波纹相对颜色 alpha 的透明度乘数。 */
+  /** 扩散波纹相对颜色 alpha 的透明度乘数；纯色模式在整个传播生命周期内恒定应用。 */
   readonly opacity?: number;
   /** 尾迹宽度占目标外半径的比例；`0` 退化为仅绘制前沿环或弧。 */
   readonly trailLength?: number;

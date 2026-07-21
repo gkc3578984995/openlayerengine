@@ -379,33 +379,64 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="说明" :span="2">{{ selectedTarget.description }}</el-descriptions-item>
     </el-descriptions>
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="startWaiting">start() 后地图选择</el-button>
-      <el-button :disabled="firstRef === null" @click="selectFirst">select(A)</el-button>
-      <el-button :disabled="!hasSelection || !hasBothTargets" @click="replaceSelected">replaceSelected(A / B)</el-button>
-      <el-radio-group :model-value="mode" :disabled="!hasSelection" @update:model-value="setMode">
-        <el-radio-button value="transform">变换</el-radio-button>
-        <el-radio-button value="edit">顶点编辑</el-radio-button>
-      </el-radio-group>
-      <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
+    <div class="example-demo__control-panel transform-session-demo__control-panel">
+      <div class="example-demo__action-group">
+        <span>目标选择</span>
+        <div class="example-demo__action-buttons">
+          <el-button type="primary" @click="startWaiting">start() 后地图选择</el-button>
+          <el-button :disabled="firstRef === null" @click="selectFirst">select(A)</el-button>
+          <el-button :disabled="!hasSelection || !hasBothTargets" @click="replaceSelected">replaceSelected(A / B)</el-button>
+        </div>
+      </div>
+      <div class="example-demo__field">
+        <span>编辑模式</span>
+        <el-radio-group :model-value="mode" :disabled="!hasSelection" @update:model-value="setMode">
+          <el-radio-button value="transform">变换</el-radio-button>
+          <el-radio-button value="edit">顶点编辑</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="example-demo__action-row transform-session-demo__secondary-actions">
+        <div class="example-demo__action-group">
+          <span>历史</span>
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="!hasSelection" @click="undo">撤销</el-button>
+            <el-button :disabled="!hasSelection" @click="redo">重做</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>选中对象</span>
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="!hasSelection" @click="copy">复制</el-button>
+            <el-button :disabled="!hasSelection" type="danger" plain @click="remove">删除选中</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>会话</span>
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="!isActive" @click="finish">完成并提交</el-button>
+            <el-button :disabled="!isActive" @click="cancel">取消并回滚</el-button>
+          </div>
+        </div>
+      </div>
+      <div class="example-demo__feedback transform-session-demo__feedback" aria-live="polite">
+        <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
+      </div>
     </div>
-    <div class="example-demo__toolbar">
-      <el-button :disabled="!hasSelection" @click="undo">撤销</el-button>
-      <el-button :disabled="!hasSelection" @click="redo">重做</el-button>
-      <el-button :disabled="!hasSelection" @click="copy">复制</el-button>
-      <el-button :disabled="!hasSelection" type="danger" plain @click="remove">删除选中</el-button>
-      <el-button :disabled="!isActive" @click="finish">完成并提交</el-button>
-      <el-button :disabled="!isActive" @click="cancel">取消并回滚</el-button>
-    </div>
-    <div class="transform-session-demo__toolbar-controls">
-      <span>Toolbar：</span>
-      <el-button size="small" :disabled="!hasToolbar" @click="markToolbarEdit">高亮编辑项</el-button>
-      <el-button size="small" :disabled="!hasToolbar" @click="toggleToolbar">{{ toolbarVisible ? '隐藏' : '显示' }}</el-button>
-      <el-button size="small" :disabled="!hasToolbar" @click="toggleRemoveDisabled">
-        {{ toolbarRemoveDisabled ? '启用删除项' : '禁用删除项' }}
-      </el-button>
-      <el-button size="small" :disabled="!hasToolbar" @click="shiftToolbar">{{ toolbarShifted ? '恢复位置' : '调整位置' }}</el-button>
-      <el-button size="small" type="danger" plain :disabled="!hasToolbar" @click="destroyToolbar">销毁 Toolbar</el-button>
+    <div class="example-demo__control-panel transform-session-demo__toolbar-controls">
+      <div class="example-demo__action-group">
+        <strong>Toolbar</strong>
+        <div class="example-demo__action-buttons transform-session-demo__toolbar-actions">
+          <el-button size="small" :disabled="!hasToolbar" @click="markToolbarEdit">高亮编辑项</el-button>
+          <el-button size="small" :disabled="!hasToolbar" @click="toggleToolbar">{{ toolbarVisible ? '隐藏' : '显示' }}</el-button>
+          <el-button size="small" :disabled="!hasToolbar" @click="toggleRemoveDisabled">
+            {{ toolbarRemoveDisabled ? '启用删除项' : '禁用删除项' }}
+          </el-button>
+          <el-button size="small" :disabled="!hasToolbar" @click="shiftToolbar">{{ toolbarShifted ? '恢复位置' : '调整位置' }}</el-button>
+        </div>
+        <div class="example-demo__action-buttons transform-session-demo__toolbar-actions">
+          <el-button size="small" type="danger" plain :disabled="!hasToolbar" @click="destroyToolbar">销毁 Toolbar</el-button>
+        </div>
+      </div>
     </div>
     <div class="transform-session-demo__map-shell">
       <div ref="mapTarget" class="example-stage"></div>
@@ -460,14 +491,26 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
-.transform-session-demo__toolbar-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  color: var(--doc-muted);
-  font-size: 13px;
+.transform-session-demo__control-panel {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+.transform-session-demo__feedback,
+.transform-session-demo__secondary-actions {
+  grid-column: 1 / -1;
+}
+
+.transform-session-demo__feedback {
+  align-self: stretch;
+}
+
+.transform-session-demo__secondary-actions {
+  align-items: stretch;
+}
+
+.transform-session-demo__toolbar-actions + .transform-session-demo__toolbar-actions {
+  padding-top: 8px;
+  border-top: 1px solid var(--doc-border);
 }
 
 .transform-session-demo__map-shell {

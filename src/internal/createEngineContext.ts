@@ -124,7 +124,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const binding = new FeatureBinding(store, layerAdapter, geometry, styleCompiler);
     rollback.push(() => binding.destroy());
     const hitTest = new HitTestAdapter(map, store, layerManager, layerAdapter, binding);
-    const elements = new ElementServiceImpl(store, layerManager, binding, layers, nativeRefs, hitTest);
+    const elements = new ElementServiceImpl(store, layerManager, binding, geometry, layers, nativeRefs, hitTest);
 
     const render = new LayerRenderPass(map, layerAdapter, binding, styleCompiler);
     rollback.push(() => render.destroy());

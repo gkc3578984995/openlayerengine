@@ -316,27 +316,40 @@ onBeforeUnmount(() => {
   <div class="example-demo events-demo">
     <el-alert type="info" :closable="false" show-icon title="七张卡片对应七类公开事件；橙色标记演示 module，蓝色标记演示 selector，其余操作使用 global。" />
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="subscribe">重新订阅七类事件</el-button>
-      <el-button :disabled="!subscriptionState.signal" @click="cancelSignal">中止 rightclick signal</el-button>
-      <el-button :disabled="!subscriptionState.module" @click="clearModule">clearModule</el-button>
-      <el-button @click="resetCounts">清零计数</el-button>
-      <el-button type="danger" plain @click="disposeAll()">逐项调用注销函数</el-button>
-    </div>
-
-    <div class="events-demo__states">
-      <el-tag :type="subscriptionState.global ? 'success' : 'info'" effect="plain">global：{{ subscriptionState.global ? '有效' : '已结束' }}</el-tag>
-      <el-tag :type="subscriptionState.module ? 'success' : 'info'" effect="plain">module：{{ subscriptionState.module ? '有效' : '已清理' }}</el-tag>
-      <el-tag :type="subscriptionState.selector ? 'success' : 'info'" effect="plain">selector：{{ subscriptionState.selector ? '有效' : '已结束' }}</el-tag>
-      <el-tag :type="subscriptionState.signal ? 'warning' : 'info'" effect="plain"
-        >AbortSignal：{{ subscriptionState.signal ? '等待 rightclick' : '已结束' }}</el-tag
-      >
+    <div class="example-demo__control-panel events-demo__toolbar">
+      <div class="example-demo__action-row events-demo__action-row">
+        <div class="example-demo__actions events-demo__actions">
+          <div class="example-demo__action-group events-demo__action-group" role="group" aria-label="订阅控制">
+            <span>订阅控制</span>
+            <div class="example-demo__action-buttons events-demo__action-buttons">
+              <el-button type="primary" @click="subscribe">重新订阅七类事件</el-button>
+              <el-button :disabled="!subscriptionState.signal" @click="cancelSignal">中止 rightclick signal</el-button>
+              <el-button :disabled="!subscriptionState.module" @click="clearModule">clearModule</el-button>
+            </div>
+          </div>
+          <div class="example-demo__action-group events-demo__action-group" role="group" aria-label="计数与清理">
+            <span>计数与清理</span>
+            <div class="example-demo__action-buttons events-demo__action-buttons">
+              <el-button @click="resetCounts">清零计数</el-button>
+              <el-button type="danger" plain @click="disposeAll()">逐项调用注销函数</el-button>
+            </div>
+          </div>
+        </div>
+        <div class="example-demo__feedback events-demo__states" aria-live="polite">
+          <el-tag :type="subscriptionState.global ? 'success' : 'info'" effect="plain">global：{{ subscriptionState.global ? '有效' : '已结束' }}</el-tag>
+          <el-tag :type="subscriptionState.module ? 'success' : 'info'" effect="plain">module：{{ subscriptionState.module ? '有效' : '已清理' }}</el-tag>
+          <el-tag :type="subscriptionState.selector ? 'success' : 'info'" effect="plain">selector：{{ subscriptionState.selector ? '有效' : '已结束' }}</el-tag>
+          <el-tag :type="subscriptionState.signal ? 'warning' : 'info'" effect="plain"
+            >AbortSignal：{{ subscriptionState.signal ? '等待 rightclick' : '已结束' }}</el-tag
+          >
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage events-demo__map" tabindex="0" aria-label="事件交互地图"></div>
 
     <el-row class="events-demo__counters" :gutter="10">
-      <el-col v-for="card in eventCards" :key="card.type" :xs="12" :sm="8" :lg="6">
+      <el-col v-for="card in eventCards" :key="card.type" :xs="24" :sm="8" :lg="6">
         <el-card class="events-demo__counter" shadow="never" :class="{ 'is-current': latestEvent.type === card.type }">
           <div class="events-demo__counter-head">
             <code>{{ card.label }}</code>
@@ -355,7 +368,7 @@ onBeforeUnmount(() => {
           <el-tag :type="latestEvent.type === '—' ? 'info' : 'primary'" effect="dark">{{ latestEvent.title }}</el-tag>
         </div>
       </template>
-      <el-descriptions :column="2" border>
+      <el-descriptions :column="1" border>
         <el-descriptions-item label="路由范围">{{ latestEvent.scope }}</el-descriptions-item>
         <el-descriptions-item label="命中目标">{{ latestEvent.target }}</el-descriptions-item>
         <el-descriptions-item label="位置">{{ latestEvent.position }}</el-descriptions-item>
@@ -366,11 +379,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.events-demo__action-group {
+  max-width: 100%;
+}
+
 .events-demo__states {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 14px;
+  align-content: center;
 }
 
 .events-demo__map:focus-visible {
@@ -401,6 +415,21 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.events-demo__counter-head code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.events-demo__latest-title {
+  flex-wrap: wrap;
+}
+
+.events-demo__latest-title :deep(.el-tag) {
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+}
+
 .events-demo__counter-head strong {
   color: var(--doc-primary-deep);
   font-size: 24px;
@@ -416,5 +445,28 @@ onBeforeUnmount(() => {
 .events-demo__latest {
   margin-top: 4px;
   border-color: var(--doc-border);
+}
+
+.events-demo__latest :deep(.el-descriptions__content) {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .events-demo__toolbar,
+  .events-demo__action-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .events-demo__action-group,
+  .events-demo__action-buttons :deep(.el-button) {
+    width: 100%;
+  }
+
+  .events-demo__action-buttons :deep(.el-button) {
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
+  }
 }
 </style>

@@ -89,7 +89,11 @@ const variantRows = [
     variants: 'grow 的 FineArrow；forward / reverse；path-travel gradient',
     result: '箭头按 Shape provider 路径完整揭示，路径尾迹显示渐变方向'
   },
-  { family: '径向效果', variants: 'Sector radar-scan；clockwise / counterclockwise；纯色 / gradient', result: '扫描束严格裁剪在 Sector sweep 内' },
+  {
+    family: '径向效果',
+    variants: 'Sector radar-scan；one-way / round-trip；首程 clockwise / counterclockwise；纯色 / gradient',
+    result: '纯色尾迹保持均匀透明度；gradient 保留渐隐，往复扫描始终裁剪在 Sector sweep 内'
+  },
   { family: '三种 gradient', variants: 'path-travel、radar-scan、center-spread', result: '路径尾迹、扫描尾迹和径向波纹分别展示渐变色标方向' },
   { family: '透明度与终态', variants: 'fade in / out；out retain；blink + fade', result: 'in 完成后 remove；out 保留最后一帧并由 stop 清理' },
   { family: '高亮', variants: 'highlight steady / breathe', result: 'steady 不持续请求帧；breathe 显示光敏提示且只能手动启动' },
@@ -141,7 +145,13 @@ const compatibilityRows = [
     domain: 'target-geometry',
     completion: 'repeat: false 时完整图形无缝接替'
   },
-  { type: 'radar-scan', capability: 'radial-frame + structured', targets: 'Circle / Sector', domain: 'overlay', completion: 'repeat: false 时一轮扫描后移除' },
+  {
+    type: 'radar-scan',
+    capability: 'radial-frame + structured',
+    targets: 'Circle / Sector',
+    domain: 'overlay',
+    completion: 'repeat: false 时在一个完整 period 后移除；round-trip 会先去后回'
+  },
   { type: 'center-spread', capability: 'radial-frame + structured', targets: 'Circle / Sector', domain: 'overlay', completion: '最后一个环完成后移除' },
   {
     type: 'fade',
@@ -270,13 +280,19 @@ const effectDetails: EffectDetail[] = [
     fields: [
       field('RadarScanAnimationSpec', 'type', "'radar-scan'", '固定判别字段'),
       field('RadarScanAnimationSpec', 'channel', "'radar-scan'", '非空字符串'),
-      field('RadarScanAnimationSpec', 'periodMs', '2000', '有限正数，单位 ms'),
-      field('RadarScanAnimationSpec', 'direction', "'clockwise'", "'clockwise' | 'counterclockwise'，按最终屏幕方向解释"),
-      field('RadarScanAnimationSpec', 'color', "'#00e676'", '与 gradient 互斥；仅两者都省略时补默认值'),
-      field('RadarScanAnimationSpec', 'gradient', '未设置', '至少两个严格递增色标；offset 0 为旧尾端，1 为扫描前沿'),
-      field('RadarScanAnimationSpec', 'opacity', '0.35', '[0, 1]'),
+      field('RadarScanAnimationSpec', 'periodMs', '2000', '有限正数，单位 ms；表示所选 scanMode 的完整周期'),
+      field('RadarScanAnimationSpec', 'direction', "'clockwise'", "'clockwise' | 'counterclockwise'，表示最终屏幕上的首程方向"),
+      field(
+        'RadarScanAnimationSpec',
+        'scanMode',
+        "'one-way'",
+        "'one-way' | 'round-trip'；往复模式在 periodMs / 2 到达对侧边界并折返，在 periodMs 回到起扫边界"
+      ),
+      field('RadarScanAnimationSpec', 'color', "'#00e676'", '与 gradient 互斥；全部可见尾迹槽保持同一透明度'),
+      field('RadarScanAnimationSpec', 'gradient', '未设置', '至少两个严格递增色标；offset 0 为旧尾端，1 为扫描前沿，并保留年龄渐隐'),
+      field('RadarScanAnimationSpec', 'opacity', '0.35', '[0, 1]；纯色模式对全部可见槽恒定应用'),
       field('RadarScanAnimationSpec', 'beamWidthDeg', '45', '0 < value ≤ 360；Sector 不超过自身 sweep'),
-      field('RadarScanAnimationSpec', 'repeat', 'true', 'false 时一轮扫描后自然完成')
+      field('RadarScanAnimationSpec', 'repeat', 'true', 'false 时完成一个完整 period；round-trip 会完成去程和回程')
     ]
   },
   {
@@ -288,9 +304,9 @@ const effectDetails: EffectDetail[] = [
       field('CenterSpreadAnimationSpec', 'type', "'center-spread'", '固定判别字段'),
       field('CenterSpreadAnimationSpec', 'channel', "'center-spread'", '非空字符串'),
       field('CenterSpreadAnimationSpec', 'periodMs', '1600', '单环从中心到外半径的有限正时长，单位 ms'),
-      field('CenterSpreadAnimationSpec', 'color', "'#00e676'", '与 gradient 互斥；仅两者都省略时补默认值'),
-      field('CenterSpreadAnimationSpec', 'gradient', '未设置', 'offset 0 为内侧旧尾迹，1 为外侧前沿'),
-      field('CenterSpreadAnimationSpec', 'opacity', '0.7', '[0, 1]'),
+      field('CenterSpreadAnimationSpec', 'color', "'#00e676'", '与 gradient 互斥；全部可见波纹带保持同一透明度'),
+      field('CenterSpreadAnimationSpec', 'gradient', '未设置', 'offset 0 为内侧旧尾迹，1 为外侧前沿，并保留尾迹与传播渐隐'),
+      field('CenterSpreadAnimationSpec', 'opacity', '0.7', '[0, 1]；纯色模式在整个传播生命周期内恒定应用'),
       field('CenterSpreadAnimationSpec', 'trailLength', '0.18', '[0, 1]；0 只保留前沿线环或裁剪弧'),
       field('CenterSpreadAnimationSpec', 'strokeWidth', '2', '有限非负数，单位 CSS px'),
       field('CenterSpreadAnimationSpec', 'ringCount', '3', '1..5 的安全整数'),
@@ -436,7 +452,7 @@ const apiTypes = [
             <p>
               地图以 5 × 2 分布十个互不重叠的目标：每种效果都有自己的兼容
               Shape，点击目录按钮可选中并聚焦。普通模式切换效果会自动停止旧句柄；只有显式开启组合模式，才会把 blink、highlight、alert、fade 放到共享 Polygon
-              上验证跨 channel 合成。启动后使用
+              上验证跨 channel 合成。径向效果运行中修改扫描方式、方向、颜色或波纹参数时，示例会用最新 Spec 重新启动当前效果。启动后使用
               <ApiReference kind="method" to="/api/types#api-type-animation-handle-method-pause">pause</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-animation-handle-method-resume">resume</ApiReference> 与
               <ApiReference kind="method" to="/api/types#api-type-animation-handle-method-stop">stop</ApiReference> 控制本次播放。
@@ -456,7 +472,12 @@ const apiTypes = [
         </el-table>
         <el-alert type="info" :closable="false" show-icon title="gradient 色标方向与互斥规则">
           path-travel 的 offset 0 → 1 沿尾迹前进；radar-scan 的 0 表示最旧尾端、1 表示扫描前沿；center-spread 的 0 表示内侧最旧尾迹、1
-          表示外侧波纹前沿。radar-scan 与 center-spread 的 gradient 不能与 color 同时设置，实验室通过“渐变 / 纯色”切换保证二选一。
+          表示外侧波纹前沿。radar-scan 与 center-spread 的 gradient 不能与 color 同时设置，实验室通过“渐变 /
+          纯色”切换保证二选一；纯色模式对全部可见尾迹槽恒定应用 opacity，只有 gradient 模式保留尾迹与传播进度渐隐。
+        </el-alert>
+        <el-alert type="info" :closable="false" show-icon title="radar-scan 往复周期">
+          scanMode 为 one-way 时，一个 periodMs 从起扫边界到达对侧边界；round-trip 时，direction 只表示首程方向，扫描前沿在 periodMs / 2 到达对侧并立即折返，在
+          periodMs 回到起扫边界。repeat: false 会在这个完整周期后自然完成，repeat: true 则继续下一周期。
         </el-alert>
       </section>
 
@@ -529,7 +550,10 @@ const apiTypes = [
             在自然完成或停止后兑现；fade-out retain 兑现后仍保留稳定最后一帧。
           </li>
           <li>Element hide 会暂停并撤下展示资源，show 以最新 View 状态继续；remove 与 earth.destroy() 会停止记录并释放全部资源。</li>
-          <li>layerId、geometry 或 style 变化会重绑定最新状态，但不会重置动画 elapsed；copy、snapshot 和事务历史不复制动画。</li>
+          <li>
+            layerId、geometry 或 style 变化会重绑定最新状态，但不会重置动画 elapsed；radar-scan 往复模式会在新 radial frame
+            上保持同一去程或回程进度。copy、snapshot 和事务历史不复制动画。
+          </li>
           <li>
             <ApiReference kind="method" to="/api/types#api-type-animation-manager-method-stop-all">stopAll</ApiReference> 只影响当前 Earth，不跨实例清理。
           </li>

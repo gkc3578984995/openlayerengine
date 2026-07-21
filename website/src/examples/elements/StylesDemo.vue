@@ -122,29 +122,37 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo styles-demo">
-    <el-form class="styles-demo__controls" inline label-position="top">
-      <el-form-item label="样式预设">
-        <el-select v-model="presetName" @change="applyPreset">
-          <el-option v-for="name in presetNames" :key="name" :label="`${presetLabels[name]} · ${name}`" :value="name" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="完整替换">
-        <el-button type="primary" @click="applyPreset">应用 styles.set()</el-button>
-      </el-form-item>
-      <el-form-item label="局部颜色">
-        <el-color-picker v-model="accentColor" aria-label="局部更新颜色" />
-      </el-form-item>
-      <el-form-item label="保留其余字段">
-        <el-button @click="patchAccent">应用 styles.patch()</el-button>
-      </el-form-item>
-    </el-form>
+    <div class="example-demo__control-panel">
+      <el-form class="example-demo__control-grid styles-demo__controls" label-position="top">
+        <div class="example-demo__action-group styles-demo__control-group">
+          <strong>完整替换</strong>
+          <el-form-item label="样式预设">
+            <el-select v-model="presetName" @change="applyPreset">
+              <el-option v-for="name in presetNames" :key="name" :label="`${presetLabels[name]} · ${name}`" :value="name" />
+            </el-select>
+          </el-form-item>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="applyPreset">应用 styles.set()</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group styles-demo__control-group">
+          <strong>保留其余字段</strong>
+          <el-form-item label="局部颜色">
+            <el-color-picker v-model="accentColor" aria-label="局部更新颜色" />
+          </el-form-item>
+          <div class="example-demo__action-buttons">
+            <el-button @click="patchAccent">应用 styles.patch()</el-button>
+          </div>
+        </div>
+      </el-form>
 
-    <div class="styles-demo__status">
-      <el-tag type="primary" effect="dark">{{ presetLabels[presetName] }}</el-tag>
-      <el-tag effect="plain"
-        ><code>{{ presetName }}</code></el-tag
-      >
-      <el-tag :type="currentAction === 'set' ? 'success' : 'warning'" effect="plain">当前结果：{{ currentActionLabel }}</el-tag>
+      <div class="example-demo__feedback styles-demo__status" aria-live="polite">
+        <el-tag type="primary" effect="dark">{{ presetLabels[presetName] }}</el-tag>
+        <el-tag effect="plain"
+          ><code>{{ presetName }}</code></el-tag
+        >
+        <el-tag :type="currentAction === 'set' ? 'success' : 'warning'" effect="plain">当前结果：{{ currentActionLabel }}</el-tag>
+      </div>
     </div>
 
     <div class="styles-demo__stage-wrap">
@@ -162,18 +170,28 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .styles-demo__controls {
-  margin-bottom: 2px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
 }
 
-.styles-demo__controls :deep(.el-select) {
-  width: 250px;
+.styles-demo__control-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
 }
 
-.styles-demo__status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
+.styles-demo__control-group > strong {
+  grid-column: 1 / -1;
+}
+
+.styles-demo__control-group :deep(.el-form-item) {
+  min-width: 0;
+  margin: 0;
+}
+
+.styles-demo__control-group :deep(.el-select) {
+  width: 100%;
+  max-width: 250px;
 }
 
 .styles-demo__stage-wrap {
@@ -219,14 +237,15 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 640px) {
-  .styles-demo__controls {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .styles-demo__control-group {
+    grid-template-columns: 1fr;
+    justify-items: start;
   }
 
-  .styles-demo__controls :deep(.el-form-item),
-  .styles-demo__controls :deep(.el-select) {
+  .styles-demo__control-group :deep(.el-form-item),
+  .styles-demo__control-group :deep(.el-select) {
     width: 100%;
+    max-width: 100%;
   }
 
   .styles-demo__stage {

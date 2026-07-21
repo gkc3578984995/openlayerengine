@@ -13,6 +13,9 @@ const PREVIEW_LAYER_ID = 'linework-preview-elements';
 type PreviewKind = 'polyline' | 'polygon';
 type TrackMode = LinePattern | 'double' | 'none';
 type DecorationMode = TrackedLineDecorationType | 'inline-text';
+type CenterDecorationMode = Extract<TrackedLineDecorationType, 'center-cross' | 'center-dot' | 'center-dot-pair'>;
+
+const centerDecorationOptions: readonly CenterDecorationMode[] = ['center-cross', 'center-dot', 'center-dot-pair'];
 
 const decorationOptions: readonly DecorationMode[] = [
   'none',
@@ -52,15 +55,19 @@ const earthRef = shallowRef<Earth | null>(null);
 const previewCenter = shallowRef<Coordinate | null>(null);
 const kind = ref<PreviewKind>('polyline');
 const tracks = ref<TrackMode>('solid');
-const decoration = ref<DecorationMode>('tick');
+const decoration = ref<DecorationMode>('center-dot');
 const startCap = ref<LineCapType>('bar');
 const endCap = ref<LineCapType>('arrow');
 const color = ref<string | null>('#f56c6c');
 const inlineText = ref('供水管线');
+const repeatEnabled = ref(true);
+const repeatSpacingPx = ref(96);
 
 const capsEnabled = computed(() => kind.value === 'polyline' && tracks.value !== 'double' && tracks.value !== 'none');
 const decorationLabel = computed(() => (tracks.value === 'none' ? '斜杠' : decorationLabels[decoration.value]));
 const activeColor = computed(() => color.value ?? '#f56c6c');
+const isCenterDecoration = (value: DecorationMode): value is CenterDecorationMode => centerDecorationOptions.includes(value as CenterDecorationMode);
+const repeatableContentEnabled = computed(() => (tracks.value === 'none' ? false : decoration.value === 'inline-text' || isCenterDecoration(decoration.value)));
 
 const colorWithAlpha = (value: string, alpha: number): string => {
   const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(value);
@@ -83,38 +90,71 @@ const createDefaultPolygonLineworkStyle = (): StyleSpec =>
     lines: 'solid',
     decoration: 'tick'
   });
+
+const createRepeatedCenterLineworkStyle = (): StyleSpec =>
+  lineStyles.polyline({
+    color: activeColor.value,
+    lines: 'solid',
+    caps: { start: 'bar', end: 'arrow' },
+    decoration: 'center-dot',
+    repeatSpacingPx: repeatSpacingPx.value
+  });
 // #endregion linework-factory
 
 const createPolylineStyle = (): StyleSpec => {
   const trackMode = tracks.value;
   const decorationMode = decoration.value;
   if (trackMode === 'solid' && decorationMode === 'tick' && startCap.value === 'bar' && endCap.value === 'arrow') return createDefaultLineworkStyle();
+  if (trackMode === 'solid' && decorationMode === 'center-dot' && startCap.value === 'bar' && endCap.value === 'arrow' && repeatEnabled.value) {
+    return createRepeatedCenterLineworkStyle();
+  }
   if (trackMode === 'none') return lineStyles.polyline({ color: activeColor.value, lines: 'none', decoration: 'slash' });
 
   if (trackMode === 'double') {
     const lines = ['solid', 'dashed'] as const;
-    return decorationMode === 'inline-text'
-      ? lineStyles.polyline({
-          color: activeColor.value,
-          lines,
-          decoration: 'inline-text',
-          text: inlineText.value.trim() || '路径文字',
-          textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' }
-        })
-      : lineStyles.polyline({ color: activeColor.value, lines, decoration: decorationMode });
+    if (decorationMode === 'inline-text') {
+      return lineStyles.polyline({
+        color: activeColor.value,
+        lines,
+        decoration: 'inline-text',
+        text: inlineText.value.trim() || '路径文字',
+        textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' },
+        ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
+      });
+    }
+    if (isCenterDecoration(decorationMode)) {
+      return lineStyles.polyline({
+        color: activeColor.value,
+        lines,
+        decoration: decorationMode,
+        ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
+      });
+    }
+    return lineStyles.polyline({ color: activeColor.value, lines, decoration: decorationMode });
   }
 
   const caps = { start: startCap.value, end: endCap.value };
-  return decorationMode === 'inline-text'
-    ? lineStyles.polyline({
-        color: activeColor.value,
-        lines: trackMode,
-        caps,
-        decoration: 'inline-text',
-        text: inlineText.value.trim() || '路径文字',
-        textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' }
-      })
-    : lineStyles.polyline({ color: activeColor.value, lines: trackMode, caps, decoration: decorationMode });
+  if (decorationMode === 'inline-text') {
+    return lineStyles.polyline({
+      color: activeColor.value,
+      lines: trackMode,
+      caps,
+      decoration: 'inline-text',
+      text: inlineText.value.trim() || '路径文字',
+      textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' },
+      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
+    });
+  }
+  if (isCenterDecoration(decorationMode)) {
+    return lineStyles.polyline({
+      color: activeColor.value,
+      lines: trackMode,
+      caps,
+      decoration: decorationMode,
+      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
+    });
+  }
+  return lineStyles.polyline({ color: activeColor.value, lines: trackMode, caps, decoration: decorationMode });
 };
 
 const createPolygonStyle = (): StyleSpec => {
@@ -124,15 +164,25 @@ const createPolygonStyle = (): StyleSpec => {
   if (trackMode === 'none') return lineStyles.polygon({ color: activeColor.value, lines: 'none', decoration: 'slash' });
 
   const lines: LinePattern | readonly [LinePattern, LinePattern] = trackMode === 'double' ? ['solid', 'dashed'] : trackMode;
-  return decorationMode === 'inline-text'
-    ? lineStyles.polygon({
-        color: activeColor.value,
-        lines,
-        decoration: 'inline-text',
-        text: inlineText.value.trim() || '路径文字',
-        textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' }
-      })
-    : lineStyles.polygon({ color: activeColor.value, lines, decoration: decorationMode });
+  if (decorationMode === 'inline-text') {
+    return lineStyles.polygon({
+      color: activeColor.value,
+      lines,
+      decoration: 'inline-text',
+      text: inlineText.value.trim() || '路径文字',
+      textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' },
+      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
+    });
+  }
+  if (isCenterDecoration(decorationMode)) {
+    return lineStyles.polygon({
+      color: activeColor.value,
+      lines,
+      decoration: decorationMode,
+      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
+    });
+  }
+  return lineStyles.polygon({ color: activeColor.value, lines, decoration: decorationMode });
 };
 
 const createLineworkStyle = (): StyleSpec => (kind.value === 'polyline' ? createPolylineStyle() : createPolygonStyle());
@@ -193,7 +243,7 @@ const applyLinework = (focus = false) => {
 // #endregion linework-apply
 
 watch(kind, () => applyLinework(true), { flush: 'post' });
-watch([tracks, decoration, startCap, endCap, color, inlineText], () => applyLinework(), { flush: 'post' });
+watch([tracks, decoration, startCap, endCap, color, inlineText, repeatEnabled, repeatSpacingPx], () => applyLinework(), { flush: 'post' });
 
 onMounted(() => {
   if (mapTarget.value === null) return;
@@ -219,47 +269,65 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo linework-demo">
-    <el-form class="linework-demo__controls" label-position="top" inline>
-      <el-form-item label="路径范围">
-        <el-radio-group v-model="kind">
-          <el-radio-button value="polyline">开放路径</el-radio-button>
-          <el-radio-button value="polygon">闭合外环</el-radio-button>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="轨道">
-        <el-select v-model="tracks">
-          <el-option v-for="(label, value) in trackLabels" :key="value" :label="label" :value="value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="沿线装饰">
-        <el-select v-model="decoration" :disabled="tracks === 'none'">
-          <el-option v-for="item in decorationOptions" :key="item" :label="`${decorationLabels[item]} · ${item}`" :value="item" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="起点端帽">
-        <el-select v-model="startCap" :disabled="!capsEnabled">
-          <el-option label="无" value="none" /><el-option label="横杠" value="bar" /><el-option label="箭头" value="arrow" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="终点端帽">
-        <el-select v-model="endCap" :disabled="!capsEnabled">
-          <el-option label="无" value="none" /><el-option label="横杠" value="bar" /><el-option label="箭头" value="arrow" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="路径文字">
-        <el-input v-model="inlineText" :disabled="decoration !== 'inline-text' || tracks === 'none'" />
-      </el-form-item>
-      <el-form-item label="统一颜色">
-        <el-color-picker v-model="color" aria-label="线饰颜色" />
-      </el-form-item>
-    </el-form>
+    <div class="example-demo__control-panel">
+      <el-form class="example-demo__control-grid linework-demo__controls" label-position="top">
+        <el-form-item label="路径范围">
+          <el-radio-group v-model="kind">
+            <el-radio-button value="polyline">开放路径</el-radio-button>
+            <el-radio-button value="polygon">闭合外环</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="轨道">
+          <el-select v-model="tracks">
+            <el-option v-for="(label, value) in trackLabels" :key="value" :label="label" :value="value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="沿线装饰">
+          <el-select v-model="decoration" :disabled="tracks === 'none'">
+            <el-option v-for="item in decorationOptions" :key="item" :label="`${decorationLabels[item]} · ${item}`" :value="item" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="起点端帽">
+          <el-select v-model="startCap" :disabled="!capsEnabled">
+            <el-option label="无" value="none" /><el-option label="横杠" value="bar" /><el-option label="箭头" value="arrow" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="终点端帽">
+          <el-select v-model="endCap" :disabled="!capsEnabled">
+            <el-option label="无" value="none" /><el-option label="横杠" value="bar" /><el-option label="箭头" value="arrow" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="路径文字">
+          <el-input v-model="inlineText" :disabled="decoration !== 'inline-text' || tracks === 'none'" />
+        </el-form-item>
+        <el-form-item label="重复铺满路径">
+          <el-switch v-model="repeatEnabled" :disabled="!repeatableContentEnabled" aria-label="切换中心内容是否重复铺满路径" />
+        </el-form-item>
+        <el-form-item label="重复间距（CSS px）">
+          <el-input-number
+            v-model="repeatSpacingPx"
+            :disabled="!repeatableContentEnabled || !repeatEnabled"
+            :min="1"
+            :max="400"
+            :step="8"
+            controls-position="right"
+          />
+        </el-form-item>
+        <el-form-item label="统一颜色">
+          <el-color-picker v-model="color" aria-label="线饰颜色" />
+        </el-form-item>
+      </el-form>
 
-    <div class="linework-demo__status">
-      <el-tag type="primary" effect="dark">{{ kind === 'polyline' ? '开放路径' : '闭合外环' }}</el-tag>
-      <el-tag effect="plain">轨道：{{ trackLabels[tracks] }}</el-tag>
-      <el-tag type="success" effect="plain">装饰：{{ decorationLabel }}</el-tag>
-      <el-tag v-if="capsEnabled" type="warning" effect="plain">端帽：{{ startCap }} → {{ endCap }}</el-tag>
-      <span>修改任一选项，地图会立即刷新。</span>
+      <div class="example-demo__feedback linework-demo__status" aria-live="polite">
+        <el-tag type="primary" effect="dark">{{ kind === 'polyline' ? '开放路径' : '闭合外环' }}</el-tag>
+        <el-tag effect="plain">轨道：{{ trackLabels[tracks] }}</el-tag>
+        <el-tag type="success" effect="plain">装饰：{{ decorationLabel }}</el-tag>
+        <el-tag v-if="capsEnabled" type="warning" effect="plain">端帽：{{ startCap }} → {{ endCap }}</el-tag>
+        <el-tag v-if="repeatableContentEnabled" type="info" effect="plain">
+          位置：{{ repeatEnabled ? `每 ${repeatSpacingPx} CSS px` : '累计长度中点一次' }}
+        </el-tag>
+        <span>修改任一选项，地图会立即刷新。</span>
+      </div>
     </div>
 
     <div class="linework-demo__stage-wrap">
@@ -270,32 +338,26 @@ onBeforeUnmount(() => {
     <el-descriptions class="linework-demo__rules" :column="2" border size="small">
       <el-descriptions-item label="开放单轨">可同时使用起点、终点端帽和沿线装饰。</el-descriptions-item>
       <el-descriptions-item label="双轨 / 闭合环">端帽会禁用，避免产生没有明确定义的组合。</el-descriptions-item>
+      <el-descriptions-item label="中心内容">三种中心 glyph 与路径文字可保持中点一次，也可按锚点间距铺满整个路径。</el-descriptions-item>
+      <el-descriptions-item label="文字间距">间距不会随文字宽度自动增大；文字重叠时，对应轨道切口仍会合并。</el-descriptions-item>
     </el-descriptions>
   </div>
 </template>
 
 <style scoped>
 .linework-demo__controls {
-  margin-bottom: 2px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
 }
 
 .linework-demo__controls :deep(.el-form-item) {
-  margin-right: 12px;
+  min-width: 0;
+  margin: 0;
 }
 
 .linework-demo__controls :deep(.el-select),
-.linework-demo__controls :deep(.el-input) {
+.linework-demo__controls :deep(.el-input),
+.linework-demo__controls :deep(.el-input-number) {
   width: 190px;
-}
-
-.linework-demo__status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  color: var(--doc-muted);
-  font-size: 12px;
 }
 
 .linework-demo__stage-wrap {
@@ -328,13 +390,13 @@ onBeforeUnmount(() => {
 
 @media (max-width: 640px) {
   .linework-demo__controls {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   }
 
   .linework-demo__controls :deep(.el-form-item),
   .linework-demo__controls :deep(.el-select),
-  .linework-demo__controls :deep(.el-input) {
+  .linework-demo__controls :deep(.el-input),
+  .linework-demo__controls :deep(.el-input-number) {
     width: 100%;
     margin-right: 0;
   }

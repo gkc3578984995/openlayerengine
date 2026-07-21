@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo pattern-fill-demo" :data-preview-mode="previewMode">
-    <div class="pattern-fill-demo__control-panel">
+    <div class="example-demo__control-panel pattern-fill-demo__control-panel">
       <el-alert
         class="pattern-fill-demo__alert"
         type="info"
@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
         show-icon
         title="纹理尺寸使用 4 / 8 / 16 / 32 / 64 / 128 六档缓存值；dot 调整圆点半径，其余纹理调整线宽。"
       />
-      <div class="pattern-fill-demo__controls">
+      <div class="example-demo__control-grid pattern-fill-demo__controls">
         <el-form-item label="纹理类型">
           <el-select v-model="selectedPattern" aria-label="纹理类型" @change="applyPattern">
             <el-option v-for="item in patterns" :key="item.value" :label="item.label" :value="item.value" />
@@ -309,12 +309,14 @@ onBeforeUnmount(() => {
         </el-form-item>
       </div>
 
-      <div class="pattern-fill-demo__actions">
-        <div class="pattern-fill-demo__action-buttons">
-          <el-button type="primary" @click="applyPattern">应用 styles.set()</el-button>
-          <el-button @click="patchPatternParameters">应用 styles.patch()</el-button>
+      <div class="example-demo__action-row pattern-fill-demo__actions">
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons pattern-fill-demo__action-buttons">
+            <el-button type="primary" @click="applyPattern">应用 styles.set()</el-button>
+            <el-button @click="patchPatternParameters">应用 styles.patch()</el-button>
+          </div>
         </div>
-        <div class="pattern-fill-demo__status" aria-label="纹理示例当前状态">
+        <div class="example-demo__feedback pattern-fill-demo__status" aria-label="纹理示例当前状态">
           <el-tag effect="plain">{{ selectedPatternLabel }}</el-tag>
           <el-tag :type="latestAction === 'set' ? 'success' : 'warning'" effect="plain">最近操作：{{ latestAction }}</el-tag>
         </div>
@@ -336,25 +338,13 @@ onBeforeUnmount(() => {
   container: pattern-fill / inline-size;
 }
 
-.pattern-fill-demo__control-panel {
-  display: grid;
-  gap: 16px;
-  margin-bottom: 18px;
-  padding: 16px;
-  border: 1px solid var(--doc-border);
-  border-radius: 12px;
-  background: var(--doc-surface);
-}
-
 .pattern-fill-demo__alert {
   margin: 0;
 }
 
 .pattern-fill-demo__controls {
-  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   gap: 14px 16px;
-  align-items: end;
 }
 
 .pattern-fill-demo__controls :deep(.el-form-item) {
@@ -364,25 +354,6 @@ onBeforeUnmount(() => {
 .pattern-fill-demo__controls :deep(.el-select),
 .pattern-fill-demo__controls :deep(.el-slider) {
   width: 100%;
-}
-
-.pattern-fill-demo__actions {
-  display: grid;
-  gap: 12px;
-  padding-top: 14px;
-  border-top: 1px solid var(--doc-border);
-}
-
-.pattern-fill-demo__action-buttons,
-.pattern-fill-demo__status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.pattern-fill-demo__action-buttons :deep(.el-button + .el-button) {
-  margin-left: 0;
 }
 
 .pattern-fill-demo__stage-wrap {
@@ -408,10 +379,6 @@ onBeforeUnmount(() => {
 @container pattern-fill (max-width: 520px) {
   .pattern-fill-demo__stage {
     height: 420px;
-  }
-
-  .pattern-fill-demo__control-panel {
-    padding: 14px;
   }
 }
 </style>

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { getPointResolution } from 'ol/proj.js';
 import { useEarth } from '@vrsim/earth-engine-ol';
-import type { Coordinate, Earth, ShapeInput, ShapeType, StyleSpec } from '@vrsim/earth-engine-ol';
+import type { Coordinate, Earth, ElementGeometryDetails, ShapeInput, ShapeType, StyleSpec } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 import CodeBlock from '../../components/docs/CodeBlock.vue';
 import { createConfiguredLayer } from '../../config/mapSources';
@@ -40,6 +40,7 @@ const groupGlyphs: Record<ShapeExampleGroupId, string> = {
 const mapTarget = ref<HTMLDivElement | null>(null);
 const earthRef = shallowRef<Earth | null>(null);
 const previewCenter = shallowRef<readonly [number, number] | null>(null);
+const selectedGeometryDetails = shallowRef<ElementGeometryDetails | null>(null);
 const selectedType = ref<ShapeType>(DEFAULT_SHAPE);
 const catalogQuery = ref('');
 const selectedGroup = ref<CatalogGroupFilter>('all');
@@ -67,6 +68,24 @@ const filteredGroups = computed(() =>
     .filter((group) => group.examples.length > 0)
 );
 const filteredCount = computed(() => filteredGroups.value.reduce((count, group) => count + group.examples.length, 0));
+
+const formatMapNumber = (value: number) => Number(value.toFixed(2)).toLocaleString('zh-CN');
+const formatCoordinate = (coordinate: Coordinate) => `[${coordinate.slice(0, 2).map(formatMapNumber).join(', ')}]`;
+const geometryDetailsSummary = computed(() => {
+  const geometry = selectedGeometryDetails.value?.renderGeometry;
+  if (geometry === undefined) return '尚未读取';
+  if (geometry.type === 'point') return `Point · 坐标 ${formatCoordinate(geometry.coordinates)}`;
+  if (geometry.type === 'polyline') return `Polyline · ${geometry.coordinates.length} 个坐标`;
+  if (geometry.type === 'polygon') {
+    const coordinateCount = geometry.coordinates.reduce((count, ring) => count + ring.length, 0);
+    return `Polygon · ${geometry.coordinates.length} 个环 · ${coordinateCount} 个坐标`;
+  }
+  return `Circle · 中心 ${formatCoordinate(geometry.center)} · View 半径 ${formatMapNumber(geometry.radius)}`;
+});
+const geometryExtentSummary = computed(() => {
+  const extent = selectedGeometryDetails.value?.extent;
+  return extent === undefined ? '尚未读取' : `[${extent.map(formatMapNumber).join(', ')}]`;
+});
 
 const minimalCode = computed(() => {
   if (selectedType.value === 'circle') {
@@ -247,8 +266,10 @@ const renderShape = (type: ShapeType) => {
     geometry: createShapeExampleInput(type, center, PREVIEW_SCALE),
     style: styleFor(example)
   });
+  const geometryDetails = element.geometryDetails;
   // #endregion shape-gallery
 
+  selectedGeometryDetails.value = geometryDetails;
   addGuides(earth, inputPointsFor(earth, element.state.geometry));
   focusSelected();
 };
@@ -287,18 +308,29 @@ onBeforeUnmount(() => {
   earthRef.value?.destroy();
   earthRef.value = null;
   previewCenter.value = null;
+  selectedGeometryDetails.value = null;
 });
 </script>
 
 <template>
   <div class="example-demo shape-catalog">
-    <div class="shape-catalog__filters" aria-label="筛选 ShapeType">
-      <el-input v-model="catalogQuery" clearable placeholder="搜索中文名或 ShapeType" aria-label="搜索 ShapeType" />
-      <el-select v-model="selectedGroup" aria-label="按图形类别筛选">
-        <el-option v-for="option in groupFilterOptions" :key="option.value" :label="option.label" :value="option.value" />
-      </el-select>
-      <el-button :disabled="catalogQuery === '' && selectedGroup === 'all'" @click="clearFilters">清除筛选</el-button>
-      <el-tag type="info" effect="plain">找到 {{ filteredCount }} / 20</el-tag>
+    <div class="example-demo__control-panel" aria-label="筛选 ShapeType">
+      <div class="example-demo__control-grid shape-catalog__filters">
+        <el-input v-model="catalogQuery" clearable placeholder="搜索中文名或 ShapeType" aria-label="搜索 ShapeType" />
+        <el-select v-model="selectedGroup" aria-label="按图形类别筛选">
+          <el-option v-for="option in groupFilterOptions" :key="option.value" :label="option.label" :value="option.value" />
+        </el-select>
+      </div>
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="catalogQuery === '' && selectedGroup === 'all'" @click="clearFilters">清除筛选</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback" aria-live="polite">
+          <el-tag type="info" effect="plain">找到 {{ filteredCount }} / 20</el-tag>
+        </div>
+      </div>
     </div>
 
     <div class="shape-catalog__explorer">
@@ -372,11 +404,18 @@ onBeforeUnmount(() => {
           >
           <el-descriptions-item label="类别与输入">{{ selectedExample.group }} · {{ selectedExample.points }}</el-descriptions-item>
           <el-descriptions-item label="最终渲染">{{ selectedExample.render }} · {{ selectedExample.description }}</el-descriptions-item>
+          <el-descriptions-item label="完整静态几何">{{ geometryDetailsSummary }}</el-descriptions-item>
+          <el-descriptions-item label="地图坐标范围"
+            ><code>{{ geometryExtentSummary }}</code></el-descriptions-item
+          >
           <el-descriptions-item label="相关类型">
             <span class="shape-catalog__type-links">
               <el-link type="primary" href="/api/types#api-type-shape-type">ShapeType</el-link>
               <el-link type="primary" href="/api/types#api-type-shape-input">ShapeInput</el-link>
               <el-link type="primary" href="/api/types#api-type-shape-state">ShapeState</el-link>
+              <el-link type="primary" href="/api/types#api-type-element-geometry-details">ElementGeometryDetails</el-link>
+              <el-link type="primary" href="/api/types#api-type-element-render-geometry">ElementRenderGeometry</el-link>
+              <el-link type="primary" href="/api/types#api-type-map-extent">MapExtent</el-link>
             </span>
           </el-descriptions-item>
         </el-descriptions>
@@ -395,11 +434,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .shape-catalog__filters {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(170px, 0.55fr) auto auto;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
+  grid-template-columns: minmax(220px, 1fr) minmax(170px, 0.55fr);
 }
 
 .shape-catalog__explorer {

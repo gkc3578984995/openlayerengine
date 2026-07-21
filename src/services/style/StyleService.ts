@@ -10,6 +10,7 @@ import {
   type CircleSymbolSpec,
   type ElementStyleState,
   type IconSymbolSpec,
+  type InlinePathTextPlacementSpec,
   type InlinePathTextSpec,
   type LineworkSpec,
   type PathCapSpec,
@@ -102,6 +103,7 @@ const pathGlyphStrokeFields = new Set(['color', 'width', 'lineCap', 'lineJoin', 
 /** 路径内嵌文本允许的字段。 */
 const inlinePathTextFields = new Set([
   'text',
+  'placement',
   'fontFamily',
   'fontSize',
   'fontWeight',
@@ -512,7 +514,7 @@ function assertPathDecoration(value: unknown): PathDecorationSpec['placement']['
   const placement = record(decoration.placement, 'Path decoration placement');
 
   if (placement.kind === 'repeat') {
-    assertKnownFields(decoration, new Set(['placement', 'sequence']), 'Repeated path decoration');
+    assertKnownFields(decoration, new Set(['placement', 'sequence', 'cutoutPadding']), 'Repeated path decoration');
     assertKnownFields(placement, new Set(['kind', 'spacing', 'phase']), 'Repeated path decoration placement');
     if (!hasDefined(placement, 'spacing')) throw new InvalidArgumentError('Repeated path decoration requires spacing');
     positiveFiniteNumber(placement.spacing, 'Repeated path decoration spacing');
@@ -521,6 +523,7 @@ function assertPathDecoration(value: unknown): PathDecorationSpec['placement']['
       throw new InvalidArgumentError('Repeated path decoration requires a non-empty glyph sequence');
     }
     for (const glyph of decoration.sequence) assertPathGlyph(glyph);
+    if (hasDefined(decoration, 'cutoutPadding')) nonNegativeFiniteNumber(decoration.cutoutPadding, 'Repeated path decoration cutoutPadding');
     return 'repeat';
   }
 
@@ -634,12 +637,13 @@ function assertPathGlyphStroke(value: unknown, label: string): asserts value is 
   if (hasDefined(stroke, 'miterLimit')) nonNegativeFiniteNumber(stroke.miterLimit, `${label} miterLimit`);
 }
 
-/** 校验路径中点文本的完整外观。 */
+/** 校验路径文本的完整外观与放置策略。 */
 function assertInlinePathText(value: unknown): asserts value is InlinePathTextSpec {
   const text = record(value, 'Path inlineText');
   assertKnownFields(text, inlinePathTextFields, 'Path inlineText');
   if (!hasDefined(text, 'text')) throw new InvalidArgumentError('Path inlineText requires text');
   nonBlankString(text.text, 'Path inlineText value');
+  if (hasDefined(text, 'placement')) assertInlinePathTextPlacement(text.placement);
   if (!hasDefined(text, 'fontFamily')) throw new InvalidArgumentError('Path inlineText requires fontFamily');
   nonEmptyString(text.fontFamily, 'Path inlineText fontFamily');
   if (!hasDefined(text, 'fontSize')) throw new InvalidArgumentError('Path inlineText requires fontSize');
@@ -659,6 +663,23 @@ function assertInlinePathText(value: unknown): asserts value is InlinePathTextSp
   }
   if (!hasDefined(text, 'gapPadding')) throw new InvalidArgumentError('Path inlineText requires gapPadding');
   nonNegativeFiniteNumber(text.gapPadding, 'Path inlineText gapPadding');
+}
+
+/** 校验路径文本的单中点或固定像素间距放置策略。 */
+function assertInlinePathTextPlacement(value: unknown): asserts value is InlinePathTextPlacementSpec {
+  const placement = record(value, 'Path inlineText placement');
+  if (placement.kind === 'center') {
+    assertKnownFields(placement, new Set(['kind']), 'Centered path inlineText placement');
+    return;
+  }
+  if (placement.kind === 'repeat') {
+    assertKnownFields(placement, new Set(['kind', 'spacing', 'phase']), 'Repeated path inlineText placement');
+    if (!hasDefined(placement, 'spacing')) throw new InvalidArgumentError('Repeated path inlineText placement requires spacing');
+    positiveFiniteNumber(placement.spacing, 'Repeated path inlineText spacing');
+    if (hasDefined(placement, 'phase')) finiteNumber(placement.phase, 'Repeated path inlineText phase');
+    return;
+  }
+  throw new InvalidArgumentError(`Unknown path inlineText placement: ${String(placement.kind)}`);
 }
 
 /** 校验开放或闭合轮廓策略，并返回是否闭合。 */

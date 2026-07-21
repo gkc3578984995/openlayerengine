@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import { lineStyles } from '../src/builtins/styles/lineStyles.js';
-import type { PathGlyphSpec, StyleSpec } from '../src/core/style/types.js';
+import type { InlinePathTextSpec, PathGlyphSpec, StyleSpec } from '../src/core/style/types.js';
 
 const redSegment = (from: [number, number], to: [number, number]): PathGlyphSpec => ({
   primitives: [{ type: 'segment', from, to, stroke: { color: '#ff0000', width: 2 } }]
@@ -403,6 +403,224 @@ describe('StyleCompiler linework', () => {
     expect(styles.some((style) => style.getStroke()?.getColor() instanceof Array)).toBe(true);
   });
 
+  it('开放路径按固定像素间距重复文字，并让全部轨道共享合并切口与连续虚线相位', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [
+            { offset: -3, stroke: { color: '#ff0000', width: 2, lineDash: [8, 6], lineDashOffset: 1 } },
+            { offset: 3, stroke: { color: '#ff0000', width: 2, lineDash: [8, 6], lineDashOffset: 1 } }
+          ],
+          inlineText: inlineText({ kind: 'repeat', spacing: 40, phase: 0 })
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    const textPoints = styles
+      .filter((style) => style.getGeometry() instanceof Point && style.getText() !== null)
+      .map((style) => (style.getGeometry() as Point).getCoordinates());
+    expect(textPoints).toEqual([
+      [10, 0],
+      [50, 0],
+      [90, 0]
+    ]);
+
+    for (const offset of [-3, 3]) {
+      const tracks = styles.filter(
+        (style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#ff0000' && style.getStroke()?.getOffset() === offset
+      );
+      expect(tracks.map((style) => roundedLineCoordinates(style.getGeometry() as LineString))).toEqual([
+        [
+          [0, 0],
+          [4, 0]
+        ],
+        [
+          [16, 0],
+          [44, 0]
+        ],
+        [
+          [56, 0],
+          [84, 0]
+        ],
+        [
+          [96, 0],
+          [100, 0]
+        ]
+      ]);
+      expect(tracks.map((style) => style.getStroke()?.getLineDashOffset())).toEqual([1, -15, -55, -95]);
+    }
+  });
+
+  it('合并相交的重复文字切口，并让端帽排除对应的首末文字锚点', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const feature = new Feature(
+      new LineString([
+        [0, 0],
+        [100, 0]
+      ])
+    );
+    const merged = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          inlineText: inlineText({ kind: 'repeat', spacing: 10 })
+        }
+      },
+      feature
+    );
+    expect(merged.filter((style) => style.getStroke()?.getColor() === '#ff0000')).toHaveLength(0);
+    expect(merged.filter((style) => style.getText() !== null)).toHaveLength(11);
+
+    const capped = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          caps: { start: { glyph: redSegment([0, -6], [0, 6]) }, end: { glyph: redSegment([0, -6], [0, 6]) } },
+          inlineText: inlineText({ kind: 'repeat', spacing: 40 })
+        }
+      },
+      feature
+    );
+    expect(capped.filter((style) => style.getText() !== null).map((style) => (style.getGeometry() as Point).getCoordinates())).toEqual([[50, 0]]);
+  });
+
+  it('viewport 物化范围包含锚点外但文字视觉仍伸入视口的重复项', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), {
+      measureTextWidth: () => 100,
+      getLineworkViewport: () => ({ extent: [49, -1, 51, 1], renderBufferPx: 0 })
+    });
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [],
+          inlineText: inlineText({ kind: 'repeat', spacing: 20 })
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    expect(styles.filter((style) => style.getText() !== null).map((style) => (style.getGeometry() as Point).getCoordinates()[0])).toEqual([
+      0, 20, 40, 60, 80, 100
+    ]);
+  });
+
+  it('闭合路径按 preserve-spacing 重复文字，并在每个当地切线保持正向', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2, lineDash: [8, 6] } }],
+          inlineText: inlineText({ kind: 'repeat', spacing: 100 })
+        }
+      },
+      new Feature(
+        new Polygon([
+          [
+            [0, 0],
+            [100, 0],
+            [100, 100],
+            [0, 100],
+            [0, 0]
+          ]
+        ])
+      )
+    );
+    const texts = styles.filter((style) => style.getText() !== null);
+    expect(texts.map((style) => (style.getGeometry() as Point).getCoordinates())).toEqual([
+      [50, 0],
+      [100, 50],
+      [50, 100],
+      [0, 50]
+    ]);
+    const rotations = texts.map((style) => style.getText()?.getRotation() ?? Number.NaN);
+    expect(rotations[0]).toBeCloseTo(0);
+    expect(rotations[1]).toBeCloseTo(-Math.PI / 2);
+    expect(rotations[2]).toBeCloseTo(0);
+    expect(rotations[3]).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('带 cutoutPadding 的重复 glyph 逐份切断轨道，普通 repeat glyph 保持不断轨', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const feature = new Feature(
+      new LineString([
+        [0, 0],
+        [100, 0]
+      ])
+    );
+    const decoration = {
+      placement: { kind: 'repeat' as const, spacing: 40 },
+      sequence: [{ primitives: [{ type: 'circle' as const, center: [0, 0] as [number, number], radius: 2, fill: { type: 'solid' as const, color: '#f00' } }] }]
+    };
+    const cut = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          decorations: [{ ...decoration, cutoutPadding: 3 }]
+        }
+      },
+      feature
+    );
+    expect(
+      cut
+        .filter((style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#ff0000')
+        .map((style) => roundedLineCoordinates(style.getGeometry() as LineString))
+    ).toEqual([
+      [
+        [0, 0],
+        [5, 0]
+      ],
+      [
+        [15, 0],
+        [45, 0]
+      ],
+      [
+        [55, 0],
+        [85, 0]
+      ],
+      [
+        [95, 0],
+        [100, 0]
+      ]
+    ]);
+
+    const uncut = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          decorations: [decoration]
+        }
+      },
+      feature
+    );
+    expect(uncut.some((style) => style.getGeometry() instanceof MultiLineString && style.getStroke()?.getColor() === '#ff0000')).toBe(true);
+  });
+
   it('Polygon 只派生规范化的逆时针 outer ring，双轨稳定映射 inside/outside', () => {
     const compiler = new StyleCompiler(new NativeRefRegistry());
     const polygon = new Polygon([
@@ -637,3 +855,20 @@ describe('StyleCompiler linework', () => {
     expect((updatedBefore?.getGeometry() as LineString).getLastCoordinate()).toEqual([38, 0]);
   });
 });
+
+function inlineText(placement?: InlinePathTextSpec['placement']): InlinePathTextSpec {
+  return {
+    text: 'AB',
+    ...(placement === undefined ? {} : { placement }),
+    fontFamily: 'sans-serif',
+    fontSize: 12,
+    fontWeight: 'normal',
+    fontStyle: 'normal',
+    fill: { type: 'solid', color: '#000000' },
+    gapPadding: 2
+  };
+}
+
+function roundedLineCoordinates(geometry: LineString): number[][] {
+  return geometry.getCoordinates().map(([x, y]) => [Math.round(x), Math.round(y)]);
+}

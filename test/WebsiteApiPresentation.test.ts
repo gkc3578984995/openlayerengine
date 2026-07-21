@@ -116,7 +116,7 @@ describe('website V2 API presentation', () => {
     expect(view).toContain('<TypeExpression :value="item.type" />');
     expect(generator).toContain('export const apiCatalog =');
     expect(generator).toContain('export const publicTypeAnchors =');
-    expect(coverage).toContain('model.apiCatalog.length === 152');
+    expect(coverage).toContain('model.apiCatalog.length === 156');
     expect(coverage).toContain('api-type-use-earth-options-property-target');
     expect(coverage).toContain('api-type-view-service-method-fly-to');
   });

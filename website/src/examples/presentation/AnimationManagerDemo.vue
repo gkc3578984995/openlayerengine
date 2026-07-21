@@ -14,6 +14,7 @@ type FadeDirection = 'in' | 'out';
 type GrowDirection = 'forward' | 'reverse';
 type HighlightMode = 'steady' | 'breathe';
 type RadarDirection = 'clockwise' | 'counterclockwise';
+type RadarScanMode = 'one-way' | 'round-trip';
 type RadialTrailStyle = 'solid' | 'gradient';
 
 const LAYER_ID = 'docs-animation-targets';
@@ -62,6 +63,7 @@ const fadeDirection = ref<FadeDirection>(defaultAnimationManifestDemoControls.fa
 const growDirection = ref<GrowDirection>(defaultAnimationManifestDemoControls.growDirection);
 const highlightMode = ref<HighlightMode>(defaultAnimationManifestDemoControls.highlightMode);
 const radarDirection = ref<RadarDirection>(defaultAnimationManifestDemoControls.radarDirection);
+const radarScanMode = ref<RadarScanMode>(defaultAnimationManifestDemoControls.radarScanMode);
 const radarTrailStyle = ref<RadialTrailStyle>(defaultAnimationManifestDemoControls.radarTrailStyle);
 const radarColor = ref(defaultAnimationManifestDemoControls.radarColor);
 const radarGradientTail = ref(defaultAnimationManifestDemoControls.radarGradientTail);
@@ -93,6 +95,7 @@ const controls = (): AnimationManifestDemoControls => ({
   growDirection: growDirection.value,
   highlightMode: highlightMode.value,
   radarDirection: radarDirection.value,
+  radarScanMode: radarScanMode.value,
   radarTrailStyle: radarTrailStyle.value,
   radarColor: radarColor.value,
   radarGradientTail: radarGradientTail.value,
@@ -161,6 +164,16 @@ const pause = () => {
 const resume = () => {
   latestHandle.value?.resume();
   if (latestHandle.value !== null) status.value = latestHandle.value.status;
+};
+
+const applyRunningRadialOptions = (type: 'radar-scan' | 'center-spread') => {
+  if (selectedType.value !== type || compositionMode.value) return;
+  const currentStatus = latestHandle.value?.status;
+  if (currentStatus !== 'running' && currentStatus !== 'paused') return;
+  start();
+  if (latestHandle.value === null || status.value !== 'running') return;
+  if (currentStatus === 'paused') pause();
+  feedback.value = currentStatus === 'paused' ? `${type} 参数已应用；新动画保持暂停。` : `${type} 参数已应用并重新启动。`;
 };
 
 const stop = () => {
@@ -254,6 +267,7 @@ const reset = () => {
   growDirection.value = defaultAnimationManifestDemoControls.growDirection;
   highlightMode.value = defaultAnimationManifestDemoControls.highlightMode;
   radarDirection.value = defaultAnimationManifestDemoControls.radarDirection;
+  radarScanMode.value = defaultAnimationManifestDemoControls.radarScanMode;
   radarTrailStyle.value = defaultAnimationManifestDemoControls.radarTrailStyle;
   radarColor.value = defaultAnimationManifestDemoControls.radarColor;
   radarGradientTail.value = defaultAnimationManifestDemoControls.radarGradientTail;
@@ -396,7 +410,6 @@ const addTargets = (earth: Earth) => {
     },
     style: {
       strokes: [{ color: '#0891b2', width: 3 }],
-      fill: { type: 'solid', color: 'rgba(6,182,212,0.18)' },
       text: {
         text: 'radar-scan · Sector',
         fontSize: 12,
@@ -410,8 +423,7 @@ const addTargets = (earth: Earth) => {
     id: targetId('center-spread'),
     geometry: { type: 'circle', center: earth.view.toProjectedCoordinates(targetCenters['center-spread']), radius: 38_000 },
     style: {
-      strokes: [{ color: '#059669', width: 3 }],
-      fill: { type: 'solid', color: 'rgba(16,185,129,0.2)' },
+      strokes: [{ color: 'rgba(16,185,129,0.72)', width: 1.5 }],
       text: {
         text: 'center-spread · Circle',
         fontSize: 12,
@@ -456,128 +468,167 @@ defineExpose({ reset, focusSelected });
       :closable="false"
     />
 
-    <div class="animation-manager-demo__controls">
-      <label>
-        <span>AnimationType</span>
-        <el-select :model-value="selectedType" aria-label="动画类型" @update:model-value="selectEffect">
-          <el-option v-for="effect in effectOptions" :key="effect.type" :label="effect.label" :value="effect.type" />
-        </el-select>
-      </label>
-      <label>
-        <span>当前目标</span>
-        <el-input :model-value="selectedTargetLabel" aria-label="当前兼容目标" readonly />
-      </label>
-      <label>
-        <span>channel（留空使用 type）</span>
-        <el-input v-model="channel" clearable placeholder="例如 attention" aria-label="动画 channel" />
-      </label>
-      <label class="animation-manager-demo__switch">
-        <span>显式组合模式</span>
-        <el-switch
-          v-model="compositionMode"
-          :disabled="!compositionCompatible"
-          inline-prompt
-          active-text="组合"
-          inactive-text="普通"
-          aria-label="跨 channel 组合模式"
-          @change="onCompositionChange"
-        />
-      </label>
-    </div>
+    <div class="example-demo__control-panel">
+      <div class="animation-manager-demo__controls">
+        <label>
+          <span>AnimationType</span>
+          <el-select :model-value="selectedType" aria-label="动画类型" @update:model-value="selectEffect">
+            <el-option v-for="effect in effectOptions" :key="effect.type" :label="effect.label" :value="effect.type" />
+          </el-select>
+        </label>
+        <label>
+          <span>当前目标</span>
+          <el-input :model-value="selectedTargetLabel" aria-label="当前兼容目标" readonly />
+        </label>
+        <label>
+          <span>channel（留空使用 type）</span>
+          <el-input v-model="channel" clearable placeholder="例如 attention" aria-label="动画 channel" />
+        </label>
+        <label class="animation-manager-demo__switch">
+          <span>显式组合模式</span>
+          <el-switch
+            v-model="compositionMode"
+            :disabled="!compositionCompatible"
+            inline-prompt
+            active-text="组合"
+            inactive-text="普通"
+            aria-label="跨 channel 组合模式"
+            @change="onCompositionChange"
+          />
+        </label>
+      </div>
 
-    <div class="animation-manager-demo__metadata">
-      <span><strong>目标能力：</strong>{{ selectedEntry.targetCapability.join(' + ') }}</span>
-      <span><strong>写入域：</strong>{{ selectedEntry.writeDomains.join(' + ') }}</span>
-      <span><strong>兼容 Shape：</strong>{{ selectedEntry.supportedShapeTypes.join('、') }}</span>
-    </div>
+      <div class="animation-manager-demo__metadata">
+        <span><strong>目标能力：</strong>{{ selectedEntry.targetCapability.join(' + ') }}</span>
+        <span><strong>写入域：</strong>{{ selectedEntry.writeDomains.join(' + ') }}</span>
+        <span><strong>兼容 Shape：</strong>{{ selectedEntry.supportedShapeTypes.join('、') }}</span>
+      </div>
 
-    <div v-if="selectedType === 'highlight'" class="animation-manager-demo__options">
-      <span>highlight mode</span>
-      <el-radio-group v-model="highlightMode">
-        <el-radio-button value="steady">steady 稳定</el-radio-button>
-        <el-radio-button value="breathe">breathe 呼吸</el-radio-button>
-      </el-radio-group>
-    </div>
-    <div v-else-if="selectedType === 'grow'" class="animation-manager-demo__options">
-      <span>FineArrow 揭示方向</span>
-      <el-radio-group v-model="growDirection">
-        <el-radio-button value="forward">forward 正向</el-radio-button>
-        <el-radio-button value="reverse">reverse 反向</el-radio-button>
-      </el-radio-group>
-    </div>
-    <div v-else-if="selectedType === 'fade'" class="animation-manager-demo__options">
-      <span>fade 生命周期</span>
-      <el-radio-group v-model="fadeDirection">
-        <el-radio-button value="out">out · retain</el-radio-button>
-        <el-radio-button value="in">in · remove</el-radio-button>
-      </el-radio-group>
-    </div>
-    <div v-else-if="selectedType === 'radar-scan'" class="animation-manager-demo__radial-options">
-      <div class="animation-manager-demo__options">
-        <span>Sector 扫描方向</span>
-        <el-radio-group v-model="radarDirection">
-          <el-radio-button value="clockwise">顺时针</el-radio-button>
-          <el-radio-button value="counterclockwise">逆时针</el-radio-button>
+      <div v-if="selectedType === 'highlight'" class="animation-manager-demo__options">
+        <span>highlight mode</span>
+        <el-radio-group v-model="highlightMode" aria-label="highlight 模式">
+          <el-radio-button value="steady">steady 稳定</el-radio-button>
+          <el-radio-button value="breathe">breathe 呼吸</el-radio-button>
         </el-radio-group>
       </div>
-      <div class="animation-manager-demo__options">
-        <span>尾迹</span>
-        <el-radio-group v-model="radarTrailStyle">
-          <el-radio-button value="gradient">三段 gradient</el-radio-button>
-          <el-radio-button value="solid">纯色</el-radio-button>
+      <div v-else-if="selectedType === 'grow'" class="animation-manager-demo__options">
+        <span>FineArrow 揭示方向</span>
+        <el-radio-group v-model="growDirection" aria-label="FineArrow 揭示方向">
+          <el-radio-button value="forward">forward 正向</el-radio-button>
+          <el-radio-button value="reverse">reverse 反向</el-radio-button>
         </el-radio-group>
       </div>
-      <div class="animation-manager-demo__colors">
-        <label v-if="radarTrailStyle === 'solid'"><span>纯色</span><el-color-picker v-model="radarColor" show-alpha /></label>
-        <template v-else>
-          <label><span>尾端 0</span><el-color-picker v-model="radarGradientTail" show-alpha /></label>
-          <label><span>中段 0.6</span><el-color-picker v-model="radarGradientMiddle" show-alpha /></label>
-          <label><span>前沿 1</span><el-color-picker v-model="radarGradientFront" show-alpha /></label>
-        </template>
-      </div>
-    </div>
-    <div v-else-if="selectedType === 'center-spread'" class="animation-manager-demo__radial-options">
-      <div class="animation-manager-demo__options">
-        <span>Circle 波纹带</span>
-        <el-radio-group v-model="centerSpreadTrailStyle">
-          <el-radio-button value="gradient">三段 gradient</el-radio-button>
-          <el-radio-button value="solid">纯色</el-radio-button>
+      <div v-else-if="selectedType === 'fade'" class="animation-manager-demo__options">
+        <span>fade 生命周期</span>
+        <el-radio-group v-model="fadeDirection" aria-label="fade 生命周期">
+          <el-radio-button value="out">out · retain</el-radio-button>
+          <el-radio-button value="in">in · remove</el-radio-button>
         </el-radio-group>
       </div>
-      <div class="animation-manager-demo__colors">
-        <label v-if="centerSpreadTrailStyle === 'solid'"><span>纯色</span><el-color-picker v-model="centerSpreadColor" show-alpha /></label>
-        <template v-else>
-          <label><span>内侧 0</span><el-color-picker v-model="centerSpreadGradientTail" show-alpha /></label>
-          <label><span>中段 0.6</span><el-color-picker v-model="centerSpreadGradientMiddle" show-alpha /></label>
-          <label><span>前沿 1</span><el-color-picker v-model="centerSpreadGradientFront" show-alpha /></label>
-        </template>
-        <label><span>opacity</span><el-input-number v-model="centerSpreadOpacity" :min="0" :max="1" :step="0.05" :precision="2" /></label>
-        <label><span>trailLength</span><el-input-number v-model="centerSpreadTrailLength" :min="0" :max="1" :step="0.02" :precision="2" /></label>
+      <div v-else-if="selectedType === 'radar-scan'" class="animation-manager-demo__radial-options animation-manager-demo__radial-options--radar">
+        <div class="animation-manager-demo__options">
+          <span>Sector 扫描方式</span>
+          <el-radio-group v-model="radarScanMode" aria-label="Sector 扫描方式" @change="applyRunningRadialOptions('radar-scan')">
+            <el-radio-button value="one-way">单向</el-radio-button>
+            <el-radio-button value="round-trip">往复</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="animation-manager-demo__options">
+          <span>Sector 首程方向</span>
+          <el-radio-group v-model="radarDirection" aria-label="Sector 首程方向" @change="applyRunningRadialOptions('radar-scan')">
+            <el-radio-button value="clockwise">顺时针</el-radio-button>
+            <el-radio-button value="counterclockwise">逆时针</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="animation-manager-demo__options">
+          <span>尾迹</span>
+          <el-radio-group v-model="radarTrailStyle" aria-label="雷达尾迹样式" @change="applyRunningRadialOptions('radar-scan')">
+            <el-radio-button value="gradient">三段 gradient</el-radio-button>
+            <el-radio-button value="solid">纯色</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="animation-manager-demo__colors">
+          <label v-if="radarTrailStyle === 'solid'"
+            ><span>纯色</span><el-color-picker v-model="radarColor" show-alpha @change="applyRunningRadialOptions('radar-scan')"
+          /></label>
+          <template v-else>
+            <label><span>尾端 0</span><el-color-picker v-model="radarGradientTail" show-alpha @change="applyRunningRadialOptions('radar-scan')" /></label>
+            <label><span>中段 0.6</span><el-color-picker v-model="radarGradientMiddle" show-alpha @change="applyRunningRadialOptions('radar-scan')" /></label>
+            <label><span>前沿 1</span><el-color-picker v-model="radarGradientFront" show-alpha @change="applyRunningRadialOptions('radar-scan')" /></label>
+          </template>
+        </div>
       </div>
-    </div>
+      <div v-else-if="selectedType === 'center-spread'" class="animation-manager-demo__radial-options">
+        <div class="animation-manager-demo__options">
+          <span>Circle 波纹带</span>
+          <el-radio-group v-model="centerSpreadTrailStyle" aria-label="Circle 波纹带样式" @change="applyRunningRadialOptions('center-spread')">
+            <el-radio-button value="gradient">三段 gradient</el-radio-button>
+            <el-radio-button value="solid">纯色</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="animation-manager-demo__colors">
+          <label v-if="centerSpreadTrailStyle === 'solid'"
+            ><span>纯色</span><el-color-picker v-model="centerSpreadColor" show-alpha @change="applyRunningRadialOptions('center-spread')"
+          /></label>
+          <template v-else>
+            <label
+              ><span>内侧 0</span><el-color-picker v-model="centerSpreadGradientTail" show-alpha @change="applyRunningRadialOptions('center-spread')"
+            /></label>
+            <label
+              ><span>中段 0.6</span><el-color-picker v-model="centerSpreadGradientMiddle" show-alpha @change="applyRunningRadialOptions('center-spread')"
+            /></label>
+            <label
+              ><span>前沿 1</span><el-color-picker v-model="centerSpreadGradientFront" show-alpha @change="applyRunningRadialOptions('center-spread')"
+            /></label>
+          </template>
+          <label
+            ><span>opacity</span
+            ><el-input-number v-model="centerSpreadOpacity" :min="0" :max="1" :step="0.05" :precision="2" @change="applyRunningRadialOptions('center-spread')"
+          /></label>
+          <label
+            ><span>trailLength</span
+            ><el-input-number
+              v-model="centerSpreadTrailLength"
+              :min="0"
+              :max="1"
+              :step="0.02"
+              :precision="2"
+              @change="applyRunningRadialOptions('center-spread')"
+          /></label>
+        </div>
+      </div>
 
-    <div class="animation-manager-demo__gradient-summary" aria-label="渐变效果覆盖">
-      <span>gradient 覆盖：</span>
-      <el-tag size="small">path-travel 路径尾迹</el-tag>
-      <el-tag size="small" type="success">radar-scan 扫描尾迹</el-tag>
-      <el-tag size="small" type="warning">center-spread 径向波纹</el-tag>
-    </div>
+      <div class="animation-manager-demo__gradient-summary" aria-label="渐变效果覆盖">
+        <span>gradient 覆盖：</span>
+        <el-tag size="small">path-travel 路径尾迹</el-tag>
+        <el-tag size="small" type="success">radar-scan 扫描尾迹</el-tag>
+        <el-tag size="small" type="warning">center-spread 径向波纹</el-tag>
+      </div>
 
-    <div class="animation-manager-demo__scenarios" aria-label="组合与冲突实验">
-      <span>组合与冲突：</span>
-      <el-button size="small" @click="playComposition">组合 highlight + alert</el-button>
-      <el-button size="small" @click="playReplace">同 channel replace</el-button>
-      <el-button size="small" @click="playGrowConflict">双 grow 冲突</el-button>
-    </div>
+      <div class="example-demo__action-group animation-manager-demo__scenarios" aria-label="组合与冲突实验">
+        <span>组合与冲突：</span>
+        <div class="example-demo__action-buttons">
+          <el-button size="small" @click="playComposition">组合 highlight + alert</el-button>
+          <el-button size="small" @click="playReplace">同 channel replace</el-button>
+          <el-button size="small" @click="playGrowConflict">双 grow 冲突</el-button>
+        </div>
+      </div>
 
-    <div class="example-demo__toolbar animation-manager-demo__toolbar">
-      <el-button type="primary" @click="start">启动所选</el-button>
-      <el-button :disabled="!canPause" @click="pause">暂停</el-button>
-      <el-button :disabled="!canResume" @click="resume">恢复</el-button>
-      <el-button :disabled="!canStop" @click="stop">停止当前</el-button>
-      <el-button plain @click="stopAll">停止全部</el-button>
-      <el-button plain @click="focusSelected">定位所选</el-button>
-      <el-tag :type="status === 'running' ? 'success' : status === 'paused' ? 'warning' : 'info'">{{ statusLabel }}</el-tag>
+      <div class="example-demo__action-row animation-manager-demo__toolbar">
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="start">启动所选</el-button>
+            <el-button :disabled="!canPause" @click="pause">暂停</el-button>
+            <el-button :disabled="!canResume" @click="resume">恢复</el-button>
+            <el-button :disabled="!canStop" @click="stop">停止当前</el-button>
+            <el-button plain @click="stopAll">停止全部</el-button>
+            <el-button plain @click="focusSelected">定位所选</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback animation-manager-demo__status" aria-live="polite">
+          <el-tag :type="status === 'running' ? 'success' : status === 'paused' ? 'warning' : 'info'">{{ statusLabel }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage animation-manager-demo__stage"></div>
@@ -607,7 +658,6 @@ defineExpose({ reset, focusSelected });
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 12px;
 }
 
 .animation-manager-demo__controls label,
@@ -626,7 +676,6 @@ defineExpose({ reset, focusSelected });
 .animation-manager-demo__metadata {
   display: grid;
   gap: 6px;
-  margin-bottom: 12px;
   padding: 10px 12px;
   border: 1px solid var(--doc-border);
   border-radius: 8px;
@@ -643,13 +692,11 @@ defineExpose({ reset, focusSelected });
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  margin-bottom: 10px;
   color: var(--doc-muted);
   font-size: 13px;
 }
 
 .animation-manager-demo__radial-options {
-  margin-bottom: 10px;
   padding: 10px 12px;
   border: 1px solid var(--doc-border);
   border-radius: 8px;
@@ -658,6 +705,60 @@ defineExpose({ reset, focusSelected });
 
 .animation-manager-demo__radial-options .animation-manager-demo__options {
   margin-bottom: 8px;
+}
+
+.animation-manager-demo__radial-options--radar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 14px 12px;
+  padding: 14px;
+}
+
+.animation-manager-demo__radial-options--radar .animation-manager-demo__options {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+
+.animation-manager-demo__radial-options--radar .animation-manager-demo__options > span {
+  color: var(--doc-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.animation-manager-demo__radial-options--radar :deep(.el-radio-group) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.animation-manager-demo__radial-options--radar :deep(.el-radio-button__inner) {
+  border: 1px solid var(--el-border-color) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+.animation-manager-demo__radial-options--radar :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  border-color: var(--el-color-primary) !important;
+}
+
+.animation-manager-demo__radial-options--radar .animation-manager-demo__colors {
+  grid-column: 1 / -1;
+  gap: 10px 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--doc-border);
+}
+
+.animation-manager-demo__radial-options--radar .animation-manager-demo__colors label {
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--doc-border);
+  border-radius: 6px;
+  background: var(--doc-surface);
 }
 
 .animation-manager-demo__colors {
@@ -728,6 +829,14 @@ defineExpose({ reset, focusSelected });
 
 .animation-manager-demo__target-button.el-button span {
   font-size: 11px;
+}
+
+:deep(.animation-manager-demo__target-button.el-button > span) {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  justify-items: start;
+  gap: 3px;
 }
 
 .animation-manager-demo__feedback,

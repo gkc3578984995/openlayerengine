@@ -807,7 +807,7 @@ describe('LayerRenderPass', () => {
     pass.destroy();
   });
 
-  it('绘制失败时通过 try/finally 恢复 Canvas globalAlpha', () => {
+  it('绘制失败时通过 try/finally 恢复 Canvas globalAlpha，且不回滚立即渲染器依赖的完整状态', () => {
     const state = pointElement('point');
     const harness = createPassHarness([state]);
     const reported = vi.fn();
@@ -833,8 +833,8 @@ describe('LayerRenderPass', () => {
     dispatchFrame(harness.layer, 0, 0, 1, context);
 
     expect(context.globalAlpha).toBe(0.75);
-    expect(context.save).toHaveBeenCalledOnce();
-    expect(context.restore).toHaveBeenCalledOnce();
+    expect(context.save).not.toHaveBeenCalled();
+    expect(context.restore).not.toHaveBeenCalled();
     expect(reported).toHaveBeenCalledOnce();
     pass.destroy();
   });

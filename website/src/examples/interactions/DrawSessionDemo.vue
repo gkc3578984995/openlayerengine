@@ -298,19 +298,41 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="形状说明" :span="2">{{ selectedEntry.description }}</el-descriptions-item>
     </el-descriptions>
 
-    <div class="draw-session-demo__controls">
-      <el-button type="primary" @click="start">启动 {{ selectedEntry.label }}</el-button>
-      <el-button :disabled="!isActive" @click="undo">撤销</el-button>
-      <el-button :disabled="!isActive" @click="redo">重做</el-button>
-      <el-button :disabled="!isActive" @click="finish">完成</el-button>
-      <el-button :disabled="!isActive" @click="cancel">取消</el-button>
-      <el-button :disabled="sessionRef === null" @click="destroySession">销毁 Session</el-button>
-      <el-button plain @click="queryResults">查询成果</el-button>
-      <el-button plain type="danger" @click="clearResults">清空成果</el-button>
-    </div>
-    <div class="draw-session-demo__status">
-      <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
-      <span>{{ stage }}</span>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__control-grid draw-session-demo__controls">
+        <div class="example-demo__action-group">
+          <span>会话启动</span>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="start">启动 {{ selectedEntry.label }}</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>历史</span>
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="!isActive" @click="undo">撤销</el-button>
+            <el-button :disabled="!isActive" @click="redo">重做</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>会话结束</span>
+          <div class="example-demo__action-buttons">
+            <el-button :disabled="!isActive" @click="finish">完成</el-button>
+            <el-button :disabled="!isActive" @click="cancel">取消</el-button>
+            <el-button :disabled="sessionRef === null" @click="destroySession">销毁 Session</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>成果</span>
+          <div class="example-demo__action-buttons">
+            <el-button plain @click="queryResults">查询成果</el-button>
+            <el-button plain type="danger" @click="clearResults">清空成果</el-button>
+          </div>
+        </div>
+      </div>
+      <div class="example-demo__feedback" aria-live="polite">
+        <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
+        <span>{{ stage }}</span>
+      </div>
     </div>
 
     <div class="draw-session-demo__map-shell">
@@ -368,18 +390,9 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
-.draw-session-demo__controls,
-.draw-session-demo__status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.draw-session-demo__status {
-  color: var(--doc-muted);
-  font-size: 13px;
+.draw-session-demo__controls {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  align-items: stretch;
 }
 
 .draw-session-demo__map-shell {

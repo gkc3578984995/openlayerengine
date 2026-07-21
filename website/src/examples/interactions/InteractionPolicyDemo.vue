@@ -221,25 +221,38 @@ onBeforeUnmount(() => {
       title="先启动任一交互，再直接启动另一种：replace 会清理旧会话；reject 会抛出 InteractionConflictError 并保留旧会话。"
     />
 
-    <div class="interaction-policy-demo__toolbar">
-      <span>冲突策略</span>
-      <el-segmented
-        v-model="policy"
-        :options="[
-          { label: 'replace', value: 'replace' },
-          { label: 'reject', value: 'reject' }
-        ]"
-        aria-label="交互冲突策略"
-      />
-      <el-tag :type="hasActive ? 'success' : 'info'">当前：{{ activeType ?? '无活动交互' }}</el-tag>
-    </div>
-
-    <div class="interaction-policy-demo__launchers">
-      <el-button type="primary" @click="startDraw">启动 Draw</el-button>
-      <el-button type="success" @click="startMeasure">启动 Measure</el-button>
-      <el-button type="warning" @click="startEdit">启动 Edit</el-button>
-      <el-button @click="startTransform">启动 Transform</el-button>
-      <el-button type="danger" plain :disabled="!hasActive" @click="cancelActive">取消当前会话</el-button>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__field interaction-policy-demo__field">
+        <span>冲突策略</span>
+        <el-segmented
+          v-model="policy"
+          :options="[
+            { label: 'replace', value: 'replace' },
+            { label: 'reject', value: 'reject' }
+          ]"
+          aria-label="交互冲突策略"
+        />
+      </div>
+      <div class="example-demo__control-grid interaction-policy-demo__launchers">
+        <div class="example-demo__action-group">
+          <span>启动会话</span>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="startDraw">启动 Draw</el-button>
+            <el-button type="success" @click="startMeasure">启动 Measure</el-button>
+            <el-button type="warning" @click="startEdit">启动 Edit</el-button>
+            <el-button @click="startTransform">启动 Transform</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>当前会话</span>
+          <div class="example-demo__action-buttons">
+            <el-button type="danger" plain :disabled="!hasActive" @click="cancelActive">取消当前会话</el-button>
+          </div>
+        </div>
+      </div>
+      <div class="example-demo__feedback" aria-live="polite">
+        <el-tag :type="hasActive ? 'success' : 'info'">当前：{{ activeType ?? '无活动交互' }}</el-tag>
+      </div>
     </div>
 
     <div class="interaction-policy-demo__map-shell">
@@ -257,24 +270,22 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.interaction-policy-demo__toolbar,
-.interaction-policy-demo__launchers {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
+.interaction-policy-demo__field {
+  width: max-content;
+  max-width: 100%;
 }
 
-.interaction-policy-demo__toolbar {
-  color: var(--doc-muted);
-  font-size: 13px;
+.interaction-policy-demo__field :deep(.el-segmented) {
+  max-width: 100%;
+}
+
+.interaction-policy-demo__launchers {
+  align-items: stretch;
 }
 
 .interaction-policy-demo__map-shell {
   position: relative;
   overflow: hidden;
-  margin-top: 12px;
   border-radius: 8px;
 }
 

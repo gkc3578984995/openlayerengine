@@ -150,27 +150,54 @@ onBeforeUnmount(() => {
       show-icon
       title="红色虚线、黄色控制点和白底标签全部来自 MeasureOptions；修改配置后重新启动即可比较效果。"
     />
-    <div class="measure-session-demo__controls">
-      <el-select v-model="selectedType" aria-label="测量类型" :disabled="isActive">
-        <el-option v-for="type in measureTypes" :key="type" :label="typeLabels[type]" :value="type" />
-      </el-select>
-      <span class="measure-session-demo__label">精度</span>
-      <el-input-number v-model="precision" :min="0" :max="6" :disabled="isActive" controls-position="right" />
-      <span class="measure-session-demo__label">线</span>
-      <el-color-picker v-model="lineColor" :disabled="isActive" />
-      <span class="measure-session-demo__label">点</span>
-      <el-color-picker v-model="pointColor" :disabled="isActive" />
-      <span class="measure-session-demo__label">文字</span>
-      <el-color-picker v-model="textColor" :disabled="isActive" />
-    </div>
-    <div class="measure-session-demo__controls">
-      <el-checkbox v-model="customFormatter" :disabled="isActive">自定义 formatter</el-checkbox>
-      <el-checkbox v-model="showTotal" :disabled="isActive">分段时显示总计</el-checkbox>
-      <el-button type="primary" @click="start">启动测量</el-button>
-      <el-button :disabled="!isActive" @click="finish">完成</el-button>
-      <el-button :disabled="!isActive" @click="cancel">取消</el-button>
-      <el-button plain type="danger" @click="clear">清除全部结果</el-button>
-      <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
+    <div class="example-demo__control-panel">
+      <div class="example-demo__control-grid measure-session-demo__settings">
+        <div class="example-demo__field measure-session-demo__field">
+          <span>测量类型</span>
+          <el-select v-model="selectedType" aria-label="测量类型" :disabled="isActive">
+            <el-option v-for="type in measureTypes" :key="type" :label="typeLabels[type]" :value="type" />
+          </el-select>
+        </div>
+        <div class="example-demo__field measure-session-demo__field">
+          <span>精度</span>
+          <el-input-number v-model="precision" :min="0" :max="6" :disabled="isActive" controls-position="right" />
+        </div>
+        <div class="example-demo__field">
+          <span>线</span>
+          <el-color-picker v-model="lineColor" :disabled="isActive" />
+        </div>
+        <div class="example-demo__field">
+          <span>点</span>
+          <el-color-picker v-model="pointColor" :disabled="isActive" />
+        </div>
+        <div class="example-demo__field">
+          <span>文字</span>
+          <el-color-picker v-model="textColor" :disabled="isActive" />
+        </div>
+      </div>
+      <div class="example-demo__actions measure-session-demo__options">
+        <el-checkbox v-model="customFormatter" :disabled="isActive">自定义 formatter</el-checkbox>
+        <el-checkbox v-model="showTotal" :disabled="isActive">分段时显示总计</el-checkbox>
+      </div>
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group">
+          <span>测量会话</span>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="start">启动测量</el-button>
+            <el-button :disabled="!isActive" @click="finish">完成</el-button>
+            <el-button :disabled="!isActive" @click="cancel">取消</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group">
+          <span>测量结果</span>
+          <div class="example-demo__action-buttons">
+            <el-button plain type="danger" @click="clear">清除全部结果</el-button>
+          </div>
+        </div>
+      </div>
+      <div class="example-demo__feedback" aria-live="polite">
+        <el-tag :type="isActive ? 'success' : 'info'">{{ status }}</el-tag>
+      </div>
     </div>
     <div class="measure-session-demo__map-shell">
       <div ref="mapTarget" class="example-stage"></div>
@@ -193,25 +220,28 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.measure-session-demo__controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+.measure-session-demo__settings {
+  grid-template-columns: minmax(180px, 1.8fr) minmax(120px, 1fr) repeat(3, minmax(70px, 0.65fr));
 }
 
-.measure-session-demo__controls :deep(.el-select) {
-  width: 180px;
+.measure-session-demo__field :deep(.el-select) {
+  width: 100%;
+  max-width: 180px;
 }
 
-.measure-session-demo__controls :deep(.el-input-number) {
-  width: 120px;
+.measure-session-demo__field :deep(.el-input-number) {
+  width: 100%;
+  max-width: 120px;
 }
 
-.measure-session-demo__label {
-  color: var(--doc-muted);
-  font-size: 13px;
+.measure-session-demo__options {
+  gap: 8px 16px;
+}
+
+@media (max-width: 700px) {
+  .measure-session-demo__settings {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+  }
 }
 
 .measure-session-demo__map-shell {

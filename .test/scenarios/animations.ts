@@ -210,6 +210,10 @@ const radarDirectionOptions = [
   { label: 'clockwise（顺时针）', value: 'clockwise' },
   { label: 'counterclockwise（逆时针）', value: 'counterclockwise' }
 ] as const;
+const radarScanModeOptions = [
+  { label: 'one-way（单向循环）', value: 'one-way' },
+  { label: 'round-trip（起点与终点间往复）', value: 'round-trip' }
+] as const;
 const radarTrailStyleOptions = [
   { label: 'gradient（绿色渐变尾迹）', value: 'gradient' },
   { label: 'solid（纯色尾迹）', value: 'solid' }
@@ -237,7 +241,7 @@ export const animationsScenario: ScenarioDefinition = {
   steps: [
     '在独立演示卡中逐项播放 manifest 的 10 种内核默认效果；每种效果使用独立目标，可分别暂停、继续和停止。',
     '使用“播放全部独立演示”同时观察 Point、Polyline、Polygon、FineArrow、Circle 与 Sector 上的默认效果。',
-    '调节 AnimationSpec 字段，重点验证 path-travel 的 speed/durationMs 互斥与多点 curvature、grow 方向、radar 的纯色/渐变尾迹和 fade retain 行为。',
+    '调节 AnimationSpec 字段，重点验证 path-travel 的 speed/durationMs 互斥与多点 curvature、grow 方向、radar 的单向/往复扫描与纯色/渐变尾迹，以及 fade retain 行为。',
     '使用 AnimationHandle.pause()/resume()/stop()，核对 id、status 和 finished Promise。',
     '使用 AnimationManager.pause()/resume()/stop()，分别传入和省略 channels，核对受影响数量。',
     '按 manifest 同时启动全部效果后执行 stopAll()，确认所有活动渲染通道都停止且业务元素仍存在。'
@@ -308,7 +312,8 @@ export const animationsScenario: ScenarioDefinition = {
     const gradientEnd = context.color(optionsSection, '渐变终色（gradient[2]）', '#f97316');
     const finishBehavior = context.select(optionsSection, '结束行为（finishBehavior）', finishOptions, 'retain');
     const growDirection = context.select(optionsSection, '生长方向（grow.direction）', growDirectionOptions, 'forward');
-    const radarDirection = context.select(optionsSection, '扫描方向（radar-scan.direction）', radarDirectionOptions, 'clockwise');
+    const radarDirection = context.select(optionsSection, '首程方向（radar-scan.direction）', radarDirectionOptions, 'clockwise');
+    const radarScanMode = context.select(optionsSection, '扫描方式（radar-scan.scanMode）', radarScanModeOptions, 'round-trip');
     const radarTrailStyle = context.select(optionsSection, '雷达尾迹样式（color/gradient）', radarTrailStyleOptions, 'gradient');
     const radarColor = context.color(optionsSection, '雷达纯色尾迹（radar-scan.color）', '#00e676');
     const radarGradientTail = context.text(optionsSection, '雷达渐变尾端（gradient[0]）', 'rgba(0, 230, 118, 0.05)');
@@ -419,6 +424,7 @@ export const animationsScenario: ScenarioDefinition = {
             channel: channel.value,
             periodMs: Math.max(1, periodMs.valueAsNumber || 1),
             direction: radarDirection.value as 'clockwise' | 'counterclockwise',
+            scanMode: radarScanMode.value as 'one-way' | 'round-trip',
             ...(radarTrailStyle.value === 'gradient'
               ? {
                   gradient: [[0, radarGradientTail.value] as const, [0.6, radarGradientMiddle.value] as const, [1, radarGradientFront.value] as const]

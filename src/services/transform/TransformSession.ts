@@ -1105,7 +1105,9 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   /** 生成变换过程中的数值提示行。 */
   #operationTooltipLines(operation: TransformOperation, delta: TransformDelta): readonly string[] {
     if (operation === 'translate') return Object.freeze(['平移中…']);
-    if (operation === 'rotate' && delta.type === 'rotate') return Object.freeze([`旋转中…当前：${Math.round((-delta.angle * 180) / Math.PI)}°`]);
+    if (operation === 'rotate' && delta.type === 'rotate') {
+      return Object.freeze([`旋转中…当前：${Math.round(projectedAngleToClockwiseDegrees(delta.angle))}°`]);
+    }
     if (operation === 'scale' || operation === 'stretch') return Object.freeze([operation === 'stretch' ? '拉伸中…' : '缩放中…']);
     return Object.freeze(['编辑中…']);
   }
@@ -1524,12 +1526,19 @@ function transformPointStyle(
   const result = styles.serialize(input);
   if (result.symbol === undefined) return result;
   if (delta.type === 'rotate') {
-    if (result.symbol.type === 'icon') result.symbol.rotation = (result.symbol.rotation ?? 0) + delta.angle;
+    if (result.symbol.type === 'icon') {
+      result.symbol.rotation = (result.symbol.rotation ?? 0) + projectedAngleToClockwiseDegrees(delta.angle);
+    }
     return result;
   }
   if (result.symbol.type === 'icon') result.symbol.scale = multiplyScale(result.symbol.scale, delta.scaleX, delta.scaleY);
   else result.symbol.radius *= (Math.abs(delta.scaleX) + Math.abs(delta.scaleY)) / 2;
   return result;
+}
+
+/** 把投影坐标系的逆时针弧度增量换算为样式使用的顺时针角度。 */
+function projectedAngleToClockwiseDegrees(angle: number): number {
+  return (-angle * 180) / Math.PI;
 }
 
 /** 将现有缩放值与二维缩放系数相乘。 */

@@ -2,6 +2,7 @@ import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
 import type { ElementPatch, ElementState } from '../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../core/errors.js';
+import type { ElementGeometryDetails } from './elementGeometryTypes.js';
 
 /** Element 句柄使用的内部状态。 */
 interface ElementHandleState<T> {
@@ -9,6 +10,7 @@ interface ElementHandleState<T> {
   readonly feature: Feature<Geometry>;
   readonly isCurrent: () => boolean;
   readonly getState: () => Readonly<ElementState<T>>;
+  readonly getGeometryDetails: () => Readonly<ElementGeometryDetails>;
   readonly update: (patch: ElementPatch<T>) => void;
   readonly remove: () => void;
   removedByHandle: boolean;
@@ -60,6 +62,17 @@ export class Element<T = unknown> {
   /** Element 当前的不可变状态快照。 */
   get state(): Readonly<ElementState<T>> {
     return currentStateOf(this).getState() as Readonly<ElementState<T>>;
+  }
+
+  /**
+   * 最新已提交 Shape 状态解析出的完整静态渲染几何及其地图坐标范围。
+   *
+   * Circle 的渲染半径使用当前 View 投影单位，`state.geometry.radius` 仍以米保存。结果不包含动画帧、交互预览、样式外扩或 world-wrap 展示副本。
+   *
+   * @throws `ObjectDisposedError` 当前句柄已被移除或已由同 ID 的新代次替代。
+   */
+  get geometryDetails(): Readonly<ElementGeometryDetails> {
+    return currentStateOf(this).getGeometryDetails();
   }
 
   /** OpenLayers 渲染 Feature。直接修改不会回写 Element 状态，并可能在下次投影时被覆盖。 */
@@ -138,6 +151,7 @@ function isElementHandleState(value: unknown): value is ElementHandleState<unkno
     state.feature instanceof Feature &&
     typeof state.isCurrent === 'function' &&
     typeof state.getState === 'function' &&
+    typeof state.getGeometryDetails === 'function' &&
     typeof state.update === 'function' &&
     typeof state.remove === 'function'
   );

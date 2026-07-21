@@ -44,8 +44,9 @@ export function createFacadeHarness(shapeProjection: ShapeProjectionPort = ident
   const manager = new LayerManager(store, adapter);
   context.manager = manager;
   const layers = new LayerServiceImpl(manager, adapter, refs);
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, shapeProjection), new StyleCompiler(refs));
-  const elements = new ElementServiceImpl(store, manager, binding, layers, refs, new EmptyHitTest());
+  const geometry = new GeometryCodec(shapes, shapeProjection);
+  const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs));
+  const elements = new ElementServiceImpl(store, manager, binding, geometry, layers, refs, new EmptyHitTest());
 
   const destroy = () => {
     elements.clear();

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import Polygon from 'ol/geom/Polygon.js';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
@@ -9,10 +10,12 @@ import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
+import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import { InvalidArgumentError, InvalidSelectorError, ObjectDisposedError } from '../src/core/errors.js';
 import { LayerManager } from '../src/core/layer/LayerManager.js';
 import type { HitTestPort } from '../src/core/ports/HitTestPort.js';
+import type { ShapeProjectionPort } from '../src/core/ports/ShapeProjectionPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../src/core/style/types.js';
 import { Element } from '../src/facade/Element.js';
@@ -34,9 +37,9 @@ class FakeHitTest implements HitTestPort {
   }
 }
 
-function setup(createIds: string[] = []) {
+function setup(createIds: string[] = [], shapeProjection: ShapeProjectionPort = identityShapeProjection) {
   const refs = new NativeRefRegistry();
-  const shapes = new ShapeRegistry(basicShapeDefinitions);
+  const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   let nextId = 0;
   const createId = () => createIds[nextId++] ?? `generated-${nextId}`;
   const store = new ElementStore(shapes, {
@@ -50,9 +53,10 @@ function setup(createIds: string[] = []) {
   const adapter = new LayerAdapter(createTestMap(), refs);
   const manager = new LayerManager(store, adapter);
   const layers = new LayerServiceImpl(manager, adapter, refs);
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs));
+  const geometry = new GeometryCodec(shapes, shapeProjection);
+  const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs));
   const hitTest = new FakeHitTest();
-  const elements = new ElementServiceImpl(store, manager, binding, layers, refs, hitTest, { createId });
+  const elements = new ElementServiceImpl(store, manager, binding, geometry, layers, refs, hitTest, { createId });
   return { adapter, binding, elements, hitTest, layers, manager, refs, store };
 }
 
@@ -137,6 +141,76 @@ describe('ElementService', () => {
 
     const copy = elements.copy(point.id, { geometry: { type: 'point', controlPoints: [-1, -2] } });
     expect(copy.state.geometry).toEqual({ type: 'point', controlPoints: [[-1, -2]] });
+  });
+
+  it('exposes a frozen full arrow geometry and derives it from Element state instead of the mutable OL Feature', () => {
+    const { elements } = setup(['arrow']);
+    const arrow = elements.add({
+      geometry: {
+        type: 'fine-arrow',
+        controlPoints: [
+          [0, 0],
+          [100, 0]
+        ]
+      }
+    });
+
+    const first = arrow.geometryDetails;
+    expect(first.renderGeometry.type).toBe('polygon');
+    if (first.renderGeometry.type !== 'polygon') throw new Error('Fine arrow should resolve to Polygon render geometry');
+    const ring = first.renderGeometry.coordinates[0];
+    expect(ring.length).toBeGreaterThan(5);
+    expect(ring[0]).toEqual(ring[ring.length - 1]);
+    const xs = ring.map(([x]) => x);
+    const ys = ring.map(([, y]) => y);
+    expect(first.extent).toEqual([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.renderGeometry)).toBe(true);
+    expect(Object.isFrozen(first.renderGeometry.coordinates)).toBe(true);
+    expect(first.renderGeometry.coordinates.every(Object.isFrozen)).toBe(true);
+
+    const olGeometry = arrow.olFeature.getGeometry();
+    expect(olGeometry).toBeInstanceOf(Polygon);
+    if (!(olGeometry instanceof Polygon)) throw new Error('Fine arrow should bind an OL Polygon');
+    olGeometry.setCoordinates([
+      [
+        [900, 900],
+        [901, 900],
+        [900, 901],
+        [900, 900]
+      ]
+    ]);
+    expect(arrow.geometryDetails).toEqual(first);
+
+    arrow.update({
+      geometry: {
+        type: 'fine-arrow',
+        controlPoints: [
+          [0, 0],
+          [200, 0]
+        ]
+      }
+    });
+    expect(arrow.geometryDetails.extent).not.toEqual(first.extent);
+    expect(first.extent).toEqual([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+  });
+
+  it('reports Circle render radius and extent in View units while keeping business radius in meters', () => {
+    const projection = Object.freeze<ShapeProjectionPort>({
+      toViewState: (state) => (state.type === 'circle' ? Object.freeze({ type: 'circle', center: state.center, radius: state.radius * 2 }) : state),
+      toElementState: (state) => state
+    });
+    const { elements } = setup(['circle'], projection);
+    const circle = elements.add({ geometry: { type: 'circle', center: [10, 20], radius: 5 } });
+
+    expect(circle.state.geometry).toEqual({ type: 'circle', center: [10, 20], radius: 5 });
+    expect(circle.geometryDetails).toEqual({
+      renderGeometry: { type: 'circle', center: [10, 20], radius: 10 },
+      extent: [0, 10, 20, 30]
+    });
+
+    elements.hide({ id: circle.id });
+    expect(circle.geometryDetails.extent).toEqual([0, 10, 20, 30]);
   });
 
   it('rejects malformed flat control points atomically and preserves nested XYZ input', () => {
@@ -259,6 +333,7 @@ describe('ElementService', () => {
 
     expect(element.olFeature.getStyle()).toBe(style);
     expect(isNativeStyleRef(element.state.style)).toBe(true);
+    expect(element.geometryDetails).toEqual({ renderGeometry: { type: 'point', coordinates: [0, 0] }, extent: [0, 0, 0, 0] });
   });
 
   it('binds handles to a Feature generation and never resurrects them after same-id re-add', () => {
@@ -271,6 +346,7 @@ describe('ElementService', () => {
 
     expect(current.olFeature).not.toBe(oldFeature);
     expect(() => old.state).toThrow(ObjectDisposedError);
+    expect(() => old.geometryDetails).toThrow(ObjectDisposedError);
     expect(() => old.olFeature).toThrow(ObjectDisposedError);
     expect(() => old.update({ visible: false })).toThrow(ObjectDisposedError);
     expect(elements.get('same')).not.toBe(old);
@@ -325,6 +401,7 @@ describe('ElementService', () => {
     elements.clear();
 
     expect(() => element.state).toThrow(ObjectDisposedError);
+    expect(() => element.geometryDetails).toThrow(ObjectDisposedError);
     expect(() => element.olFeature).toThrow(ObjectDisposedError);
     expect(() => element.remove()).toThrow(ObjectDisposedError);
   });

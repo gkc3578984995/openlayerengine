@@ -21,6 +21,8 @@ import type {
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
+import { calculateRenderGeometryExtent, type RenderGeometryExtent } from '../../core/shape/geometryDetails.js';
+import { renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { RenderGeometryState } from '../../core/shape/types.js';
 import { isNativeStyleRef, type StyleSpec } from '../../core/style/types.js';
 import { styleVisualOutsetPx } from '../../core/style/visualOutset.js';
@@ -137,7 +139,7 @@ interface TransientRecord extends BaseRecord {
 type ManagedRecord = ElementRecord | TransientRecord;
 /** 动画记录的终止状态。 */
 type TerminalStatus = Extract<AnimationStatus, 'stopped' | 'finished'>;
-type RenderBounds = readonly [minX: number, minY: number, maxX: number, maxY: number];
+type RenderBounds = RenderGeometryExtent;
 
 /** 单个图层的动画记录及其热路径计数。 */
 interface LayerRecordIndex {
@@ -1277,7 +1279,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     if (isNativeStyleRef(state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
     const shape = this.#shapes.get(state.type);
     const viewShape = this.#shapeProjection.toViewState(state.geometry);
-    const geometry = freezeRenderGeometry(shape.toRenderGeometry(viewShape as never));
+    const geometry = freezeRenderGeometry(renderTrustedShapeState(shape, viewShape as never));
     return Object.freeze({
       state,
       geometry,
@@ -1485,30 +1487,11 @@ function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryStat
 
 /** 计算规范渲染几何的 View 坐标范围；非法输入按不可裁剪处理。 */
 function renderGeometryBounds(geometry: RenderGeometryState): RenderBounds | undefined {
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  const include = (coordinate: readonly number[]): void => {
-    const [x, y] = coordinate;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
-  };
-  if (geometry.type === 'point') include(geometry.coordinates);
-  else if (geometry.type === 'polyline') geometry.coordinates.forEach(include);
-  else if (geometry.type === 'polygon') geometry.coordinates.forEach((ring) => ring.forEach(include));
-  else {
-    const [x, y] = geometry.center;
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(geometry.radius) || geometry.radius < 0) return undefined;
-    minX = x - geometry.radius;
-    minY = y - geometry.radius;
-    maxX = x + geometry.radius;
-    maxY = y + geometry.radius;
+  try {
+    return calculateRenderGeometryExtent(geometry);
+  } catch {
+    return undefined;
   }
-  return [minX, minY, maxX, maxY].every(Number.isFinite) ? Object.freeze([minX, minY, maxX, maxY]) : undefined;
 }
 
 /** 使用可证明安全的视觉外扩裁剪离屏目标；无法估算时保守保留。 */

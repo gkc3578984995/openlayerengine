@@ -98,6 +98,26 @@ describe('website Element documentation', () => {
     expect(demo).toMatch(/geometry:\s*createShapeExampleInput\(/u);
   });
 
+  it('documents and demonstrates complete Element geometry details', async () => {
+    const [view, demo] = await Promise.all([read('website/src/views/elements/ElementOverviewView.vue'), read('website/src/examples/elements/ShapesDemo.vue')]);
+
+    expect(view).toContain("name: 'geometryDetails'");
+    expect(view).toContain("Element: ['constructor', 'id', 'state', 'geometryDetails', 'olFeature']");
+    for (const typeName of ['ElementGeometryDetails', 'ElementRenderGeometry', 'MapExtent']) expect(view).toContain(`'${typeName}'`);
+    expect(view).toContain('id="geometry-details"');
+    expect(view).toContain("type: 'polygon'");
+    expect(view).toContain('当前 View 投影单位下的 <code>radius</code>');
+    expect(view).toContain('[minX, minY, maxX, maxY]');
+    expect(view).toContain('earth.view.toGeographicCoordinates()');
+    expect(view).toContain('不会把第 N 个世界中的坐标自动归一化到基础世界');
+
+    expect(demo).toContain('const geometryDetails = element.geometryDetails;');
+    expect(demo).toContain('selectedGeometryDetails.value = geometryDetails;');
+    expect(demo).toContain('/api/types#api-type-element-geometry-details');
+    expect(demo).toContain('/api/types#api-type-element-render-geometry');
+    expect(demo).toContain('/api/types#api-type-map-extent');
+  });
+
   it('keeps all Element demos free from diagnostic logs, result panels and JSON textareas', async () => {
     const demos = await Promise.all(elementDemoPaths.map(async (path) => ({ path, source: await read(path) })));
 
@@ -204,11 +224,20 @@ describe('website Element documentation', () => {
     const factorySnippet = extractRegion(lineworkDemo, 'linework-factory');
     expect(factorySnippet).toContain('lineStyles.polyline({');
     expect(factorySnippet).toContain('lineStyles.polygon({');
+    expect(factorySnippet).toContain('repeatSpacingPx: repeatSpacingPx.value');
     expect(lineworkView).toContain("extractExampleSnippet(lineworkSource, 'linework-factory')");
     expect(lineworkView).toContain("extractExampleSnippet(lineworkSource, 'linework-apply')");
+    expect(lineworkView).toContain("name: 'repeatSpacingPx'");
+    expect(lineworkView).toContain("'InlinePathTextPlacementSpec'");
+    expect(lineworkView).toContain('间距按相邻副本的锚点计算');
+    expect(lineworkDemo).toContain('v-model="repeatEnabled"');
+    expect(lineworkDemo).toContain('v-model="repeatSpacingPx"');
+    expect(lineworkDemo).toContain("'累计长度中点一次'");
     expect(lineworkDemo).toContain('const applyLinework = (focus = false) =>');
     expect(lineworkDemo).toMatch(/watch\(kind,\s*\(\) => applyLinework\(true\)/u);
-    expect(lineworkDemo).toMatch(/watch\(\[tracks, decoration, startCap, endCap, color, inlineText\],\s*\(\) => applyLinework\(\)/u);
+    expect(lineworkDemo).toMatch(
+      /watch\(\[tracks, decoration, startCap, endCap, color, inlineText, repeatEnabled, repeatSpacingPx\],\s*\(\) => applyLinework\(\)/u
+    );
     expect(lineworkDemo).toContain('if (focus) earth.view.animateFlyTo');
   });
 

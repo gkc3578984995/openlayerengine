@@ -150,23 +150,31 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <el-form class="element-create-demo__form" inline label-position="top">
-      <el-form-item label="图形">
-        <el-radio-group v-model="shape">
-          <el-radio-button value="point">Point</el-radio-button>
-          <el-radio-button value="polyline">Polyline</el-radio-button>
-          <el-radio-button value="circle">Circle</el-radio-button>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="业务名称"><el-input v-model="label" maxlength="20" /></el-form-item>
-      <el-form-item label="颜色"><el-color-picker v-model="color" /></el-form-item>
-      <el-form-item label="操作"><el-button type="primary" @click="createElement">调用 elements.add()</el-button></el-form-item>
-      <el-form-item label="当前状态">
-        <el-space wrap>
+    <el-form class="example-demo__control-panel element-create-demo__form" label-position="top">
+      <div class="example-demo__control-grid element-create-demo__fields">
+        <el-form-item label="图形">
+          <el-radio-group v-model="shape">
+            <el-radio-button value="point">Point</el-radio-button>
+            <el-radio-button value="polyline">Polyline</el-radio-button>
+            <el-radio-button value="circle">Circle</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="业务名称"><el-input v-model="label" maxlength="20" /></el-form-item>
+        <el-form-item label="颜色"><el-color-picker v-model="color" /></el-form-item>
+      </div>
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group">
+          <strong>操作</strong>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="createElement">调用 elements.add()</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback element-create-demo__feedback element-create-demo__status" aria-live="polite">
+          <strong class="element-create-demo__feedback-label">当前状态</strong>
           <el-tag type="success" effect="plain">当前 ID：{{ currentId ?? '尚未创建' }}</el-tag>
           <el-tag effect="plain">已创建 {{ createdCount }} 个</el-tag>
-        </el-space>
-      </el-form-item>
+        </div>
+      </div>
     </el-form>
 
     <div ref="mapTarget" class="example-stage"></div>
@@ -174,11 +182,23 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.element-create-demo__form {
-  margin-bottom: 2px;
+.element-create-demo__fields {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 14px 16px;
+}
+
+.element-create-demo__form :deep(.el-form-item) {
+  min-width: 0;
+  margin: 0;
 }
 
 .element-create-demo__form :deep(.el-input) {
-  width: 180px;
+  width: 100%;
+  max-width: 180px;
+}
+
+.element-create-demo__feedback-label {
+  color: var(--doc-text);
+  font-size: 12px;
 }
 </style>

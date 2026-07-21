@@ -35,7 +35,11 @@ const anchors = [
     ]
   },
   { id: 'api-element-service', label: 'ElementService API' },
-  { id: 'state-model', label: '状态模型与注意事项' },
+  {
+    id: 'state-model',
+    label: '状态模型与注意事项',
+    children: [{ id: 'geometry-details', label: '完整静态几何与范围' }]
+  },
   { id: 'api', label: '相关类型' }
 ];
 
@@ -59,6 +63,13 @@ const propertyRows = [
     name: 'state',
     type: 'Readonly<ElementState<T>>',
     desc: '每次读取当前不可变业务状态快照，是持久状态的唯一真源'
+  },
+  {
+    anchor: 'api-property-geometry-details',
+    href: '/api/types#api-type-element-property-geometry-details',
+    name: 'geometryDetails',
+    type: 'ElementGeometryDetails',
+    desc: '从最新已提交 Shape 状态派生完整静态渲染几何，以及当前 View 投影下的二维外接矩形'
   },
   {
     anchor: 'api-property-ol-feature',
@@ -172,9 +183,9 @@ const serviceMethodRows = [
   }
 ];
 
-const apiTypes = ['Element', 'ElementState', 'ElementService'] as const;
+const apiTypes = ['Element', 'ElementState', 'ElementGeometryDetails', 'ElementRenderGeometry', 'MapExtent', 'ElementService'] as const;
 const apiMembers = {
-  Element: ['constructor', 'id', 'state', 'olFeature'],
+  Element: ['constructor', 'id', 'state', 'geometryDetails', 'olFeature'],
   ElementService: []
 } as const;
 </script>
@@ -245,7 +256,9 @@ const apiMembers = {
               <code>controlPoints</code>
               的输入顺序。可以按中文名、英文类型搜索或按类别筛选；选择卡片后，地图会重新聚焦并以宽描边高亮目标。每个图形都提供最小创建代码和
               <ApiReference kind="type" to="/api/types#api-type-shape-input">ShapeInput</ApiReference>
-              等相关类型入口；详细控制点规则见
+              等相关类型入口。选中图形后，示例还会读取
+              <ApiReference kind="property" to="#api-property-geometry-details">Element.geometryDetails</ApiReference>
+              ，显示控制点派生出的完整静态几何和地图坐标范围；详细控制点规则见
               <a href="/components/elements/shapes">图形类型（Shapes）</a>。
             </p>
           </template>
@@ -313,6 +326,43 @@ const apiMembers = {
           <el-descriptions-item label="Module">业务分组，可用于查询、批量更新、显隐与删除。</el-descriptions-item>
           <el-descriptions-item label="Layer">渲染与资源分组；同一 VectorLayer 可以承载不同 Shape。</el-descriptions-item>
         </el-descriptions>
+
+        <h3 id="geometry-details" class="doc-h3">完整静态几何与范围</h3>
+        <p>
+          <ApiReference kind="property" to="#api-property-geometry-details">Element.geometryDetails</ApiReference>
+          从最新已提交的 Shape 状态计算，不会把派生坐标写回
+          <ApiReference kind="property" to="#api-property-state">Element.state</ApiReference>
+          。返回的
+          <ApiReference kind="type" to="#api-type-element-geometry-details">ElementGeometryDetails</ApiReference>
+          是一份独立的不可变快照，同时包含类型为
+          <ApiReference kind="type" to="#api-type-element-render-geometry">ElementRenderGeometry</ApiReference>
+          的 <code>renderGeometry</code> 和 <code>extent</code>。
+        </p>
+        <ul>
+          <li>
+            箭头和其他派生面会返回 <code>type: 'polygon'</code>；<code>coordinates</code> 是完整的 polygon rings，不再只是绘制时输入的
+            <code>controlPoints</code>。
+          </li>
+          <li>
+            圆返回 <code>type: 'circle'</code>、<code>center</code> 和当前 View 投影单位下的 <code>radius</code>；业务状态中的
+            <code>Element.state.geometry.radius</code> 仍以米保存。
+          </li>
+          <li>
+            <code>extent</code> 是
+            <ApiReference kind="type" to="#api-type-map-extent">MapExtent</ApiReference>
+            ，顺序为 <code>[minX, minY, maxX, maxY]</code>，坐标使用当前 View 投影。
+          </li>
+          <li>
+            需要经纬度时用 <code>earth.view.toGeographicCoordinates()</code> 显式逐个转换 Coordinate；Polygon 需逐 ring 转换，Circle 只转换
+            <code>center</code>，不能把投影半径当作坐标转换。
+          </li>
+        </ul>
+        <el-alert class="doc-prose__alert" type="info" :closable="false" show-icon title="范围描述规范静态几何">
+          <code>geometryDetails</code> 不包含描边、文字、图标等样式外扩，也不包含动画帧、交互预览或世界环绕产生的临时副本。需要当前视口中的 CSS
+          像素视觉范围时，请使用
+          <ApiReference kind="method" to="/components/elements/query#api-method-screen-extent">earth.elements.getScreenExtent</ApiReference>
+          。它会保留已提交的坐标，不会把第 N 个世界中的坐标自动归一化到基础世界。
+        </el-alert>
         <el-alert class="doc-prose__alert" type="warning" :closable="false" show-icon title="持久修改请走公开 API">
           <ApiReference kind="property" to="#api-property-state">Element.state</ApiReference>
           是最新的只读状态快照。OpenLayers Feature、Geometry 和 Style 只是渲染投影，直接修改
@@ -325,7 +375,7 @@ const apiMembers = {
         :type-names="apiTypes"
         :member-names="apiMembers"
         title="Element 完整状态 API"
-        description="完整列出 Element 的受限构造函数、公开属性和 ElementState 八个业务字段；ElementService 方法在上方总索引中按任务进入各自规范页面。"
+        description="完整列出 Element 的受限构造函数、公开属性、静态几何详情类型和 ElementState 八个业务字段；ElementService 方法在上方总索引中按任务进入各自规范页面。"
       />
     </article>
 

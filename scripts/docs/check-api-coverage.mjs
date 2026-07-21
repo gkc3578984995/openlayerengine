@@ -22,8 +22,8 @@ function findMethod(type, name) {
   return type.methods.find((method) => method.name === name);
 }
 
-const expectedCounts = { class: 10, interface: 89, typeAlias: 53 };
-assert(model.apiCatalog.length === 152, `公开类型目录数量应为 152，实际为 ${model.apiCatalog.length}`);
+const expectedCounts = { class: 10, interface: 90, typeAlias: 56 };
+assert(model.apiCatalog.length === 156, `公开类型目录数量应为 156，实际为 ${model.apiCatalog.length}`);
 for (const [kind, expected] of Object.entries(expectedCounts)) {
   const actual = model.apiCatalog.filter((entry) => entry.kind === kind).length;
   assert(actual === expected, `${kind} 数量应为 ${expected}，实际为 ${actual}`);

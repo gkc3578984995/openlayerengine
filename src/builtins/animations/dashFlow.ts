@@ -113,7 +113,7 @@ function createSlotPlans(target: AnimationTargetProfile, spec: Readonly<DashFlow
   ]);
 }
 
-/** linework 的每条虚线轨道使用独立稳定 slot，避免复制端帽、装饰和文本。 */
+/** linework 的每条虚线轨道使用独立稳定 slot，避免复制端帽、可见装饰和文本。 */
 function createLineworkSlotPlans(base: StyleSpec, spec: Readonly<DashFlowAnimationSpec>): readonly DashFlowSlotPlan[] {
   const linework = base.linework;
   if (linework === undefined) return [];
@@ -152,15 +152,27 @@ function createLineworkSlotPlans(base: StyleSpec, spec: Readonly<DashFlowAnimati
   return Object.freeze(plans);
 }
 
-/** dash-flow 只复用中点切口语义，透明占位由 StyleCompiler 跳过可见绘制。 */
+/** dash-flow 复用全部 linework 切口语义，透明占位由 StyleCompiler 跳过可见绘制。 */
 function cutoutOnlyLinework(linework: LineworkSpec): Pick<LineworkSpec, 'decorations' | 'inlineText'> {
-  const centerDecorations = linework.decorations
-    ?.filter((decoration): decoration is Extract<PathDecorationSpec, { placement: { kind: 'center' } }> => decoration.placement.kind === 'center')
-    .map((decoration) => ({ ...decoration, glyph: transparentGlyph(decoration.glyph) }));
+  const cutoutDecorations = linework.decorations
+    ?.filter((decoration) => decoration.placement.kind === 'center' || decoration.cutoutPadding !== undefined)
+    .map(transparentCutoutDecoration);
   return {
-    ...(centerDecorations === undefined || centerDecorations.length === 0 ? {} : { decorations: centerDecorations }),
+    ...(cutoutDecorations === undefined || cutoutDecorations.length === 0 ? {} : { decorations: cutoutDecorations }),
     ...(linework.inlineText === undefined ? {} : { inlineText: transparentInlineText(linework.inlineText) })
   };
+}
+
+/** 保留切口布局，但隐去单中点或重复 glyph 的所有 paint。 */
+function transparentCutoutDecoration(decoration: PathDecorationSpec): PathDecorationSpec {
+  if (isCenterPathDecoration(decoration)) return { ...decoration, glyph: transparentGlyph(decoration.glyph) };
+  const repeated = decoration as Extract<PathDecorationSpec, { placement: { kind: 'repeat' } }>;
+  return { ...repeated, sequence: repeated.sequence.map(transparentGlyph) };
+}
+
+/** 嵌套 placement 判别需要显式收窄外层装饰联合。 */
+function isCenterPathDecoration(decoration: PathDecorationSpec): decoration is Extract<PathDecorationSpec, { placement: { kind: 'center' } }> {
+  return decoration.placement.kind === 'center';
 }
 
 function transparentInlineText(text: InlinePathTextSpec): InlinePathTextSpec {

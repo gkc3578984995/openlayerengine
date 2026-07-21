@@ -2,11 +2,15 @@ import { expect, test, type Page } from '@playwright/test';
 
 type VisualEffect = 'radar-scan' | 'center-spread' | 'path-travel';
 type RadarDirection = 'clockwise' | 'counterclockwise';
+type RadarScanMode = 'one-way' | 'round-trip';
+type RadialTrailStyle = 'solid' | 'gradient';
 type VisualTheme = 'light' | 'dark';
 
 interface VisualPreparation {
   readonly effect: VisualEffect;
   readonly direction?: RadarDirection;
+  readonly scanMode?: RadarScanMode;
+  readonly trailStyle?: RadialTrailStyle;
   readonly elapsedMs: number;
   readonly rotation: number;
   readonly theme: VisualTheme;
@@ -33,10 +37,34 @@ test.describe('动画像素级视觉回归', () => {
     await expect(page.getByTestId('animation-map')).toHaveScreenshot('radar-counterclockwise-north-dark-dpr1.png', screenshotOptions);
   });
 
+  test('radar-scan 往复折返后保持尾迹连续并裁剪在 Sector 内', async ({ page }) => {
+    await openFixture(page);
+    await prepare(page, {
+      effect: 'radar-scan',
+      direction: 'clockwise',
+      scanMode: 'round-trip',
+      elapsedMs: 60_600,
+      rotation: 0,
+      theme: 'light'
+    });
+    await expect(page.getByTestId('animation-map')).toHaveScreenshot('radar-round-trip-after-turn-light-dpr1.png', screenshotOptions);
+  });
+
   test('center-spread 在 Circle 与 Sector 内形成连续波纹带', async ({ page }) => {
     await openFixture(page);
     await prepare(page, { effect: 'center-spread', elapsedMs: 2_400, rotation: 0, theme: 'light' });
     await expect(page.getByTestId('animation-map')).toHaveScreenshot('center-spread-circle-sector-light-dpr1.png', screenshotOptions);
+  });
+
+  test('径向纯色尾迹在全部可见分段保持均匀绿色', async ({ page }) => {
+    await openFixture(page);
+    await prepare(page, { effect: 'radar-scan', trailStyle: 'solid', elapsedMs: 60_000, rotation: 0, theme: 'light' });
+    await expect(page.getByTestId('animation-map')).toHaveAttribute('data-trail-style', 'solid');
+    await expect(page.getByTestId('animation-map')).toHaveScreenshot('radar-solid-green-light-dpr1.png', screenshotOptions);
+
+    await prepare(page, { effect: 'center-spread', trailStyle: 'solid', elapsedMs: 2_400, rotation: 0, theme: 'light' });
+    await expect(page.getByTestId('animation-map')).toHaveAttribute('data-trail-style', 'solid');
+    await expect(page.getByTestId('animation-map')).toHaveScreenshot('center-spread-solid-green-light-dpr1.png', screenshotOptions);
   });
 
   test('path-travel 多点正负曲率保持共享切线与连续 RGBA 渐变', async ({ page }) => {

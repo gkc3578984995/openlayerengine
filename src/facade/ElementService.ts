@@ -1,5 +1,6 @@
 import type { NativeRefRegistry } from '../adapters/openlayers/NativeRefRegistry.js';
 import type { FeatureBinding } from '../adapters/openlayers/FeatureBinding.js';
+import type { GeometryCodec } from '../adapters/openlayers/GeometryCodec.js';
 import { stylePresets } from '../builtins/styles/presets.js';
 import { cloneCoreState } from '../core/common/clone.js';
 import type { Pixel } from '../core/common/types.js';
@@ -9,6 +10,7 @@ import { InvalidArgumentError } from '../core/errors.js';
 import type { LayerManager } from '../core/layer/LayerManager.js';
 import type { HitTestPort } from '../core/ports/HitTestPort.js';
 import type { ShapeInput } from '../core/shape/types.js';
+import { createRenderGeometryDetails } from '../core/shape/geometryDetails.js';
 import type { NativeStyleRef, StyleSpec } from '../core/style/types.js';
 import { constructElementHandle, Element, elementHandleFeature } from './Element.js';
 import type { LayerServiceImpl } from './LayerService.js';
@@ -37,6 +39,8 @@ export class ElementServiceImpl implements ElementService {
   readonly #manager: LayerManager;
   /** 将 Element 状态单向投影到 OpenLayers Feature。 */
   readonly #binding: FeatureBinding;
+  /** 从规范 Shape 状态生成当前 View 的完整静态渲染几何。 */
+  readonly #geometry: GeometryCodec;
   /** 提供公共图层句柄。 */
   readonly #layers: LayerServiceImpl;
   /** 管理原生样式引用。 */
@@ -55,6 +59,7 @@ export class ElementServiceImpl implements ElementService {
     store: ElementStore,
     manager: LayerManager,
     binding: FeatureBinding,
+    geometry: GeometryCodec,
     layers: LayerServiceImpl,
     nativeRefs: NativeRefRegistry,
     hitTest: HitTestPort,
@@ -63,6 +68,7 @@ export class ElementServiceImpl implements ElementService {
     this.#store = store;
     this.#manager = manager;
     this.#binding = binding;
+    this.#geometry = geometry;
     this.#layers = layers;
     this.#nativeRefs = nativeRefs;
     this.#hitTest = hitTest;
@@ -226,6 +232,10 @@ export class ElementServiceImpl implements ElementService {
       removedByHandle: false,
       isCurrent: () => this.#store.isGenerationCurrent(id, generation) && this.#binding.isCurrentFeature(id, feature),
       getState: () => this.#store.get<T>(id) ?? missingElement(id),
+      getGeometryDetails: () => {
+        const state = this.#store.get(id) ?? missingElement(id);
+        return createRenderGeometryDetails(this.#geometry.render(state.geometry));
+      },
       update: (patch: ElementPatch<T>) => {
         this.update({ id }, patch);
       },

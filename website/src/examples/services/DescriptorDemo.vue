@@ -217,32 +217,49 @@ onBeforeUnmount(() => {
   <div class="example-demo">
     <el-alert type="info" :closable="false" show-icon title="列表项点击和关闭会同时进入 spec 回调与 handle.on() 订阅；两条路径都需要按各自生命周期清理。" />
 
-    <div class="descriptor-demo__settings">
-      <el-radio-group v-model="contentMode" aria-label="Descriptor 内容类型">
-        <el-radio-button value="list">列表</el-radio-button>
-        <el-radio-button value="text">文本</el-radio-button>
-        <el-radio-button value="dom">HTMLElement</el-radio-button>
-      </el-radio-group>
-      <el-select v-model="closeAction" class="descriptor-demo__close-action" aria-label="关闭策略" @change="changeCloseAction">
-        <el-option label="关闭时隐藏" value="hide" />
-        <el-option label="关闭时销毁" value="destroy" />
-      </el-select>
-    </div>
+    <div class="example-demo__control-panel descriptor-demo__controls">
+      <div class="example-demo__control-grid descriptor-demo__settings" role="group" aria-label="Descriptor 创建设置">
+        <el-radio-group v-model="contentMode" aria-label="Descriptor 内容类型">
+          <el-radio-button value="list">列表</el-radio-button>
+          <el-radio-button value="text">文本</el-radio-button>
+          <el-radio-button value="dom">HTMLElement</el-radio-button>
+        </el-radio-group>
+        <el-select v-model="closeAction" class="descriptor-demo__close-action" aria-label="关闭策略" @change="changeCloseAction">
+          <el-option label="关闭时隐藏" value="hide" />
+          <el-option label="关闭时销毁" value="destroy" />
+        </el-select>
+      </div>
 
-    <div class="example-demo__toolbar">
-      <el-button type="primary" @click="createDescriptor">按当前内容重新创建</el-button>
-      <el-button :disabled="descriptorRef === null" @click="patchDescriptor">update patch</el-button>
-      <el-button :disabled="descriptorRef === null" @click="moveDescriptor">setPosition</el-button>
-      <el-button :disabled="descriptorRef === null" @click="showDescriptor">show</el-button>
-      <el-button :disabled="descriptorRef === null" @click="hideDescriptor">hide</el-button>
-      <el-button :disabled="descriptorRef === null" type="warning" plain @click="closeDescriptor">close</el-button>
-      <el-button :disabled="descriptorRef === null" type="danger" plain @click="destroyDescriptor">destroy</el-button>
+      <div class="example-demo__actions descriptor-demo__toolbar">
+        <div class="example-demo__action-group descriptor-demo__action-group" role="group" aria-label="创建与更新">
+          <span>创建与更新</span>
+          <div class="example-demo__action-buttons descriptor-demo__action-buttons">
+            <el-button type="primary" @click="createDescriptor">按当前内容重新创建</el-button>
+            <el-button :disabled="descriptorRef === null" @click="patchDescriptor">update patch</el-button>
+            <el-button :disabled="descriptorRef === null" @click="moveDescriptor">setPosition</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group descriptor-demo__action-group" role="group" aria-label="显示控制">
+          <span>显示控制</span>
+          <div class="example-demo__action-buttons descriptor-demo__action-buttons">
+            <el-button :disabled="descriptorRef === null" @click="showDescriptor">show</el-button>
+            <el-button :disabled="descriptorRef === null" @click="hideDescriptor">hide</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group descriptor-demo__action-group" role="group" aria-label="关闭与销毁">
+          <span>关闭与销毁</span>
+          <div class="example-demo__action-buttons descriptor-demo__action-buttons">
+            <el-button :disabled="descriptorRef === null" type="warning" plain @click="closeDescriptor">close</el-button>
+            <el-button :disabled="descriptorRef === null" type="danger" plain @click="destroyDescriptor">destroy</el-button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div ref="mapTarget" class="example-stage"></div>
 
-    <el-alert class="descriptor-demo__status" :closable="false" :title="status" type="success" show-icon />
-    <el-descriptions :column="3" border title="当前事件载荷">
+    <el-alert class="descriptor-demo__status" :closable="false" :title="status" type="success" show-icon aria-live="polite" />
+    <el-descriptions :column="1" border title="当前事件载荷">
       <el-descriptions-item label="来源">{{ currentEvent.source }}</el-descriptions-item>
       <el-descriptions-item label="类型">{{ currentEvent.type }}</el-descriptions-item>
       <el-descriptions-item label="数据">{{ currentEvent.detail }}</el-descriptions-item>
@@ -252,14 +269,30 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .descriptor-demo__settings {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 0 0 14px;
+  grid-template-columns: minmax(min(100%, 320px), max-content) minmax(min(100%, 150px), 1fr);
+}
+
+.descriptor-demo__settings > *,
+.descriptor-demo__settings :deep(.el-radio-group) {
+  max-width: 100%;
+}
+
+.descriptor-demo__settings :deep(.el-radio-group) {
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .descriptor-demo__close-action {
-  width: 150px;
+  width: min(150px, 100%);
+}
+
+.descriptor-demo__toolbar {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.descriptor-demo__action-group {
+  max-width: 100%;
 }
 
 .descriptor-demo__status {
@@ -272,5 +305,31 @@ onBeforeUnmount(() => {
   background: var(--el-fill-color-light);
   border: 1px dashed var(--el-border-color);
   border-radius: var(--el-border-radius-base);
+}
+
+@media (max-width: 560px) {
+  .descriptor-demo__settings {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .descriptor-demo__settings :deep(.el-radio-group),
+  .descriptor-demo__close-action,
+  .descriptor-demo__action-group {
+    width: 100%;
+  }
+
+  .descriptor-demo__toolbar,
+  .descriptor-demo__action-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .descriptor-demo__action-buttons :deep(.el-button) {
+    width: 100%;
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
+  }
 }
 </style>

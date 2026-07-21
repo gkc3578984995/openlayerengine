@@ -119,7 +119,7 @@ test('纹理示例同时渲染五种纹理并支持重置和定位', async ({ pa
       const element = root.querySelector<HTMLElement>(selector);
       if (element === null) throw new Error(`缺少纹理示例布局节点：${selector}`);
       const bounds = element.getBoundingClientRect();
-      return { top: bounds.top, bottom: bounds.bottom };
+      return { top: bounds.top, right: bounds.right, bottom: bounds.bottom, left: bounds.left };
     };
     const controls = root.querySelector<HTMLElement>('.pattern-fill-demo__controls');
     if (controls === null) throw new Error('缺少纹理示例控制区');
@@ -137,8 +137,9 @@ test('纹理示例同时渲染五种纹理并支持重置和定位', async ({ pa
   expect(layout.rootOverflow).toBeLessThanOrEqual(1);
   expect(layout.controlsOverflow).toBeLessThanOrEqual(1);
   expect(layout.actions.top - layout.controls.bottom).toBeGreaterThanOrEqual(12);
-  expect(layout.status.top - layout.buttons.bottom).toBeGreaterThanOrEqual(10);
-  expect(layout.stage.top - layout.panel.bottom).toBeGreaterThanOrEqual(16);
+  expect(Math.abs((layout.status.top + layout.status.bottom) / 2 - (layout.buttons.top + layout.buttons.bottom) / 2)).toBeLessThanOrEqual(2);
+  expect(layout.status.left - layout.buttons.right).toBeGreaterThanOrEqual(12);
+  expect(layout.stage.top - layout.panel.bottom).toBeGreaterThanOrEqual(14);
   const patternSelect = example.getByRole('combobox', { name: '纹理类型' });
   await patternSelect.press('Enter');
   for (const label of ['斜线 diagonal', '交叉 cross', '圆点 dot', '水平 horizontal', '垂直 vertical']) {
@@ -155,16 +156,25 @@ test('纹理示例同时渲染五种纹理并支持重置和定位', async ({ pa
   const narrowLayout = await demo.evaluate((root) => {
     const panel = root.querySelector<HTMLElement>('.pattern-fill-demo__control-panel');
     const stage = root.querySelector<HTMLElement>('.pattern-fill-demo__stage');
-    if (panel === null || stage === null) throw new Error('缺少窄屏纹理示例布局节点');
+    const buttons = root.querySelector<HTMLElement>('.pattern-fill-demo__action-buttons');
+    const status = root.querySelector<HTMLElement>('.pattern-fill-demo__status');
+    if (panel === null || stage === null || buttons === null || status === null) throw new Error('缺少窄屏纹理示例布局节点');
+    const buttonBounds = buttons.getBoundingClientRect();
+    const statusBounds = status.getBoundingClientRect();
+    const statusStyle = window.getComputedStyle(status);
     return {
       rootOverflow: root.scrollWidth - root.clientWidth,
       panelOverflow: panel.scrollWidth - panel.clientWidth,
-      stageHeight: stage.getBoundingClientRect().height
+      stageHeight: stage.getBoundingClientRect().height,
+      statusGap: statusBounds.top - buttonBounds.bottom,
+      statusBorderTop: Number.parseFloat(statusStyle.borderTopWidth)
     };
   });
   expect(narrowLayout.rootOverflow).toBeLessThanOrEqual(1);
   expect(narrowLayout.panelOverflow).toBeLessThanOrEqual(1);
   expect(narrowLayout.stageHeight).toBe(420);
+  expect(narrowLayout.statusGap).toBeGreaterThanOrEqual(10);
+  expect(narrowLayout.statusBorderTop).toBeGreaterThanOrEqual(1);
 });
 
 test('右键菜单按 map、module、Element 优先级真实显示并执行动作', async ({ page }) => {
@@ -268,14 +278,24 @@ test('动画目录、隔离目标和 Handle 控制均可运行', async ({ page }
 
   await example.locator('.animation-manager-demo__target-button').filter({ hasText: 'radar-scan' }).click();
   await expect(example.getByLabel('当前兼容目标')).toHaveValue('Sector（独立目标）');
-  await expect(example.getByText('Sector 扫描方向', { exact: true })).toBeVisible();
+  await expect(example.getByText('Sector 扫描方式', { exact: true })).toBeVisible();
+  await expect(example.getByText('Sector 首程方向', { exact: true })).toBeVisible();
+  await expect(example.getByText('往复', { exact: true })).toBeVisible();
   await example.getByRole('button', { name: '启动所选' }).click();
   await expect(example.getByText('运行中', { exact: true })).toBeVisible();
+  await example.getByRole('radio', { name: '纯色' }).check({ force: true });
+  await expect(example.getByText('radar-scan 参数已应用并重新启动。', { exact: true })).toBeVisible();
   await example.getByRole('button', { name: '暂停' }).click();
   await expect(example.getByText('已暂停', { exact: true })).toBeVisible();
   await example.getByRole('button', { name: '恢复' }).click();
   await example.getByRole('button', { name: '停止当前' }).click();
   await expect(example.getByText('已停止', { exact: true })).toBeVisible();
+
+  await example.locator('.animation-manager-demo__target-button').filter({ hasText: 'center-spread' }).click();
+  await example.getByRole('button', { name: '启动所选' }).click();
+  await example.getByRole('radio', { name: '纯色' }).check({ force: true });
+  await expect(example.getByText('center-spread 参数已应用并重新启动。', { exact: true })).toBeVisible();
+  await example.getByRole('button', { name: '停止当前' }).click();
 
   await example.getByRole('button', { name: '组合 highlight + alert' }).click();
   await expect(example.getByText(/组合成功/u)).toBeVisible();

@@ -1,4 +1,15 @@
-import { Earth, stylePresets, type Coordinate, type Element, type ElementPatch, type ElementSelector, type ShapeInput } from '@vrsim/earth-engine-ol';
+import {
+  Earth,
+  stylePresets,
+  type Coordinate,
+  type Element,
+  type ElementGeometryDetails,
+  type ElementPatch,
+  type ElementRenderGeometry,
+  type ElementSelector,
+  type MapExtent,
+  type ShapeInput
+} from '@vrsim/earth-engine-ol';
 import type { ScenarioDefinition } from '../harness/types.js';
 
 interface DemoData {
@@ -10,7 +21,7 @@ export const elementsScenario: ScenarioDefinition = {
   id: 'elements',
   group: '图层与元素',
   title: 'Element 元素、Selector 与屏幕命中',
-  summary: '验证扁平坐标写入与规范坐标读取、ElementCreateInput、全部 Selector 字段、ElementPatch、复制覆盖、显隐、移除、原生 Feature、像素命中和屏幕范围。',
+  summary: '验证扁平坐标写入与规范坐标读取、完整渲染几何、地图范围、全部 Selector 字段、更新复制、显隐、移除、原生 Feature、像素命中和屏幕范围。',
   steps: [
     '确认扁平坐标可以创建主元素和折线，读取时会返回规范的嵌套坐标。',
     '执行“检查全部 Selector”，确认 id、ids、module、layerId、type、visible、predicate 均能筛选。',
@@ -69,6 +80,10 @@ export const elementsScenario: ScenarioDefinition = {
       'controlPoints' in line.state.geometry && Array.isArray(line.state.geometry.controlPoints[0]) && line.state.geometry.controlPoints.length === 3
     );
     context.check('Element.id 与 Element.state.id 一致', primary.id === primary.state.id);
+    const geometryDetails: ElementGeometryDetails = polygon.geometryDetails;
+    const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
+    const mapExtent: MapExtent = geometryDetails.extent;
+    context.check('Element.geometryDetails 返回完整 Polygon 与地图范围', renderGeometry.type === 'polygon' && mapExtent.every(Number.isFinite));
     context.check('Element.olFeature 可用于 OpenLayers 互操作', primary.olFeature.getGeometry() !== undefined);
     renderElementStatus(context, earth.elements.query<DemoData>());
 
@@ -241,6 +256,7 @@ earth.elements.show({ id: element.id });
 const copy = earth.elements.copy(element.id, { module: 'vehicle-copies' });
 const extent = earth.elements.getScreenExtent(copy);
 console.log(element.state.geometry); // 读取结果仍是嵌套坐标
+console.log(element.geometryDetails); // 完整静态渲染几何与地图坐标范围
 `);
   }
 };

@@ -163,15 +163,23 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <div class="example-demo__toolbar element-overview-demo__toolbar">
-      <el-button v-if="stationState === null" type="primary" @click="createStation">创建 Element</el-button>
-      <template v-else>
-        <el-button type="primary" :disabled="positionIndex === 1" @click="moveStation(1)">移动到东侧</el-button>
-        <el-button :disabled="positionIndex === 0" @click="moveStation(0)">移回中心</el-button>
-        <el-button @click="toggleStation">{{ stationState.visible ? '隐藏' : '显示' }}</el-button>
-        <el-button type="danger" plain @click="removeStation">删除</el-button>
-      </template>
-      <el-tag :type="statusType" effect="plain">quick-start-station · {{ statusLabel }}</el-tag>
+    <div class="example-demo__control-panel element-overview-demo__toolbar">
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons">
+            <el-button v-if="stationState === null" type="primary" @click="createStation">创建 Element</el-button>
+            <template v-else>
+              <el-button type="primary" :disabled="positionIndex === 1" @click="moveStation(1)">移动到东侧</el-button>
+              <el-button :disabled="positionIndex === 0" @click="moveStation(0)">移回中心</el-button>
+              <el-button @click="toggleStation">{{ stationState.visible ? '隐藏' : '显示' }}</el-button>
+              <el-button type="danger" plain @click="removeStation">删除</el-button>
+            </template>
+          </div>
+        </div>
+        <div class="example-demo__feedback" aria-live="polite">
+          <el-tag :type="statusType" effect="plain">quick-start-station · {{ statusLabel }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div class="element-overview-demo__stage">

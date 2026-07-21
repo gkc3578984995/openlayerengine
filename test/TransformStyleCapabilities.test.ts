@@ -101,6 +101,58 @@ describe('Transform style capabilities', () => {
     expect(harness.store.get('icon-symbol')?.style).toEqual(expected);
   });
 
+  it('点图标旋转时将顺时针手势的负弧度增量转换为正角度，并在预览、历史与提交中保持一致', () => {
+    const harness = createTransformHarness();
+    const symbol: IconSymbolSpec = {
+      type: 'icon',
+      src: '/marker.png',
+      size: [32, 24],
+      offset: [4, 6],
+      displacement: [7, 9],
+      scale: [2, 1],
+      rotation: 15,
+      rotateWithView: true,
+      anchor: [0.25, 0.75],
+      anchorOrigin: 'bottom-left',
+      anchorXUnits: 'fraction',
+      anchorYUnits: 'pixels',
+      origin: 'top-right',
+      opacity: 0.8,
+      crossOrigin: 'anonymous'
+    };
+    const style: StyleSpec = {
+      ...screenStableStyle(),
+      symbol
+    };
+    addElement(harness, 'rotated-icon-symbol', 'point', [[1, 1]], style);
+    const session = harness.service.select('rotated-icon-symbol');
+    const center: [number, number] = [1, 1];
+    const rotated = { type: 'rotate' as const, angle: -Math.PI / 2, center };
+
+    harness.interaction.emit({ type: 'operation-start', operation: 'rotate', delta: { type: 'rotate', angle: 0, center } });
+    harness.interaction.emit({ type: 'operation-change', operation: 'rotate', delta: rotated });
+
+    const expected: StyleSpec = {
+      ...style,
+      symbol: { ...symbol, rotation: 105 }
+    };
+    expect(harness.interaction.handle?.target?.geometry).toEqual({ type: 'point', coordinates: [1, 1] });
+    expect(harness.interaction.handle?.target?.style).toEqual(expected);
+    expect(harness.store.get('rotated-icon-symbol')?.style).toEqual(style);
+
+    harness.interaction.emit({ type: 'operation-end', operation: 'rotate', delta: rotated });
+
+    expect(harness.interaction.handle?.target?.style).toEqual(expected);
+    expect(session.undo()).toBe(true);
+    expect(harness.interaction.handle?.target?.style).toEqual(style);
+    expect(session.redo()).toBe(true);
+    expect(harness.interaction.handle?.target?.style).toEqual(expected);
+
+    session.finish();
+    expect(harness.store.get('rotated-icon-symbol')?.geometry).toEqual({ type: 'point', controlPoints: [[1, 1]] });
+    expect(harness.store.get('rotated-icon-symbol')?.style).toEqual(expected);
+  });
+
   it('允许原生 OL 样式的非点 geometry 缩放，而不尝试结构化转换样式', () => {
     const harness = createTransformHarness();
     const nativeStyle = createNativeStyleRef();

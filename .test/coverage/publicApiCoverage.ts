@@ -68,11 +68,14 @@ const typeGroups = {
   elements: [
     'ElementCopyOptions',
     'ElementCreateInput',
+    'ElementGeometryDetails',
     'ElementHit',
     'ElementPatch',
+    'ElementRenderGeometry',
     'ElementSelector',
     'ElementService',
     'ElementState',
+    'MapExtent',
     'ScreenExtent',
     'ShapeInput'
   ],
@@ -84,6 +87,7 @@ const typeGroups = {
     'ElementStyleState',
     'IconSymbolSpec',
     'InlineLineTextStyleOptions',
+    'InlinePathTextPlacementSpec',
     'InlinePathTextSpec',
     'InlineTextLineDecorationType',
     'LineCapsOptions',
@@ -302,7 +306,9 @@ const memberCoverage: CoverageItem[] = [
   ...members('layers', 'LayerPatch', ['visible', 'opacity', 'zIndex']),
 
   ...members('elements', 'ElementService', ['add', 'get', 'query', 'update', 'remove', 'hide', 'show', 'copy', 'clear', 'atPixel', 'getScreenExtent']),
-  ...members('elements', 'Element', ['id', 'state', 'olFeature', 'update', 'remove']),
+  ...members('elements', 'Element', ['id', 'state', 'geometryDetails', 'olFeature', 'update', 'remove']),
+  ...members('elements', 'ElementGeometryDetails', ['renderGeometry', 'extent']),
+  ...members('elements', 'ElementRenderGeometry', ['type', 'coordinates', 'center', 'radius']),
   ...members('elements', 'ElementCreateInput', ['geometry', 'id', 'style', 'data', 'module', 'layerId', 'visible']),
   ...members('elements', 'ElementSelector', ['id', 'ids', 'module', 'layerId', 'type', 'visible', 'predicate']),
   ...members('elements', 'ElementPatch', ['geometry', 'style', 'data', 'module', 'layerId', 'visible']),
@@ -440,6 +446,7 @@ const memberCoverage: CoverageItem[] = [
   ]),
   ...members('styles-shapes', 'InlinePathTextSpec', [
     'text',
+    'placement',
     'fontFamily',
     'fontSize',
     'fontWeight',
@@ -450,6 +457,7 @@ const memberCoverage: CoverageItem[] = [
     'backgroundPadding',
     'gapPadding'
   ]),
+  ...members('styles-shapes', 'InlinePathTextPlacementSpec', ['kind=center', 'kind=repeat', 'spacing', 'phase']),
   ...members('styles-shapes', 'PathContourPolicySpec', ['kind=open', 'kind=closed', 'rings', 'seam']),
   ...members('styles-shapes', 'PathTrackSpec', ['offset', 'stroke']),
   ...members('styles-shapes', 'PathTrackStrokeSpec', ['color', 'width', 'lineDash', 'lineDashOffset', 'lineCap', 'lineJoin', 'miterLimit']),
@@ -478,8 +486,8 @@ const memberCoverage: CoverageItem[] = [
     'background.color',
     'background.paddingPx'
   ]),
-  ...members('styles-shapes', 'PolylineLineStyleOptions', ['color', 'lines', 'caps', 'decoration', 'text', 'textStyle']),
-  ...members('styles-shapes', 'PolygonLineStyleOptions', ['color', 'lines', 'caps', 'decoration', 'text', 'textStyle']),
+  ...members('styles-shapes', 'PolylineLineStyleOptions', ['color', 'lines', 'caps', 'decoration', 'text', 'textStyle', 'repeatSpacingPx']),
+  ...members('styles-shapes', 'PolygonLineStyleOptions', ['color', 'lines', 'caps', 'decoration', 'text', 'textStyle', 'repeatSpacingPx']),
   ...members('styles-shapes', 'LineStyleFactories', ['polyline', 'polygon'], '可视'),
   ...members('styles-shapes', 'lineStyles', ['polyline', 'polygon'], '可视'),
   ...members('styles-shapes', 'StylePatch', ['symbol', 'strokes', 'fill', 'text', 'decorations', 'linework', 'zIndex']),
@@ -598,7 +606,18 @@ const memberCoverage: CoverageItem[] = [
   ...members('animations', 'HighlightAnimationSpec', ['type', 'channel', 'mode', 'color', 'fillOpacity', 'strokeWidth', 'periodMs']),
   ...members('animations', 'AlertAnimationSpec', ['type', 'channel', 'periodMs', 'color', 'fillOpacity', 'strokeWidth', 'repeat']),
   ...members('animations', 'GrowAnimationSpec', ['type', 'channel', 'durationMs', 'direction', 'easing', 'repeat']),
-  ...members('animations', 'RadarScanAnimationSpec', ['type', 'channel', 'periodMs', 'direction', 'color', 'gradient', 'opacity', 'beamWidthDeg', 'repeat']),
+  ...members('animations', 'RadarScanAnimationSpec', [
+    'type',
+    'channel',
+    'periodMs',
+    'direction',
+    'scanMode',
+    'color',
+    'gradient',
+    'opacity',
+    'beamWidthDeg',
+    'repeat'
+  ]),
   ...members('animations', 'CenterSpreadAnimationSpec', [
     'type',
     'channel',

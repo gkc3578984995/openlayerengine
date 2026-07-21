@@ -6,6 +6,7 @@ import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
+import { renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { RenderGeometryState, ShapeInput, ShapeState } from '../../core/shape/types.js';
 
 /** OpenLayers 接收的渲染几何类型。 */
@@ -23,20 +24,21 @@ export class GeometryCodec {
 
   /** 把规范状态投影到 Feature；几何类型未变时复用原对象。 */
   project(feature: Feature<Geometry>, state: ShapeState): Geometry {
-    const rendered = this.#render(state);
+    const rendered = this.render(state);
     return projectRenderGeometry(feature, rendered);
+  }
+
+  /** 把规范 Shape 状态解析为当前 View 投影中的完整静态渲染几何。 */
+  render(state: ShapeState): RenderGeometryState {
+    const definition = this.#shapes.get(state.type);
+    return renderTrustedShapeState(definition, this.#projection.toViewState(state) as never);
   }
 
   /** 规范化输入后返回其实际渲染类型。 */
   renderKind(input: ShapeInput): RenderGeometryKind {
     const definition = this.#shapes.get(input.type);
     const state = definition.normalize(input);
-    return definition.toRenderGeometry(this.#projection.toViewState(state) as never).type;
-  }
-
-  #render(state: ShapeState): RenderGeometryState {
-    const definition = this.#shapes.get(state.type);
-    return definition.toRenderGeometry(this.#projection.toViewState(state) as never);
+    return renderTrustedShapeState(definition, this.#projection.toViewState(state) as never).type;
   }
 }
 

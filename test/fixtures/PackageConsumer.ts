@@ -16,8 +16,11 @@ import type {
   Coordinate,
   DrawService,
   EarthOptions,
+  ElementGeometryDetails,
+  ElementRenderGeometry,
   ElementService,
   LayerService,
+  MapExtent,
   MeasureService,
   OverlayService,
   ShapeInput,
@@ -47,6 +50,9 @@ const transform: TransformService = earth.transform;
 const overlays: OverlayService = earth.overlays;
 const view: ViewService = earth.view;
 declare const element: Element;
+const geometryDetails: ElementGeometryDetails = element.geometryDetails;
+const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
+const mapExtent: MapExtent = geometryDetails.extent;
 declare const layer: Layer;
 
 void [
@@ -66,6 +72,9 @@ void [
   overlays,
   view,
   element,
+  geometryDetails,
+  renderGeometry,
+  mapExtent,
   layer,
   animationTypes,
   measureTypes,

@@ -1358,24 +1358,160 @@ html.dark .code-block-highlight .shiki span {
 /* ===== 示例运行区 ===== */
 .example-demo {
   display: flex;
+  min-width: 0;
   flex-direction: column;
+}
+
+.example-demo__control-panel,
+.example-demo__toolbar {
+  min-width: 0;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--doc-border);
+  border-radius: 10px;
+  background: var(--doc-surface);
+}
+
+.example-demo__control-panel {
+  display: grid;
 }
 
 .example-demo__toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.example-demo__control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  align-items: end;
   gap: 12px;
-  margin-bottom: 14px;
+}
+
+.example-demo__field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  justify-items: start;
+  gap: 7px;
+}
+
+.example-demo__field > :is(span, strong, label),
+.example-demo__action-group > :is(span, strong) {
+  color: var(--doc-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.example-demo__actions,
+.example-demo__action-row,
+.example-demo__action-buttons,
+.example-demo__feedback {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.example-demo__action-row {
+  align-items: flex-end;
+  gap: 10px 14px;
+}
+
+.example-demo__action-group {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--doc-border);
+  border-radius: 8px;
+  background: var(--doc-surface-soft);
+}
+
+.example-demo__feedback {
+  padding-top: 12px;
+  border-top: 1px solid var(--doc-border);
+}
+
+.example-demo__action-row > .example-demo__feedback {
+  flex: 1 1 240px;
+  align-self: center;
+  justify-content: flex-end;
+  padding-top: 0;
+  padding-left: 14px;
+  border-top: 0;
+  border-left: 1px solid var(--doc-border);
+}
+
+.example-demo__feedback > .el-tag {
+  max-width: 100%;
+  height: auto;
+  min-height: 24px;
+  padding-block: 2px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.example-demo__toolbar > .el-button + .el-button,
+.example-demo__actions > .el-button + .el-button,
+.example-demo__action-buttons > .el-button + .el-button {
+  margin-left: 0;
+}
+
+.example-demo__toolbar > :is(.el-button, .el-tag, .el-select, .el-input, .el-input-number, .el-radio-group, .el-segmented, .el-switch) {
+  max-width: 100%;
+}
+
+.example-demo__toolbar > .el-tag {
+  height: auto;
+  min-height: 24px;
+  padding-block: 2px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.example-demo__toolbar > span:not([class]),
+.example-demo__feedback,
+.example-demo__hint {
+  min-width: 0;
+  color: var(--doc-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.example-demo__toolbar > span:not([class]),
+.example-demo__toolbar > .example-demo__feedback,
+.example-demo__toolbar > .example-demo__hint {
+  flex: 1 1 240px;
 }
 
 .example-demo__alert {
   margin-bottom: 14px;
 }
 
+.example-demo > .el-alert:first-child {
+  margin-bottom: 14px;
+}
+
 .example-demo__hint {
-  color: var(--doc-muted);
-  font-size: 13px;
+  margin: 0 0 14px;
+  align-self: stretch;
+}
+
+.example-demo__toolbar > .example-demo__hint {
+  margin: 0;
   align-self: center;
+}
+
+.example-demo .el-form--inline .el-form-item,
+.example-demo .el-form-item__content {
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ===== EP 风格示例块：标题在上 → 预览卡片 → 代码切换在下 ===== */
@@ -2275,6 +2411,46 @@ html.dark .code-block-highlight .shiki span {
 
   .example-block__code-header {
     padding-inline: 14px;
+  }
+
+  .example-demo__control-panel,
+  .example-demo__toolbar {
+    padding: 12px;
+  }
+
+  .example-demo__toolbar {
+    column-gap: 8px;
+    row-gap: 8px;
+  }
+
+  .example-demo__action-row > .example-demo__feedback {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    padding-top: 10px;
+    padding-left: 0;
+    border-top: 1px solid var(--doc-border);
+    border-left: 0;
+  }
+
+  .example-demo__toolbar > :is(.el-select, .el-input, .el-input-number) {
+    flex: 1 1 180px;
+  }
+
+  .example-demo__toolbar > .el-button {
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
+  }
+
+  .example-demo__toolbar > span:not([class]),
+  .example-demo__toolbar > .example-demo__feedback,
+  .example-demo__toolbar > .example-demo__hint {
+    flex-basis: 100%;
+  }
+
+  .example-demo .el-form--inline .el-form-item {
+    width: 100%;
+    margin-right: 0;
   }
 
   .type-catalog__filters {

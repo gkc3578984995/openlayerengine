@@ -103,10 +103,16 @@ onBeforeUnmount(() => {
   <div class="example-demo">
     <el-card shadow="never" class="utils-demo__card">
       <template #header><strong>坐标、角度、曲线与 ID</strong></template>
-      <div class="utils-demo__controls">
-        <span>插值比例</span>
-        <el-slider v-model="ratio" :min="0" :max="1" :step="0.05" show-input />
-        <el-button type="primary" @click="runUtilities">运行全部纯函数</el-button>
+      <div class="example-demo__control-panel utils-demo__controls">
+        <div class="example-demo__field utils-demo__ratio-field">
+          <span>插值比例</span>
+          <el-slider v-model="ratio" :min="0" :max="1" :step="0.05" show-input aria-label="插值比例" />
+        </div>
+        <div class="example-demo__action-group">
+          <div class="example-demo__action-buttons utils-demo__pure-actions">
+            <el-button type="primary" @click="runUtilities">运行全部纯函数</el-button>
+          </div>
+        </div>
       </div>
       <el-table :data="results" size="small" border empty-text="点击“运行全部纯函数”查看结果">
         <el-table-column prop="name" label="函数" min-width="190" />
@@ -116,26 +122,30 @@ onBeforeUnmount(() => {
 
     <el-card shadow="never" class="utils-demo__card">
       <template #header><strong>throttle 的 leading、trailing、flush 与 cancel</strong></template>
-      <el-form inline label-position="top">
-        <el-form-item label="wait（毫秒）">
-          <el-input-number v-model="wait" :min="0" :max="3000" :step="100" @change="rebuildThrottle" />
-        </el-form-item>
-        <el-form-item label="首调用">
-          <el-switch v-model="leading" active-text="leading" @change="rebuildThrottle" />
-        </el-form-item>
-        <el-form-item label="尾调用">
-          <el-switch v-model="trailing" active-text="trailing" @change="rebuildThrottle" />
-        </el-form-item>
-      </el-form>
-      <div class="example-demo__toolbar">
-        <el-button type="primary" @click="triggerBurst">连续调用 5 次</el-button>
-        <el-button @click="flushThrottle">flush</el-button>
-        <el-button type="danger" plain @click="cancelThrottle">cancel</el-button>
+      <div class="example-demo__control-panel utils-demo__throttle-controls">
+        <el-form class="example-demo__control-grid utils-demo__form" inline label-position="top">
+          <el-form-item label="wait（毫秒）">
+            <el-input-number v-model="wait" :min="0" :max="3000" :step="100" @change="rebuildThrottle" />
+          </el-form-item>
+          <el-form-item label="首调用">
+            <el-switch v-model="leading" active-text="leading" @change="rebuildThrottle" />
+          </el-form-item>
+          <el-form-item label="尾调用">
+            <el-switch v-model="trailing" active-text="trailing" @change="rebuildThrottle" />
+          </el-form-item>
+        </el-form>
+        <div class="example-demo__action-group utils-demo__toolbar" role="group" aria-label="throttle 调用控制">
+          <div class="example-demo__action-buttons utils-demo__action-buttons">
+            <el-button type="primary" @click="triggerBurst">连续调用 5 次</el-button>
+            <el-button @click="flushThrottle">flush</el-button>
+            <el-button type="danger" plain @click="cancelThrottle">cancel</el-button>
+          </div>
+        </div>
       </div>
-      <el-descriptions :column="2" border>
+      <el-descriptions :column="1" border aria-live="polite">
         <el-descriptions-item label="实际执行次数">{{ executionCount }}</el-descriptions-item>
         <el-descriptions-item label="最近参数">{{ lastThrottleValue ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="状态" :span="2">{{ throttleStatus }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ throttleStatus }}</el-descriptions-item>
       </el-descriptions>
     </el-card>
   </div>
@@ -152,16 +162,56 @@ onBeforeUnmount(() => {
 }
 
 .utils-demo__controls {
-  display: grid;
-  grid-template-columns: auto minmax(220px, 1fr) auto;
-  align-items: center;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
   gap: 14px;
   margin-bottom: 14px;
+}
+
+.utils-demo__controls > *,
+.utils-demo__form :deep(.el-form-item),
+.utils-demo__form :deep(.el-input-number) {
+  max-width: 100%;
+}
+
+.utils-demo__ratio-field {
+  width: 100%;
+}
+
+.utils-demo__form :deep(.el-form-item) {
+  margin-bottom: 0;
 }
 
 @media (max-width: 640px) {
   .utils-demo__controls {
     grid-template-columns: 1fr;
+  }
+
+  .utils-demo__controls :deep(.el-slider),
+  .utils-demo__controls :deep(.el-button),
+  .utils-demo__form :deep(.el-form-item) {
+    width: 100%;
+  }
+
+  .utils-demo__form :deep(.el-form-item) {
+    margin-right: 0;
+  }
+
+  .utils-demo__form :deep(.el-input-number) {
+    width: min(100%, 220px);
+  }
+
+  .utils-demo__action-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .utils-demo__toolbar :deep(.el-button) {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
   }
 }
 </style>

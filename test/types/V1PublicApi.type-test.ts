@@ -2,8 +2,20 @@ import type Feature from 'ol/Feature.js';
 import type Geometry from 'ol/geom/Geometry.js';
 import type BaseLayer from 'ol/layer/Base.js';
 import type Map from 'ol/Map.js';
+import type { RenderGeometryState } from '../../src/core/shape/types.js';
 import { useEarth } from '../../src/index.js';
-import type { Earth, Element, ElementService, Layer, LayerService, TransformSession, ViewService } from '../../src/index.js';
+import type {
+  Earth,
+  Element,
+  ElementGeometryDetails,
+  ElementRenderGeometry,
+  ElementService,
+  Layer,
+  LayerService,
+  MapExtent,
+  TransformSession,
+  ViewService
+} from '../../src/index.js';
 
 type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2 ? true : false;
 type Assert<Condition extends true> = Condition;
@@ -14,6 +26,10 @@ type EarthElementServiceContract = Assert<Equal<Earth['elements'], ElementServic
 type EarthLayerServiceContract = Assert<Equal<Earth['layers'], LayerService>>;
 type UseEarthContract = Assert<Equal<ReturnType<typeof useEarth>, Earth>>;
 type ElementFeatureContract = Assert<Equal<Element['olFeature'], Feature<Geometry>>>;
+type ElementGeometryDetailsContract = Assert<Equal<Element['geometryDetails'], Readonly<ElementGeometryDetails>>>;
+type ElementGeometryContract = Assert<Equal<ElementGeometryDetails['renderGeometry'], ElementRenderGeometry>>;
+type ElementGeometryParityContract = Assert<Equal<ElementRenderGeometry, RenderGeometryState>>;
+type ElementExtentContract = Assert<Equal<ElementGeometryDetails['extent'], MapExtent>>;
 type LayerNativeContract = Assert<Equal<Layer['olLayer'], BaseLayer>>;
 type TransformModeContract = Assert<Equal<TransformSession['mode'], 'transform' | 'edit'>>;
 type TransformSetModeContract = Assert<Equal<Parameters<TransformSession['setMode']>[0], 'transform' | 'edit'>>;
@@ -36,6 +52,10 @@ export type V2PublicApiTypeContracts =
   | EarthLayerServiceContract
   | UseEarthContract
   | ElementFeatureContract
+  | ElementGeometryDetailsContract
+  | ElementGeometryContract
+  | ElementGeometryParityContract
+  | ElementExtentContract
   | LayerNativeContract
   | TransformModeContract
   | TransformSetModeContract;

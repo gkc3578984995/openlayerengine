@@ -1,13 +1,17 @@
-import { Earth, type AnimationHandle } from '../../src/index.ts';
+import { Earth, type AnimationHandle, type CenterSpreadAnimationSpec, type RadarScanAnimationSpec } from '../../src/index.ts';
 import '../../src/assets/style/public.scss';
 
 type VisualEffect = 'radar-scan' | 'center-spread' | 'path-travel';
 type RadarDirection = 'clockwise' | 'counterclockwise';
+type RadarScanMode = 'one-way' | 'round-trip';
+type RadialTrailStyle = 'solid' | 'gradient';
 type VisualTheme = 'light' | 'dark';
 
 interface VisualPreparation {
   readonly effect: VisualEffect;
   readonly direction?: RadarDirection;
+  readonly scanMode?: RadarScanMode;
+  readonly trailStyle?: RadialTrailStyle;
   readonly elapsedMs: number;
   readonly rotation: number;
   readonly theme: VisualTheme;
@@ -109,35 +113,46 @@ window.__OL_ENGINE_ANIMATION_VISUAL__ = Object.freeze({
     earth.elements.update({ id: pathId }, { visible: !radialVisible });
 
     if (input.effect === 'radar-scan') {
-      const spec = {
+      const spec: RadarScanAnimationSpec = {
         type: 'radar-scan' as const,
         periodMs: 120_000,
         direction: input.direction ?? 'clockwise',
-        gradient: [
-          [0, 'transparent'],
-          [0.58, 'hsl(151 100% 45% / 0.46)'],
-          [1, 'rgb(0 255 136 / 1)']
-        ] as const,
+        scanMode: input.scanMode ?? 'one-way',
+        ...(input.trailStyle === 'solid'
+          ? { color: '#00e676' }
+          : {
+              gradient: [
+                [0, 'transparent'],
+                [0.58, 'hsl(151 100% 45% / 0.46)'],
+                [1, 'rgb(0 255 136 / 1)']
+              ] as const
+            }),
         opacity: 0.9,
         beamWidthDeg: 74,
         repeat: true
       };
+      target.dataset.trailStyle = 'color' in spec ? 'solid' : 'gradient';
       handles = [earth.animations.play({ id: circleId }, spec), earth.animations.play({ id: sectorId }, spec)];
     } else if (input.effect === 'center-spread') {
-      const spec = {
+      const spec: CenterSpreadAnimationSpec = {
         type: 'center-spread' as const,
         periodMs: 4_000,
-        gradient: [
-          [0, 'transparent'],
-          [0.55, 'hsl(151 100% 45% / 0.48)'],
-          [1, 'rgb(0 255 136 / 1)']
-        ] as const,
+        ...(input.trailStyle === 'solid'
+          ? { color: '#00e676' }
+          : {
+              gradient: [
+                [0, 'transparent'],
+                [0.55, 'hsl(151 100% 45% / 0.48)'],
+                [1, 'rgb(0 255 136 / 1)']
+              ] as const
+            }),
         opacity: 0.9,
         trailLength: 0.32,
         strokeWidth: 2,
         ringCount: 3,
         repeat: true
       };
+      target.dataset.trailStyle = 'color' in spec ? 'solid' : 'gradient';
       handles = [earth.animations.play({ id: circleId }, spec), earth.animations.play({ id: sectorId }, spec)];
     } else {
       handles = [
@@ -206,6 +221,7 @@ function prepareFromLocation(): void {
   const effect = parameters.get('effect');
   if (effect !== 'radar-scan' && effect !== 'center-spread' && effect !== 'path-travel') return;
   const direction = parameters.get('direction');
+  const scanMode = parameters.get('scanMode');
   const theme = parameters.get('theme');
   const elapsedMs = Number(parameters.get('elapsedMs') ?? 2_400);
   const rotation = Number(parameters.get('rotation') ?? 0);
@@ -213,6 +229,7 @@ function prepareFromLocation(): void {
   window.__OL_ENGINE_ANIMATION_VISUAL__.prepare({
     effect,
     ...(effect === 'radar-scan' && (direction === 'clockwise' || direction === 'counterclockwise') ? { direction } : {}),
+    ...(effect === 'radar-scan' && (scanMode === 'one-way' || scanMode === 'round-trip') ? { scanMode } : {}),
     elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : 2_400,
     rotation: Number.isFinite(rotation) ? rotation : 0,
     theme: theme === 'dark' ? 'dark' : 'light',

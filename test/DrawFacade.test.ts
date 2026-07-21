@@ -122,8 +122,9 @@ function setup() {
   const manager = new LayerManager(store, adapter);
   const layers = new LayerServiceImpl(manager, adapter, refs);
   layers.add({ kind: 'vector', id: 'draw-layer' });
-  const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs));
-  const elements = new ElementServiceImpl(store, manager, binding, layers, refs, new FakeHitTest());
+  const geometry = new GeometryCodec(shapes, identityShapeProjection);
+  const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs));
+  const elements = new ElementServiceImpl(store, manager, binding, geometry, layers, refs, new FakeHitTest());
   const drawPort = new FakeDrawPort();
   const editPort = new FakeEditPort();
   let nextId = 0;

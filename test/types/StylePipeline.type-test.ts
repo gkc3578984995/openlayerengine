@@ -131,8 +131,10 @@ const lineworkStyle = lineStyles.polyline({
 const polygonLineworkStyle = lineStyles.polygon({
   decoration: 'inline-text',
   text: '边界',
-  textStyle: { fontSize: 14, color: '#111827' }
+  textStyle: { fontSize: 14, color: '#111827' },
+  repeatSpacingPx: 80
 });
+const repeatedCenterGlyphStyle = lineStyles.polyline({ decoration: 'center-dot-pair', repeatSpacingPx: 40 });
 const replaceLinework: StylePatch = { linework: polygonLineworkStyle.linework };
 
 declare const nativeStyle: StyleLike;
@@ -174,6 +176,12 @@ const invalidTrackedSlash = lineStyles.polyline({ lines: 'solid', decoration: 's
 const invalidOrdinaryText = lineStyles.polyline({ decoration: 'circle', text: '非法' });
 // @ts-expect-error inline-text requires text
 const invalidMissingInlineText = lineStyles.polyline({ decoration: 'inline-text' });
+// @ts-expect-error ordinary repeated decorations use their built-in spacing
+const invalidOrdinaryRepeatSpacing = lineStyles.polyline({ decoration: 'tick', repeatSpacingPx: 24 });
+// @ts-expect-error repeat spacing only applies to center glyphs or inline text
+const invalidDefaultRepeatSpacing = lineStyles.polyline({ repeatSpacingPx: 24 });
+// @ts-expect-error decoration-only slash cannot use center/text repeat spacing
+const invalidSlashRepeatSpacing = lineStyles.polygon({ lines: 'none', decoration: 'slash', repeatSpacingPx: 24 });
 
 void [
   missingIconSource,
@@ -186,11 +194,15 @@ void [
   invalidNativeSymbolInput,
   lineworkStyle,
   polygonLineworkStyle,
+  repeatedCenterGlyphStyle,
   replaceLinework,
   invalidDoubleTrackCaps,
   invalidPolygonCaps,
   invalidDecorationOnly,
   invalidTrackedSlash,
   invalidOrdinaryText,
-  invalidMissingInlineText
+  invalidMissingInlineText,
+  invalidOrdinaryRepeatSpacing,
+  invalidDefaultRepeatSpacing,
+  invalidSlashRepeatSpacing
 ];

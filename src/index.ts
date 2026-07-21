@@ -49,11 +49,13 @@ export type { Color, Coordinate, Pixel } from './core/common/types.js';
 export type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from './core/element/types.js';
 export type { LayerKind, LayerOwnership, LayerPatch } from './core/layer/types.js';
 export type { ShapeInput, ShapeState, ShapeType } from './core/shape/types.js';
+export type { ElementGeometryDetails, ElementRenderGeometry, MapExtent } from './facade/elementGeometryTypes.js';
 export type {
   ArrowDecorationSpec,
   CircleSymbolSpec,
   ElementStyleState,
   IconSymbolSpec,
+  InlinePathTextPlacementSpec,
   InlinePathTextSpec,
   LineworkSpec,
   NativeStyleRef,

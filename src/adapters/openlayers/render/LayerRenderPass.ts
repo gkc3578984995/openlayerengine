@@ -790,26 +790,24 @@ function assertPathReveal(pathReveal: LayerRenderPrimitive['pathReveal']): void 
   }
 }
 
-/** 在已有 Canvas alpha 上相乘，并保证绘制异常后恢复上下文。 */
+/** 在已有 Canvas alpha 上相乘；只恢复该标量，避免整段 Canvas 状态与立即渲染器缓存失配。 */
 function withGlobalAlpha(context: RenderEvent['context'], opacity: number, draw: () => void): void {
   if (!isCanvasContext(context)) {
     draw();
     return;
   }
-  context.save();
+  const previousGlobalAlpha = context.globalAlpha;
   try {
-    context.globalAlpha *= opacity;
+    context.globalAlpha = previousGlobalAlpha * opacity;
     draw();
   } finally {
-    context.restore();
+    context.globalAlpha = previousGlobalAlpha;
   }
 }
 
 /** 只接受 Canvas 2D 公共上下文能力，WebGL 事件不进入该路径。 */
 function isCanvasContext(context: RenderEvent['context']): context is CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
-  if (context === undefined || context === null || !('globalAlpha' in context)) return false;
-  const candidate = context as { save?: unknown; restore?: unknown };
-  return typeof candidate.save === 'function' && typeof candidate.restore === 'function';
+  return context !== undefined && context !== null && 'globalAlpha' in context && typeof context.globalAlpha === 'number';
 }
 
 /** presentation 先于同目标 overlay；目标之间按 zIndex 和规范顺序稳定排列。 */

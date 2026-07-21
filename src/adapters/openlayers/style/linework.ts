@@ -11,7 +11,15 @@ import Style from 'ol/style/Style.js';
 import Text from 'ol/style/Text.js';
 import type { Color } from '../../../core/common/types.js';
 import type { LayerRenderPathReveal } from '../../../core/ports/LayerRenderPort.js';
-import type { InlinePathTextSpec, LineworkSpec, PathGlyphPrimitiveSpec, PathGlyphSpec, PathGlyphStrokeSpec, StrokeSpec } from '../../../core/style/types.js';
+import type {
+  InlinePathTextSpec,
+  LineworkSpec,
+  PathDecorationSpec,
+  PathGlyphPrimitiveSpec,
+  PathGlyphSpec,
+  PathGlyphStrokeSpec,
+  StrokeSpec
+} from '../../../core/style/types.js';
 import {
   extractPathContours,
   measurePath,
@@ -25,6 +33,7 @@ import {
   type PathCoordinate,
   type PathSample,
   type PathViewport,
+  type RepeatedPathAnchor,
   type RepeatPathAnchorExclusion
 } from './pathLayout.js';
 
@@ -65,6 +74,18 @@ interface GlyphExtent {
   readonly maximumU: number;
 }
 
+type PathCutout = readonly [startDistance: number, endDistance: number];
+
+interface TextPlacement {
+  readonly sample: PathSample;
+}
+
+interface TrackSegment {
+  readonly startDistance: number;
+  readonly endDistance: number;
+  readonly coordinates: PathCoordinate[];
+}
+
 interface SegmentBatch {
   readonly key: string;
   readonly order: number;
@@ -99,7 +120,8 @@ interface StableLineTrackSlot {
   readonly geometry: LineString;
   readonly trackIndex: number;
   readonly contourIndex: number | undefined;
-  readonly side: 'open' | 'reveal' | 'before' | 'after';
+  readonly side: 'open' | 'reveal' | 'cutout';
+  readonly segmentIndex?: number;
 }
 
 interface StableClosedTrackSlot {
@@ -153,7 +175,7 @@ export function compileLineworkStyles(spec: LineworkSpec, context: LineworkCompi
   if (measured.length === 0) return [];
 
   const styles: Style[] = [];
-  const cutouts = measured.map((path) => lineworkCutout(spec, path, context));
+  const cutouts = measured.map((path) => lineworkCutouts(spec, path, context));
   styles.push(...compileTracks(spec, measured, cutouts, context));
 
   const glyphPlacements: GlyphPlacement[] = [];
@@ -161,7 +183,7 @@ export function compileLineworkStyles(spec: LineworkSpec, context: LineworkCompi
   collectDecorations(spec, measured, context.resolution, context.viewport, glyphPlacements);
   styles.push(...compileGlyphPlacements(glyphPlacements, context));
 
-  if (spec.inlineText !== undefined) styles.push(...compileInlineText(spec.inlineText, measured, context));
+  if (spec.inlineText !== undefined) styles.push(...compileInlineText(spec, measured, context));
   styles.push(compileHitCorridor(spec, measured, context));
   return styles;
 }
@@ -180,9 +202,23 @@ export function createLineworkPresentationPool(
   const extractedMaximumPaths = measuredPaths(spec, maximumGeometry);
   const maximumPaths = extractedMaximumPaths.length > 0 ? extractedMaximumPaths : initialPaths;
   const maximumPathCount = Math.max(maximumPaths.length, initialPaths.length);
-  const trackSlots = createStableTrackSlots(spec, maximumPathCount, context.zIndex);
+  const safeInitialResolution = Number.isFinite(context.resolution) && context.resolution > 0 ? context.resolution : 1;
+  const maximumCutouts = maximumPaths.map((path) =>
+    lineworkCutouts(spec, path, { measureText: context.measureText, resolution: safeInitialResolution, viewport: context.viewport })
+  );
+  const initialCutouts = initialPaths.map((path) =>
+    lineworkCutouts(spec, path, { measureText: context.measureText, resolution: safeInitialResolution, viewport: context.viewport })
+  );
+  const cutoutSegmentCapacities = Array.from({ length: maximumPathCount }, (_, index) =>
+    Math.max(1, (maximumCutouts[index]?.length ?? 0) + 1, (initialCutouts[index]?.length ?? 0) + 1)
+  );
+  const trackSlots = createStableTrackSlots(spec, maximumPathCount, cutoutSegmentCapacities, context.zIndex);
   const glyphSlots = createStableGlyphSlots(spec, context);
-  const textSlots = createStableTextSlots(spec.inlineText, maximumPathCount, context.zIndex);
+  const maximumTextPlacements: TextPlacement[] = [];
+  const initialTextPlacements: TextPlacement[] = [];
+  collectInlineTextPlacements(spec, maximumPaths, safeInitialResolution, context.viewport, context.measureText, maximumTextPlacements);
+  collectInlineTextPlacements(spec, initialPaths, safeInitialResolution, context.viewport, context.measureText, initialTextPlacements);
+  const textSlots = createStableTextSlots(spec.inlineText, Math.max(maximumTextPlacements.length, initialTextPlacements.length), context.zIndex);
   const activeStyles: Style[] = [];
   let destroyed = false;
 
@@ -197,14 +233,20 @@ export function createLineworkPresentationPool(
     const safeResolution = Number.isFinite(resolution) && resolution > 0 ? resolution : 1;
     const currentPaths = measuredPaths(spec, geometry);
     const windows = revealWindows(maximumPaths, currentPaths, viewport?.worldWidth, pathReveal);
-    const cutouts = windows.map((window) => lineworkCutout(spec, window.maximum, { measureText: context.measureText, resolution: safeResolution }));
+    const cutouts = windows.map((window) =>
+      lineworkCutouts(spec, window.maximum, { measureText: context.measureText, resolution: safeResolution, viewport }, window)
+    );
     activeStyles.length = 0;
+    ensureStableTrackSlotCapacity(spec, trackSlots, cutouts, context.zIndex);
     updateStableTrackSlots(spec, trackSlots, windows, cutouts, safeResolution, activeStyles);
 
     const placements: GlyphPlacement[] = [];
     collectPresentationPlacements(spec, windows, safeResolution, viewport, placements);
     updateStableGlyphSlots(glyphSlots, placements, safeResolution, activeStyles);
-    updateStableTextSlots(spec.inlineText, textSlots, windows, viewRotation, activeStyles);
+    const textPlacements: TextPlacement[] = [];
+    collectPresentationTextPlacements(spec, windows, safeResolution, viewport, context.measureText, textPlacements);
+    ensureStableTextSlotCapacity(spec.inlineText, textSlots, textPlacements.length, context.zIndex);
+    updateStableTextSlots(spec.inlineText, textSlots, textPlacements, viewRotation, activeStyles);
 
     return activeStyles;
   };
@@ -237,7 +279,7 @@ export function lineworkDependencies(spec: LineworkSpec): {
     geometry: true,
     resolution: true,
     viewRotation: spec.inlineText !== undefined,
-    viewport: spec.decorations?.some((decoration) => decoration.placement.kind === 'repeat') ?? false
+    viewport: (spec.decorations?.some((decoration) => decoration.placement.kind === 'repeat') ?? false) || spec.inlineText?.placement?.kind === 'repeat'
   };
 }
 
@@ -472,13 +514,48 @@ function directWorldAlignmentScore(
   return startError + endError + currentLength;
 }
 
-function mapMaximumCutoutToCurrent(cutout: readonly [number, number], window: RevealedPathWindow): readonly [number, number] | undefined {
+function mapMaximumCutoutToCurrent(cutout: PathCutout, window: RevealedPathWindow): PathCutout | undefined {
   const current = window.current;
   if (current === undefined || cutout[1] <= window.startDistance || cutout[0] >= window.endDistance) return undefined;
   const maximumSpan = window.endDistance - window.startDistance;
   if (maximumSpan <= 0) return [0, current.length];
   const scale = current.length / maximumSpan;
   return [clamp((cutout[0] - window.startDistance) * scale, 0, current.length), clamp((cutout[1] - window.startDistance) * scale, 0, current.length)];
+}
+
+function mapMaximumCutoutsToCurrent(cutouts: readonly PathCutout[], window: RevealedPathWindow): PathCutout[] {
+  const current = window.current;
+  if (current === undefined) return [];
+  const mapped: PathCutout[] = [];
+  for (const cutout of cutouts) {
+    const interval = mapMaximumCutoutToCurrent(cutout, window);
+    if (interval !== undefined && interval[1] > interval[0]) mapped.push(interval);
+  }
+  return mergePathCutouts(mapped, current.length);
+}
+
+function maximumDistanceAtCurrentDistance(window: RevealedPathWindow, currentDistance: number): number {
+  const currentLength = window.current?.length ?? 0;
+  const maximumSpan = window.endDistance - window.startDistance;
+  if (currentLength <= 0 || maximumSpan <= 0) return window.startDistance;
+  return clamp(window.startDistance + (currentDistance / currentLength) * maximumSpan, window.startDistance, window.endDistance);
+}
+
+function trackSegments(path: MeasuredPath, cutouts: readonly PathCutout[]): TrackSegment[] {
+  const segments: TrackSegment[] = [];
+  let startDistance = 0;
+  for (const cutout of cutouts) {
+    if (cutout[0] > startDistance) appendTrackSegment(segments, path, startDistance, cutout[0]);
+    startDistance = Math.max(startDistance, cutout[1]);
+    if (startDistance >= path.length) break;
+  }
+  if (startDistance < path.length) appendTrackSegment(segments, path, startDistance, path.length);
+  return segments;
+}
+
+function appendTrackSegment(output: TrackSegment[], path: MeasuredPath, startDistance: number, endDistance: number): void {
+  const coordinates = sliceMeasuredPath(path, startDistance, endDistance);
+  if (coordinates.length >= 2) output.push({ startDistance, endDistance, coordinates });
 }
 
 function collectPresentationPlacements(
@@ -506,18 +583,7 @@ function collectPresentationPlacements(
       }
       const sequence = decoration.sequence;
       if (sequence === undefined || sequence.length === 0) continue;
-      const spacing = decoration.placement.spacing * resolution;
-      const phase = (decoration.placement.phase ?? 0) * resolution;
-      const renderBuffer = (viewport?.renderBufferPx ?? 0) * resolution;
-      const intervals = visiblePathIntervals(path, viewport, spacing + renderBuffer);
-      const anchors = repeatPathAnchors(
-        path.length,
-        spacing,
-        path.contour.closed,
-        intervals,
-        phase,
-        repeatAnchorExclusion(spec, window.startDistance, path.length)
-      );
+      const anchors = repeatDecorationAnchors(decoration, path, resolution, viewport, repeatAnchorExclusion(spec, window.startDistance, path.length));
       for (const anchor of anchors) {
         if (!windowReveals(window, anchor.distance)) continue;
         const sample = samplePath(path, anchor.distance);
@@ -528,12 +594,99 @@ function collectPresentationPlacements(
   }
 }
 
+function collectInlineTextPlacements(
+  spec: Pick<LineworkSpec, 'caps' | 'inlineText'>,
+  paths: readonly MeasuredPath[],
+  resolution: number,
+  viewport: PathViewport | undefined,
+  measureText: LineworkTextMeasurer,
+  output: TextPlacement[]
+): void {
+  const text = spec.inlineText;
+  if (text === undefined || !inlineTextHasVisiblePaint(text)) return;
+  for (const path of paths) {
+    const anchors = inlineTextAnchors(spec, path, resolution, viewport, measureText, repeatAnchorExclusion(spec, 0, path.length));
+    for (const anchor of anchors) {
+      const sample = samplePath(path, anchor.distance);
+      if (sample !== undefined) output.push({ sample });
+    }
+  }
+}
+
+function collectPresentationTextPlacements(
+  spec: Pick<LineworkSpec, 'caps' | 'inlineText'>,
+  windows: readonly RevealedPathWindow[],
+  resolution: number,
+  viewport: PathViewport | undefined,
+  measureText: LineworkTextMeasurer,
+  output: TextPlacement[]
+): void {
+  const text = spec.inlineText;
+  if (text === undefined || !inlineTextHasVisiblePaint(text)) return;
+  for (const window of windows) {
+    if (window.current === undefined) continue;
+    const path = window.maximum;
+    const anchors = inlineTextAnchors(spec, path, resolution, viewport, measureText, repeatAnchorExclusion(spec, window.startDistance, path.length));
+    for (const anchor of anchors) {
+      if (!windowReveals(window, anchor.distance)) continue;
+      const sample = samplePath(path, anchor.distance);
+      if (sample !== undefined) output.push({ sample });
+    }
+  }
+}
+
+function inlineTextAnchors(
+  spec: Pick<LineworkSpec, 'caps' | 'inlineText'>,
+  path: MeasuredPath,
+  resolution: number,
+  viewport: PathViewport | undefined,
+  measureText: LineworkTextMeasurer,
+  exclusion: RepeatPathAnchorExclusion | undefined
+): RepeatedPathAnchor[] {
+  const text = spec.inlineText;
+  const placement = text?.placement;
+  if (placement === undefined || placement.kind === 'center') return [{ index: 0, distance: path.length / 2 }];
+  return repeatPlacementAnchors(path, placement, resolution, viewport, exclusion, text === undefined ? 0 : inlineTextViewportOutset(text, measureText));
+}
+
+function repeatPlacementAnchors(
+  path: MeasuredPath,
+  placement: { readonly spacing: number; readonly phase?: number },
+  resolution: number,
+  viewport: PathViewport | undefined,
+  exclusion: RepeatPathAnchorExclusion | undefined,
+  visualOutsetPx: number
+): RepeatedPathAnchor[] {
+  const spacing = placement.spacing * resolution;
+  const phase = (placement.phase ?? 0) * resolution;
+  const renderBuffer = (viewport?.renderBufferPx ?? 0) * resolution;
+  const visualOutset = Math.max(0, visualOutsetPx) * resolution;
+  const intervals = visiblePathIntervals(path, viewport, Math.max(spacing, visualOutset) + renderBuffer);
+  return repeatPathAnchors(path.length, spacing, path.contour.closed, intervals, phase, exclusion);
+}
+
+function repeatDecorationAnchors(
+  decoration: Extract<PathDecorationSpec, { placement: { kind: 'repeat' } }>,
+  path: MeasuredPath,
+  resolution: number,
+  viewport: PathViewport | undefined,
+  exclusion: RepeatPathAnchorExclusion | undefined
+): RepeatedPathAnchor[] {
+  const glyphOutset = decoration.sequence.reduce((maximum, glyph) => Math.max(maximum, glyphViewportOutset(glyph)), 0);
+  return repeatPlacementAnchors(path, decoration.placement, resolution, viewport, exclusion, glyphOutset + (decoration.cutoutPadding ?? 0));
+}
+
 function windowReveals(window: RevealedPathWindow, distance: number): boolean {
   const epsilon = Math.max(1e-7, window.maximum.length * 1e-9);
   return distance >= window.startDistance - epsilon && distance <= window.endDistance + epsilon;
 }
 
-function createStableTrackSlots(spec: LineworkSpec, maximumPathCount: number, zIndex: number | undefined): StableTrackSlot[] {
+function createStableTrackSlots(
+  spec: LineworkSpec,
+  maximumPathCount: number,
+  cutoutSegmentCapacities: readonly number[],
+  zIndex: number | undefined
+): StableTrackSlot[] {
   const slots: StableTrackSlot[] = [];
   const cutout = hasTrackCutout(spec);
   const closed = spec.contour?.kind === 'closed';
@@ -567,43 +720,97 @@ function createStableTrackSlots(spec: LineworkSpec, maximumPathCount: number, zI
       continue;
     }
     for (let contourIndex = 0; contourIndex < maximumPathCount; contourIndex += 1) {
-      for (const side of ['before', 'after'] as const) {
-        const geometry = new LineString([]);
-        slots.push({
-          style: new Style({ geometry, stroke: compileTrackStroke(track.stroke, track.offset), ...(zIndex === undefined ? {} : { zIndex }) }),
-          geometry,
-          trackIndex,
-          contourIndex,
-          side
-        });
+      const capacity = Math.max(1, cutoutSegmentCapacities[contourIndex] ?? 1);
+      for (let segmentIndex = 0; segmentIndex < capacity; segmentIndex += 1) {
+        slots.push(createStableCutoutTrackSlot(track, trackIndex, contourIndex, segmentIndex, zIndex));
       }
       if (!closed) continue;
 
-      const closedGeometry = new Polygon([]);
-      slots.push({
-        style: new Style({
-          geometry: closedGeometry,
-          stroke: compileTrackStroke(track.stroke, closedTrackOffset(track.offset)),
-          ...(zIndex === undefined ? {} : { zIndex })
-        }),
-        geometry: closedGeometry,
-        trackIndex,
-        contourIndex,
-        side: 'closed'
-      });
+      slots.push(createStableClosedTrackSlot(track, trackIndex, contourIndex, zIndex));
     }
   }
   return slots;
+}
+
+function createStableCutoutTrackSlot(
+  track: LineworkSpec['tracks'][number],
+  trackIndex: number,
+  contourIndex: number,
+  segmentIndex: number,
+  zIndex: number | undefined
+): StableLineTrackSlot {
+  const geometry = new LineString([]);
+  return {
+    style: new Style({ geometry, stroke: compileTrackStroke(track.stroke, track.offset), ...(zIndex === undefined ? {} : { zIndex }) }),
+    geometry,
+    trackIndex,
+    contourIndex,
+    side: 'cutout',
+    segmentIndex
+  };
+}
+
+function createStableClosedTrackSlot(
+  track: LineworkSpec['tracks'][number],
+  trackIndex: number,
+  contourIndex: number,
+  zIndex: number | undefined
+): StableClosedTrackSlot {
+  const geometry = new Polygon([]);
+  return {
+    style: new Style({
+      geometry,
+      stroke: compileTrackStroke(track.stroke, closedTrackOffset(track.offset)),
+      ...(zIndex === undefined ? {} : { zIndex })
+    }),
+    geometry,
+    trackIndex,
+    contourIndex,
+    side: 'closed'
+  };
+}
+
+function ensureStableTrackSlotCapacity(
+  spec: LineworkSpec,
+  slots: StableTrackSlot[],
+  cutouts: readonly (readonly PathCutout[])[],
+  zIndex: number | undefined
+): void {
+  if (!hasTrackCutout(spec)) return;
+  for (let trackIndex = 0; trackIndex < spec.tracks.length; trackIndex += 1) {
+    const track = spec.tracks[trackIndex];
+    if (track === undefined) continue;
+    for (let contourIndex = 0; contourIndex < cutouts.length; contourIndex += 1) {
+      const required = (cutouts[contourIndex]?.length ?? 0) + 1;
+      let existing = 0;
+      for (const slot of slots) {
+        if (slot.side === 'cutout' && slot.trackIndex === trackIndex && slot.contourIndex === contourIndex) existing += 1;
+      }
+      for (let segmentIndex = existing; segmentIndex < required; segmentIndex += 1) {
+        const nextGroup = slots.findIndex(
+          (slot) =>
+            slot.trackIndex > trackIndex ||
+            (slot.trackIndex === trackIndex &&
+              ((slot.contourIndex ?? Number.POSITIVE_INFINITY) > contourIndex || (slot.contourIndex === contourIndex && slot.side === 'closed')))
+        );
+        const created = createStableCutoutTrackSlot(track, trackIndex, contourIndex, segmentIndex, zIndex);
+        if (nextGroup < 0) slots.push(created);
+        else slots.splice(nextGroup, 0, created);
+      }
+    }
+  }
 }
 
 function updateStableTrackSlots(
   spec: LineworkSpec,
   slots: readonly StableTrackSlot[],
   windows: readonly RevealedPathWindow[],
-  cutouts: readonly (readonly [number, number] | undefined)[],
+  cutouts: readonly (readonly PathCutout[])[],
   resolution: number,
   active: Style[]
 ): void {
+  const mappedCutouts = windows.map((window, index) => mapMaximumCutoutsToCurrent(cutouts[index] ?? [], window));
+  const segments = windows.map((window, index) => (window.current === undefined ? [] : trackSegments(window.current, mappedCutouts[index] ?? [])));
   for (const slot of slots) {
     const track = spec.tracks[slot.trackIndex];
     if (track === undefined) continue;
@@ -615,8 +822,8 @@ function updateStableTrackSlots(
       continue;
     }
     if (slot.side === 'closed') {
-      const cutout = cutouts[slot.contourIndex ?? -1];
-      if (!window.full || cutout !== undefined) {
+      const contourCutouts = cutouts[slot.contourIndex ?? -1] ?? [];
+      if (!window.full || contourCutouts.length > 0) {
         slot.geometry.setCoordinates([]);
         continue;
       }
@@ -638,25 +845,20 @@ function updateStableTrackSlots(
       continue;
     }
 
-    const cutout = cutouts[slot.contourIndex ?? -1];
-    if (cutout === undefined && window.full && spec.contour?.kind === 'closed') {
+    const contourCutouts = cutouts[slot.contourIndex ?? -1] ?? [];
+    if (contourCutouts.length === 0 && window.full && spec.contour?.kind === 'closed') {
       slot.geometry.setCoordinates([]);
       continue;
     }
-    let coordinates: PathCoordinate[];
-    let globalStartDistance = window.startDistance;
-    const mappedCutout = cutout === undefined ? undefined : mapMaximumCutoutToCurrent(cutout, window);
-    if (mappedCutout === undefined) {
-      coordinates = slot.side === 'before' ? renderPathCoordinates(current) : [];
-    } else if (slot.side === 'before') {
-      coordinates = sliceMeasuredPath(current, 0, mappedCutout[0]);
-    } else {
-      coordinates = sliceMeasuredPath(current, mappedCutout[1], current.length);
-      globalStartDistance = Math.max(window.startDistance, cutout?.[1] ?? window.startDistance);
+    const segment = segments[slot.contourIndex ?? -1]?.[slot.segmentIndex ?? -1];
+    if (segment === undefined) {
+      slot.geometry.setCoordinates([]);
+      continue;
     }
-    slot.geometry.setCoordinates(coordinates as [number, number][]);
+    const globalStartDistance = maximumDistanceAtCurrentDistance(window, segment.startDistance);
+    slot.geometry.setCoordinates(segment.coordinates as [number, number][]);
     stroke?.setLineDashOffset((track.stroke.lineDashOffset ?? 0) - globalStartDistance / resolution);
-    if (coordinates.length >= 2) active.push(slot.style);
+    if (segment.coordinates.length >= 2) active.push(slot.style);
   }
 }
 
@@ -728,45 +930,49 @@ function updateStableGlyphSlots(slots: readonly StableGlyphSlot[], placements: r
   }
 }
 
-function createStableTextSlots(spec: InlinePathTextSpec | undefined, maximumPathCount: number, zIndex: number | undefined): StableTextSlot[] {
+function createStableTextSlots(spec: InlinePathTextSpec | undefined, capacity: number, zIndex: number | undefined): StableTextSlot[] {
   if (spec === undefined || !inlineTextHasVisiblePaint(spec)) return [];
   const slots: StableTextSlot[] = [];
-  const backgroundPadding = spec.backgroundFill === undefined ? 0 : (spec.backgroundPadding ?? 0);
-  for (let index = 0; index < maximumPathCount; index += 1) {
-    const geometry = new Point([0, 0]);
-    const text = new Text({
-      text: spec.text,
-      font: inlineTextFont(spec),
-      fill: new Fill({ color: copyColor(spec.fill.color) }),
-      ...(spec.stroke === undefined ? {} : { stroke: compileGlyphStroke(spec.stroke) }),
-      ...(spec.backgroundFill === undefined ? {} : { backgroundFill: new Fill({ color: copyColor(spec.backgroundFill.color) }) }),
-      ...(backgroundPadding === 0 ? {} : { padding: [backgroundPadding, backgroundPadding, backgroundPadding, backgroundPadding] }),
-      textAlign: 'center',
-      textBaseline: 'middle',
-      overflow: true,
-      placement: 'point',
-      rotateWithView: false,
-      rotation: 0
-    });
-    slots.push({ style: new Style({ geometry, text, ...(zIndex === undefined ? {} : { zIndex }) }), geometry, text });
-  }
+  for (let index = 0; index < capacity; index += 1) slots.push(createStableTextSlot(spec, zIndex));
   return slots;
+}
+
+function createStableTextSlot(spec: InlinePathTextSpec, zIndex: number | undefined): StableTextSlot {
+  const backgroundPadding = spec.backgroundFill === undefined ? 0 : (spec.backgroundPadding ?? 0);
+  const geometry = new Point([0, 0]);
+  const text = new Text({
+    text: spec.text,
+    font: inlineTextFont(spec),
+    fill: new Fill({ color: copyColor(spec.fill.color) }),
+    ...(spec.stroke === undefined ? {} : { stroke: compileGlyphStroke(spec.stroke) }),
+    ...(spec.backgroundFill === undefined ? {} : { backgroundFill: new Fill({ color: copyColor(spec.backgroundFill.color) }) }),
+    ...(backgroundPadding === 0 ? {} : { padding: [backgroundPadding, backgroundPadding, backgroundPadding, backgroundPadding] }),
+    textAlign: 'center',
+    textBaseline: 'middle',
+    overflow: true,
+    placement: 'point',
+    rotateWithView: false,
+    rotation: 0
+  });
+  return { style: new Style({ geometry, text, ...(zIndex === undefined ? {} : { zIndex }) }), geometry, text };
+}
+
+function ensureStableTextSlotCapacity(spec: InlinePathTextSpec | undefined, slots: StableTextSlot[], capacity: number, zIndex: number | undefined): void {
+  if (spec === undefined || !inlineTextHasVisiblePaint(spec)) return;
+  while (slots.length < capacity) slots.push(createStableTextSlot(spec, zIndex));
 }
 
 function updateStableTextSlots(
   spec: InlinePathTextSpec | undefined,
   slots: readonly StableTextSlot[],
-  windows: readonly RevealedPathWindow[],
+  placements: readonly TextPlacement[],
   viewRotation: number,
   active: Style[]
 ): void {
   if (spec === undefined) return;
   for (let index = 0; index < slots.length; index += 1) {
     const slot = slots[index];
-    const window = windows[index];
-    const path = window?.maximum;
-    const middle = path?.length === undefined ? undefined : path.length / 2;
-    const sample = window === undefined || path === undefined || middle === undefined || !windowReveals(window, middle) ? undefined : samplePath(path, middle);
+    const sample = placements[index]?.sample;
     if (sample === undefined) continue;
     slot.geometry.setCoordinates(sample.coordinate as [number, number]);
     slot.text.setRotation(uprightTextRotation(sample, viewRotation));
@@ -789,19 +995,22 @@ function declaredGlyphs(spec: LineworkSpec): PathGlyphSpec[] {
 }
 
 function hasTrackCutout(spec: LineworkSpec): boolean {
-  return spec.inlineText !== undefined || (spec.decorations?.some((decoration) => decoration.placement.kind === 'center') ?? false);
+  return (
+    spec.inlineText !== undefined ||
+    (spec.decorations?.some((decoration) => decoration.placement.kind === 'center' || decoration.cutoutPadding !== undefined) ?? false)
+  );
 }
 
 function compileTracks(
   spec: LineworkSpec,
   paths: readonly MeasuredPath[],
-  cutouts: readonly (readonly [number, number] | undefined)[],
+  cutouts: readonly (readonly PathCutout[])[],
   context: LineworkCompilationContext
 ): Style[] {
   const styles: Style[] = [];
   const closed = spec.contour?.kind === 'closed';
   for (const track of spec.tracks) {
-    if (cutouts.every((cutout) => cutout === undefined)) {
+    if (cutouts.every((pathCutouts) => pathCutouts.length === 0)) {
       const coordinates = paths.map(renderPathCoordinates);
       styles.push(
         new Style({
@@ -817,8 +1026,8 @@ function compileTracks(
 
     for (let index = 0; index < paths.length; index += 1) {
       const path = paths[index];
-      const cutout = cutouts[index];
-      if (cutout === undefined) {
+      const pathCutouts = cutouts[index] ?? [];
+      if (pathCutouts.length === 0) {
         const coordinates = renderPathCoordinates(path);
         styles.push(
           new Style({
@@ -829,23 +1038,11 @@ function compileTracks(
         );
         continue;
       }
-      const [cutoutStart, cutoutEnd] = cutout;
-      const before = sliceMeasuredPath(path, 0, cutoutStart);
-      const after = sliceMeasuredPath(path, cutoutEnd, path.length);
-      if (before.length >= 2) {
+      for (const segment of trackSegments(path, pathCutouts)) {
         styles.push(
           new Style({
-            geometry: new LineString(before as [number, number][]),
-            stroke: compileTrackStroke(track.stroke, track.offset),
-            ...(context.zIndex === undefined ? {} : { zIndex: context.zIndex })
-          })
-        );
-      }
-      if (after.length >= 2) {
-        styles.push(
-          new Style({
-            geometry: new LineString(after as [number, number][]),
-            stroke: compileTrackStroke(track.stroke, track.offset, -cutoutEnd / context.resolution),
+            geometry: new LineString(segment.coordinates as [number, number][]),
+            stroke: compileTrackStroke(track.stroke, track.offset, -segment.startDistance / context.resolution),
             ...(context.zIndex === undefined ? {} : { zIndex: context.zIndex })
           })
         );
@@ -902,11 +1099,7 @@ function collectDecorations(
       }
       const sequence = decoration.sequence;
       if (sequence === undefined || sequence.length === 0) continue;
-      const spacing = decoration.placement.spacing * resolution;
-      const phase = (decoration.placement.phase ?? 0) * resolution;
-      const renderBuffer = (viewport?.renderBufferPx ?? 0) * resolution;
-      const intervals = visiblePathIntervals(path, viewport, spacing + renderBuffer);
-      const anchors = repeatPathAnchors(path.length, spacing, path.contour.closed, intervals, phase, repeatAnchorExclusion(spec, 0, path.length));
+      const anchors = repeatDecorationAnchors(decoration, path, resolution, viewport, repeatAnchorExclusion(spec, 0, path.length));
       for (const anchor of anchors) {
         const sample = samplePath(path, anchor.distance);
         const glyph = sequence[anchor.index % sequence.length];
@@ -1023,33 +1216,16 @@ function compileGlyphBatches(
   return ordered.map((entry) => entry.style);
 }
 
-function compileInlineText(spec: InlinePathTextSpec, paths: readonly MeasuredPath[], context: LineworkCompilationContext): Style[] {
-  if (!inlineTextHasVisiblePaint(spec)) return [];
-  const font = inlineTextFont(spec);
-  return paths.flatMap((path) => {
-    const sample = samplePath(path, path.length / 2);
-    if (sample === undefined) return [];
-    const backgroundPadding = spec.backgroundFill === undefined ? 0 : (spec.backgroundPadding ?? 0);
-    return [
-      new Style({
-        geometry: new Point([...sample.coordinate]),
-        text: new Text({
-          text: spec.text,
-          font,
-          fill: new Fill({ color: copyColor(spec.fill.color) }),
-          ...(spec.stroke === undefined ? {} : { stroke: compileGlyphStroke(spec.stroke) }),
-          ...(spec.backgroundFill === undefined ? {} : { backgroundFill: new Fill({ color: copyColor(spec.backgroundFill.color) }) }),
-          ...(backgroundPadding === 0 ? {} : { padding: [backgroundPadding, backgroundPadding, backgroundPadding, backgroundPadding] }),
-          textAlign: 'center',
-          textBaseline: 'middle',
-          overflow: true,
-          placement: 'point',
-          rotateWithView: false,
-          rotation: uprightTextRotation(sample, context.viewRotation)
-        }),
-        ...(context.zIndex === undefined ? {} : { zIndex: context.zIndex })
-      })
-    ];
+function compileInlineText(spec: LineworkSpec, paths: readonly MeasuredPath[], context: LineworkCompilationContext): Style[] {
+  const text = spec.inlineText;
+  if (text === undefined || !inlineTextHasVisiblePaint(text)) return [];
+  const placements: TextPlacement[] = [];
+  collectInlineTextPlacements(spec, paths, context.resolution, context.viewport, context.measureText, placements);
+  return placements.map(({ sample }) => {
+    const slot = createStableTextSlot(text, context.zIndex);
+    slot.geometry.setCoordinates(sample.coordinate as [number, number]);
+    slot.text.setRotation(uprightTextRotation(sample, context.viewRotation));
+    return slot.style;
   });
 }
 
@@ -1063,35 +1239,106 @@ function compileHitCorridor(spec: LineworkSpec, paths: readonly MeasuredPath[], 
   });
 }
 
-function lineworkCutout(
+function lineworkCutouts(
   spec: LineworkSpec,
   path: MeasuredPath,
-  context: Pick<LineworkCompilationContext, 'measureText' | 'resolution'>
-): readonly [number, number] | undefined {
-  let minimumU = Number.POSITIVE_INFINITY;
-  let maximumU = Number.NEGATIVE_INFINITY;
+  context: Pick<LineworkCompilationContext, 'measureText' | 'resolution' | 'viewport'>,
+  window?: RevealedPathWindow
+): PathCutout[] {
+  if (window !== undefined && window.current === undefined) return [];
+  const intervals: PathCutout[] = [];
+  const exclusion = repeatAnchorExclusion(spec, window?.startDistance ?? 0, path.length);
   for (const decoration of spec.decorations ?? []) {
-    if (decoration.placement.kind !== 'center') continue;
-    if (decoration.glyph === undefined) continue;
-    const extent = glyphExtent(decoration.glyph);
-    const padding = decoration.cutoutPadding ?? 0;
-    minimumU = Math.min(minimumU, extent.minimumU - padding);
-    maximumU = Math.max(maximumU, extent.maximumU + padding);
+    if (decoration.placement.kind === 'center') {
+      if (decoration.glyph === undefined || (window !== undefined && !windowReveals(window, path.length / 2))) continue;
+      appendGlyphCutout(intervals, path, path.length / 2, decoration.glyph, decoration.cutoutPadding ?? 0, context.resolution);
+      continue;
+    }
+    if (decoration.cutoutPadding === undefined || decoration.sequence === undefined || decoration.sequence.length === 0) continue;
+    const anchors = repeatDecorationAnchors(decoration, path, context.resolution, context.viewport, exclusion);
+    for (const anchor of anchors) {
+      if (window !== undefined && !windowReveals(window, anchor.distance)) continue;
+      const glyph = decoration.sequence[anchor.index % decoration.sequence.length];
+      if (glyph !== undefined) appendGlyphCutout(intervals, path, anchor.distance, glyph, decoration.cutoutPadding, context.resolution);
+    }
   }
   if (spec.inlineText !== undefined) {
     const text = spec.inlineText;
-    const measuredWidth = safeMeasuredWidth(context.measureText(inlineTextFont(text), text.text), text.fontSize, text.text);
-    const backgroundPadding = text.backgroundFill === undefined ? 0 : (text.backgroundPadding ?? 0);
-    const outlineWidth = text.stroke?.width ?? 0;
-    const halfWidth = measuredWidth / 2 + backgroundPadding + outlineWidth / 2 + text.gapPadding;
-    minimumU = Math.min(minimumU, -halfWidth);
-    maximumU = Math.max(maximumU, halfWidth);
+    const halfWidth = inlineTextHalfWidth(text, context.measureText);
+    const anchors = inlineTextAnchors(spec, path, context.resolution, context.viewport, context.measureText, exclusion);
+    for (const anchor of anchors) {
+      if (window !== undefined && !windowReveals(window, anchor.distance)) continue;
+      appendPathCutout(intervals, path, anchor.distance, -halfWidth, halfWidth, context.resolution);
+    }
   }
-  if (!Number.isFinite(minimumU) || !Number.isFinite(maximumU)) return undefined;
-  const middle = path.length / 2;
-  const start = clamp(middle + minimumU * context.resolution, 0, path.length);
-  const end = clamp(middle + maximumU * context.resolution, 0, path.length);
-  return start < end ? [start, end] : undefined;
+  return mergePathCutouts(intervals, path.length);
+}
+
+function inlineTextHalfWidth(spec: InlinePathTextSpec, measureText: LineworkTextMeasurer): number {
+  const measuredWidth = safeMeasuredWidth(measureText(inlineTextFont(spec), spec.text), spec.fontSize, spec.text);
+  const backgroundPadding = spec.backgroundFill === undefined ? 0 : (spec.backgroundPadding ?? 0);
+  const outlineWidth = spec.stroke?.width ?? 0;
+  return measuredWidth / 2 + backgroundPadding + outlineWidth / 2 + spec.gapPadding;
+}
+
+function inlineTextViewportOutset(spec: InlinePathTextSpec, measureText: LineworkTextMeasurer): number {
+  const backgroundPadding = spec.backgroundFill === undefined ? 0 : (spec.backgroundPadding ?? 0);
+  const outlineWidth = spec.stroke?.width ?? 0;
+  const halfWidth = inlineTextHalfWidth(spec, measureText);
+  const halfHeight = spec.fontSize / 2 + backgroundPadding + outlineWidth / 2;
+  return Math.hypot(halfWidth, halfHeight);
+}
+
+function appendGlyphCutout(output: PathCutout[], path: MeasuredPath, anchorDistance: number, glyph: PathGlyphSpec, padding: number, resolution: number): void {
+  const extent = glyphExtent(glyph);
+  appendPathCutout(output, path, anchorDistance, extent.minimumU - padding, extent.maximumU + padding, resolution);
+}
+
+function appendPathCutout(
+  output: PathCutout[],
+  path: MeasuredPath,
+  anchorDistance: number,
+  minimumOffsetPx: number,
+  maximumOffsetPx: number,
+  resolution: number
+): void {
+  const start = anchorDistance + minimumOffsetPx * resolution;
+  const end = anchorDistance + maximumOffsetPx * resolution;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || path.length <= 0) return;
+  if (!path.contour.closed) {
+    const clampedStart = clamp(start, 0, path.length);
+    const clampedEnd = clamp(end, 0, path.length);
+    if (clampedEnd > clampedStart) output.push([clampedStart, clampedEnd]);
+    return;
+  }
+
+  const span = end - start;
+  if (span >= path.length) {
+    output.push([0, path.length]);
+    return;
+  }
+  const normalizedStart = normalizeClosedDistance(start, path.length);
+  const unwrappedEnd = normalizedStart + span;
+  if (unwrappedEnd <= path.length) {
+    output.push([normalizedStart, unwrappedEnd]);
+  } else {
+    output.push([normalizedStart, path.length], [0, unwrappedEnd - path.length]);
+  }
+}
+
+function mergePathCutouts(cutouts: readonly PathCutout[], length: number): PathCutout[] {
+  const epsilon = Math.max(1e-7, length * 1e-9);
+  const normalized = cutouts
+    .map(([start, end]) => [clamp(start, 0, length), clamp(end, 0, length)] as const)
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start)
+    .sort((left, right) => left[0] - right[0]);
+  const merged: PathCutout[] = [];
+  for (const cutout of normalized) {
+    const previous = merged.at(-1);
+    if (previous === undefined || cutout[0] > previous[1] + epsilon) merged.push(cutout);
+    else merged[merged.length - 1] = [previous[0], Math.max(previous[1], cutout[1])];
+  }
+  return merged;
 }
 
 function glyphExtent(glyph: PathGlyphSpec): GlyphExtent {
@@ -1116,6 +1363,20 @@ function glyphExtent(glyph: PathGlyphSpec): GlyphExtent {
     minimumU: Number.isFinite(minimumU) ? minimumU : 0,
     maximumU: Number.isFinite(maximumU) ? maximumU : 0
   };
+}
+
+function glyphViewportOutset(glyph: PathGlyphSpec): number {
+  let maximum = 0;
+  for (const primitive of flattenPrimitives(glyph.primitives)) {
+    const strokeHalf = (primitive.stroke?.width ?? 0) / 2;
+    if (primitive.type === 'circle') {
+      maximum = Math.max(maximum, Math.hypot(primitive.center[0], primitive.center[1]) + primitive.radius + strokeHalf);
+      continue;
+    }
+    const coordinates = primitive.type === 'segment' ? [primitive.from, primitive.to] : primitive.points;
+    for (const coordinate of coordinates) maximum = Math.max(maximum, Math.hypot(coordinate[0], coordinate[1]) + strokeHalf);
+  }
+  return maximum;
 }
 
 function flattenPrimitives(primitives: readonly PathGlyphPrimitiveSpec[]): Exclude<PathGlyphPrimitiveSpec, { type: 'group' }>[] {
@@ -1197,4 +1458,10 @@ function copyColor(color: Color): Color {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function normalizeClosedDistance(distance: number, length: number): number {
+  if (length <= 0) return 0;
+  const remainder = distance % length;
+  return remainder < 0 ? remainder + length : remainder;
 }

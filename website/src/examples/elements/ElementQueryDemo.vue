@@ -301,27 +301,52 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="example-demo">
-    <div class="element-query-demo__filters">
-      <el-select v-model="moduleFilter" aria-label="模块条件">
-        <el-option label="全部模块" value="all" />
-        <el-option label="vehicles" value="vehicles" />
-        <el-option label="facilities" value="facilities" />
-      </el-select>
-      <el-select v-model="typeFilter" aria-label="图形类型条件">
-        <el-option label="全部类型" value="all" />
-        <el-option label="point" value="point" />
-        <el-option label="polyline" value="polyline" />
-        <el-option label="circle" value="circle" />
-      </el-select>
-      <el-select v-model="visibilityFilter" aria-label="显隐条件">
-        <el-option label="全部显隐" value="all" />
-        <el-option label="仅可见" value="visible" />
-        <el-option label="仅隐藏" value="hidden" />
-      </el-select>
-      <el-switch v-model="usePriority" active-text="启用 predicate" />
-      <el-input-number v-model="minimumPriority" :min="1" :max="4" :disabled="!usePriority" aria-label="最低优先级" />
-      <el-button type="primary" @click="runQuery">执行 query()</el-button>
-      <el-tag type="primary" effect="plain">{{ status }}</el-tag>
+    <div class="example-demo__control-panel element-query-demo__control-panel">
+      <div class="example-demo__control-grid element-query-demo__filters">
+        <div class="example-demo__field element-query-demo__field">
+          <span>模块</span>
+          <el-select v-model="moduleFilter" aria-label="模块条件">
+            <el-option label="全部模块" value="all" />
+            <el-option label="vehicles" value="vehicles" />
+            <el-option label="facilities" value="facilities" />
+          </el-select>
+        </div>
+        <div class="example-demo__field element-query-demo__field">
+          <span>图形类型</span>
+          <el-select v-model="typeFilter" aria-label="图形类型条件">
+            <el-option label="全部类型" value="all" />
+            <el-option label="point" value="point" />
+            <el-option label="polyline" value="polyline" />
+            <el-option label="circle" value="circle" />
+          </el-select>
+        </div>
+        <div class="example-demo__field element-query-demo__field">
+          <span>显隐</span>
+          <el-select v-model="visibilityFilter" aria-label="显隐条件">
+            <el-option label="全部显隐" value="all" />
+            <el-option label="仅可见" value="visible" />
+            <el-option label="仅隐藏" value="hidden" />
+          </el-select>
+        </div>
+        <div class="example-demo__field element-query-demo__field">
+          <span>Predicate</span>
+          <el-switch v-model="usePriority" active-text="启用 predicate" />
+        </div>
+        <div class="example-demo__field element-query-demo__field">
+          <span>最低优先级</span>
+          <el-input-number v-model="minimumPriority" :min="1" :max="4" :disabled="!usePriority" aria-label="最低优先级" />
+        </div>
+      </div>
+      <div class="example-demo__action-row">
+        <div class="example-demo__action-group element-query-demo__action-group" role="group" aria-label="查询操作">
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="runQuery">执行 query()</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback element-query-demo__feedback" aria-live="polite">
+          <el-tag type="primary" effect="plain">{{ status }}</el-tag>
+        </div>
+      </div>
     </div>
 
     <div class="element-query-demo__stage-wrap">
@@ -332,14 +357,25 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="example-demo__toolbar element-query-demo__actions">
-      <el-select v-model="selectedId" aria-label="选择查询结果" @change="focusSelected">
-        <el-option v-if="selectedId && !results.some((row) => row.id === selectedId)" :label="`${selectedId} · 未匹配当前条件`" :value="selectedId" />
-        <el-option v-for="row in results" :key="row.id" :label="`${row.label} · ${row.id}`" :value="row.id" />
-      </el-select>
-      <el-button @click="getSelected">get()</el-button>
-      <el-button @click="inspectExtent">getScreenExtent()</el-button>
-      <el-tag type="success" effect="plain">匹配 {{ results.length }} 个</el-tag>
+    <div class="example-demo__control-panel element-query-demo__actions">
+      <div class="example-demo__action-row">
+        <div class="example-demo__field element-query-demo__field">
+          <span>查询结果</span>
+          <el-select v-model="selectedId" aria-label="选择查询结果" @change="focusSelected">
+            <el-option v-if="selectedId && !results.some((row) => row.id === selectedId)" :label="`${selectedId} · 未匹配当前条件`" :value="selectedId" />
+            <el-option v-for="row in results" :key="row.id" :label="`${row.label} · ${row.id}`" :value="row.id" />
+          </el-select>
+        </div>
+        <div class="example-demo__action-group element-query-demo__action-group" role="group" aria-label="查询结果操作">
+          <div class="example-demo__action-buttons">
+            <el-button @click="getSelected">get()</el-button>
+            <el-button @click="inspectExtent">getScreenExtent()</el-button>
+          </div>
+        </div>
+        <div class="example-demo__feedback element-query-demo__feedback" aria-live="polite">
+          <el-tag type="success" effect="plain">匹配 {{ results.length }} 个</el-tag>
+        </div>
+      </div>
     </div>
 
     <el-table
@@ -367,20 +403,19 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .element-query-demo__filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
 }
 
-.element-query-demo__filters :deep(.el-select),
-.element-query-demo__actions :deep(.el-select) {
-  width: 210px;
+.element-query-demo__field :deep(.el-select) {
+  width: 100%;
+  max-width: 210px;
 }
 
-.element-query-demo__actions,
-.element-query-demo__table {
+.element-query-demo__field :deep(.el-input-number) {
+  max-width: 100%;
+}
+
+.element-query-demo__actions {
   margin-top: 14px;
 }
 
