@@ -9,6 +9,9 @@ import PageAnchor from '../../components/docs/PageAnchor.vue';
 import PublicApiSection from '../../components/docs/PublicApiSection.vue';
 import AnimationManagerDemo from '../../examples/presentation/AnimationManagerDemo.vue';
 import animationManagerSource from '../../examples/presentation/AnimationManagerDemo.vue?raw';
+import { extractExampleSnippet } from '../../utils/exampleSource';
+
+const animationManagerSnippet = extractExampleSnippet(animationManagerSource, 'animation-handle-lifecycle');
 
 interface EffectField {
   name: string;
@@ -443,6 +446,9 @@ const apiTypes = [
         <ExampleBlock
           title="十种独立目标、参数实验室与 Handle 控制"
           :source="animationManagerSource"
+          :snippet="animationManagerSnippet"
+          source-lang="vue"
+          snippet-lang="typescript"
           show-reset
           show-focus
           @reset="resetAnimationDemo"

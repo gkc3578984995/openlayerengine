@@ -5,11 +5,12 @@ const read = (path: string) => readFile(path, 'utf8');
 
 describe('website Element protection documentation', () => {
   it('publishes a canonical routed page and API ownership', async () => {
-    const [navigation, router, modules, overview] = await Promise.all([
+    const [navigation, router, modules, overview, publicApi] = await Promise.all([
       read('website/src/config/navigation.ts'),
       read('website/src/router/index.ts'),
       read('website/src/config/apiModules.ts'),
-      read('website/src/views/elements/ElementOverviewView.vue')
+      read('website/src/views/elements/ElementOverviewView.vue'),
+      read('V2_PUBLIC_API.md')
     ]);
 
     expect(navigation).toContain("{ label: '协同保护模式', to: '/components/elements/protection' }");
@@ -21,6 +22,9 @@ describe('website Element protection documentation', () => {
     expect(modules).toContain("'ElementService.getProtection': 'elements-protection'");
     expect(overview).toContain("href: '/components/elements/protection#api-method-set-protection'");
     expect(overview).toContain("href: '/components/elements/protection#api-method-get-protection'");
+    expect(publicApi).toContain('type ElementProtectionUpdate');
+    expect(publicApi).toContain('earth.elements.setProtection(point.id, protection)');
+    expect(publicApi).toContain('ElementProtectedError');
   });
 
   it('documents runtime state, interaction boundaries and same-source methods', async () => {
@@ -29,6 +33,7 @@ describe('website Element protection documentation', () => {
     expect(view).toContain("import ElementProtectionDemo from '../../examples/elements/ElementProtectionDemo.vue';");
     expect(view).toContain("import elementProtectionSource from '../../examples/elements/ElementProtectionDemo.vue?raw';");
     expect(view).toContain("extractExampleSnippet(elementProtectionSource, 'element-protection')");
+    expect(view).toContain("extractExampleSnippet(elementProtectionSource, 'element-protection-interactions')");
     expect(view).toContain('<ElementProtectionDemo ref="elementProtectionDemoRef" />');
     expect(view).toContain('title="点、图片点、线与面保护"');
     expect(view).toContain('id="runtime-model"');
@@ -54,10 +59,13 @@ describe('website Element protection documentation', () => {
     expect(demo).toContain('expiresAt');
     expect(demo).toContain('error instanceof ElementProtectedError');
     expect(demo).toContain('earth.draw.edit(element');
+    expect(demo).toContain('earth.transform.select(element');
+    expect(demo).toContain('@click="tryBuiltInTransform"');
     expect(demo).toContain("createConfiguredLayer(earth, 'vector').update({ opacity: 0.46 })");
     expect(demo).toContain("earth.layers.add({ kind: 'vector', id: BUSINESS_LAYER_ID, zIndex: 30");
     expect(demo).toContain('defineExpose({ reset: seed, focusSelected })');
     expect(demo).toContain('earthRef.value?.destroy()');
+    expect(await read('website/src/views/elements/ElementProtectionView.vue')).toContain('不会穿透并选中下层 Element');
   });
 
   it('keeps expiry refresh timers independent per Element and clears every timer at lifecycle boundaries', async () => {

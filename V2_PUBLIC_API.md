@@ -27,6 +27,7 @@ const earth = useEarth({
 import type {
   DrawOptions, // 绘制启动参数
   ElementCreateInput, // Element 创建参数
+  ElementProtectionUpdate, // Element 协同保护更新
   MeasureResult, // 测量结果
   OverlaySpec, // Overlay 创建参数
   TransformOptions // Transform 启动参数
@@ -316,6 +317,35 @@ line.remove(); // 通过句柄删除
 earth.elements.clear(); // 明确清空全部元素
 ```
 
+### 协同保护状态
+
+远端协同服务可以把“其他协作者正在编辑”同步为当前 Earth 的运行时保护状态。它不写入 `Element.state`、copy、snapshot 或历史；程序化更新仍然可用，但内置 Edit / Transform 会拒绝受保护目标。
+
+```ts
+import { ElementProtectedError, type ElementProtectionUpdate } from '@vrsim/earth-engine-ol';
+
+const protection: ElementProtectionUpdate = {
+  protected: true,
+  operatorId: 'user-42',
+  operatorName: '张三',
+  revision: 18,
+  expiresAt: Date.now() + 30_000
+};
+
+earth.elements.setProtection(point.id, protection); // 状态实际改变时返回 true
+const currentProtection = earth.elements.getProtection(point.id); // 冻结快照或 undefined
+
+try {
+  earth.draw.edit(point);
+} catch (error) {
+  if (error instanceof ElementProtectedError) console.log(error.operatorName);
+}
+
+earth.elements.setProtection(point.id, { protected: false, revision: 19 });
+```
+
+保护状态只负责客户端占用提示和内置交互门禁，不能替代服务端原子锁、租约、权限检查或提交版本校验。
+
 ## 5. Styles 与 Shapes
 
 ### 样式预设与结构化样式
@@ -563,7 +593,7 @@ toolbarSession.cancel(); // 结束 Transform 会话
 
 ## 9. Animations 动画
 
-内置动画共十种。`pulse`、`dash-flow`、`path-travel`、`grow`、`radar-scan` 与 `center-spread` 会校验目标几何能力；`blink`、`highlight`、`alert` 和 `fade` 作用于结构化样式目标。全部动画都不支持 `NativeStyleRef`。
+内置动画共十种。`pulse`、`dash-flow`、`path-travel`、`grow`、`radar-scan` 与 `center-spread` 会校验各自的目标几何能力；`blink` 和 `fade` 作用于结构化样式目标，`highlight` 和 `alert` 还要求目标的最终渲染几何为闭合面。全部动画都不支持 `NativeStyleRef`。
 
 ```ts
 import { animationTypes } from '@vrsim/earth-engine-ol';
@@ -778,6 +808,7 @@ V2 还公开以下稳定错误类型，调用方可通过 `instanceof` 分类处
 import {
   CapabilityError,
   DuplicateElementIdError,
+  ElementProtectedError,
   InteractionConflictError,
   InvalidArgumentError,
   InvalidSelectorError,

@@ -11,7 +11,11 @@ import StylesDemo from '../../examples/elements/StylesDemo.vue';
 import stylesSource from '../../examples/elements/StylesDemo.vue?raw';
 import { extractExampleSnippet } from '../../utils/exampleSource';
 
-const stylesSnippet = `${extractExampleSnippet(stylesSource, 'style-preset')}\n\n${extractExampleSnippet(stylesSource, 'style-patch')}`;
+const stylesSnippet = [
+  extractExampleSnippet(stylesSource, 'style-preset'),
+  extractExampleSnippet(stylesSource, 'style-patch'),
+  extractExampleSnippet(stylesSource, 'native-style-boundary')
+].join('\n\n');
 const patternFillSnippet = `${extractExampleSnippet(patternFillSource, 'pattern-fill-set')}\n\n${extractExampleSnippet(patternFillSource, 'pattern-fill-patch')}`;
 const patternFillDemoRef = ref<InstanceType<typeof PatternFillDemo> | null>(null);
 const resetPatternFillDemo = () => patternFillDemoRef.value?.reset();
@@ -21,7 +25,7 @@ const anchors = [
   { id: 'overview', label: '结构化样式模型' },
   { id: 'style-fields', label: 'StyleSpec 字段' },
   { id: 'presets', label: '内置 stylePresets' },
-  { id: 'example-element-styles', label: '预设、set 与 patch' },
+  { id: 'example-element-styles', label: '预设、结构化更新与 nativeStyle 边界' },
   { id: 'example-pattern-fill', label: '五种纹理与应用目标' },
   { id: 'native-style', label: 'nativeStyle 边界' },
   { id: 'api-actions', label: '样式方法' },
@@ -150,12 +154,13 @@ const runtimeApi = ['stylePresets'] as const;
       </section>
 
       <section id="example-element-styles" class="doc-prose">
-        <ExampleBlock title="预设、set 与 patch" :source="stylesSource" :snippet="stylesSnippet" source-lang="vue" snippet-lang="typescript">
+        <ExampleBlock title="预设、结构化更新与 nativeStyle 边界" :source="stylesSource" :snippet="stylesSnippet" source-lang="vue" snippet-lang="typescript">
           <template #description>
             <p>
               示例从 stylePresets 选择独立样式，通过 <ApiReference kind="method" to="#api-method-style-set">styles.set</ApiReference> 完整替换，再用
               <ApiReference kind="method" to="#api-method-style-patch">styles.patch</ApiReference>
-              只修改颜色。地图始终聚焦预览对象，上方标签明确区分完整替换与局部合并。
+              修改局部颜色；线样式会提供完整 <code>strokes</code> 数组，保留多层描边、宽度与虚线配置。原生边界闭环会正向应用 OpenLayers
+              Style，捕获原生状态上结构化 patch 的预期错误并验证 NativeStyleRef 不变，最后在同一 Element 上恢复所选结构化预设。
             </p>
           </template>
           <template #preview><StylesDemo /></template>
@@ -199,7 +204,11 @@ const runtimeApi = ['stylePresets'] as const;
           <el-descriptions-item label="状态形式"
             >ElementState 只保存当前 Earth 签发的 NativeStyleRef，不把 OpenLayers Style 放入 Core 状态。</el-descriptions-item
           >
-          <el-descriptions-item label="更新能力">可以用 styles.set() 完整替换；styles.patch()、结构化属性动画与序列化不支持原生样式。</el-descriptions-item>
+          <el-descriptions-item label="更新能力">
+            可以用 styles.set() 完整替换；styles.patch()、结构化属性动画与序列化不支持原生样式。patch 会在事务提交前抛出
+            <ApiReference kind="type" to="/components/reference/errors#api-error-unsupported-operation">UnsupportedOperationError</ApiReference>，原
+            NativeStyleRef 保持不变。
+          </el-descriptions-item>
           <el-descriptions-item label="兼容承诺">原生样式是高级逃生口，不承诺跨 OpenLayers 主版本可移植。</el-descriptions-item>
         </el-descriptions>
       </section>

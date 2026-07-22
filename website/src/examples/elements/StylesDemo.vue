@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { stylePresets, useEarth } from '@vrsim/earth-engine-ol';
+import CircleStyle from 'ol/style/Circle.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
+import Style from 'ol/style/Style.js';
+import { UnsupportedOperationError, stylePresets, useEarth } from '@vrsim/earth-engine-ol';
 import type { Coordinate, Earth, ShapeInput, StylePatch, StylePresetName } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 import { createConfiguredLayer } from '../../config/mapSources';
@@ -27,10 +31,27 @@ const earthRef = shallowRef<Earth | null>(null);
 const previewCenter = shallowRef<Coordinate | null>(null);
 const presetName = ref<StylePresetName>('point-default');
 const accentColor = ref<string | null>('#f56c6c');
-const currentAction = ref<'set' | 'patch'>('set');
+const currentAction = ref<'set' | 'patch' | 'native' | 'native-patch'>('set');
+const styleMode = ref<'structured' | 'native'>('structured');
+const nativePatchResult = ref<'idle' | 'verified' | 'failed'>('idle');
+const feedback = ref('选择结构化预设，或进入 nativeStyle 边界验证。');
 
 const isPointPreset = computed(() => pointPresetNames.has(presetName.value));
-const currentActionLabel = computed(() => (currentAction.value === 'set' ? '完整替换 set()' : '局部合并 patch()'));
+const currentActionLabel = computed(
+  () =>
+    ({
+      set: '完整替换 set()',
+      patch: '局部合并 patch()',
+      native: '原生替换 set({ nativeStyle })',
+      'native-patch': '边界校验 patch()'
+    })[currentAction.value]
+);
+const currentActionType = computed(() => {
+  if (currentAction.value === 'set') return 'success';
+  if (currentAction.value === 'patch') return 'warning';
+  if (currentAction.value === 'native-patch') return nativePatchResult.value === 'verified' ? 'success' : 'danger';
+  return 'info';
+});
 
 const geometryForPreset = (center: Coordinate): ShapeInput => {
   if (pointPresetNames.has(presetName.value)) return { type: 'point', controlPoints: [center] };
@@ -73,6 +94,9 @@ const applyPreset = () => {
   });
   earth.styles.set({ id: PREVIEW_ID }, stylePresets[presetName.value]);
   currentAction.value = 'set';
+  styleMode.value = 'structured';
+  nativePatchResult.value = 'idle';
+  feedback.value = `已应用 ${presetName.value} 结构化预设。`;
   focusPreview();
 };
 // #endregion style-preset
@@ -90,13 +114,82 @@ const patchAccent = () => {
   } else if (presetName.value === 'polygon-default') {
     patch = { fill: { color: patchColor } };
   } else {
-    patch = { strokes: [{ color: patchColor, width: 5, lineCap: 'round', lineJoin: 'round' }] };
+    const strokes = stylePresets[presetName.value].strokes;
+    if (strokes === undefined || strokes.length === 0) return;
+    patch = {
+      strokes: strokes.map((stroke, index) => ({
+        ...stroke,
+        ...(index === strokes.length - 1 ? { color: patchColor } : {})
+      }))
+    };
   }
   earth.styles.patch({ id: PREVIEW_ID }, patch);
   currentAction.value = 'patch';
+  feedback.value = `已用 styles.patch() 更新 ${presetName.value} 的局部颜色；线样式按完整 strokes 数组替换，并保留层数、宽度与虚线配置。`;
   focusPreview();
 };
 // #endregion style-patch
+
+// #region native-style-boundary
+const createNativePreviewStyle = () =>
+  new Style({
+    image: new CircleStyle({
+      radius: 13,
+      fill: new Fill({ color: '#8b5cf6' }),
+      stroke: new Stroke({ color: '#ffffff', width: 3 })
+    }),
+    stroke: new Stroke({ color: '#8b5cf6', width: 5, lineDash: [12, 7] }),
+    fill: new Fill({ color: 'rgba(139, 92, 246, 0.28)' })
+  });
+
+const applyNativeStyle = () => {
+  const earth = earthRef.value;
+  if (earth === null) return;
+
+  earth.styles.set({ id: PREVIEW_ID }, { nativeStyle: createNativePreviewStyle() });
+  currentAction.value = 'native';
+  styleMode.value = 'native';
+  nativePatchResult.value = 'idle';
+  feedback.value = 'nativeStyle 已通过 styles.set() 应用；Core 状态保存的是当前 Earth 签发的 NativeStyleRef。';
+  focusPreview();
+};
+
+const verifyNativePatchFailure = () => {
+  const earth = earthRef.value;
+  if (earth === null) return;
+  const beforeStyle = earth.elements.get(PREVIEW_ID)?.state.style;
+  if (beforeStyle === undefined) return;
+
+  currentAction.value = 'native-patch';
+  try {
+    earth.styles.patch({ id: PREVIEW_ID }, { zIndex: 20 });
+    const unchanged = earth.elements.get(PREVIEW_ID)?.state.style === beforeStyle;
+    nativePatchResult.value = 'failed';
+    feedback.value = `未抛出预期错误；${unchanged ? 'style 状态虽未变化，但边界未被正确拒绝。' : 'style 状态也发生了变化。'}`;
+  } catch (error) {
+    const unchanged = earth.elements.get(PREVIEW_ID)?.state.style === beforeStyle;
+    const expectedError = error instanceof UnsupportedOperationError;
+    nativePatchResult.value = expectedError && unchanged ? 'verified' : 'failed';
+    const errorName = error instanceof Error ? error.name : '未知错误';
+    feedback.value =
+      expectedError && unchanged
+        ? `预期失败：${errorName}；NativeStyleRef 与调用前相同，事务未提交。`
+        : `边界验证失败：${errorName}；状态${unchanged ? '未变化' : '发生了变化'}。`;
+  }
+};
+
+const restoreStructuredPreset = () => {
+  const earth = earthRef.value;
+  if (earth === null) return;
+
+  earth.styles.set({ id: PREVIEW_ID }, stylePresets[presetName.value]);
+  currentAction.value = 'set';
+  styleMode.value = 'structured';
+  nativePatchResult.value = 'idle';
+  feedback.value = `已在同一 Element 上恢复 ${presetName.value}，结构化 patch 与动画能力重新可用。`;
+  focusPreview();
+};
+// #endregion native-style-boundary
 
 onMounted(() => {
   if (mapTarget.value === null) return;
@@ -141,17 +234,28 @@ onBeforeUnmount(() => {
             <el-color-picker v-model="accentColor" aria-label="局部更新颜色" />
           </el-form-item>
           <div class="example-demo__action-buttons">
-            <el-button @click="patchAccent">应用 styles.patch()</el-button>
+            <el-button :disabled="styleMode === 'native'" @click="patchAccent">应用 styles.patch()</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group styles-demo__control-group styles-demo__boundary-group">
+          <strong>nativeStyle 边界闭环</strong>
+          <p class="styles-demo__boundary-copy">依次应用原生样式、验证结构化 patch 原子失败，再恢复当前结构化预设。</p>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" plain @click="applyNativeStyle">1. 应用 nativeStyle</el-button>
+            <el-button :disabled="styleMode !== 'native'" @click="verifyNativePatchFailure">2. 验证 patch 失败</el-button>
+            <el-button :disabled="styleMode !== 'native'" @click="restoreStructuredPreset">3. 恢复结构化预设</el-button>
           </div>
         </div>
       </el-form>
 
       <div class="example-demo__feedback styles-demo__status" aria-live="polite">
         <el-tag type="primary" effect="dark">{{ presetLabels[presetName] }}</el-tag>
-        <el-tag effect="plain"
-          ><code>{{ presetName }}</code></el-tag
-        >
-        <el-tag :type="currentAction === 'set' ? 'success' : 'warning'" effect="plain">当前结果：{{ currentActionLabel }}</el-tag>
+        <el-tag :type="styleMode === 'native' ? 'warning' : 'success'" effect="plain">{{ styleMode === 'native' ? 'NativeStyleRef' : 'StyleSpec' }}</el-tag>
+        <el-tag :type="currentActionType" effect="plain">当前结果：{{ currentActionLabel }}</el-tag>
+        <el-tag v-if="nativePatchResult !== 'idle'" :type="nativePatchResult === 'verified' ? 'success' : 'danger'" effect="dark">
+          {{ nativePatchResult === 'verified' ? '失败原子性已验证' : '边界验证异常' }}
+        </el-tag>
+        <span class="styles-demo__feedback-text">{{ feedback }}</span>
       </div>
     </div>
 
@@ -164,6 +268,8 @@ onBeforeUnmount(() => {
     <el-descriptions class="styles-demo__semantics" :column="2" border size="small">
       <el-descriptions-item label="styles.set()">用选中的 <code>StyleSpec</code> 完整替换当前样式。</el-descriptions-item>
       <el-descriptions-item label="styles.patch()">只合并颜色等局部字段，未提供的字段继续保留。</el-descriptions-item>
+      <el-descriptions-item label="{ nativeStyle }">通过 <code>styles.set()</code> 正向注册 OpenLayers Style。</el-descriptions-item>
+      <el-descriptions-item label="失败原子性">原生样式上的结构化 patch 抛错，且保留原 <code>NativeStyleRef</code>。</el-descriptions-item>
     </el-descriptions>
   </div>
 </template>
@@ -182,6 +288,24 @@ onBeforeUnmount(() => {
 
 .styles-demo__control-group > strong {
   grid-column: 1 / -1;
+}
+
+.styles-demo__boundary-group {
+  grid-column: 1 / -1;
+}
+
+.styles-demo__boundary-copy {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.styles-demo__feedback-text {
+  flex-basis: 100%;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .styles-demo__control-group :deep(.el-form-item) {

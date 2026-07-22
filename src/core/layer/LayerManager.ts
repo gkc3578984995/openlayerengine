@@ -104,7 +104,7 @@ export class LayerManager {
     });
   }
 
-  /** 移除全部未被 Element 占用的图层。 */
+  /** 预检全部图层均未被 Element 占用后，一次移除所有图层。 */
   clear(): void {
     this.#mutation(() => {
       for (const id of this.#states.keys()) this.#assertUnoccupied(id);

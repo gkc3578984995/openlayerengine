@@ -1,6 +1,6 @@
 import type { ShapeType } from '@vrsim/earth-engine-ol';
 
-export type InteractionTargetId = 'point-icon' | 'polyline' | 'polygon' | 'circle' | 'tailed-attack-arrow';
+export type InteractionTargetId = 'point-icon' | 'polyline' | 'polygon' | 'circle' | 'rectangle' | 'tailed-attack-arrow';
 
 export interface InteractionTargetExample {
   readonly id: InteractionTargetId;
@@ -51,6 +51,14 @@ export const interactionTargetExamples: readonly InteractionTargetExample[] = Ob
     label: '圆 Circle',
     type: 'circle',
     description: '两个锚点分别控制圆心与米制半径，不提供插入、删除和旋转。',
+    edit: Object.freeze({ move: true, insert: false, remove: false }),
+    transform: Object.freeze({ translate: true, rotate: false, scale: true, vertex: true })
+  }),
+  Object.freeze({
+    id: 'rectangle',
+    label: '矩形 Rectangle',
+    type: 'rectangle',
+    description: '两个对角控制点定义矩形；可直接验证 keepRectangle 的四角比例约束，不支持旋转。',
     edit: Object.freeze({ move: true, insert: false, remove: false }),
     transform: Object.freeze({ translate: true, rotate: false, scale: true, vertex: true })
   }),

@@ -24,7 +24,7 @@ const emit = defineEmits<{
 }>();
 const slots = useSlots();
 const expanded = ref(false);
-const sourceMode = ref<'snippet' | 'source'>('source');
+const sourceMode = ref<'snippet' | 'source'>(props.snippet === undefined ? 'source' : 'snippet');
 const copyState = ref<'error' | 'idle' | 'success'>('idle');
 const sourcePanelId = `example-source-${useId()}`;
 const hasPreview = computed(() => slots.preview !== undefined);
@@ -129,10 +129,10 @@ onBeforeUnmount(() => {
             text
             :aria-expanded="expanded"
             :aria-controls="sourcePanelId"
-            :aria-label="expanded ? `收起${title}完整代码` : `展开${title}完整代码`"
+            :aria-label="expanded ? `收起${title}示例代码` : `展开${title}示例代码`"
             @click="toggle"
           >
-            <span>{{ expanded ? '收起完整代码' : '展开完整代码' }}</span>
+            <span>{{ expanded ? '收起示例代码' : '展开示例代码' }}</span>
             <el-icon :size="14" aria-hidden="true">
               <ArrowUp v-if="expanded" />
               <ArrowDown v-else />

@@ -4,6 +4,7 @@ import { Moon, Sunny } from '@element-plus/icons-vue';
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getNavigationLabel, getTopNavIndex, sideGroups, topNavItems, type TopNavIndex } from '../config/navigation';
+import { projectIssuesUrl, projectRepositoryUrl } from '../config/projectLinks';
 import BackToTop from '../components/BackToTop.vue';
 import { getTheme, toggleTheme, type Theme } from '../utils/theme';
 
@@ -87,7 +88,7 @@ const pageTitle = computed(() => getNavigationLabel(route.path));
         >
           <el-icon :size="20"><Sunny v-if="isDark" /><Moon v-else /></el-icon>
         </button>
-        <a class="docs-header__gh" href="https://github.com" target="_blank" rel="noopener" title="GitHub">
+        <a class="docs-header__gh" :href="projectRepositoryUrl" target="_blank" rel="noopener" title="GitHub">
           <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor">
             <path
               d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
@@ -101,25 +102,30 @@ const pageTitle = computed(() => getNavigationLabel(route.path));
       <aside v-if="!isHome" class="docs-sidebar">
         <el-scrollbar class="docs-sidebar__scrollbar">
           <div class="docs-sidebar__inner">
-            <div v-for="group in sideGroups" :key="group.title" class="docs-sidebar__group">
-              <p class="docs-sidebar__title">{{ group.title }}</p>
-              <div v-for="item in group.items" :key="item.to + item.label" class="docs-sidebar__item">
-                <RouterLink class="docs-sidebar__link" :class="{ 'is-active': isParentActive(item) }" :to="item.to">
-                  {{ item.label }}
-                </RouterLink>
-                <div v-if="item.children" class="docs-sidebar__children">
-                  <RouterLink
-                    v-for="child in item.children"
-                    :key="child.to + child.label"
-                    class="docs-sidebar__child-link"
-                    :class="{ 'is-active': route.path === child.to }"
-                    :to="child.to"
+            <el-menu class="docs-sidebar__menu" :default-active="route.path">
+              <el-menu-item-group v-for="group in sideGroups" :key="group.title" class="docs-sidebar__group">
+                <template #title
+                  ><span class="docs-sidebar__title">{{ group.title }}</span></template
+                >
+                <template v-for="item in group.items" :key="item.to + item.label">
+                  <el-menu-item
+                    class="docs-sidebar__menu-item"
+                    :class="{ 'is-parent-active': route.path !== item.to && isParentActive(item) }"
+                    :index="item.to"
                   >
-                    {{ child.label }}
-                  </RouterLink>
-                </div>
-              </div>
-            </div>
+                    <RouterLink class="docs-sidebar__menu-link" :to="item.to" @click.stop>{{ item.label }}</RouterLink>
+                  </el-menu-item>
+                  <el-menu-item
+                    v-for="child in item.children ?? []"
+                    :key="child.to + child.label"
+                    class="docs-sidebar__menu-item docs-sidebar__menu-item--child"
+                    :index="child.to"
+                  >
+                    <RouterLink class="docs-sidebar__menu-link" :to="child.to" @click.stop>{{ child.label }}</RouterLink>
+                  </el-menu-item>
+                </template>
+              </el-menu-item-group>
+            </el-menu>
           </div>
         </el-scrollbar>
       </aside>
@@ -140,8 +146,8 @@ const pageTitle = computed(() => getNavigationLabel(route.path));
               </div>
               <div class="docs-footer__col">
                 <h4>社区</h4>
-                <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
-                <RouterLink to="/">反馈建议</RouterLink>
+                <a :href="projectRepositoryUrl" target="_blank" rel="noopener">GitHub</a>
+                <a :href="projectIssuesUrl" target="_blank" rel="noopener">反馈建议</a>
               </div>
               <div class="docs-footer__col docs-footer__col--license">
                 <p>Released under the MIT License.</p>

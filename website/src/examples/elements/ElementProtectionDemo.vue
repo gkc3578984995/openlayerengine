@@ -202,6 +202,7 @@ const setSelectedProtection = (protectedValue: boolean, expiresAt?: number) => {
 
 const protectForTenSeconds = () => setSelectedProtection(true, Date.now() + 10_000);
 
+// #region element-protection-interactions
 const tryBuiltInEdit = () => {
   const earth = earthRef.value;
   const element = earth?.elements.get(selectedId.value);
@@ -216,6 +217,21 @@ const tryBuiltInEdit = () => {
     status.value = `${selectedRow.value?.label ?? element.id} 被保护，Edit 已拒绝启动`;
   }
 };
+
+const tryBuiltInTransform = () => {
+  const earth = earthRef.value;
+  const element = earth?.elements.get(selectedId.value);
+  if (earth === null || earth === undefined || element === undefined) return;
+  try {
+    const transform = earth.transform.select(element, { policy: 'replace' });
+    transform.cancel();
+    status.value = `${selectedRow.value?.label ?? element.id} 未受保护，Transform 已正常启动并立即清理`;
+  } catch (error) {
+    if (!(error instanceof ElementProtectedError)) throw error;
+    status.value = `${selectedRow.value?.label ?? element.id} 被保护，Transform 已拒绝启动`;
+  }
+};
+// #endregion element-protection-interactions
 
 const protectDefaults = () => {
   const earth = earthRef.value;
@@ -333,6 +349,7 @@ onBeforeUnmount(() => {
           <span>交互验证</span>
           <div class="example-demo__action-buttons">
             <el-button type="primary" plain @click="tryBuiltInEdit">尝试启动 Edit</el-button>
+            <el-button type="primary" plain @click="tryBuiltInTransform">尝试启动 Transform</el-button>
           </div>
         </div>
       </div>

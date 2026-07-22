@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import { Earth, type Coordinate, type Element, type StyleSpec, type TransformMode, type TransformSession } from '@vrsim/earth-engine-ol';
+import { Earth, type Coordinate, type Element, type StyleSpec, type TransformMode, type TransformOptions, type TransformSession } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 import { createConfiguredLayer } from '../../config/mapSources';
 import { interactionTargetById, interactionTargetExamples, type InteractionTargetId } from '../../config/interactionExamples';
@@ -68,16 +68,100 @@ const cancelSession = () => {
   toolbarVisible.value = true;
 };
 
-const sessionOptions = () => ({
+// #region transform-options-lab
+type TransformOptionPresetId = 'full' | 'rectangle' | 'translate-only';
+type TransformExperimentOptions = Required<
+  Pick<
+    TransformOptions,
+    'hitTolerance' | 'translate' | 'scale' | 'stretch' | 'rotate' | 'translateBBox' | 'noFlip' | 'keepRectangle' | 'buffer' | 'pointRadius'
+  >
+>;
+
+interface TransformOptionPreset {
+  readonly id: TransformOptionPresetId;
+  readonly label: string;
+  readonly description: string;
+  readonly options: TransformExperimentOptions;
+}
+
+const transformOptionPresets = {
+  full: {
+    id: 'full',
+    label: 'full · 完整能力',
+    description: '开放平移、缩放、拉伸和旋转，可从目标或包围框直接拖动。',
+    options: {
+      hitTolerance: 8,
+      translate: 'feature',
+      scale: true,
+      stretch: true,
+      rotate: true,
+      translateBBox: true,
+      noFlip: false,
+      keepRectangle: false,
+      buffer: 16,
+      pointRadius: 10
+    }
+  },
+  rectangle: {
+    id: 'rectangle',
+    label: 'rectangle · 矩形约束',
+    description: '使用中心平移并禁止翻转；Rectangle 四角缩放保持矩形比例。',
+    options: {
+      hitTolerance: 12,
+      translate: 'center',
+      scale: true,
+      stretch: false,
+      rotate: true,
+      translateBBox: true,
+      noFlip: true,
+      keepRectangle: true,
+      buffer: 24,
+      pointRadius: 12
+    }
+  },
+  'translate-only': {
+    id: 'translate-only',
+    label: 'translate-only · 仅平移',
+    description: '只保留目标与包围框平移，不创建缩放、拉伸或旋转手柄。',
+    options: {
+      hitTolerance: 6,
+      translate: 'feature',
+      scale: false,
+      stretch: false,
+      rotate: false,
+      translateBBox: true,
+      noFlip: false,
+      keepRectangle: false,
+      buffer: 8,
+      pointRadius: 16
+    }
+  }
+} as const satisfies Record<TransformOptionPresetId, TransformOptionPreset>;
+
+const transformOptionPresetRows = Object.values(transformOptionPresets);
+const optionPresetId = ref<TransformOptionPresetId>('full');
+const hitTolerance = ref<number>(transformOptionPresets.full.options.hitTolerance);
+const activeOptionPreset = computed(() => transformOptionPresets[optionPresetId.value]);
+const activeTransformOptions = computed<TransformExperimentOptions>(() => ({
+  ...activeOptionPreset.value.options,
+  hitTolerance: hitTolerance.value
+}));
+
+const setOptionPreset = (id: TransformOptionPresetId) => {
+  if (isActive.value) return;
+  optionPresetId.value = id;
+  hitTolerance.value = transformOptionPresets[id].options.hitTolerance;
+  lastEvent.value = `${transformOptionPresets[id].label} 已就绪；启动新 Session 后生效`;
+};
+
+const sessionOptions = (): TransformOptions => ({
   selector: { module: MODULE },
-  translate: 'feature' as const,
-  scale: true,
-  stretch: true,
-  rotate: true,
+  ...activeTransformOptions.value,
   historyLimit: 20,
-  toolbar: { offset: [0, 14] as const, visible: true },
-  policy: 'replace' as const
+  toolbar: { offset: [0, 14], visible: true },
+  policy: 'replace'
 });
+// #endregion transform-options-lab
 
 const styleFor = (id: InteractionTargetId, role: 'primary' | 'secondary'): StyleSpec => {
   const color = role === 'primary' ? '#7c3aed' : '#059669';
@@ -204,7 +288,7 @@ const startWaiting = () => {
   const session = earth.transform.start(sessionOptions());
   bindSession(session);
   selectedId.value = '未选择';
-  lastEvent.value = 'start · 请在地图中单击 A 或 B';
+  lastEvent.value = `start · ${activeOptionPreset.value.label}；请在地图中单击 A 或 B`;
 };
 
 const selectFirst = () => {
@@ -215,7 +299,7 @@ const selectFirst = () => {
   const session = earth.transform.select(element, sessionOptions());
   bindSession(session);
   selectedId.value = element.id;
-  lastEvent.value = `select(element) · ${element.id}`;
+  lastEvent.value = `select(element) · ${element.id} · ${activeOptionPreset.value.label}`;
 };
 
 const replaceSelected = () => {
@@ -308,6 +392,7 @@ const focus = () => {
 
 const reset = () => {
   cancelSession();
+  setOptionPreset('full');
   earthRef.value?.elements.remove({ module: 'docs-transform-copy' });
   copyCount.value = 0;
   operationCount.value = 0;
@@ -379,6 +464,59 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="说明" :span="2">{{ selectedTarget.description }}</el-descriptions-item>
     </el-descriptions>
 
+    <div class="example-demo__control-panel transform-session-demo__options-panel">
+      <div class="example-demo__action-group transform-session-demo__preset-control">
+        <span>TransformOptions 预设（新 Session 生效）</span>
+        <el-radio-group :model-value="optionPresetId" :disabled="isActive" @update:model-value="setOptionPreset">
+          <el-radio-button v-for="preset in transformOptionPresetRows" :key="preset.id" :value="preset.id">
+            {{ preset.id }}
+          </el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="example-demo__field transform-session-demo__hit-tolerance">
+        <span>hitTolerance · CSS px</span>
+        <el-slider v-model="hitTolerance" :min="0" :max="32" :step="1" :disabled="isActive" show-input />
+      </div>
+      <p class="transform-session-demo__preset-description">
+        <strong>{{ activeOptionPreset.label }}</strong>
+        <span>{{ activeOptionPreset.description }}</span>
+        <small v-if="isActive">结束当前 Session 后可切换配置。</small>
+      </p>
+    </div>
+
+    <el-descriptions class="transform-session-demo__option-values" :column="5" border size="small">
+      <el-descriptions-item label="translate"
+        ><code>{{ activeTransformOptions.translate }}</code></el-descriptions-item
+      >
+      <el-descriptions-item label="scale"
+        ><code>{{ activeTransformOptions.scale }}</code></el-descriptions-item
+      >
+      <el-descriptions-item label="stretch"
+        ><code>{{ activeTransformOptions.stretch }}</code></el-descriptions-item
+      >
+      <el-descriptions-item label="rotate"
+        ><code>{{ activeTransformOptions.rotate }}</code></el-descriptions-item
+      >
+      <el-descriptions-item label="translateBBox"
+        ><code>{{ activeTransformOptions.translateBBox }}</code></el-descriptions-item
+      >
+      <el-descriptions-item label="noFlip"
+        ><code>{{ activeTransformOptions.noFlip }}</code></el-descriptions-item
+      >
+      <el-descriptions-item label="keepRectangle"
+        ><code>{{ activeTransformOptions.keepRectangle }}</code></el-descriptions-item
+      >
+      <el-descriptions-item label="buffer"
+        ><code>{{ activeTransformOptions.buffer }} px</code></el-descriptions-item
+      >
+      <el-descriptions-item label="pointRadius"
+        ><code>{{ activeTransformOptions.pointRadius }} px</code></el-descriptions-item
+      >
+      <el-descriptions-item label="hitTolerance"
+        ><code>{{ activeTransformOptions.hitTolerance }} px</code></el-descriptions-item
+      >
+    </el-descriptions>
+
     <div class="example-demo__control-panel transform-session-demo__control-panel">
       <div class="example-demo__action-group">
         <span>目标选择</span>
@@ -440,11 +578,13 @@ onBeforeUnmount(() => {
     </div>
     <div class="transform-session-demo__map-shell">
       <div ref="mapTarget" class="example-stage"></div>
-      <div class="transform-session-demo__map-guide">选择 A 或 B；拖拽图形、外框手柄，或切换到顶点编辑</div>
+      <div class="transform-session-demo__map-guide">{{ activeOptionPreset.id }} · 选择 A 或 B；拖拽图形、外框手柄，或切换到顶点编辑</div>
     </div>
     <el-descriptions class="transform-session-demo__summary" :column="2" border>
       <el-descriptions-item label="当前选择">{{ selectedId }}</el-descriptions-item>
       <el-descriptions-item label="当前模式">{{ mode }}</el-descriptions-item>
+      <el-descriptions-item label="选项预设">{{ activeOptionPreset.id }}</el-descriptions-item>
+      <el-descriptions-item label="命中容差">{{ activeTransformOptions.hitTolerance }} CSS px</el-descriptions-item>
       <el-descriptions-item label="完整操作数">{{ operationCount }}</el-descriptions-item>
       <el-descriptions-item label="复制数">{{ copyCount }}</el-descriptions-item>
       <el-descriptions-item label="最近事件">{{ lastEvent }}</el-descriptions-item>
@@ -488,6 +628,38 @@ onBeforeUnmount(() => {
 }
 
 .transform-session-demo__target-detail {
+  margin-bottom: 12px;
+}
+
+.transform-session-demo__options-panel {
+  grid-template-columns: minmax(360px, 1.4fr) minmax(280px, 1fr);
+}
+
+.transform-session-demo__preset-control {
+  min-width: 0;
+}
+
+.transform-session-demo__hit-tolerance {
+  min-width: 0;
+}
+
+.transform-session-demo__preset-description {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 4px;
+  margin: 0;
+  color: var(--doc-text-muted);
+}
+
+.transform-session-demo__preset-description strong {
+  color: var(--doc-text);
+}
+
+.transform-session-demo__preset-description small {
+  color: var(--el-color-warning);
+}
+
+.transform-session-demo__option-values {
   margin-bottom: 12px;
 }
 

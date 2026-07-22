@@ -450,8 +450,7 @@ export interface LayerService {
    */
   remove(id: string): boolean;
   /**
-   * 清空全部图层。
-   *
+   * 清空全部图层；任一图层仍承载 Element 时整次调用失败，不会部分移除。
    *
    * @example
    * ```ts

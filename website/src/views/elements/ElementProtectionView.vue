@@ -9,7 +9,10 @@ import ElementProtectionDemo from '../../examples/elements/ElementProtectionDemo
 import elementProtectionSource from '../../examples/elements/ElementProtectionDemo.vue?raw';
 import { extractExampleSnippet } from '../../utils/exampleSource';
 
-const elementProtectionSnippet = extractExampleSnippet(elementProtectionSource, 'element-protection');
+const elementProtectionSnippet = [
+  extractExampleSnippet(elementProtectionSource, 'element-protection'),
+  extractExampleSnippet(elementProtectionSource, 'element-protection-interactions')
+].join('\n\n');
 const elementProtectionDemoRef = ref<InstanceType<typeof ElementProtectionDemo> | null>(null);
 const resetElementProtectionDemo = () => elementProtectionDemoRef.value?.reset();
 const focusElementProtectionDemo = () => elementProtectionDemoRef.value?.focusSelected();
@@ -139,7 +142,7 @@ const apiMembers = { ElementService: ['setProtection', 'getProtection'] } as con
               <ApiReference kind="method" to="#api-method-set-protection">setProtection</ApiReference>
               加锁、解锁或设置 10 秒到期时间，并用
               <ApiReference kind="method" to="#api-method-get-protection">getProtection</ApiReference>
-              刷新表格。点击“尝试启动 Edit”可直接验证受保护目标会抛出
+              刷新表格。点击“尝试启动 Edit”或“尝试启动 Transform”可直接验证受保护目标会抛出
               <ApiReference kind="type" to="/components/reference/errors#api-error-element-protected">ElementProtectedError</ApiReference>。
             </p>
           </template>
@@ -152,6 +155,7 @@ const apiMembers = { ElementService: ['setProtection', 'getProtection'] } as con
         <ul>
           <li>受保护目标仍能被事件、atPixel 和业务查询命中，因此本地用户仍可查看属性、定位目标或打开只读信息。</li>
           <li>draw.edit 与 transform.select 会在启动前拒绝受保护目标；活动 Edit / Transform 期间收到保护消息时，会取消工作态并回滚未提交修改。</li>
+          <li>Transform 从点击位置按视觉顺序检查候选；最上层候选受保护时会直接拒绝本次选择，不会穿透并选中下层 Element。</li>
           <li>解除保护不会自动重启先前会话，用户需要重新发起编辑，避免远端状态变化触发意外操作。</li>
           <li>
             element.update、elements.update/remove、样式 API 与原生 OpenLayers Interaction 不会被保护状态全局拦截，以便协同客户端仍能应用服务端确认的远端更新。

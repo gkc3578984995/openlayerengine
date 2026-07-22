@@ -120,7 +120,8 @@ describe('website Element documentation', () => {
 
     expect(demo).toContain('const info = element.geometryDetails;');
     expect(demo).toContain('selectedGeometryDetails.value = info;');
-    for (const label of ['范围角点', '最终轮廓点', '规范控制点', '圆心', '半径']) expect(demo).toContain(`label="${label}"`);
+    expect(demo).toContain('earth.view.toGeographicCoordinates(projectedCoordinate)');
+    for (const label of ['范围角点', '最终轮廓点', '规范控制点', '圆心', '半径', '经纬度坐标示例']) expect(demo).toContain(`label="${label}"`);
     expect(demo).toContain('/api/types#api-type-element-geometry-details');
     expect(demo).toContain('/api/types#api-type-element-render-geometry');
     expect(demo).toContain('/api/types#api-type-map-extent');
@@ -184,6 +185,12 @@ describe('website Element documentation', () => {
     expect(demo).toContain('href="/api/types#api-type-shape-input"');
     expect(demo).toContain('href="/api/types#api-type-shape-state"');
     expect(demo).toContain('defineExpose({ reset, focusSelected })');
+
+    const desktopLayout = demo.slice(demo.indexOf('@media (min-width: 1501px)'), demo.indexOf('@media (max-width: 1500px)'));
+    expect(desktopLayout).toContain('align-items: stretch;');
+    expect(desktopLayout).toContain('flex: 1 1 0;');
+    expect(desktopLayout).toContain('height: 100%;');
+    expect(desktopLayout).toContain('max-height: none;');
   });
 
   it('connects the overview example toolbar to stable reset and focus actions', async () => {
@@ -247,6 +254,18 @@ describe('website Element documentation', () => {
       /watch\(\[tracks, decoration, startCap, endCap, color, inlineText, repeatEnabled, repeatSpacingPx\],\s*\(\) => applyLinework\(\)/u
     );
     expect(lineworkDemo).toContain('if (focus) earth.view.animateFlyTo');
+  });
+
+  it('demonstrates the nativeStyle success, atomic failure and structured recovery loop', async () => {
+    const [demo, view] = await Promise.all([read('website/src/examples/elements/StylesDemo.vue'), read('website/src/views/elements/StylesView.vue')]);
+
+    expect(demo).toContain('// #region native-style-boundary');
+    expect(demo).toContain('earth.styles.set({ id: PREVIEW_ID }, { nativeStyle: createNativePreviewStyle() })');
+    expect(demo).toContain('error instanceof UnsupportedOperationError');
+    expect(demo).toContain('state.style === beforeStyle');
+    expect(demo).toContain('const restoreStructuredPreset = () =>');
+    expect(view).toContain("extractExampleSnippet(stylesSource, 'native-style-boundary')");
+    expect(view).toMatch(/原\s*NativeStyleRef 保持不变/u);
   });
 
   it('uses focused snippets on every task-oriented Element page', async () => {

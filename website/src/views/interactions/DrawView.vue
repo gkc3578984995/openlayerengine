@@ -12,8 +12,10 @@ import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const anchors = [
   { id: 'overview', label: '会话模型' },
+  { id: 'result-options', label: 'limit 与 keepGraphics' },
   { id: 'method-examples', label: 'API 与示例' },
   { id: 'example-draw-session', label: '20 种 Shape 的启动、历史、结果查询与释放' },
+  { id: 'pc-shortcuts', label: 'PC 键鼠快捷键' },
   { id: 'events', label: '事件与提交边界' },
   { id: 'lifecycle', label: '完成、取消与销毁' },
   { id: 'example-interaction-policy', label: 'replace / reject 交互仲裁与资源恢复' },
@@ -43,8 +45,23 @@ const eventRows = [
   { name: 'start', timing: '首个控制点或自由绘制手势开始', payload: 'coordinate', store: '不写入' },
   { name: 'change', timing: '草图预览几何变化', payload: 'geometry、coordinate?', store: '不写入' },
   { name: 'click', timing: '控制点被草图接受', payload: 'coordinate、controlPointCount', store: '不写入' },
-  { name: 'complete', timing: 'Element 成功提交', payload: 'element', store: '已提交' },
+  { name: 'complete', timing: 'Element 成功提交', payload: 'element', store: '同步回调内可读；是否保留由 keepGraphics 决定' },
   { name: 'cancel', timing: '主动取消、替换、销毁或异常终止', payload: 'reason', store: '不提交草图' }
+];
+
+const resultOptionRows = [
+  { option: 'limit: 0', behavior: '持续接受新的完成结果，直到显式 finish()、右击、cancel()、destroy() 或被其他交互替换。' },
+  { option: 'limit: 1 / 3', behavior: '每次 complete 都计数；达到上限后 Session 自动进入 finished。显式 finish() 或右击仍会立即结束当前 Session。' },
+  { option: 'keepGraphics: true', behavior: '完成的 Element 保留在 Store，并进入 Session.results、finished 与 draw.query()。' },
+  { option: 'keepGraphics: false', behavior: 'Element 仅在全部同步 complete 监听器执行期间有效；随后自动移除，也不会进入 results。该次完成仍计入 limit。' }
+];
+
+const pcShortcutRows = [
+  { input: '左键单击', action: '添加控制点；固定点数 Shape 达到完成条件后自动触发 complete。' },
+  { input: '右键单击', action: '按 finish() 语义完成合法草图并结束 Session；草图不完整时结束但不产生结果。' },
+  { input: 'Shift + 左键拖动', action: '当前 Shape 支持自由绘制时，连续采集轨迹并在松开后完成。' },
+  { input: 'Ctrl/Cmd + Z', action: '撤销当前未完成草图的最近一个控制点。' },
+  { input: 'Ctrl/Cmd + Y 或 Ctrl/Cmd + Shift + Z', action: '重做当前草图中最近撤销的控制点。' }
 ];
 
 const lifecycleRows = [
@@ -86,6 +103,23 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
         </el-alert>
       </section>
 
+      <section id="result-options" class="doc-prose">
+        <h2 class="doc-h2">结果数量与保留策略</h2>
+        <p>
+          <ApiReference kind="property" to="/api/types#api-type-draw-options-property-limit">limit</ApiReference>
+          控制自动结束前允许完成的数量，<ApiReference kind="property" to="/api/types#api-type-draw-options-property-keep-graphics">keepGraphics</ApiReference>
+          控制完成 Element 是否留在 Store。两者相互独立：临时结果虽然不保留，仍会触发 <code>complete</code> 并计入 <code>limit</code>。
+        </p>
+        <el-table :data="resultOptionRows" border>
+          <el-table-column prop="option" label="配置" min-width="190" />
+          <el-table-column prop="behavior" label="可观察行为" min-width="520" />
+        </el-table>
+        <el-alert type="warning" :closable="false" show-icon title="keepGraphics: false 的 Element 不能异步持有">
+          <code>complete</code> 是同步派发；监听器可以在回调内读取 <code>event.element</code>。回调返回后该临时 Element 会失效，不要把句柄交给
+          Promise、定时器或后续 UI 状态。
+        </el-alert>
+      </section>
+
       <section id="method-examples" class="doc-prose">
         <h2 class="doc-h2">公开成员如何对应到示例</h2>
         <p>表中列出了 Draw 页归属的全部服务和 Session 成员。点击“查看示例”会聚焦到同一个可运行场景，再按按钮验证对应行为。</p>
@@ -116,11 +150,21 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
               <ApiReference kind="method" to="/api/types#api-type-draw-session-method-finish">finish</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-draw-session-method-cancel">cancel</ApiReference> 与
               <ApiReference kind="method" to="/api/types#api-type-draw-session-method-destroy">destroy</ApiReference>
-              的完整流程。示例面板还可直接验证 <code>results</code>、<code>query()</code> 与 <code>clear()</code>；展开的代码与正在运行的组件来自同一文件。
+              的完整流程。启动前可切换 <code>limit</code> 的 0 / 1 / 3 三档和 <code>keepGraphics</code>，状态区会并列显示同步
+              <code>complete</code> 次数、句柄观测、<code>results</code> 与 <code>query()</code>；展开的代码与正在运行的组件来自同一文件。
             </p>
           </template>
           <template #preview><DrawSessionDemo ref="drawSessionDemoRef" /></template>
         </ExampleBlock>
+      </section>
+
+      <section id="pc-shortcuts" class="doc-prose">
+        <h2 class="doc-h2">PC 键鼠快捷键</h2>
+        <p>快捷键只作用于当前 active Draw Session；页面按钮调用相同的 Session 方法，可用于对照键鼠行为。</p>
+        <el-table :data="pcShortcutRows" border>
+          <el-table-column prop="input" label="输入" min-width="250" />
+          <el-table-column prop="action" label="行为" min-width="480" />
+        </el-table>
       </section>
 
       <section id="events" class="doc-prose">

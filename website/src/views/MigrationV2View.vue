@@ -258,20 +258,23 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-layers',
     legacy: 'Base / PointLayer / BillboardLayer / PolylineLayer / PolygonLayer / CircleLayer',
     current: [
-      { label: 'earth.layers', kind: 'property', to: '/guide/earth-create#api-property-layers' },
-      { label: 'earth.layers.add()', kind: 'method', to: '/guide/earth-create#api-method-layers-add' },
-      { label: 'earth.elements', kind: 'property', to: '#migration-map-elements' }
+      { label: 'earth.layers', kind: 'property', to: '/components/core/earth#api-property-layers' },
+      { label: 'earth.layers.add()', kind: 'method', to: '/components/core/layers#api-method-add' },
+      { label: 'earth.elements', kind: 'property', to: '/components/core/earth#api-property-elements' }
     ],
-    description: '一个 vector Layer 可承载多种 Shape；业务图形不再按几何类型拆 Layer 类。',
+    description: '一个 vector Layer 可承载多种 Shape；旧 Billboard 明确迁为 Point + StyleSpec.symbol 的 icon 分支，不再保留独立 Billboard 类型。',
     status: 'mapped'
   },
   {
     id: 'migration-map-elements',
     legacy: 'Feature 参数、feature.get("param")、图层 add/set/remove',
     current: [
-      { label: 'Element', kind: 'type', to: '#migration-map-elements' },
-      { label: 'Element.state', kind: 'property', to: '#migration-map-elements' },
-      { label: 'earth.elements.add()/query()/update()/remove()', kind: 'method', to: '#example-layer-element' }
+      { label: 'Element', kind: 'type', to: '/components/elements/overview#api-type-element' },
+      { label: 'Element.state', kind: 'property', to: '/components/elements/overview#api-property-state' },
+      { label: 'earth.elements.add()', kind: 'method', to: '/components/elements/create#example-element-create' },
+      { label: 'earth.elements.query()', kind: 'method', to: '/components/elements/query#example-element-query' },
+      { label: 'earth.elements.update()', kind: 'method', to: '/components/elements/update#example-element-update' },
+      { label: 'earth.elements.remove()', kind: 'method', to: '/components/elements/cleanup#example-element-cleanup' }
     ],
     description: 'Element.state 是业务状态真源；olFeature 仅用于必要的 OpenLayers 互操作。',
     status: 'mapped'
@@ -280,9 +283,9 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-draw-edit',
     legacy: 'DynamicDraw / PlotDraw / PlotEdit',
     current: [
-      { label: 'earth.draw', kind: 'property', to: '#migration-map-draw-edit' },
-      { label: 'earth.draw.start()', kind: 'method', to: '#example-service-lifecycle' },
-      { label: 'earth.draw.edit()', kind: 'method', to: '#migration-map-draw-edit' }
+      { label: 'earth.draw', kind: 'property', to: '/components/core/earth#api-property-draw' },
+      { label: 'earth.draw.start()', kind: 'method', to: '/components/interactions/draw#example-draw-session' },
+      { label: 'earth.draw.edit()', kind: 'method', to: '/components/interactions/edit#example-edit-session' }
     ],
     description: '普通图形与 Plot 共用 Draw Session；编辑返回独立 Edit Session。',
     status: 'mapped'
@@ -291,8 +294,8 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-transform',
     legacy: 'Transform / TransformInteraction',
     current: [
-      { label: 'earth.transform', kind: 'property', to: '#migration-map-transform' },
-      { label: 'earth.transform.start()/select()', kind: 'method', to: '#migration-map-transform' }
+      { label: 'earth.transform', kind: 'property', to: '/components/core/earth#api-property-transform' },
+      { label: 'earth.transform.start()/select()', kind: 'method', to: '/components/interactions/transform#example-transform-session' }
     ],
     description: '使用 Session 管理选择、平移、旋转、缩放、编辑、撤销与重做。',
     status: 'mapped'
@@ -301,9 +304,9 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-measure',
     legacy: 'earth.useMeasure() / line* / polygonMeasure',
     current: [
-      { label: 'earth.measure', kind: 'property', to: '#migration-map-measure' },
-      { label: 'earth.measure.start()', kind: 'method', to: '#migration-map-measure' },
-      { label: 'earth.measure.clear()', kind: 'method', to: '#migration-map-measure' }
+      { label: 'earth.measure', kind: 'property', to: '/components/core/earth#api-property-measure' },
+      { label: 'earth.measure.start()', kind: 'method', to: '/components/interactions/measure#example-measure-session' },
+      { label: 'earth.measure.clear()', kind: 'method', to: '/components/interactions/measure#example-measure-session' }
     ],
     description: '距离与面积统一为 Measure Session，历史图形由 earth.measure.clear() 清理。',
     status: 'mapped'
@@ -312,8 +315,8 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-events',
     legacy: 'GlobalEvent / addMouse* / enable / disable',
     current: [
-      { label: 'earth.events', kind: 'property', to: '#migration-map-events' },
-      { label: 'earth.events.on()/once()', kind: 'method', to: '#example-service-lifecycle' }
+      { label: 'earth.events', kind: 'property', to: '/components/core/earth#api-property-events' },
+      { label: 'earth.events.on()/once()', kind: 'method', to: '/components/services/events#example-event-lifecycle' }
     ],
     description: '订阅即启用，返回幂等注销函数；事件坐标使用当前 View 投影。',
     status: 'mapped'
@@ -322,8 +325,8 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-context-menu',
     legacy: 'earth.useContextMenu() / addDefaultMenu / addModuleMenu',
     current: [
-      { label: 'earth.contextMenu', kind: 'property', to: '#migration-map-context-menu' },
-      { label: 'earth.contextMenu.register()', kind: 'method', to: '#migration-map-context-menu' }
+      { label: 'earth.contextMenu', kind: 'property', to: '/components/core/earth#api-property-context-menu' },
+      { label: 'earth.contextMenu.register()', kind: 'method', to: '/components/services/context-menu#example-context-menu-lifecycle' }
     ],
     description: '地图、module 与 Element 菜单统一注册，每次注册返回独立控制句柄。',
     status: 'mapped'
@@ -332,9 +335,10 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-overlays',
     legacy: 'OverlayLayer / Descriptor',
     current: [
-      { label: 'earth.overlays', kind: 'property', to: '#migration-map-overlays' },
-      { label: 'earth.overlays.add()/createDescriptor()', kind: 'method', to: '#migration-map-overlays' },
-      { label: 'OverlayHandle', kind: 'type', to: '#migration-map-overlays' }
+      { label: 'earth.overlays', kind: 'property', to: '/components/core/earth#api-property-overlays' },
+      { label: 'earth.overlays.add()', kind: 'method', to: '/components/services/overlays#example-overlay-lifecycle' },
+      { label: 'earth.overlays.createDescriptor()', kind: 'method', to: '/components/services/descriptor#example-descriptor-lifecycle' },
+      { label: 'OverlayHandle', kind: 'type', to: '/components/services/overlays#api' }
     ],
     description: 'Overlay 与 Descriptor 由同一服务管理，返回公开 Handle，不再返回原生 OL Overlay。',
     status: 'mapped'
@@ -343,9 +347,9 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-animations',
     legacy: '点闪烁 / 流水线 / 飞行线与分散的动画管理器',
     current: [
-      { label: 'earth.animations', kind: 'property', to: '#migration-map-animations' },
-      { label: 'earth.animations.play()', kind: 'method', to: '#migration-map-animations' },
-      { label: 'AnimationSpec', kind: 'type', to: '#animation-compatibility' }
+      { label: 'earth.animations', kind: 'property', to: '/components/core/earth#api-property-animations' },
+      { label: 'earth.animations.play()', kind: 'method', to: '/components/presentation/animations#example-animation-manager' },
+      { label: 'AnimationSpec', kind: 'type', to: '/components/presentation/animations#effect-specs' }
     ],
     description: '动画以 Element Selector + AnimationSpec 统一播放、暂停、恢复和停止。',
     status: 'mapped'
@@ -354,8 +358,8 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-utils',
     legacy: 'Utils.*',
     current: [
-      { label: 'createId()/lerp2()/add2()/throttle()', kind: 'method', to: '#migration-map-utils' },
-      { label: 'earth.view.toProjectedCoordinates()', kind: 'method', to: '/guide/earth-create#api-method-to-projected-coordinates' }
+      { label: 'createId()/lerp2()/add2()/throttle()', kind: 'method', to: '/components/reference/utils#example-utils-runtime' },
+      { label: 'earth.view.toProjectedCoordinates()', kind: 'method', to: '/components/core/view#api-method-to-projected-coordinates' }
     ],
     description: '纯函数从包根导出；依赖当前地图投影或视口的能力迁到 earth.view。',
     status: 'mapped'
@@ -364,8 +368,8 @@ const migrationRows: MigrationRow[] = [
     id: 'migration-map-line-styles',
     legacy: '旧线样式 helper 与枚举',
     current: [
-      { label: 'lineStyles', kind: 'property', to: '#migration-map-line-styles' },
-      { label: 'StyleSpec', kind: 'type', to: '#migration-map-line-styles' }
+      { label: 'lineStyles', kind: 'property', to: '/components/elements/linework#example-linework' },
+      { label: 'StyleSpec', kind: 'type', to: '/components/elements/styles#style-fields' }
     ],
     description: '内置线型从包根导入；旧枚举改为字符串联合和结构化 StyleSpec。',
     status: 'mapped'
@@ -515,10 +519,10 @@ const migrationRows: MigrationRow[] = [
         <h3 id="example-layer-element" class="doc-h3">2. 专用图层类改为 Layer + Element</h3>
         <p class="migration-related-api">
           相关 API：
-          <ApiReference kind="property" to="/guide/earth-create#api-property-layers">earth.layers</ApiReference>
-          <ApiReference kind="method" to="/guide/earth-create#api-method-layers-add">earth.layers.add()</ApiReference>
-          <ApiReference kind="property" to="#migration-map-elements">earth.elements</ApiReference>
-          <ApiReference kind="type" to="#migration-map-elements">Element</ApiReference>
+          <ApiReference kind="property" to="/components/core/earth#api-property-layers">earth.layers</ApiReference>
+          <ApiReference kind="method" to="/components/core/layers#api-method-add">earth.layers.add()</ApiReference>
+          <ApiReference kind="property" to="/components/core/earth#api-property-elements">earth.elements</ApiReference>
+          <ApiReference kind="type" to="/components/elements/overview#api-type-element">Element</ApiReference>
         </p>
         <el-row :gutter="16" class="migration-code-grid">
           <el-col :xs="24" :lg="12">
@@ -538,8 +542,8 @@ const migrationRows: MigrationRow[] = [
         <h3 id="example-service-lifecycle" class="doc-h3">3. 分散组件改为服务与 Session</h3>
         <p class="migration-related-api">
           相关 API：
-          <ApiReference kind="method" to="#migration-map-events">earth.events.on()</ApiReference>
-          <ApiReference kind="method" to="#migration-map-draw-edit">earth.draw.start()</ApiReference>
+          <ApiReference kind="method" to="/components/services/events#example-event-lifecycle">earth.events.on()</ApiReference>
+          <ApiReference kind="method" to="/components/interactions/draw#example-draw-session">earth.draw.start()</ApiReference>
           <ApiReference kind="property" to="/guide/earth-create#api-property-lifecycle">earth.lifecycle</ApiReference>
           <ApiReference kind="method" to="/guide/earth-create#api-method-destroy">earth.destroy()</ApiReference>
         </p>
@@ -565,8 +569,10 @@ const migrationRows: MigrationRow[] = [
         <h3 id="coordinate-projection" class="doc-h3">坐标按当前 View 投影读写</h3>
         <p>
           2.0 的 Element、Draw、Edit、Transform、事件和右键菜单坐标都使用当前 View 投影。业务系统保存经纬度时，应在边界处显式双向转换。
-          <ApiReference kind="method" to="/guide/earth-create#api-method-to-projected-coordinates">toProjectedCoordinates()</ApiReference>
-          把经纬度转为 View 坐标；<ApiReference kind="method" to="#coordinate-projection">toGeographicCoordinates()</ApiReference>
+          <ApiReference kind="method" to="/components/core/view#api-method-to-projected-coordinates">toProjectedCoordinates()</ApiReference>
+          把经纬度转为 View 坐标；<ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates"
+            >toGeographicCoordinates()</ApiReference
+          >
           转回 EPSG:4326。
         </p>
         <CodeBlock :code="coordinateCode" lang="typescript" />
@@ -575,9 +581,11 @@ const migrationRows: MigrationRow[] = [
           <ExampleBlock title="经纬度坐标读写" :source="elementCoordinateStorageSource">
             <template #description>
               用
-              <ApiReference kind="method" to="/guide/earth-create#api-method-to-projected-coordinates">toProjectedCoordinates()</ApiReference>
-              写入经纬度，读取 <ApiReference kind="property" to="#migration-map-elements">Element.state</ApiReference> 后转回经纬度，再通过
-              <ApiReference kind="method" to="#api-to-flat-coordinates">toFlatCoordinates()</ApiReference> 展平保存。示例中的全部控件均使用 Element Plus。
+              <ApiReference kind="method" to="/components/core/view#api-method-to-projected-coordinates">toProjectedCoordinates()</ApiReference>
+              写入经纬度，读取
+              <ApiReference kind="property" to="/components/elements/overview#api-property-state">Element.state</ApiReference> 后转回经纬度，再通过
+              <ApiReference kind="method" to="/components/reference/utils#api-function-to-flat-coordinates">toFlatCoordinates()</ApiReference>
+              展平保存。示例中的全部控件均使用 Element Plus。
             </template>
             <template #preview>
               <ElementCoordinateStorageDemo />
@@ -598,9 +606,9 @@ const migrationRows: MigrationRow[] = [
 
         <h3 id="api-to-flat-coordinates" class="doc-h3">展平坐标后再持久化</h3>
         <p>
-          <ApiReference kind="method" to="#api-to-flat-coordinates">toFlatCoordinates()</ApiReference>
+          <ApiReference kind="method" to="/components/reference/utils#api-function-to-flat-coordinates">toFlatCoordinates()</ApiReference>
           把一层嵌套坐标展开成新的扁平数组，不修改输入，也不转换投影。外部系统保存经纬度时，应先调用
-          <ApiReference kind="method" to="#coordinate-projection">toGeographicCoordinates()</ApiReference>。
+          <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">toGeographicCoordinates()</ApiReference>。
         </p>
         <CodeBlock :code="toFlatCoordinatesCode" lang="typescript" />
 
@@ -622,7 +630,7 @@ const migrationRows: MigrationRow[] = [
             <div id="animation-compatibility" class="migration-compatibility">
               <p>
                 2.0 的十种内置动画都通过
-                <ApiReference kind="method" to="#migration-map-animations">earth.animations.play()</ApiReference>
+                <ApiReference kind="method" to="/components/presentation/animations#example-animation-manager">earth.animations.play()</ApiReference>
                 启动：
               </p>
               <el-space wrap class="migration-animation-types">
@@ -631,23 +639,23 @@ const migrationRows: MigrationRow[] = [
               <ul class="doc-list">
                 <li>
                   全部十种动画都不支持
-                  <ApiReference kind="type" to="#animation-compatibility">NativeStyleRef</ApiReference>。批量目标中只要有一个使用原生样式，整次
-                  <ApiReference kind="method" to="#migration-map-animations">play()</ApiReference> 会在创建记录前抛出
-                  <ApiReference kind="type" to="#animation-compatibility">UnsupportedOperationError</ApiReference>。
+                  <ApiReference kind="type" to="/components/elements/styles#native-style">NativeStyleRef</ApiReference>。批量目标中只要有一个使用原生样式，整次
+                  <ApiReference kind="method" to="/components/presentation/animations#example-animation-manager">play()</ApiReference> 会在创建记录前抛出
+                  <ApiReference kind="type" to="/components/reference/errors#api-error-unsupported-operation">UnsupportedOperationError</ApiReference>。
                 </li>
                 <li>
                   <code>blink</code> 与 <code>fade</code> 写入 <code>target-opacity</code>，overlay 效果可以稳定追加；<code>grow</code> 独占
-                  <ApiReference kind="property" to="#animation-compatibility">target-geometry</ApiReference>。同一目标不能在不同 channel 同时运行两个
-                  <code>grow</code>。
+                  <ApiReference kind="property" to="/components/presentation/animations#composition">target-geometry</ApiReference>。同一目标不能在不同 channel
+                  同时运行两个 <code>grow</code>。
                 </li>
                 <li>
                   <code>PathTravelAnimationSpec</code> 不再接受 <code>arrow</code> 和 <code>arrowColor</code>。静态方向箭头迁到结构化
                   Decoration，需要沿路径揭示箭头时改用 <code>grow</code>。
                 </li>
                 <li>
-                  <ApiReference kind="type" to="#animation-compatibility">AnimationType</ApiReference>、
-                  <ApiReference kind="type" to="#animation-compatibility">AnimationSpec</ApiReference> 和
-                  <ApiReference kind="property" to="#animation-compatibility">animationTypes</ApiReference>
+                  <ApiReference kind="type" to="/components/presentation/animations#api">AnimationType</ApiReference>、
+                  <ApiReference kind="type" to="/components/presentation/animations#effect-specs">AnimationSpec</ApiReference> 和
+                  <ApiReference kind="property" to="/components/presentation/animations#effect-catalog">animationTypes</ApiReference>
                   允许后续版本在末尾追加内置成员。<code>switch</code>、<code>assertNever</code> 或
                   <code>Record&lt;AnimationType, ...&gt;</code> 必须保留未知成员兜底。
                 </li>

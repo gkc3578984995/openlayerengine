@@ -272,7 +272,9 @@ const apiMembers = {
               <ApiReference kind="type" to="/api/types#api-type-shape-input">ShapeInput</ApiReference>
               等相关类型入口。选中图形后，示例还会读取
               <ApiReference kind="property" to="#api-property-geometry-details">Element.geometryDetails</ApiReference>
-              ，统一显示范围角点、最终轮廓点、规范控制点以及 Circle 圆心和双单位半径；详细控制点规则见
+              ，统一显示范围角点、最终轮廓点、规范控制点以及 Circle 圆心和双单位半径，并调用
+              <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">earth.view.toGeographicCoordinates()</ApiReference>
+              转换一个坐标样本。面箭头的最终 polygon ring 与绘制控制点会分别展示；详细控制点规则见
               <a href="/components/elements/shapes">图形类型（Shapes）</a>。
             </p>
           </template>
@@ -384,7 +386,9 @@ const apiMembers = {
             ，顺序为 <code>[minX, minY, maxX, maxY]</code>，坐标使用当前 View 投影。
           </li>
           <li>
-            需要经纬度时用 <code>earth.view.toGeographicCoordinates()</code> 显式逐个转换 Coordinate；Polygon 需逐 ring 转换，Circle 只转换
+            需要经纬度时用
+            <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">earth.view.toGeographicCoordinates()</ApiReference>
+            显式逐个转换 Coordinate；Polygon 需逐 ring 转换，Circle 只转换
             <code>center</code>，不能把投影半径当作坐标转换。
           </li>
         </ul>

@@ -9,7 +9,7 @@ import Fill from 'ol/style/Fill.js';
 import Stroke from 'ol/style/Stroke.js';
 import Style from 'ol/style/Style.js';
 import TextStyle from 'ol/style/Text.js';
-import { useEarth } from '@vrsim/earth-engine-ol';
+import { InvalidArgumentError, useEarth } from '@vrsim/earth-engine-ol';
 import type { Earth, Layer, LayerKind } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 import { createConfiguredLayer } from '../config/mapSources';
@@ -32,6 +32,7 @@ const externalOlLayer = shallowRef<VectorLayer<VectorSource> | null>(null);
 const rows = ref<LayerRow[]>([]);
 const selectedBasemap = ref<MapSourceName>('vector');
 const externalResourceState = ref('等待创建 external 原生图层');
+const clearAttemptState = ref('尚未验证 clear() 的 Element 占用预检');
 const basemapOptions = [
   { label: '矢量底图', value: 'vector' },
   { label: '影像底图', value: 'satellite' }
@@ -103,6 +104,7 @@ const createLayerKinds = () => {
     ownership: 'external'
   });
   externalResourceState.value = 'external VectorLayer 已挂载，所有权仍属于调用方';
+  clearAttemptState.value = '三类图层已就绪；可直接调用 clear() 验证 Element 占用预检失败';
   refreshRows();
 };
 
@@ -121,6 +123,23 @@ const clearAllLayers = () => {
   nativeLayer.value = null;
   externalResourceState.value =
     externalOlLayer.value?.getSource() instanceof VectorSource ? '全部 Layer 句柄已清理；external 原生资源仍由调用方持有' : '外部资源不可用';
+  clearAttemptState.value = '已先移除占用 Element，再成功清空全部图层';
+  refreshRows();
+};
+
+const verifyAtomicClearFailure = () => {
+  const earth = earthRef.value;
+  if (earth === null) return;
+  const beforeIds = earth.layers.query().map(({ id }) => id);
+  try {
+    earth.layers.clear();
+    clearAttemptState.value = '未触发占用失败；请先点击“创建三类图层”恢复示例';
+  } catch (error) {
+    if (!(error instanceof InvalidArgumentError)) throw error;
+    const afterIds = earth.layers.query().map(({ id }) => id);
+    const unchanged = beforeIds.length === afterIds.length && beforeIds.every((id, index) => id === afterIds[index]);
+    clearAttemptState.value = unchanged ? `已验证占用预检失败：${afterIds.length} 个图层全部保留` : 'clear() 失败后图层集合发生了意外变化';
+  }
   refreshRows();
 };
 // #endregion layer-kinds
@@ -179,7 +198,8 @@ onBeforeUnmount(() => {
         <div class="example-demo__action-buttons example-demo__actions">
           <el-button type="primary" @click="createLayerKinds">创建三类图层</el-button>
           <el-button :disabled="nativeLayer === null" @click="removeNativeByHandle">用 Layer.remove() 移除 native</el-button>
-          <el-button type="danger" plain :disabled="rows.length === 0" @click="clearAllLayers">清空全部图层</el-button>
+          <el-button type="warning" plain :disabled="rows.length === 0" @click="verifyAtomicClearFailure">直接 clear()（预期失败）</el-button>
+          <el-button type="danger" plain :disabled="rows.length === 0" @click="clearAllLayers">先移除 Element，再 clear()</el-button>
         </div>
       </div>
     </div>
@@ -192,6 +212,10 @@ onBeforeUnmount(() => {
       <el-table-column prop="source" label="来源" min-width="180" />
       <el-table-column prop="ownership" label="资源所有权" min-width="140" />
     </el-table>
+
+    <el-alert class="example-demo__alert layer-kinds-demo__alert" type="warning" :closable="false" show-icon title="clear() 的 Element 占用预检是全有或全无">
+      {{ clearAttemptState }}。
+    </el-alert>
 
     <el-alert class="example-demo__alert layer-kinds-demo__alert" type="info" :closable="false" show-icon>
       <template #title>external 只解绑，不替调用方销毁原生资源</template>

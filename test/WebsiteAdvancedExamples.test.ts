@@ -83,6 +83,11 @@ describe('website advanced runnable examples', () => {
     expect(kindsDemo).toContain('Earth Element 容器');
     expect(kindsDemo).toContain('OpenLayers VectorLayer');
     expect(kindsDemo).toContain('externalOlLayer.value?.getSource() instanceof VectorSource');
+    expect(kindsDemo).toContain('const verifyAtomicClearFailure = () =>');
+    expect(kindsDemo).toContain('beforeIds.length === afterIds.length');
+    expect(kindsDemo).toContain('直接 clear()（预期失败）');
+    expect(kindsDemo).toContain('clear() 的 Element 占用预检是全有或全无');
+    expect(view).toContain('所有图层都会原样保留');
     expect(kindsDemo).toContain('defineExpose({ reset, focus })');
   });
 });

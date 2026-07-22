@@ -104,6 +104,8 @@ describe('website V2 navigation', () => {
     expect(router).toContain("import('../views/presentation/AnimationsView.vue')");
     expect(router).toContain("import('../views/services/OverlaysView.vue')");
     expect(router).toContain("import('../views/reference/UtilsView.vue')");
+    expect(router).toContain("import('../views/NotFoundView.vue')");
+    expect(router).toContain("{ path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundView }");
     expect(router).toContain("path: 'components/reference/types'");
     expect(router).toContain("redirect: (to) => ({ path: '/api/types', query: to.query, hash: to.hash })");
     expect(router).toContain("{ path: 'components/services/descriptor', name: 'service-descriptor', component: DescriptorView }");
@@ -116,5 +118,20 @@ describe('website V2 navigation', () => {
     expect(router).toContain("{ path: 'components/dynamic-draw', redirect: '/components/interactions/draw' }");
     expect(router).not.toContain("import('../views/PointLayerView.vue')");
     expect(router).not.toContain("import('../views/MeasureView.vue')");
+  });
+
+  it('uses real project links and sends migration references to canonical pages', () => {
+    const links = readSource('website/src/config/projectLinks.ts');
+    const docsLayout = readSource('website/src/layouts/DocsLayout.vue');
+    const apiLayout = readSource('website/src/layouts/ApiQueryLayout.vue');
+    const migration = readSource('website/src/views/MigrationV2View.vue');
+
+    expect(links).toContain('https://github.com/gkc3578984995/openlayerengine');
+    expect(docsLayout).toContain(':href="projectRepositoryUrl"');
+    expect(docsLayout).toContain(':href="projectIssuesUrl"');
+    expect(apiLayout).toContain(':href="projectRepositoryUrl"');
+    expect(migration).toContain('旧 Billboard 明确迁为 Point + StyleSpec.symbol 的 icon 分支');
+    expect(migration).toContain("to: '/components/interactions/draw#example-draw-session'");
+    expect(migration).not.toMatch(/to:\s*'#migration-map-/u);
   });
 });

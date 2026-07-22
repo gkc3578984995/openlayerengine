@@ -85,7 +85,9 @@ const runtimeApi = ['shapeTypes'] as const;
               中的图形；编号表示 <code>controlPoints</code> 的输入顺序，虚线表示控制路径。目录卡片按点、开放路径、参数图形、闭合面和面箭头分组，点击即可切换全部
               20 种类型。结果区通过
               <ApiReference kind="property" to="/components/elements/overview#api-property-geometry-details">Element.geometryDetails</ApiReference>
-              同时展示范围角点、最终轮廓点、规范控制点以及 Circle 的圆心和双单位半径。
+              同时展示范围角点、最终轮廓点、规范控制点以及 Circle 的圆心和双单位半径，并实际调用
+              <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">earth.view.toGeographicCoordinates()</ApiReference>
+              把一个 View Coordinate 转回经纬度。面箭头展示的是最终 polygon ring，不是绘制时的控制点。
             </p>
           </template>
           <template #preview><ShapesDemo /></template>

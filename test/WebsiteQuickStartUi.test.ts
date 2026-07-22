@@ -34,7 +34,7 @@ describe('website quick-start shared UI', () => {
     expect(component).toContain(':aria-controls="sourcePanelId"');
     expect(component).toContain(':id="sourcePanelId"');
     expect(component).toContain('role="region"');
-    expect(component).toContain("{{ expanded ? '收起完整代码' : '展开完整代码' }}");
+    expect(component).toContain("{{ expanded ? '收起示例代码' : '展开示例代码' }}");
     expect(component).toContain('<span aria-live="polite">{{ copyButtonLabel }}</span>');
     expect(component).not.toContain('ElMessage');
     expect(component).not.toContain('<div class="example-block__toggle" @click="toggle">');
@@ -62,7 +62,7 @@ describe('website quick-start shared UI', () => {
     expect(component).toContain('sourceLang?: CodeLanguage;');
     expect(component).toContain('snippetLang?: CodeLanguage;');
     expect(component).toContain("{ sourceLang: 'vue', snippetLang: 'typescript', showReset: false, showFocus: false }");
-    expect(component).toContain("const sourceMode = ref<'snippet' | 'source'>('source');");
+    expect(component).toContain("const sourceMode = ref<'snippet' | 'source'>(props.snippet === undefined ? 'source' : 'snippet');");
     expect(component).toContain("{ label: '核心代码', value: 'snippet' }");
     expect(component).toContain("{ label: '完整文件', value: 'source' }");
     expect(component).toContain('const displayedLanguage = computed');

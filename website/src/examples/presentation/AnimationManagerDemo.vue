@@ -110,6 +110,7 @@ const controls = (): AnimationManifestDemoControls => ({
   centerSpreadTrailLength: centerSpreadTrailLength.value
 });
 
+// #region animation-handle-lifecycle
 const trackHandle = (handle: AnimationHandle) => {
   latestHandle.value = handle;
   activeHandles.add(handle);
@@ -166,6 +167,12 @@ const resume = () => {
   if (latestHandle.value !== null) status.value = latestHandle.value.status;
 };
 
+const stop = () => {
+  latestHandle.value?.stop();
+  if (latestHandle.value !== null) status.value = latestHandle.value.status;
+};
+// #endregion animation-handle-lifecycle
+
 const applyRunningRadialOptions = (type: 'radar-scan' | 'center-spread') => {
   if (selectedType.value !== type || compositionMode.value) return;
   const currentStatus = latestHandle.value?.status;
@@ -174,11 +181,6 @@ const applyRunningRadialOptions = (type: 'radar-scan' | 'center-spread') => {
   if (latestHandle.value === null || status.value !== 'running') return;
   if (currentStatus === 'paused') pause();
   feedback.value = currentStatus === 'paused' ? `${type} 参数已应用；新动画保持暂停。` : `${type} 参数已应用并重新启动。`;
-};
-
-const stop = () => {
-  latestHandle.value?.stop();
-  if (latestHandle.value !== null) status.value = latestHandle.value.status;
 };
 
 const focusType = (type: AnimationType) => {

@@ -6,6 +6,7 @@ import { createConfiguredLayer } from '../../config/mapSources';
 import { shapeExampleByType } from '../../config/shapeExamples';
 
 type DrawCategoryId = 'basic' | 'parameter' | 'plot';
+type DrawLimit = 0 | 1 | 3;
 
 interface DrawShapeEntry {
   readonly type: ShapeType;
@@ -75,15 +76,25 @@ const earthRef = shallowRef<Earth | null>(null);
 const sessionRef = shallowRef<DrawSession | null>(null);
 const selectedCategory = ref<DrawCategoryId>('basic');
 const selectedType = ref<ShapeType>(DEFAULT_TYPE);
+const limit = ref<DrawLimit>(0);
+const keepGraphics = ref(true);
 const status = ref<'idle' | DrawSession['status']>('idle');
 const stage = ref('先从目录选择 Shape，再启动绘制');
 const controlPointCount = ref(0);
+const completeCount = ref(0);
+const completeObservation = ref('尚未触发 complete');
 const sessionResultCount = ref(0);
 const queryCount = ref(0);
 const historyResult = ref('尚未操作');
 const mapCenter = shallowRef<Coordinate | null>(null);
 
 let disposers: Array<() => void> = [];
+
+const limitOptions = [
+  { label: '0 · 持续', value: 0 },
+  { label: '1', value: 1 },
+  { label: '3', value: 3 }
+] as const;
 
 const isActive = computed(() => status.value === 'active');
 const selectedEntry = computed(() => drawShapeEntries.find(({ type }) => type === selectedType.value) ?? drawShapeEntries[0]);
@@ -121,6 +132,8 @@ const destroySession = () => {
   sessionRef.value = null;
   status.value = 'idle';
   controlPointCount.value = 0;
+  completeCount.value = 0;
+  completeObservation.value = '尚未触发 complete';
   sessionResultCount.value = 0;
 };
 
@@ -138,18 +151,21 @@ const start = () => {
   const earth = earthRef.value;
   if (earth === null) return;
   destroySession();
+  const sessionLimit = limit.value;
+  const sessionKeepGraphics = keepGraphics.value;
 
   const session = earth.draw.start({
     type: selectedType.value,
     layerId: RESULT_LAYER_ID,
     module: MODULE,
     style: styleFor(selectedType.value),
-    keepGraphics: true,
+    limit: sessionLimit,
+    keepGraphics: sessionKeepGraphics,
     policy: 'replace'
   });
   sessionRef.value = session;
   status.value = session.status;
-  stage.value = `正在绘制 ${selectedEntry.value.label}：${selectedEntry.value.finish}`;
+  stage.value = `正在绘制 ${selectedEntry.value.label}：${selectedEntry.value.finish}；limit=${sessionLimit === 0 ? '持续' : sessionLimit}，${sessionKeepGraphics ? '保留完成结果' : '完成结果仅在 complete 同步回调内有效'}`;
   historyResult.value = '可使用按钮或 Ctrl/Cmd + Z / Y';
 
   disposers = [
@@ -163,10 +179,20 @@ const start = () => {
     session.on('change', ({ geometry }) => {
       stage.value = `${geometry.type} 工作预览中（最终渲染为 ${selectedEntry.value.render}）`;
     }),
-    session.on('complete', () => {
+    session.on('complete', ({ element }) => {
+      completeCount.value += 1;
+      const synchronousElement = earth.elements.get(element.id);
+      completeObservation.value = `第 ${completeCount.value} 次：同步回调内${synchronousElement === element ? '可读取同一 Element 句柄' : '未读取到同一 Element 句柄'}（${element.id}）`;
       sessionResultCount.value = session.results.length;
       refreshQueryCount();
-      stage.value = `${selectedEntry.value.label} 已提交为 Element`;
+      stage.value = sessionKeepGraphics
+        ? `${selectedEntry.value.label} 已提交并保留为 Element`
+        : `${selectedEntry.value.label} 已触发 complete；全部同步监听器返回后自动移除`;
+      queueMicrotask(() => {
+        if (sessionRef.value !== session) return;
+        sessionResultCount.value = session.results.length;
+        refreshQueryCount();
+      });
     }),
     session.on('cancel', ({ reason }) => {
       stage.value = `已取消：${reason}`;
@@ -174,9 +200,13 @@ const start = () => {
   ];
 
   void session.finished.then((results) => {
+    if (sessionRef.value !== session) return;
     status.value = session.status;
     sessionResultCount.value = results.length;
     refreshQueryCount();
+    if (sessionLimit > 0 && completeCount.value >= sessionLimit) {
+      stage.value = `已达到 limit=${sessionLimit}，Session 自动结束；最终保留 ${results.length} 个结果`;
+    }
     releaseListeners();
   });
 };
@@ -226,6 +256,8 @@ const reset = () => {
   earthRef.value?.draw.clear({ module: MODULE });
   selectedCategory.value = 'basic';
   selectedType.value = DEFAULT_TYPE;
+  limit.value = 0;
+  keepGraphics.value = true;
   queryCount.value = 0;
   historyResult.value = '尚未操作';
   stage.value = '示例已重置：请选择 Shape 并启动绘制';
@@ -300,6 +332,14 @@ onBeforeUnmount(() => {
 
     <div class="example-demo__control-panel">
       <div class="example-demo__control-grid draw-session-demo__controls">
+        <div class="example-demo__field">
+          <span>完成数量上限（limit）</span>
+          <el-segmented v-model="limit" :options="limitOptions" :disabled="isActive" />
+        </div>
+        <div class="example-demo__field">
+          <span>保留完成结果（keepGraphics）</span>
+          <el-switch v-model="keepGraphics" :disabled="isActive" inline-prompt active-text="是" inactive-text="否" />
+        </div>
         <div class="example-demo__action-group">
           <span>会话启动</span>
           <div class="example-demo__action-buttons">
@@ -342,9 +382,11 @@ onBeforeUnmount(() => {
 
     <el-descriptions class="draw-session-demo__summary" :column="2" border>
       <el-descriptions-item label="当前控制点">{{ controlPointCount }}</el-descriptions-item>
+      <el-descriptions-item label="complete 次数">{{ completeCount }}</el-descriptions-item>
       <el-descriptions-item label="Session.results">{{ sessionResultCount }}</el-descriptions-item>
       <el-descriptions-item label="draw.query()">{{ queryCount }}</el-descriptions-item>
       <el-descriptions-item label="撤销 / 重做">{{ historyResult }}</el-descriptions-item>
+      <el-descriptions-item label="complete 同步观测" :span="2">{{ completeObservation }}</el-descriptions-item>
     </el-descriptions>
   </div>
 </template>

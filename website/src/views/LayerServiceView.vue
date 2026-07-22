@@ -88,7 +88,7 @@ const serviceRows = [
     name: 'clear',
     params: '—',
     returns: 'void',
-    desc: '清空可移除图层；仍承载 Element 的图层会拒绝移除'
+    desc: '先预检全部图层；任一图层仍承载 Element 时整次失败，不移除任何图层'
   }
 ];
 
@@ -303,7 +303,8 @@ const native = earth.layers.add({
               示例并列创建三种 <ApiReference kind="type" to="/api/types#api-type-public-layer-spec">PublicLayerSpec</ApiReference>：蓝色纹理圆来自 Earth
               vector，橙色点来自 external native，底图来自部署期配置。使用
               <ApiReference kind="method" to="#api-method-layer-remove">Layer.remove</ApiReference> 移除句柄，并通过
-              <ApiReference kind="method" to="#api-method-clear">LayerService.clear</ApiReference> 显式清空全部图层。
+              <ApiReference kind="method" to="#api-method-clear">LayerService.clear</ApiReference>
+              对比验证原子失败与解除占用后的成功清理。直接调用时只要一个图层仍承载 Element，所有图层都会原样保留。
             </p>
           </template>
           <template #preview><LayerKindsDemo ref="layerKindsDemoRef" /></template>

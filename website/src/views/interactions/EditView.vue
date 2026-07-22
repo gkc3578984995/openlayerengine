@@ -36,7 +36,9 @@ const operationRows = [
   { input: 'Alt + 单击插入点', result: '在合法候选位置插入点', cursor: 'move', topology: 'editTopology.insert（可选）' },
   { input: 'Alt + 单击控制点', result: '仅删除 removable 控制点', cursor: 'move', topology: 'editTopology.remove（可选）' },
   { input: '右击 / finish()', result: '提交当前工作几何', cursor: '恢复外部光标', topology: '一次 Store 事务' },
-  { input: 'Esc / cancel()', result: '丢弃工作几何', cursor: '恢复外部光标', topology: '不写 Store' }
+  { input: 'Ctrl/Cmd + Z', result: '撤销最近一次会话操作', cursor: '保持当前编辑光标', topology: 'Session 历史' },
+  { input: 'Ctrl/Cmd + Y / Ctrl/Cmd + Shift + Z', result: '重做下一次会话操作', cursor: '保持当前编辑光标', topology: 'Session 历史' },
+  { input: 'cancel()（按钮或业务代码）', result: '丢弃工作几何', cursor: '恢复外部光标', topology: '不写 Store' }
 ];
 
 const eventRows = [
@@ -116,7 +118,10 @@ const apiMembers = { DrawService: ['edit'] } as const;
           <el-table-column prop="cursor" label="光标" min-width="170" />
           <el-table-column prop="topology" label="规则来源" min-width="260" />
         </el-table>
-        <p>普通单击插入点不会改变拓扑；是否允许插入、删除以及最小点数都由 ShapeDefinition 决定，调用方无需按 ShapeType 自行分支。</p>
+        <p>
+          普通单击插入点不会改变拓扑；是否允许插入、删除以及最小点数都由 ShapeDefinition 决定，调用方无需按 ShapeType 自行分支。独立 Edit Session 不绑定
+          Esc，取消请调用 <code>cancel()</code>；Transform 编辑模式中的 Esc 属于 Transform 自己的快捷键。
+        </p>
       </section>
 
       <section id="events" class="doc-prose">

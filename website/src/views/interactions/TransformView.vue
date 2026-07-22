@@ -10,8 +10,10 @@ import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const anchors = [
   { id: 'overview', label: '选择与模式' },
+  { id: 'transform-options-lab', label: 'TransformOptions 实验配置' },
   { id: 'method-examples', label: 'API 与示例' },
   { id: 'example-transform-session', label: '多类型目标的选择、替换、变换与 Toolbar 管理' },
+  { id: 'pc-shortcuts', label: 'PC 快捷键' },
   { id: 'events', label: '事件族' },
   { id: 'working-state', label: '工作态与事务' },
   { id: 'visual-animation', label: '视觉和动画边界' },
@@ -19,7 +21,10 @@ const anchors = [
   { id: 'api', label: '完整 API' }
 ];
 
-const transformSessionSnippet = extractExampleSnippet(transformSessionSource, 'transform-session-and-toolbar');
+const transformSessionSnippet = [
+  extractExampleSnippet(transformSessionSource, 'transform-options-lab'),
+  extractExampleSnippet(transformSessionSource, 'transform-start-select-replace')
+].join('\n\n');
 const transformSessionDemoRef = ref<InstanceType<typeof TransformSessionDemo> | null>(null);
 const resetTransformSessionDemo = () => transformSessionDemoRef.value?.reset();
 const focusTransformSessionDemo = () => transformSessionDemoRef.value?.focus();
@@ -50,6 +55,101 @@ const cursorRows = [
   { operation: '旋转', hover: 'grab', active: 'grabbing' },
   { operation: '水平 / 垂直拉伸', hover: 'ew-resize / ns-resize', active: '保持对应 resize' },
   { operation: '对角缩放', hover: 'nesw-resize / nwse-resize', active: '保持对应 resize' }
+];
+
+const transformOptionRows = [
+  {
+    option: 'hitTolerance',
+    href: '/api/types#api-type-transform-options-property-hit-tolerance',
+    full: '8（可调 0–32）',
+    rectangle: '12（可调 0–32）',
+    translateOnly: '6（可调 0–32）',
+    meaning: '手柄和 Element 命中的额外容差，单位为 CSS px'
+  },
+  {
+    option: 'translate',
+    href: '/api/types#api-type-transform-options-property-translate',
+    full: 'feature',
+    rectangle: 'center',
+    translateOnly: 'feature',
+    meaning: 'none 禁用平移；center 使用中心手柄；feature 可直接拖动目标'
+  },
+  {
+    option: 'scale',
+    href: '/api/types#api-type-transform-options-property-scale',
+    full: 'true',
+    rectangle: 'true',
+    translateOnly: 'false',
+    meaning: '控制对角等比或双轴缩放手柄'
+  },
+  {
+    option: 'stretch',
+    href: '/api/types#api-type-transform-options-property-stretch',
+    full: 'true',
+    rectangle: 'false',
+    translateOnly: 'false',
+    meaning: '控制水平、垂直单轴拉伸手柄'
+  },
+  {
+    option: 'rotate',
+    href: '/api/types#api-type-transform-options-property-rotate',
+    full: 'true',
+    rectangle: 'true',
+    translateOnly: 'false',
+    meaning: '显示旋转手柄；目标 Shape 仍须声明 rotate 能力'
+  },
+  {
+    option: 'translateBBox',
+    href: '/api/types#api-type-transform-options-property-translate-b-box',
+    full: 'true',
+    rectangle: 'true',
+    translateOnly: 'true',
+    meaning: '允许直接拖动控制区域平移目标'
+  },
+  {
+    option: 'noFlip',
+    href: '/api/types#api-type-transform-options-property-no-flip',
+    full: 'false',
+    rectangle: 'true',
+    translateOnly: 'false',
+    meaning: '阻止缩放或拉伸穿过零点后翻转'
+  },
+  {
+    option: 'keepRectangle',
+    href: '/api/types#api-type-transform-options-property-keep-rectangle',
+    full: 'false',
+    rectangle: 'true',
+    translateOnly: 'false',
+    meaning: 'Rectangle 四角缩放时锁定宽高比；其他目标不受影响'
+  },
+  {
+    option: 'buffer',
+    href: '/api/types#api-type-transform-options-property-buffer',
+    full: '16 px',
+    rectangle: '24 px',
+    translateOnly: '8 px',
+    meaning: '几何外包框周围的控制区域缓冲'
+  },
+  {
+    option: 'pointRadius',
+    href: '/api/types#api-type-transform-options-property-point-radius',
+    full: '10 px',
+    rectangle: '12 px',
+    translateOnly: '16 px',
+    meaning: 'Point Element 的控制区域半径'
+  }
+];
+
+const pcShortcutRows = [
+  { shortcut: 'Ctrl + Z', mode: 'Transform / Edit', result: '撤销最近一条完整 Session 历史命令', boundary: '不直接写 Store' },
+  { shortcut: 'Ctrl + Y / Ctrl + Shift + Z', mode: 'Transform / Edit', result: '重做下一条 Session 历史命令', boundary: '仅在存在 redo 历史时生效' },
+  { shortcut: 'Ctrl + C', mode: 'Transform', result: '把当前工作快照写入 TransformService 剪贴板', boundary: '尚不创建副本，可供后续 Session 使用' },
+  { shortcut: 'Ctrl + V', mode: 'Transform', result: '进入复制预览；单击地图确认副本位置', boundary: '右键或 Esc 取消预览' },
+  { shortcut: 'Ctrl + X', mode: 'Transform', result: '复制当前工作快照后移除选中 Element', boundary: '移除立即写入 Store' },
+  { shortcut: 'Delete', mode: 'Transform', result: '移除当前选中 Element', boundary: '移除立即写入 Store' },
+  { shortcut: 'Esc', mode: 'Transform / Edit', result: '优先取消复制预览，否则取消并回滚 Session', boundary: '恢复 Tooltip、光标和临时资源' },
+  { shortcut: 'Shift + 拖拽对角手柄', mode: 'Transform', result: '临时保持比例缩放', boundary: '松开 Shift 后恢复当前配置' },
+  { shortcut: 'Alt + 单击锚点', mode: 'Edit', result: '在中点插入，或删除 removable 控制点', boundary: '是否可用由 ShapeDefinition 决定' }
 ];
 
 const apiTypes = [
@@ -99,6 +199,32 @@ const apiTypes = [
         </p>
       </section>
 
+      <section id="transform-options-lab" class="doc-prose">
+        <h2 class="doc-h2">用三档配置观察命中、手柄和约束</h2>
+        <p>
+          下表是可运行示例提供的三组
+          <ApiReference kind="type" to="/api/types#api-type-transform-options">TransformOptions</ApiReference>
+          实验值，并非库默认值。<code>full</code> 开放全部外框操作，<code>rectangle</code> 强调中心平移、防翻转和 Rectangle 比例约束，<code
+            >translate-only</code
+          >
+          只保留平移；示例还允许在启动 Session 前单独调整 <code>hitTolerance</code>。
+        </p>
+        <el-table :data="transformOptionRows" border stripe>
+          <el-table-column label="选项" min-width="160">
+            <template #default="scope">
+              <ApiReference kind="property" :to="scope.row.href">{{ scope.row.option }}</ApiReference>
+            </template>
+          </el-table-column>
+          <el-table-column prop="full" label="full" min-width="145" />
+          <el-table-column prop="rectangle" label="rectangle" min-width="155" />
+          <el-table-column prop="translateOnly" label="translate-only" min-width="165" />
+          <el-table-column prop="meaning" label="行为" min-width="350" />
+        </el-table>
+        <el-alert type="info" :closable="false" show-icon title="配置在 Session 创建时冻结">
+          先完成或取消当前 Session，再切换预设或命中容差；随后用 start() 或 select() 创建的新 Session 才会采用新配置。
+        </el-alert>
+      </section>
+
       <section id="method-examples" class="doc-prose">
         <h2 class="doc-h2">公开成员如何对应到示例</h2>
         <p>同一张地图同时放置 A、B 两个 Element，可观察 start 查询选择、直接 select、replaceSelected、历史以及 Toolbar 控制的视觉差异。</p>
@@ -129,11 +255,23 @@ const apiTypes = [
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-undo">undo</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-redo">redo</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-copy">copy</ApiReference>、 <code>replaceSelected</code> 与 Toolbar
-              的显隐、更新和销毁。状态区只显示当前结果，不输出事件日志。
+              的显隐、更新和销毁。启动前可以在 full、rectangle、translate-only 之间切换，并独立调整 <code>hitTolerance</code>；状态区会列出本次 Session
+              的全部实验选项，不输出事件日志。
             </p>
           </template>
           <template #preview><TransformSessionDemo ref="transformSessionDemoRef" /></template>
         </ExampleBlock>
+      </section>
+
+      <section id="pc-shortcuts" class="doc-prose">
+        <h2 class="doc-h2">PC 快捷键与提交边界</h2>
+        <p>以下操作只在活动 Transform Session 中生效。Tooltip 会按当前模式和历史状态显示可用项；表格补全复制预览、立即删除和回滚边界。</p>
+        <el-table :data="pcShortcutRows" border stripe>
+          <el-table-column prop="shortcut" label="快捷键" min-width="220" />
+          <el-table-column prop="mode" label="模式" min-width="150" />
+          <el-table-column prop="result" label="结果" min-width="330" />
+          <el-table-column prop="boundary" label="状态 / 提交边界" min-width="300" />
+        </el-table>
       </section>
 
       <section id="events" class="doc-prose">

@@ -27,7 +27,7 @@ const errorRows = [
     anchor: 'api-error-invalid-argument',
     href: '/api/types#api-type-invalid-argument-error',
     name: 'InvalidArgumentError',
-    when: 'useEarth ID、LayerSpec、StyleSpec、ShapeState、菜单、Overlay 等参数不符合契约',
+    when: 'LayerSpec、StyleSpec、ShapeState、菜单、Overlay 等领域参数不符合契约',
     response: '修正输入或在应用表单边界提示；不要重试相同参数'
   },
   {
@@ -110,6 +110,10 @@ const focusErrorsDemo = () => errorsDemoRef.value?.focus();
         <h2 class="doc-h2">稳定错误族</h2>
         <el-alert type="info" :closable="false" show-icon title="查询缺失不是异常">
           get() 找不到对象时返回 undefined，query() 没有结果时返回空集合。错误类用于契约或状态确实不成立的场景；不要用 try/catch 代替正常的缺失判断。
+        </el-alert>
+        <el-alert type="warning" :closable="false" show-icon title="useEarth 的结构校验使用原生 TypeError">
+          空白 id、非普通 options 对象、未知字段或非法 target / view / controls 会抛出 <code>TypeError</code>，不属于下方 8
+          个包根错误类。若应用需要捕获这类配置错误，请单独处理 <code>TypeError</code>。
         </el-alert>
         <p>
           所有类型都继承原生 <code>Error</code>，保留 <code>message</code>、<code>stack</code>，并把 <code>name</code> 设置为具体类名。业务分支优先使用

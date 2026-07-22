@@ -210,6 +210,10 @@ describe('2.0 动画效果 manifest', () => {
     expect(websiteSource).toContain('effect.minimalCall');
     expect(websiteSource).toContain('show-reset');
     expect(websiteSource).toContain('show-focus');
+    expect(websiteSource).toContain("extractExampleSnippet(animationManagerSource, 'animation-handle-lifecycle')");
+    expect(websiteSource).toContain(':snippet="animationManagerSnippet"');
+    expect(websiteDemoSource).toContain('// #region animation-handle-lifecycle');
+    expect(websiteDemoSource).toContain('// #endregion animation-handle-lifecycle');
 
     for (const type of animationTypes) {
       const escapedType = type.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');

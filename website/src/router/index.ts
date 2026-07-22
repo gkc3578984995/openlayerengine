@@ -31,6 +31,7 @@ const OverlaysView = () => import('../views/services/OverlaysView.vue');
 const DescriptorView = () => import('../views/services/DescriptorView.vue');
 const UtilsView = () => import('../views/reference/UtilsView.vue');
 const ErrorsView = () => import('../views/reference/ErrorsView.vue');
+const NotFoundView = () => import('../views/NotFoundView.vue');
 const ApiMethodsView = () => import('../views/api/ApiMethodsView.vue');
 const ApiTypesView = () => import('../views/api/ApiTypesView.vue');
 
@@ -84,7 +85,8 @@ const router = createRouter({
         { path: 'components/tools/context-menu', redirect: '/components/services/context-menu' },
         { path: 'components/tools/events', redirect: '/components/services/events' },
         { path: 'components/tools/overlays', redirect: '/components/services/overlays' },
-        { path: 'components/calculations/utils', redirect: '/components/reference/utils' }
+        { path: 'components/calculations/utils', redirect: '/components/reference/utils' },
+        { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundView }
       ]
     },
     {

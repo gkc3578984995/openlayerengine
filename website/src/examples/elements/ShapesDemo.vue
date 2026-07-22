@@ -41,6 +41,7 @@ const mapTarget = ref<HTMLDivElement | null>(null);
 const earthRef = shallowRef<Earth | null>(null);
 const previewCenter = shallowRef<readonly [number, number] | null>(null);
 const selectedGeometryDetails = shallowRef<ElementGeometryDetails | null>(null);
+const selectedGeographicCoordinate = shallowRef<readonly number[] | null>(null);
 const selectedType = ref<ShapeType>(DEFAULT_SHAPE);
 const catalogQuery = ref('');
 const selectedGroup = ref<CatalogGroupFilter>('all');
@@ -71,6 +72,14 @@ const filteredCount = computed(() => filteredGroups.value.reduce((count, group) 
 
 const formatMapNumber = (value: number) => Number(value.toFixed(2)).toLocaleString('zh-CN');
 const formatCoordinate = (coordinate: Coordinate) => `[${coordinate.slice(0, 2).map(formatMapNumber).join(', ')}]`;
+const geographicCoordinateSummary = computed(() => {
+  const coordinate = selectedGeographicCoordinate.value;
+  if (coordinate === null) return '尚未转换';
+  return `[${coordinate
+    .slice(0, 2)
+    .map((value) => Number(value.toFixed(5)))
+    .join(', ')}]`;
+});
 const geometryDetailsSummary = computed(() => {
   const geometry = selectedGeometryDetails.value?.renderGeometry;
   if (geometry === undefined) return '尚未读取';
@@ -296,6 +305,8 @@ const renderShape = (type: ShapeType) => {
   });
   const info = element.geometryDetails;
   selectedGeometryDetails.value = info;
+  const projectedCoordinate = info.center ?? info.rangePoints[0]?.[0];
+  selectedGeographicCoordinate.value = projectedCoordinate === undefined ? null : earth.view.toGeographicCoordinates(projectedCoordinate);
   // #endregion shape-gallery
 
   addGuides(earth, inputPointsFor(earth, element.state.geometry));
@@ -337,6 +348,7 @@ onBeforeUnmount(() => {
   earthRef.value = null;
   previewCenter.value = null;
   selectedGeometryDetails.value = null;
+  selectedGeographicCoordinate.value = null;
 });
 </script>
 
@@ -370,7 +382,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <el-scrollbar v-if="filteredCount > 0" max-height="690px" class="shape-catalog__scrollbar">
+        <el-scrollbar v-if="filteredCount > 0" class="shape-catalog__scrollbar">
           <div class="shape-catalog__groups">
             <section v-for="group in filteredGroups" :key="group.id" class="shape-catalog__group">
               <div class="shape-catalog__group-heading">
@@ -449,6 +461,10 @@ onBeforeUnmount(() => {
           <el-descriptions-item label="半径"
             ><code>{{ circleRadiusSummary }}</code></el-descriptions-item
           >
+          <el-descriptions-item label="经纬度坐标示例">
+            <code>{{ geographicCoordinateSummary }}</code>
+            · 只转换一个 Coordinate；Circle 半径保持米制值，不参与坐标转换
+          </el-descriptions-item>
           <el-descriptions-item label="相关类型">
             <span class="shape-catalog__type-links">
               <el-link type="primary" href="/api/types#api-type-shape-type">ShapeType</el-link>
@@ -540,6 +556,10 @@ onBeforeUnmount(() => {
 
 .shape-catalog__scrollbar {
   padding: 14px 6px 14px 14px;
+}
+
+.shape-catalog__scrollbar :deep(.el-scrollbar__wrap) {
+  max-height: 690px;
 }
 
 .shape-catalog__groups {
@@ -697,6 +717,28 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--el-border-color-light, var(--doc-border));
   color: var(--el-text-color-primary, var(--doc-text));
   font-size: 12px;
+}
+
+@media (min-width: 1501px) {
+  .shape-catalog__explorer {
+    align-items: stretch;
+  }
+
+  .shape-catalog__list-panel {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .shape-catalog__scrollbar {
+    min-height: 0;
+    flex: 1 1 0;
+  }
+
+  .shape-catalog__scrollbar :deep(.el-scrollbar__wrap) {
+    height: 100%;
+    max-height: none;
+  }
 }
 
 @media (max-width: 1500px) {
