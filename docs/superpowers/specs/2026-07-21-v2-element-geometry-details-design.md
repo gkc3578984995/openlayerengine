@@ -4,6 +4,7 @@
 
 - 状态：已批准
 - 日期：2026-07-21
+- 修订：2026-07-22，扩展统一几何便利字段
 - 目标版本：@vrsim/earth-engine-ol 2.0.0
 - 性质：Element 公共读取契约补充
 - 补充：2026-07-13-v2-element-kernel-architecture-design.md
@@ -11,7 +12,7 @@
 - 关联：2026-07-16-v2-interaction-visual-design.md
 - 关联：2026-07-17-v2-animation-effect-kernel-design.md
 
-用户已确认：在公共 `Element` 句柄上增加只读派生 getter `geometryDetails`，统一返回元素最新已提交规范几何所对应的完整渲染几何和二维外接范围。该结果不进入 `ElementState`，不读取 OpenLayers Feature，也不包含动画、交互预览、样式外扩或 world wrap 展示副本。
+用户已确认：在公共 `Element` 句柄上保留唯一只读派生 getter `geometryDetails`，统一返回元素最新已提交规范几何所对应的完整渲染几何、二维外接范围、范围角点、最终轮廓点和规范控制参数。2026-07-22 的修订保留既有 `renderGeometry` 与 `extent`，并增加免于调用方重复判别 Shape 的便利字段；该结果仍不进入 `ElementState`，不读取 OpenLayers Feature，也不包含动画、交互预览、样式外扩或 world wrap 展示副本。
 
 ## 1. 背景与目标
 
@@ -26,6 +27,7 @@
 3. 同时返回从完整最终几何计算出的二维外接范围。
 4. 保持 `ElementState` 为唯一业务状态真源，不把派生结果放入事务、快照、复制或持久化数据。
 5. 保持 Core、Services、Public Facade 与 OpenLayers Adapter 的既有依赖边界。
+6. 让只需要范围角点、最终轮廓点、控制点或 Circle 参数的调用方无需重复编写 Shape 判别分支。
 
 本次明确不做：
 
@@ -44,12 +46,7 @@
 新增以下公共类型，并从包根入口导出：
 
 ```ts
-export type MapExtent = readonly [
-  minX: number,
-  minY: number,
-  maxX: number,
-  maxY: number
-];
+export type MapExtent = readonly [minX: number, minY: number, maxX: number, maxY: number];
 
 export type ElementRenderGeometry =
   | {
@@ -75,10 +72,28 @@ export interface ElementGeometryDetails {
   readonly renderGeometry: ElementRenderGeometry;
   /** renderGeometry 在当前 View 投影中的二维外接范围。 */
   readonly extent: MapExtent;
+  /** extent 的四个二维角点，顺序为左下、右下、右上、左上。 */
+  readonly extentPoints: readonly [
+    lowerLeft: readonly [number, number],
+    lowerRight: readonly [number, number],
+    upperRight: readonly [number, number],
+    upperLeft: readonly [number, number]
+  ];
+  /** 按统一坐标组表达的最终轮廓点；Circle 保持精确参数化，因此返回空数组。 */
+  readonly rangePoints: readonly (readonly Coordinate[])[];
+  /** 最新已提交的规范控制点；Circle 不使用 controlPoints，因此返回 null。 */
+  readonly controlPoints: readonly Coordinate[] | null;
+  /** Circle 的圆心；其他 Shape 返回 null。 */
+  readonly center: Coordinate | null;
+  /** Circle 的米制业务半径和 View 投影半径；其他 Shape 返回 null。 */
+  readonly radius: Readonly<{
+    readonly meters: number;
+    readonly projected: number;
+  }> | null;
 }
 ```
 
-这些名称属于新的公共契约。实现可以在内部复用现有 `RenderGeometryState`，但不得从根入口额外导出内部 Shape、Adapter 或解析器类型。
+这些名称属于新的公共契约。`radius` 使用内联只读对象，不为它增加同义根导出类型。实现可以在内部复用现有 `RenderGeometryState`，但不得从根入口额外导出内部 Shape、Adapter 或解析器类型。
 
 ### 2.2 Element getter
 
@@ -97,9 +112,12 @@ export class Element<T = unknown> {
 const element = earth.elements.get('arrow-1');
 const details = element?.geometryDetails;
 
-if (details?.renderGeometry.type === 'polygon') {
-  const outerRing = details.renderGeometry.coordinates[0];
-  const [minX, minY, maxX, maxY] = details.extent;
+if (details !== undefined) {
+  const extentPoints = details.extentPoints;
+  const rangePoints = details.rangePoints;
+  const controlPoints = details.controlPoints;
+  const center = details.center;
+  const radius = details.radius;
 }
 ```
 
@@ -112,9 +130,25 @@ if (details?.renderGeometry.type === 'polygon') {
 - `geometry` 已用于 `ElementState.geometry` 的规范控制或参数状态，不能复用为不同语义。
 - `extent` 只表示四值外接框，不能表达箭头 Polygon 的完整轮廓。
 - `coordinates` 不能统一表达参数化 Circle。
-- `geometryDetails` 明确表示由当前规范状态派生的“完整几何 + 外接范围”读取结果。
+- `geometryDetails` 明确表示由当前规范状态派生的完整几何详情，并同时提供无损判别联合与常用统一字段。
 
 本次不同时增加 `ElementService.getGeometryDetails()`，避免为相同语义制造两个公共入口。批量调用方通过 `query()` 获得 Element 后读取各自 getter。
+
+### 2.4 统一便利字段
+
+便利字段固定从同一次 getter 读取中的 `renderGeometry`、`extent` 和规范 `ElementState.geometry` 派生：
+
+| 字段            | Point              | Polyline        | Polygon / Plot 面   | Circle                  |
+| --------------- | ------------------ | --------------- | ------------------- | ----------------------- |
+| `extentPoints`  | 四个零面积重合角点 | 外接矩形四角    | 外接矩形四角        | 精确投影外接矩形四角    |
+| `rangePoints`   | `[[coordinate]]`   | `[coordinates]` | `coordinates` rings | `[]`                    |
+| `controlPoints` | 规范控制点         | 规范控制点      | 规范控制点          | `null`                  |
+| `center`        | `null`             | `null`          | `null`              | View 投影圆心           |
+| `radius`        | `null`             | `null`          | `null`              | `{ meters, projected }` |
+
+`rangePoints` 的外层固定表示坐标组，便于调用方统一遍历；它不改变 `renderGeometry` 的判别联合，也不把 Circle 离散为有限顶点。`extentPoints` 固定使用二维坐标，顺序为左下、右下、右上、左上，不重复首点闭合。`controlPoints` 保留输入顺序和 Z；Circle 的圆心不是 `controlPoints` 的兼容替身。
+
+全部便利字段都是同一只读详情快照的一部分。实现可以在同一结果内部安全复用已经冻结的 `renderGeometry` 坐标，但不得与外部可变输入、ShapeDefinition 工作区或 OL Geometry 共享数组。
 
 ## 3. 几何语义
 
@@ -136,6 +170,7 @@ ElementState.geometry
 
 - 所有数值有限，结构与当前 Shape 的最终渲染类型一致。
 - 所有对象、rings、坐标数组和 Coordinate 递归冻结。
+- `extentPoints`、`rangePoints`、`controlPoints`、`center` 和 `radius` 与 `renderGeometry`、`extent` 属于同一个状态 revision；不得分别读取 Store 后拼接跨 revision 结果。
 - 不与 Store 状态、ShapeDefinition 工作区、动画 Runtime、交互预览或 OL Geometry 共享可变数组。
 - 调用方不得依赖连续两次读取的对象身份；实现可以按 Element generation、geometry revision 和投影上下文缓存已冻结快照。
 - Z 坐标按 Shape 的既有渲染语义保留；`extent` 只统计 XY，不表达高度范围。
@@ -143,8 +178,9 @@ ElementState.geometry
 ### 3.2 Point 与 Polyline
 
 - Point 返回一个 `point` 及其完整 Coordinate。
-- Polyline 和最终渲染为线的曲线 Shape 返回 `polyline` 及其最终有序路径坐标，而不是仅返回原始控制点。
+- Polyline 和最终渲染为线的曲线 Shape 返回 `polyline` 及其最终有序路径坐标，而不是仅返回规范控制点。
 - Point 的 `extent` 为 `[x, y, x, y]`。
+- Point 的 `rangePoints` 为只含一个坐标组和一个坐标的 `[[coordinate]]`。
 - Polyline 的 `extent` 是全部路径坐标 XY 的最小、最大值。
 
 ### 3.3 Polygon 与 Plot 箭头
@@ -153,6 +189,7 @@ ElementState.geometry
 - `coordinates` 按 OpenLayers 无关的 ring 结构表达；每个 ring 遵循当前 `ShapeDefinition.toRenderGeometry()` 的闭合规则。
 - AttackArrow、TailedAttackArrow、FineArrow、TailedSquadCombatArrow、AssaultDirectionArrow 和 DoubleArrow 等箭头必须返回真实 ShapeDefinition 生成的最终 Polygon，不得返回控制点连线，也不得建立第二套箭头轮廓算法。
 - `extent` 统计全部 rings 的所有 XY 坐标。
+- Polygon 与 Plot 面的 `rangePoints` 直接复用完整最终 rings，不退化为控制点连线。
 
 本契约不从最终 Polygon 反推箭头中心路径、控制点角色或动画 reveal 语义；这些仍由 ShapeDefinition 的既有状态和 provider 管理。
 
@@ -172,6 +209,8 @@ Circle 保持精确参数化表达：
 - `renderGeometry.radius` 是圆心处换算后的当前 View 投影单位，不是米。
 - `element.state.geometry.radius` 继续固定为米，业务状态契约不变。
 - `extent` 精确计算为 `[x - radius, y - radius, x + radius, y + radius]`。
+- `center` 返回同一份详情中的 View 投影圆心；`radius.meters` 来自规范状态，`radius.projected` 与 `renderGeometry.radius` 一致。
+- `rangePoints` 固定为空数组，`controlPoints` 固定为 `null`。
 - 不生成固定 32、64 或其他分段数的圆周坐标。有限顶点环只能近似圆，不得通过本 getter 伪装成精确覆盖边界。
 - OL Circle 仍是平面投影圆，不增加大地测量等距圆承诺。
 
@@ -189,6 +228,7 @@ Circle 保持精确参数化表达：
 
 - 使用当前 Earth 的 View 投影单位。
 - 直接从同一次读取产生的 `renderGeometry` 计算，二者不能来自不同 revision。
+- `extentPoints` 直接由同一次读取的 `extent` 生成，四角不得重新执行 Shape 范围推导。
 - Point 使用零面积范围；Circle 使用中心和投影半径；Polyline 与 Polygon 遍历其最终坐标。
 - 不随 View rotation 改变，不是旋转后的屏幕包围框。
 - 不考虑当前 viewport 是否可见；hidden 或离屏 Element 仍返回规范几何范围。
@@ -206,7 +246,7 @@ earth.elements.getScreenExtent(element);
 
 ### 5.1 最新已提交状态
 
-`geometryDetails` 每次读取以 ElementStore 中当前 generation 的最新已提交 `ElementState` 为输入：
+`geometryDetails` 每次读取以 ElementStore 中当前 generation 的最新已提交 `ElementState` 为输入；`controlPoints` 和 `radius.meters` 也来自该次读取，不得在渲染详情生成后再次读取 Store：
 
 - add、update、Edit 完成或 Transform 完成提交后，下一次读取反映新状态。
 - copy 的新 Element 根据自己的已提交状态独立推导。
@@ -300,7 +340,7 @@ earth.elements.getScreenExtent(element);
 
 自动化测试至少覆盖：
 
-1. Point、Polyline、Polygon 和 Circle 的判别联合、完整坐标及 extent。
+1. Point、Polyline、Polygon 和 Circle 的判别联合、完整坐标、extent 及全部统一便利字段。
 2. CurvePolyline、LunePolyline、闭合 Plot、全部箭头和 DoubleArrow 返回真实最终 RenderGeometry，而不是控制点连线。
 3. Polygon ring 闭合语义和全部 rings 的 extent 聚合。
 4. Circle 在赤道、高纬度和不同 Earth 投影下的米制状态半径、View 投影半径与精确 extent。
@@ -311,7 +351,7 @@ earth.elements.getScreenExtent(element);
 9. `wrapX`、跨世界 viewport 和交互 world offset 不产生展示副本，也不自动归一化已提交坐标。
 10. hidden、离屏和图层透明度不阻止读取。
 11. 直接修改 `olFeature` geometry 不改变结果。
-12. 返回对象、rings 和 Coordinate 递归冻结，且不与 Store、Runtime 或预览工作区共享可变数组。
+12. 返回对象、rings、范围角点、控制点、半径对象和 Coordinate 递归冻结，且不与 Store、Runtime 或预览工作区共享可变数组。
 13. remove、相同 ID 重建、Earth.destroy 和多 Earth 隔离遵循句柄生命周期。
 14. 根导出、TypeScript 判别收窄、公共 API 快照和 strict consumer 覆盖三个新增公共类型及 getter。
 
@@ -321,17 +361,18 @@ earth.elements.getScreenExtent(element);
 
 Element 归属页必须明确区分：
 
-| 入口 | 含义 | 单位与边界 |
-| --- | --- | --- |
-| `element.state.geometry` | 规范业务状态、控制点或 Circle 参数 | 坐标为 View 投影；Circle radius 为米 |
-| `element.geometryDetails` | 最新已提交状态生成的完整最终几何和二维范围 | 坐标与 Circle render radius 为 View 投影单位 |
-| `element.olFeature` | 可变 OL 高级逃生口 | 不保证原生修改回写业务状态 |
-| `earth.elements.getScreenExtent()` | 当前规范元素的屏幕视觉范围 | CSS 像素；不随动画变化 |
+| 入口                               | 含义                                       | 单位与边界                                   |
+| ---------------------------------- | ------------------------------------------ | -------------------------------------------- |
+| `element.state.geometry`           | 规范业务状态、控制点或 Circle 参数         | 坐标为 View 投影；Circle radius 为米         |
+| `element.geometryDetails`          | 最新已提交状态生成的完整最终几何和二维范围 | 坐标与 Circle render radius 为 View 投影单位 |
+| `element.olFeature`                | 可变 OL 高级逃生口                         | 不保证原生修改回写业务状态                   |
+| `earth.elements.getScreenExtent()` | 当前规范元素的屏幕视觉范围                 | CSS 像素；不随动画变化                       |
 
 示例至少展示：
 
-- 读取 Plot 箭头的完整 Polygon ring。
-- 读取 Circle 的参数化 `center`、投影半径和 extent，并与状态中的米制半径对照。
+- 直接读取 `extentPoints`、`rangePoints`、`controlPoints`、`center` 和 `radius`，无需调用方再次判别 Shape。
+- 读取 Plot 箭头的完整 Polygon ring，并说明 `rangePoints` 与原始 `controlPoints` 的差异。
+- 读取 Circle 的参数化 `center`、`radius.meters`、`radius.projected` 和 extent。
 - 使用 `toGeographicCoordinates()` 显式逐 Coordinate 转换返回坐标，并说明 Circle radius 不属于坐标转换。
 - 说明动画、样式和 world wrap 不进入结果。
 
@@ -341,7 +382,7 @@ Element 归属页必须明确区分：
 
 只有同时满足以下条件，本补充设计才算实现完成：
 
-- `Element.geometryDetails` 是唯一新增查询入口，返回 `renderGeometry + extent`。
+- `Element.geometryDetails` 是唯一新增查询入口，保留 `renderGeometry + extent`，并返回已批准的统一便利字段。
 - `ElementGeometryDetails`、`MapExtent` 和 `ElementRenderGeometry` 从包根导出。
 - 详情从最新已提交 `ElementState` 经 ShapeProjectionPort 和真实 ShapeDefinition 单向推导。
 - Circle 保持精确参数化表达，不进行隐式离散；业务 radius 继续为米，render radius 为 View 投影单位。
@@ -356,9 +397,10 @@ Element 归属页必须明确区分：
 本设计的已批准公共契约固定为：
 
 1. 新增 `Element.geometryDetails` 只读派生 getter。
-2. getter 返回 `renderGeometry` 与 `extent`，不增加同义 ElementService 方法。
+2. getter 保留 `renderGeometry` 与 `extent`，并增加 `extentPoints`、`rangePoints`、`controlPoints`、`center` 和 `radius`；不增加同义 ElementService 方法。
 3. 结果表示最新已提交的规范 Shape，不表示动画帧或交互工作态。
 4. Circle 使用参数化 center + View 投影半径，不返回离散圆周。
 5. extent 是纯 Shape 的 View 投影二维外接范围，不包含样式、动画或 world wrap。
 6. 派生链固定为 ElementState → ShapeProjectionPort → ShapeDefinition，禁止从 OL Geometry 反向读取。
 7. 全部公共返回数据递归冻结，三个新增类型从包根导出。
+8. `rangePoints` 对 Point、Polyline、Polygon 分别统一为一个点组、一个路径组和完整 rings；Circle 返回空数组，并通过 `center + radius` 保持精确参数化表达。

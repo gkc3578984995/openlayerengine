@@ -2,6 +2,7 @@ import type BaseLayer from 'ol/layer/Base.js';
 import type TileSource from 'ol/source/Tile.js';
 import type { Pixel } from '../core/common/types.js';
 import type { ElementCopyOptions, ElementPatch, ElementSelector } from '../core/element/types.js';
+import type { ElementProtectionState, ElementProtectionUpdate } from '../core/protection/types.js';
 import type { LayerKind, LayerOwnership, LayerPatch } from '../core/layer/types.js';
 import type { ShapeInput } from '../core/shape/types.js';
 import type { Element } from './Element.js';
@@ -328,6 +329,39 @@ export interface ElementService {
    * ```
    */
   copy<T>(id: string, overrides?: ElementCopyOptions<T>): Element<T>;
+  /**
+   * 建立、更新或解除 Element 的协同保护运行态。
+   *
+   * 保护只拦截当前 Earth 的内置 Edit / Transform 交互；程序化更新仍可用于远端同步。
+   *
+   * @param elementId 目标 Element ID。
+   * @param update 保护开关、协作者信息、版本和可选到期时间。
+   * @returns 当前保护状态发生变化时返回 `true`；目标不存在、输入陈旧或幂等时返回 `false`。
+   *
+   * @example
+   * ```ts
+   * earth.elements.setProtection('route-1', {
+   *   protected: true,
+   *   operatorName: '张三',
+   *   revision: 18,
+   *   expiresAt: Date.now() + 30_000
+   * });
+   * ```
+   */
+  setProtection(elementId: string, update: ElementProtectionUpdate): boolean;
+  /**
+   * 读取 Element 当前的协同保护运行态。
+   *
+   * @param elementId 目标 Element ID。
+   * @returns 当前保护快照；Element 不存在、未保护或保护已到期时返回 `undefined`。
+   *
+   * @example
+   * ```ts
+   * const protection = earth.elements.getProtection('route-1');
+   * console.log(protection?.operatorName);
+   * ```
+   */
+  getProtection(elementId: string): ElementProtectionState | undefined;
   /**
    * 清空全部 Element。
    *

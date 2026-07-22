@@ -32,10 +32,30 @@ export type ElementRenderGeometry =
       readonly radius: number;
     };
 
-/** Element 完整静态渲染几何及其当前 View 投影地图坐标范围。 */
+/** Element 完整静态渲染几何、当前 View 投影范围及统一控制参数。 */
 export interface ElementGeometryDetails {
   /** 从最新已提交 Shape 状态派生的完整静态渲染几何；Circle 的 radius 使用 View 投影单位。 */
   readonly renderGeometry: ElementRenderGeometry;
   /** 裸渲染几何的二维外接矩形，不包含样式、动画、交互预览或 world-wrap 展示副本。 */
   readonly extent: MapExtent;
+  /** `extent` 的四个二维角点，顺序为左下、右下、右上、左上。 */
+  readonly extentPoints: readonly [
+    lowerLeft: readonly [number, number],
+    lowerRight: readonly [number, number],
+    upperRight: readonly [number, number],
+    upperLeft: readonly [number, number]
+  ];
+  /** 最终渲染坐标的统一分组；Point、Polyline、Polygon 分别返回点组、路径组和 rings，Circle 返回空数组。 */
+  readonly rangePoints: readonly (readonly Coordinate[])[];
+  /** 最新已提交的规范控制点；Circle 不使用控制点，因此返回 `null`。 */
+  readonly controlPoints: readonly Coordinate[] | null;
+  /** Circle 在当前 View 投影中的圆心；其他 Shape 返回 `null`。 */
+  readonly center: Coordinate | null;
+  /** Circle 的米制业务半径和当前 View 投影半径；其他 Shape 返回 `null`。 */
+  readonly radius: Readonly<{
+    /** 规范 Element 状态中的业务半径，单位为米。 */
+    readonly meters: number;
+    /** 当前 View 投影单位下的渲染半径。 */
+    readonly projected: number;
+  }> | null;
 }

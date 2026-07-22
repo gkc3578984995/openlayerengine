@@ -5,7 +5,8 @@ import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import type { PreparedWorldEdit } from '../src/core/common/worldWrap.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState } from '../src/core/element/types.js';
-import { ObjectDisposedError } from '../src/core/errors.js';
+import { ElementProtectedError, ObjectDisposedError } from '../src/core/errors.js';
+import type { ElementProtectionChange, ElementProtectionGuard } from '../src/core/ports/ElementProtectionPort.js';
 import type { InputEventMap } from '../src/core/ports/InputPort.js';
 import type { TooltipLine } from '../src/core/ports/TooltipPort.js';
 import type { ShapeProjectionPort } from '../src/core/ports/ShapeProjectionPort.js';
@@ -19,6 +20,7 @@ import type {
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import type { ShapeDefinition, ShapeType } from '../src/core/shape/types.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
+import type { ElementGeneration } from '../src/core/transaction/types.js';
 import { EditSession } from '../src/services/draw/EditSession.js';
 import { InteractionCoordinator } from '../src/services/events/InteractionCoordinator.js';
 import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
@@ -95,6 +97,32 @@ class FakeKeyboardInput {
   }
 }
 
+class FakeProtectionGuard implements ElementProtectionGuard {
+  readonly #listeners = new Set<(change: ElementProtectionChange) => void>();
+  state: ElementProtectionChange['current'];
+
+  get(elementId: string): ElementProtectionChange['current'] {
+    return this.state?.elementId === elementId ? this.state : undefined;
+  }
+
+  assertEditable(elementId: string): void {
+    const state = this.get(elementId);
+    if (state !== undefined) throw new ElementProtectedError(elementId, state.operatorName, state.operatorId);
+  }
+
+  subscribe(listener: (change: ElementProtectionChange) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  protect(elementId: string, generation: ElementGeneration, operatorName = '张三'): void {
+    const state = Object.freeze({ elementId, protected: true as const, operatorName });
+    this.state = state;
+    const change = Object.freeze({ elementId, generation, current: state });
+    for (const listener of [...this.#listeners]) listener(change);
+  }
+}
+
 function element(type: ShapeType, controlPoints: readonly (readonly [number, number])[]): ElementState {
   return {
     id: `edit-${type}`,
@@ -113,7 +141,8 @@ function setup(
   beforeSession?: (store: ElementStore) => void,
   configure?: (context: Readonly<{ keyboard: FakeKeyboardInput; port: FakeEditPort; store: ElementStore }>) => void,
   sessionDefinition?: ShapeDefinition,
-  shapeProjection: ShapeProjectionPort = identityShapeProjection
+  shapeProjection: ShapeProjectionPort = identityShapeProjection,
+  protection?: ElementProtectionGuard
 ) {
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   const store = new ElementStore(shapes);
@@ -136,6 +165,7 @@ function setup(
     coordinator,
     port,
     shapeProjection,
+    ...(protection === undefined ? {} : { protection }),
     elementId: state.id,
     options: { underlay },
     input: keyboard,
@@ -174,6 +204,27 @@ describe('EditSession', () => {
     'edit-session-world-wrap',
     'edit-session-events'
   );
+
+  it('拒绝已保护目标，并在编辑期间收到保护时回滚和清理', () => {
+    const state = element('polyline', [
+      [0, 0],
+      [4, 0]
+    ]);
+    const preProtected = new FakeProtectionGuard();
+    preProtected.state = Object.freeze({ elementId: state.id, protected: true, operatorName: '李四' });
+    expect(() => setup(state, false, undefined, undefined, undefined, undefined, identityShapeProjection, preProtected)).toThrow(ElementProtectedError);
+
+    const protection = new FakeProtectionGuard();
+    const active = setup(state, false, undefined, undefined, undefined, undefined, identityShapeProjection, protection);
+    const generation = active.store.generationOf(state.id);
+    if (generation === undefined) throw new Error('Missing Element generation');
+    protection.protect(state.id, generation);
+
+    expect(active.session.status).toBe('cancelled');
+    expect(active.port.destroy).toHaveBeenCalledOnce();
+    expect(active.onTerminal).toHaveBeenCalledOnce();
+    expect(active.store.get(state.id)?.geometry).toEqual(state.geometry);
+  });
 
   it('shows base, midpoint, control-point, and drag guidance while keeping history and cleanup in sync', () => {
     const { port, session, tooltip } = setup(

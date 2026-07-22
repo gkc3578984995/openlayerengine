@@ -86,6 +86,34 @@ const geometryExtentSummary = computed(() => {
   const extent = selectedGeometryDetails.value?.extent;
   return extent === undefined ? '尚未读取' : `[${extent.map(formatMapNumber).join(', ')}]`;
 });
+const extentPointsSummary = computed(() => {
+  const points = selectedGeometryDetails.value?.extentPoints;
+  return points === undefined ? '尚未读取' : points.map(formatCoordinate).join(' → ');
+});
+const rangePointsSummary = computed(() => {
+  const groups = selectedGeometryDetails.value?.rangePoints;
+  if (groups === undefined) return '尚未读取';
+  if (groups.length === 0) return '0 组 · Circle 通过 center + radius 精确表达';
+  const coordinateCount = groups.reduce((count, points) => count + points.length, 0);
+  return `${groups.length} 组 · ${coordinateCount} 个最终坐标`;
+});
+const controlPointsSummary = computed(() => {
+  const points = selectedGeometryDetails.value?.controlPoints;
+  if (points === undefined) return '尚未读取';
+  if (points === null) return 'null · Circle 不使用 controlPoints';
+  return `${points.length} 个 · ${points.map(formatCoordinate).join('、')}`;
+});
+const circleCenterSummary = computed(() => {
+  const details = selectedGeometryDetails.value;
+  if (details === null) return '尚未读取';
+  return details.center === null ? 'null · 仅 Circle 有值' : formatCoordinate(details.center);
+});
+const circleRadiusSummary = computed(() => {
+  const details = selectedGeometryDetails.value;
+  if (details === null) return '尚未读取';
+  if (details.radius === null) return 'null · 仅 Circle 有值';
+  return `${formatMapNumber(details.radius.meters)} 米 · ${formatMapNumber(details.radius.projected)} View 投影单位`;
+});
 
 const minimalCode = computed(() => {
   if (selectedType.value === 'circle') {
@@ -266,10 +294,10 @@ const renderShape = (type: ShapeType) => {
     geometry: createShapeExampleInput(type, center, PREVIEW_SCALE),
     style: styleFor(example)
   });
-  const geometryDetails = element.geometryDetails;
+  const info = element.geometryDetails;
+  selectedGeometryDetails.value = info;
   // #endregion shape-gallery
 
-  selectedGeometryDetails.value = geometryDetails;
   addGuides(earth, inputPointsFor(earth, element.state.geometry));
   focusSelected();
 };
@@ -407,6 +435,19 @@ onBeforeUnmount(() => {
           <el-descriptions-item label="完整静态几何">{{ geometryDetailsSummary }}</el-descriptions-item>
           <el-descriptions-item label="地图坐标范围"
             ><code>{{ geometryExtentSummary }}</code></el-descriptions-item
+          >
+          <el-descriptions-item label="范围角点"
+            ><code>{{ extentPointsSummary }}</code></el-descriptions-item
+          >
+          <el-descriptions-item label="最终轮廓点">{{ rangePointsSummary }}</el-descriptions-item>
+          <el-descriptions-item label="规范控制点"
+            ><code>{{ controlPointsSummary }}</code></el-descriptions-item
+          >
+          <el-descriptions-item label="圆心"
+            ><code>{{ circleCenterSummary }}</code></el-descriptions-item
+          >
+          <el-descriptions-item label="半径"
+            ><code>{{ circleRadiusSummary }}</code></el-descriptions-item
           >
           <el-descriptions-item label="相关类型">
             <span class="shape-catalog__type-links">

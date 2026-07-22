@@ -15,6 +15,7 @@ const ElementOverviewView = () => import('../views/elements/ElementOverviewView.
 const ElementCreateView = () => import('../views/elements/ElementCreateView.vue');
 const ElementQueryView = () => import('../views/elements/ElementQueryView.vue');
 const ElementUpdateView = () => import('../views/elements/ElementUpdateView.vue');
+const ElementProtectionView = () => import('../views/elements/ElementProtectionView.vue');
 const ElementCleanupView = () => import('../views/elements/ElementCleanupView.vue');
 const ShapesView = () => import('../views/elements/ShapesView.vue');
 const StylesView = () => import('../views/elements/StylesView.vue');
@@ -56,6 +57,7 @@ const router = createRouter({
         { path: 'components/elements/create', name: 'element-create', component: ElementCreateView },
         { path: 'components/elements/query', name: 'element-query', component: ElementQueryView },
         { path: 'components/elements/update', name: 'element-update', component: ElementUpdateView },
+        { path: 'components/elements/protection', name: 'element-protection', component: ElementProtectionView },
         { path: 'components/elements/cleanup', name: 'element-cleanup', component: ElementCleanupView },
         { path: 'components/elements/shapes', name: 'element-shapes', component: ShapesView },
         { path: 'components/elements/styles', name: 'element-styles', component: StylesView },

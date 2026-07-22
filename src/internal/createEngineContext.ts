@@ -12,6 +12,7 @@ import { GeometryCodec } from '../adapters/openlayers/GeometryCodec.js';
 import { HitTestAdapter } from '../adapters/openlayers/HitTestAdapter.js';
 import { InputAdapter } from '../adapters/openlayers/InputAdapter.js';
 import { LayerAdapter } from '../adapters/openlayers/LayerAdapter.js';
+import { ElementProtectionViewAdapter } from '../adapters/openlayers/ElementProtectionViewAdapter.js';
 import { MeasurementAdapter } from '../adapters/openlayers/MeasurementAdapter.js';
 import { NativeRefRegistry } from '../adapters/openlayers/NativeRefRegistry.js';
 import { OverlayAdapter } from '../adapters/openlayers/OverlayAdapter.js';
@@ -53,6 +54,7 @@ import { InputRouter } from '../services/events/InputRouter.js';
 import { InteractionCoordinator } from '../services/events/InteractionCoordinator.js';
 import { MeasureService } from '../services/measure/MeasureService.js';
 import { OverlayService } from '../services/overlay/OverlayService.js';
+import { ElementProtectionService } from '../services/protection/ElementProtectionService.js';
 import { assertLineworkShapeCompatibility, assertStructuredStyleSpec, StyleService } from '../services/style/StyleService.js';
 import { TransformService } from '../services/transform/TransformService.js';
 import type { EngineContext } from './EngineContext.js';
@@ -124,7 +126,11 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const binding = new FeatureBinding(store, layerAdapter, geometry, styleCompiler);
     rollback.push(() => binding.destroy());
     const hitTest = new HitTestAdapter(map, store, layerManager, layerAdapter, binding);
-    const elements = new ElementServiceImpl(store, layerManager, binding, geometry, layers, nativeRefs, hitTest);
+    const protectionView = new ElementProtectionViewAdapter(map, layerAdapter, geometry, styleCompiler);
+    rollback.push(() => protectionView.destroy());
+    const protection = new ElementProtectionService(store, protectionView);
+    rollback.push(() => protection.destroy());
+    const elements = new ElementServiceImpl(store, layerManager, binding, geometry, layers, nativeRefs, hitTest, { protection });
 
     const render = new LayerRenderPass(map, layerAdapter, binding, styleCompiler);
     rollback.push(() => render.destroy());
@@ -227,6 +233,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       drawPort: drawAdapter,
       editPort: editAdapter,
       shapeProjection,
+      protection,
       input,
       tooltipPort: interactionTooltip,
       cursorPort: interactionCursor,
@@ -258,6 +265,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       coordinator,
       interaction: transformInteraction,
       shapeProjection,
+      protection,
       animations,
       transients: animations,
       toolbar: transformToolbar,
@@ -282,6 +290,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
         () => internalTransform.destroy(),
         () => measure.destroy(),
         () => draw.destroy(),
+        () => protection.destroy(),
         () => animations.destroy(),
         () => contextMenu.destroy(),
         () => events.destroy(),

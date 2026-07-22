@@ -9,6 +9,7 @@ const elementDemoPaths = [
   'website/src/examples/elements/ElementCreateDemo.vue',
   'website/src/examples/elements/ElementQueryDemo.vue',
   'website/src/examples/elements/ElementUpdateDemo.vue',
+  'website/src/examples/elements/ElementProtectionDemo.vue',
   'website/src/examples/elements/ElementCleanupDemo.vue',
   'website/src/examples/elements/ShapesDemo.vue',
   'website/src/examples/elements/StylesDemo.vue',
@@ -20,6 +21,7 @@ const snippetViewPaths = [
   'website/src/views/elements/ElementCreateView.vue',
   'website/src/views/elements/ElementQueryView.vue',
   'website/src/views/elements/ElementUpdateView.vue',
+  'website/src/views/elements/ElementProtectionView.vue',
   'website/src/views/elements/ElementCleanupView.vue',
   'website/src/views/elements/ShapesView.vue',
   'website/src/views/elements/StylesView.vue',
@@ -106,13 +108,19 @@ describe('website Element documentation', () => {
     for (const typeName of ['ElementGeometryDetails', 'ElementRenderGeometry', 'MapExtent']) expect(view).toContain(`'${typeName}'`);
     expect(view).toContain('id="geometry-details"');
     expect(view).toContain("type: 'polygon'");
-    expect(view).toContain('当前 View 投影单位下的 <code>radius</code>');
+    for (const fieldName of ['extentPoints', 'rangePoints', 'controlPoints', 'center', 'radius', 'meters', 'projected']) {
+      expect(view).toContain(`<code>${fieldName}</code>`);
+      expect(demo).toContain(fieldName);
+    }
+    expect(view).toMatch(/Circle\s+返回冻结的空数组/u);
+    expect(view).toContain('其他 Shape 的两个字段均为 <code>null</code>');
     expect(view).toContain('[minX, minY, maxX, maxY]');
     expect(view).toContain('earth.view.toGeographicCoordinates()');
     expect(view).toContain('不会把第 N 个世界中的坐标自动归一化到基础世界');
 
-    expect(demo).toContain('const geometryDetails = element.geometryDetails;');
-    expect(demo).toContain('selectedGeometryDetails.value = geometryDetails;');
+    expect(demo).toContain('const info = element.geometryDetails;');
+    expect(demo).toContain('selectedGeometryDetails.value = info;');
+    for (const label of ['范围角点', '最终轮廓点', '规范控制点', '圆心', '半径']) expect(demo).toContain(`label="${label}"`);
     expect(demo).toContain('/api/types#api-type-element-geometry-details');
     expect(demo).toContain('/api/types#api-type-element-render-geometry');
     expect(demo).toContain('/api/types#api-type-map-extent');

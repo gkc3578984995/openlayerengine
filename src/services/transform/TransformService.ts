@@ -4,6 +4,7 @@ import type { ElementSelector } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
 import type { CursorPort } from '../../core/ports/CursorPort.js';
+import { unprotectedElementGuard, type ElementProtectionGuard } from '../../core/ports/ElementProtectionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TransformInteractionPort } from '../../core/ports/TransformInteractionPort.js';
@@ -47,6 +48,8 @@ export interface TransformServiceDependencies {
   readonly coordinator: InteractionCoordinator;
   /** 隔离 Transform Adapter 的交互 Port。 */
   readonly interaction: TransformInteractionPort;
+  /** 阻止受保护 Element 进入本地可变交互。 */
+  readonly protection?: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
@@ -79,6 +82,8 @@ export class TransformService implements InternalTransformService {
   readonly #coordinator: InteractionCoordinator;
   /** 隔离 Transform Adapter 的交互 Port。 */
   readonly #interaction: TransformInteractionPort;
+  /** Element 协同保护门禁。 */
+  readonly #protection: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
@@ -120,6 +125,7 @@ export class TransformService implements InternalTransformService {
     this.#styles = dependencies.styles;
     this.#coordinator = dependencies.coordinator;
     this.#interaction = dependencies.interaction;
+    this.#protection = dependencies.protection ?? unprotectedElementGuard;
     this.#shapeProjection = dependencies.shapeProjection;
     this.#animations = dependencies.animations;
     this.#transients = dependencies.transients;
@@ -138,7 +144,9 @@ export class TransformService implements InternalTransformService {
 
   /** 启动会话并选择指定元素。 */
   select<T>(elementId: string, options?: InternalTransformOptions): InternalTransformSession<T> {
-    return this.#start<T>(options, nonEmptyString(elementId, 'Transform element id'));
+    const normalizedId = nonEmptyString(elementId, 'Transform element id');
+    this.#protection.assertEditable(normalizedId);
+    return this.#start<T>(options, normalizedId);
   }
 
   /** 销毁全部会话并清空剪贴板。 */
@@ -153,6 +161,7 @@ export class TransformService implements InternalTransformService {
   /** 创建、激活并打开 Transform 会话。 */
   #start<T>(input?: InternalTransformOptions, elementId?: string): TransformSession<T> {
     this.#assertActive();
+    if (elementId !== undefined) this.#protection.assertEditable(elementId);
     const options = this.#normalizeOptions(input);
     const session: TransformSession<T> = new TransformSession<T>({
       id: `transform-${++this.#nextSessionId}`,
@@ -161,6 +170,7 @@ export class TransformService implements InternalTransformService {
       styles: this.#styles,
       coordinator: this.#coordinator,
       interaction: this.#interaction,
+      protection: this.#protection,
       shapeProjection: this.#shapeProjection,
       animations: this.#animations,
       transients: this.#transients,

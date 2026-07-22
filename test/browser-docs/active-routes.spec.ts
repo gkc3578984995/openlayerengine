@@ -308,8 +308,8 @@ test('错误示例通过真实 API 触发、识别并恢复全部稳定错误', 
   const example = page.locator('#example-error-recognition');
   await example.scrollIntoViewIfNeeded();
   await expect(example.locator('.errors-demo__map canvas')).toBeVisible();
-  await example.getByRole('button', { name: '依次运行全部 7 类' }).click();
-  await expect(example.locator('.el-table__body-wrapper tbody tr')).toHaveCount(7);
+  await example.getByRole('button', { name: '依次运行全部 8 类' }).click();
+  await expect(example.locator('.el-table__body-wrapper tbody tr')).toHaveCount(8);
   await expect(example.getByText('未识别', { exact: true })).toHaveCount(0);
   await expect(example.getByText(/恢复失败/u)).toHaveCount(0);
   for (const errorName of [
@@ -319,6 +319,7 @@ test('错误示例通过真实 API 触发、识别并恢复全部稳定错误', 
     'ObjectDisposedError',
     'CapabilityError',
     'InteractionConflictError',
+    'ElementProtectedError',
     'UnsupportedOperationError'
   ]) {
     await expect(example.getByRole('cell', { name: errorName, exact: true })).toHaveCount(3);

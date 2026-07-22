@@ -50,6 +50,7 @@ describe('website code highlighting', () => {
       ['website/src/examples/elements/ElementCreateDemo.vue', ['element-create']],
       ['website/src/examples/elements/ElementQueryDemo.vue', ['element-query']],
       ['website/src/examples/elements/ElementUpdateDemo.vue', ['element-update']],
+      ['website/src/examples/elements/ElementProtectionDemo.vue', ['element-protection']],
       ['website/src/examples/elements/ElementCleanupDemo.vue', ['element-cleanup']],
       ['website/src/examples/elements/ShapesDemo.vue', ['shape-gallery']],
       ['website/src/examples/elements/StylesDemo.vue', ['style-preset', 'style-patch']],

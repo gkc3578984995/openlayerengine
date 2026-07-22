@@ -65,9 +65,9 @@ export class Element<T = unknown> {
   }
 
   /**
-   * 最新已提交 Shape 状态解析出的完整静态渲染几何及其地图坐标范围。
+   * 最新已提交 Shape 状态解析出的完整静态渲染几何、地图坐标范围和统一控制参数。
    *
-   * Circle 的渲染半径使用当前 View 投影单位，`state.geometry.radius` 仍以米保存。结果不包含动画帧、交互预览、样式外扩或 world-wrap 展示副本。
+   * 详情同时提供范围角点、最终轮廓点和规范控制点。Circle 通过圆心、米制半径和当前 View 投影半径精确表达，不生成离散圆周点。结果不包含动画帧、交互预览、样式外扩或 world-wrap 展示副本。
    *
    * @throws `ObjectDisposedError` 当前句柄已被移除或已由同 ID 的新代次替代。
    */

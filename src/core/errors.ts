@@ -118,6 +118,38 @@ export class InteractionConflictError extends Error {
   }
 }
 
+/** Element 正由其他协作者保护，不能进入本地可变交互。 */
+export class ElementProtectedError extends Error {
+  /** 被保护的 Element ID。 */
+  readonly elementId: string;
+  /** 可选的协作者展示名。 */
+  readonly operatorName: string | undefined;
+  /** 可选的协作者稳定标识。 */
+  readonly operatorId: string | undefined;
+
+  /**
+   * 创建 Element 协同保护错误。
+   *
+   * @param elementId 被保护的 Element ID。
+   * @param operatorName 可选的协作者展示名。
+   * @param operatorId 可选的协作者稳定标识。
+   *
+   * @example
+   * ```ts
+   * import { ElementProtectedError } from '@vrsim/earth-engine-ol';
+   *
+   * throw new ElementProtectedError('route-1', '张三', 'user-42');
+   * ```
+   */
+  constructor(elementId: string, operatorName?: string, operatorId?: string) {
+    super(operatorName === undefined ? `Element is protected: ${elementId}` : `${operatorName} is editing Element: ${elementId}`);
+    this.name = 'ElementProtectedError';
+    this.elementId = elementId;
+    this.operatorName = operatorName;
+    this.operatorId = operatorId;
+  }
+}
+
 /** 当前场景无法执行已定义的操作。 */
 export class UnsupportedOperationError extends Error {
   /**

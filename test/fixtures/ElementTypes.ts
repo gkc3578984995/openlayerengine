@@ -1,5 +1,6 @@
 import { Element } from '../../src/facade/Element.js';
 import { Layer } from '../../src/facade/Layer.js';
+import type { Coordinate } from '../../src/core/common/types.js';
 import type { ShapeInput, ShapeState } from '../../src/core/shape/types.js';
 import type { ElementGeometryDetails, ElementRenderGeometry, MapExtent } from '../../src/facade/elementGeometryTypes.js';
 import type { ElementCreateInput, ElementHit } from '../../src/facade/types.js';
@@ -40,6 +41,11 @@ element.update({ geometry: { type: 'point', controlPoints: [1, 2] } });
 const geometryDetails: ElementGeometryDetails = element.geometryDetails;
 const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
 const mapExtent: MapExtent = geometryDetails.extent;
+const extentPoints: readonly Coordinate[] = geometryDetails.extentPoints;
+const rangePoints: readonly (readonly Coordinate[])[] = geometryDetails.rangePoints;
+const controlPoints: readonly Coordinate[] | null = geometryDetails.controlPoints;
+const center: Coordinate | null = geometryDetails.center;
+const radius: Readonly<{ readonly meters: number; readonly projected: number }> | null = geometryDetails.radius;
 declare const layer: ElementHit<{ label: string }>['layer'];
 const hit: ElementHit<{ label: string }> = { element, layer };
 
@@ -61,5 +67,10 @@ void [
   geometryDetails,
   renderGeometry,
   mapExtent,
+  extentPoints,
+  rangePoints,
+  controlPoints,
+  center,
+  radius,
   hit
 ];

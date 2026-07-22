@@ -22,8 +22,8 @@ function findMethod(type, name) {
   return type.methods.find((method) => method.name === name);
 }
 
-const expectedCounts = { class: 10, interface: 90, typeAlias: 56 };
-assert(model.apiCatalog.length === 156, `公开类型目录数量应为 156，实际为 ${model.apiCatalog.length}`);
+const expectedCounts = { class: 11, interface: 91, typeAlias: 57 };
+assert(model.apiCatalog.length === 159, `公开类型目录数量应为 159，实际为 ${model.apiCatalog.length}`);
 for (const [kind, expected] of Object.entries(expectedCounts)) {
   const actual = model.apiCatalog.filter((entry) => entry.kind === kind).length;
   assert(actual === expected, `${kind} 数量应为 ${expected}，实际为 ${actual}`);
@@ -102,6 +102,11 @@ assert(
 );
 assert(findMethod(findType('LayerService'), 'add'), 'LayerService.add 未写入类型目录');
 assert(findMethod(findType('Layer'), 'update'), 'Layer.update 未写入类型目录');
+assert(findType('ElementProtectionUpdate'), 'ElementProtectionUpdate 未写入类型目录');
+assert(findType('ElementProtectionState'), 'ElementProtectionState 未写入类型目录');
+assert(findType('ElementProtectedError'), 'ElementProtectedError 未写入类型目录');
+assert(findMethod(findType('ElementService'), 'setProtection'), 'ElementService.setProtection 未写入类型目录');
+assert(findMethod(findType('ElementService'), 'getProtection'), 'ElementService.getProtection 未写入类型目录');
 assert(findMethod(findType('ControlService'), 'enableGraticule'), 'ControlService.enableGraticule 未写入类型目录');
 assert(findMethod(findType('ControlService'), 'enableScaleLine'), 'ControlService.enableScaleLine 未写入类型目录');
 

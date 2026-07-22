@@ -10,6 +10,7 @@
     "test/types/StylePipeline.type-test.ts",
     "test/types/InteractionPorts.type-test.ts",
     "test/types/DrawFacade.type-test.ts",
+    "test/types/ElementProtection.type-test.ts",
     "test/CoreBoundaries.test.ts",
     "test/ArchitectureImportGraph.test.ts",
     "test/ElementSelector.test.ts",

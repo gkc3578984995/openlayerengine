@@ -29,6 +29,11 @@ const elements: ElementService = earth.elements;
 const geometryDetails: ElementGeometryDetails = element.geometryDetails;
 const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
 const mapExtent: MapExtent = geometryDetails.extent;
+const extentPoints: readonly Coordinate[] = geometryDetails.extentPoints;
+const rangePoints: readonly (readonly Coordinate[])[] = geometryDetails.rangePoints;
+const controlPoints: readonly Coordinate[] | null = geometryDetails.controlPoints;
+const center: Coordinate | null = geometryDetails.center;
+const radius: Readonly<{ readonly meters: number; readonly projected: number }> | null = geometryDetails.radius;
 const layers: LayerService = earth.layers;
 const styles: StyleService = earth.styles;
 const animations: AnimationManager = earth.animations;
@@ -47,6 +52,11 @@ void [
   geometryDetails,
   renderGeometry,
   mapExtent,
+  extentPoints,
+  rangePoints,
+  controlPoints,
+  center,
+  radius,
   layers,
   styles,
   animations,

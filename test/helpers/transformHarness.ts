@@ -5,6 +5,7 @@ import type { Coordinate } from '../../src/core/common/types.js';
 import { ElementStore } from '../../src/core/element/ElementStore.js';
 import type { ElementState } from '../../src/core/element/types.js';
 import type { AnimationControlHandle, TransformAnimationPort } from '../../src/core/ports/AnimationControlPort.js';
+import type { ElementProtectionGuard } from '../../src/core/ports/ElementProtectionPort.js';
 import type {
   TransformCopyPreview,
   TransformInteractionEvent,
@@ -279,7 +280,8 @@ export interface TransformHarnessAnimationPorts {
 export function createTransformHarness(
   toolbar = false as false | InternalTransformToolbarOptions,
   createAnimationPorts?: (context: Readonly<{ store: ElementStore; shapes: ShapeRegistry }>) => TransformHarnessAnimationPorts,
-  shapeProjection: ShapeProjectionPort = identityShapeProjection
+  shapeProjection: ShapeProjectionPort = identityShapeProjection,
+  protection?: ElementProtectionGuard
 ) {
   const log: string[] = [];
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
@@ -303,6 +305,7 @@ export function createTransformHarness(
     styles,
     coordinator,
     interaction,
+    ...(protection === undefined ? {} : { protection }),
     animations: animationPorts.animations,
     transients: animationPorts.transients,
     toolbar: toolbarPort,

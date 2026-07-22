@@ -9,8 +9,8 @@ import { GeometryCodec, projectRenderGeometry } from '../src/adapters/openlayers
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
-import { createRenderGeometryDetails } from '../src/core/shape/geometryDetails.js';
 import { shapeTypes, type RenderGeometryState, type ShapeState, type ShapeType } from '../src/core/shape/types.js';
+import { createElementGeometryDetails } from '../src/facade/resolveElementGeometryDetails.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
 
@@ -192,20 +192,47 @@ describe('GeometryCodec', () => {
     const codec = createCodec();
 
     for (const type of shapeTypes) {
-      const rendered = codec.render(inputs[type]);
-      const details = createRenderGeometryDetails(rendered);
+      const state = inputs[type];
+      const rendered = codec.render(state);
+      const details = createElementGeometryDetails(state, rendered);
 
       expect(details.renderGeometry, type).toEqual(rendered);
       expect(details.extent.every(Number.isFinite), type).toBe(true);
+      expect(details.extentPoints).toHaveLength(4);
+      expect(details.extentPoints.flat().every(Number.isFinite), type).toBe(true);
       expect(Object.isFrozen(details), type).toBe(true);
       expect(Object.isFrozen(details.renderGeometry), type).toBe(true);
       expect(Object.isFrozen(details.extent), type).toBe(true);
-      if (details.renderGeometry.type === 'point') expect(Object.isFrozen(details.renderGeometry.coordinates), type).toBe(true);
-      else if (details.renderGeometry.type === 'polyline') expect(details.renderGeometry.coordinates.every(Object.isFrozen), type).toBe(true);
-      else if (details.renderGeometry.type === 'polygon') {
+      expect(Object.isFrozen(details.extentPoints), type).toBe(true);
+      expect(details.extentPoints.every(Object.isFrozen), type).toBe(true);
+      expect(Object.isFrozen(details.rangePoints), type).toBe(true);
+      if (details.renderGeometry.type === 'point') {
+        expect(Object.isFrozen(details.renderGeometry.coordinates), type).toBe(true);
+        expect(details.rangePoints).toEqual([[details.renderGeometry.coordinates]]);
+      } else if (details.renderGeometry.type === 'polyline') {
+        expect(details.renderGeometry.coordinates.every(Object.isFrozen), type).toBe(true);
+        expect(details.rangePoints).toEqual([details.renderGeometry.coordinates]);
+      } else if (details.renderGeometry.type === 'polygon') {
         expect(details.renderGeometry.coordinates.every(Object.isFrozen), type).toBe(true);
         expect(details.renderGeometry.coordinates.flat().every(Object.isFrozen), type).toBe(true);
-      } else expect(Object.isFrozen(details.renderGeometry.center), type).toBe(true);
+        expect(details.rangePoints).toEqual(details.renderGeometry.coordinates);
+      } else {
+        if (state.type !== 'circle') throw new Error(`${type} should use Circle state when it renders as Circle`);
+        expect(Object.isFrozen(details.renderGeometry.center), type).toBe(true);
+        expect(details.rangePoints).toEqual([]);
+        expect(details.controlPoints).toBeNull();
+        expect(details.center).toEqual(details.renderGeometry.center);
+        expect(details.radius).toEqual({ meters: state.radius, projected: details.renderGeometry.radius });
+        expect(Object.isFrozen(details.radius), type).toBe(true);
+      }
+      if (state.type !== 'circle') {
+        expect(details.controlPoints).toEqual(state.controlPoints);
+        expect(details.controlPoints).not.toBe(state.controlPoints);
+        expect(Object.isFrozen(details.controlPoints), type).toBe(true);
+        expect(details.controlPoints?.every(Object.isFrozen), type).toBe(true);
+        expect(details.center).toBeNull();
+        expect(details.radius).toBeNull();
+      }
     }
   });
 

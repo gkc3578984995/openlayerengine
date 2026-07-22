@@ -10,7 +10,7 @@ import errorsSource from '../../examples/reference/ErrorsDemo.vue?raw';
 
 const anchors = [
   { id: 'overview', label: '稳定错误族' },
-  { id: 'error-catalog', label: '7 种错误类型' },
+  { id: 'error-catalog', label: '8 种错误类型' },
   { id: 'example-error-recognition', label: '真实 API 失败、识别与恢复' },
   { id: 'recognition', label: '识别与恢复策略' },
   { id: 'api', label: '完整 API' }
@@ -66,6 +66,13 @@ const errorRows = [
     response: '等待或取消当前会话，或按业务选择 replace 策略'
   },
   {
+    anchor: 'api-error-element-protected',
+    href: '/api/types#api-type-element-protected-error',
+    name: 'ElementProtectedError',
+    when: '尝试为处于协同保护模式的 Element 启动内置 Edit 或 Transform',
+    response: '保留只读命中，提示当前操作人；等待更高 revision 的解锁消息后重新发起交互'
+  },
+  {
     anchor: 'api-error-unsupported-operation',
     href: '/api/types#api-type-unsupported-operation-error',
     name: 'UnsupportedOperationError',
@@ -81,6 +88,7 @@ const relatedTypes = [
   'ObjectDisposedError',
   'CapabilityError',
   'InteractionConflictError',
+  'ElementProtectedError',
   'UnsupportedOperationError'
 ] as const;
 
@@ -95,7 +103,7 @@ const focusErrorsDemo = () => errorsDemoRef.value?.focus();
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">工具与参考</span>
         <h1>错误类型</h1>
-        <p>2.0 从包根导出 7 个稳定错误类，用类型区分参数、身份、选择器、生命周期、能力、交互冲突与不支持操作，而不是以 false 或模糊消息静默失败。</p>
+        <p>2.0 从包根导出 8 个稳定错误类，用类型区分参数、身份、选择器、生命周期、能力、交互冲突、协同保护与不支持操作，而不是以 false 或模糊消息静默失败。</p>
       </header>
 
       <section id="overview" class="doc-prose">
@@ -110,7 +118,7 @@ const focusErrorsDemo = () => errorsDemoRef.value?.focus();
       </section>
 
       <section id="error-catalog" class="doc-prose">
-        <h2 class="doc-h2">7 种错误类型</h2>
+        <h2 class="doc-h2">8 种错误类型</h2>
         <ApiTable :columns="errorColumns" :rows="errorRows" />
       </section>
 
@@ -118,7 +126,8 @@ const focusErrorsDemo = () => errorsDemoRef.value?.focus();
         <ExampleBlock title="真实 API 失败、识别与恢复" :source="errorsSource" show-reset show-focus @reset="resetErrorsDemo" @focus="focusErrorsDemo">
           <template #description>
             <p>
-              示例分别通过无效 Shape 输入、重复 ID、空破坏性选择器、失效句柄、不兼容动画、reject 交互冲突和 nativeStyle 结构化更新触发七类真实错误；捕获后用
+              示例分别通过无效 Shape 输入、重复 ID、空破坏性选择器、失效句柄、不兼容动画、reject 交互冲突、受保护目标 Edit 和 nativeStyle
+              结构化更新触发八类真实错误；捕获后用
               <code>instanceof</code> 识别并立即执行可运行的恢复动作，不手工构造或抛出错误实例。
             </p>
           </template>
@@ -144,7 +153,7 @@ const focusErrorsDemo = () => errorsDemoRef.value?.focus();
 
       <PublicApiSection
         :type-names="relatedTypes"
-        description="这里直接列出全部 7 个稳定错误类的构造函数、参数和继承信息；类型名称还可以继续进入顶部 API 查询。"
+        description="这里直接列出全部 8 个稳定错误类的构造函数、参数和继承信息；类型名称还可以继续进入顶部 API 查询。"
       />
     </article>
 

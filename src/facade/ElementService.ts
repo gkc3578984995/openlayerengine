@@ -9,11 +9,13 @@ import type { ElementCopyOptions, ElementPatch, ElementSelector } from '../core/
 import { InvalidArgumentError } from '../core/errors.js';
 import type { LayerManager } from '../core/layer/LayerManager.js';
 import type { HitTestPort } from '../core/ports/HitTestPort.js';
+import type { ElementProtectionController } from '../core/ports/ElementProtectionPort.js';
 import type { ShapeInput } from '../core/shape/types.js';
-import { createRenderGeometryDetails } from '../core/shape/geometryDetails.js';
 import type { NativeStyleRef, StyleSpec } from '../core/style/types.js';
+import type { ElementProtectionState, ElementProtectionUpdate } from '../core/protection/types.js';
 import { constructElementHandle, Element, elementHandleFeature } from './Element.js';
 import type { LayerServiceImpl } from './LayerService.js';
+import { createElementGeometryDetails } from './resolveElementGeometryDetails.js';
 import { inspectStyleInput } from './StyleFacade.js';
 import type { ElementCreateInput, ElementHit, ElementService, ScreenExtent } from './types.js';
 
@@ -21,6 +23,8 @@ import type { ElementCreateInput, ElementHit, ElementService, ScreenExtent } fro
 export interface ElementServiceOptions {
   /** 自定义 Element ID 生成器。 */
   readonly createId?: () => string;
+  /** 当前 Earth 实例的协同保护控制器。 */
+  readonly protection?: ElementProtectionController;
 }
 
 /** 同代 OpenLayers Feature 与公共 Element 句柄的缓存项。 */
@@ -47,6 +51,8 @@ export class ElementServiceImpl implements ElementService {
   readonly #nativeRefs: NativeRefRegistry;
   /** 处理像素命中和屏幕范围计算。 */
   readonly #hitTest: HitTestPort;
+  /** 管理协同保护运行态和交互门禁。 */
+  readonly #protection: ElementProtectionController | undefined;
   /** 可选的 Element ID 生成器。 */
   readonly #createId: (() => string) | undefined;
   /** 按 Element ID 缓存当前代次的句柄。 */
@@ -72,6 +78,7 @@ export class ElementServiceImpl implements ElementService {
     this.#layers = layers;
     this.#nativeRefs = nativeRefs;
     this.#hitTest = hitTest;
+    this.#protection = options.protection;
     this.#createId = options.createId;
   }
 
@@ -175,6 +182,16 @@ export class ElementServiceImpl implements ElementService {
     return this.#currentHandle<T>(result.value.id);
   }
 
+  /** 建立、更新或解除 Element 的协同保护运行态。 */
+  setProtection(elementId: string, update: ElementProtectionUpdate): boolean {
+    return this.#protection?.set(elementId, update) ?? false;
+  }
+
+  /** 读取 Element 当前的协同保护运行态。 */
+  getProtection(elementId: string): ElementProtectionState | undefined {
+    return this.#protection?.get(elementId);
+  }
+
   /** 清空所有 Element 及其句柄缓存。 */
   clear(): void {
     this.#store.clear();
@@ -234,7 +251,7 @@ export class ElementServiceImpl implements ElementService {
       getState: () => this.#store.get<T>(id) ?? missingElement(id),
       getGeometryDetails: () => {
         const state = this.#store.get(id) ?? missingElement(id);
-        return createRenderGeometryDetails(this.#geometry.render(state.geometry));
+        return createElementGeometryDetails(state.geometry, this.#geometry.render(state.geometry));
       },
       update: (patch: ElementPatch<T>) => {
         this.update({ id }, patch);

@@ -6,6 +6,7 @@ import { CapabilityError, InvalidArgumentError, ObjectDisposedError } from '../.
 import type { DrawInteractionPort } from '../../core/ports/DrawInteractionPort.js';
 import type { CursorPort } from '../../core/ports/CursorPort.js';
 import type { EditInteractionPort } from '../../core/ports/EditInteractionPort.js';
+import { unprotectedElementGuard, type ElementProtectionGuard } from '../../core/ports/ElementProtectionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TooltipPort } from '../../core/ports/TooltipPort.js';
@@ -38,6 +39,8 @@ export interface DrawServiceDependencies {
   readonly drawPort: DrawInteractionPort;
   /** 隔离编辑 Adapter 的交互 Port。 */
   readonly editPort: EditInteractionPort;
+  /** 阻止受保护 Element 进入本地可变交互。 */
+  readonly protection?: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 可选的键盘输入。 */
@@ -72,6 +75,8 @@ export class DrawService implements InternalDrawService {
   readonly #drawPort: DrawInteractionPort;
   /** 隔离编辑 Adapter 的交互 Port。 */
   readonly #editPort: EditInteractionPort;
+  /** Element 协同保护门禁。 */
+  readonly #protection: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 可选的键盘输入。 */
@@ -118,6 +123,7 @@ export class DrawService implements InternalDrawService {
     this.#coordinator = dependencies.coordinator;
     this.#drawPort = dependencies.drawPort;
     this.#editPort = dependencies.editPort;
+    this.#protection = dependencies.protection ?? unprotectedElementGuard;
     this.#shapeProjection = dependencies.shapeProjection;
     this.#input = dependencies.input;
     this.#tooltipPort = dependencies.tooltipPort;
@@ -173,6 +179,7 @@ export class DrawService implements InternalDrawService {
     if (state === undefined) throw new InvalidArgumentError(`Element does not exist: ${elementId}`);
     const expectedGeneration = this.#store.generationOf(elementId);
     if (expectedGeneration === undefined) throw new InvalidArgumentError(`Element does not exist: ${elementId}`);
+    this.#protection.assertEditable(elementId, expectedGeneration);
     const definition = this.#shapes.get(state.type);
     if (!definition.capabilities.has('edit') || definition.editTopology === undefined) {
       throw new CapabilityError(`Shape does not support editing: ${state.type}`);
@@ -184,6 +191,7 @@ export class DrawService implements InternalDrawService {
       coordinator: this.#coordinator,
       port: this.#editPort,
       shapeProjection: this.#shapeProjection,
+      protection: this.#protection,
       elementId,
       expectedGeneration,
       options,

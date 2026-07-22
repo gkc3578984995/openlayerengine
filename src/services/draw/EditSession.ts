@@ -6,6 +6,7 @@ import type { ElementStore } from '../../core/element/ElementStore.js';
 import type { ElementState } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import type { InputEventMap } from '../../core/ports/InputPort.js';
+import { unprotectedElementGuard, type ElementProtectionChange, type ElementProtectionGuard } from '../../core/ports/ElementProtectionPort.js';
 import type { CursorPort, CursorViewHandle } from '../../core/ports/CursorPort.js';
 import type {
   EditControlAnchor,
@@ -42,6 +43,8 @@ export interface EditSessionDependencies {
   readonly port: EditInteractionPort;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
+  /** Element 协同保护门禁。 */
+  readonly protection?: ElementProtectionGuard;
   /** 目标元素 ID。 */
   readonly elementId: string;
   /** 目标元素预期代次。 */
@@ -77,6 +80,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   readonly #port: EditInteractionPort;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
+  /** Element 协同保护门禁。 */
+  readonly #protection: ElementProtectionGuard;
   /** 目标元素预期代次。 */
   readonly #expectedGeneration: ElementGeneration;
   /** 编辑会话配置。 */
@@ -105,6 +110,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #handle: EditInteractionHandle | undefined;
   /** ElementStore 订阅的释放函数。 */
   #unsubscribeStore: (() => void) | undefined;
+  /** 保护状态订阅的释放函数。 */
+  #unsubscribeProtection: (() => void) | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
   /** 当前编辑提示框句柄。 */
@@ -156,6 +163,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#coordinator = dependencies.coordinator;
     this.#port = dependencies.port;
     this.#shapeProjection = dependencies.shapeProjection;
+    this.#protection = dependencies.protection ?? unprotectedElementGuard;
     this.elementId = requireElementId(dependencies.elementId);
     const expectedGeneration = dependencies.expectedGeneration ?? dependencies.store.generationOf(this.elementId);
     if (expectedGeneration === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
@@ -186,6 +194,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     if (!this.#store.isGenerationCurrent(this.elementId, this.#expectedGeneration)) {
       throw new InvalidArgumentError(`Edit target generation changed before open: ${this.elementId}`);
     }
+    this.#protection.assertEditable(this.elementId, this.#expectedGeneration);
     const entryRevision = this.#store.revisionOf(this.elementId);
     if (entryRevision === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
     const entry = this.#store.resolve<T>(this.elementId);
@@ -198,6 +207,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#entryRevision = entryRevision;
     this.#opening = true;
     try {
+      this.#unsubscribeProtection = this.#protection.subscribe((change) => this.#handleProtectionChange(change));
+      this.#protection.assertEditable(this.elementId, this.#expectedGeneration);
       this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
       const handle = this.#port.open(
         {
@@ -448,6 +459,20 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#terminate('cancelled', target.kind === 'remove' ? 'external-remove' : 'external-change');
   }
 
+  /** 目标在编辑期间进入保护时立即回滚并结束会话。 */
+  #handleProtectionChange(change: ElementProtectionChange): void {
+    if (
+      this.#status !== 'active' ||
+      this.#committing ||
+      change.elementId !== this.elementId ||
+      change.generation !== this.#expectedGeneration ||
+      change.current === undefined
+    ) {
+      return;
+    }
+    this.#terminate('cancelled', 'external-change');
+  }
+
   /** 保存控制点拖动的起始状态。 */
   #startMove(anchor: EditControlAnchor): void {
     this.#dragOrigin = this.#requireWorkingElementState();
@@ -660,6 +685,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     try {
       const handle = this.#handle;
       const unsubscribeStore = this.#unsubscribeStore;
+      const unsubscribeProtection = this.#unsubscribeProtection;
       const unsubscribeInput = this.#unsubscribeInput;
       const tooltip = this.#tooltip;
       const cursor = this.#cursor;
@@ -682,6 +708,14 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
                 () => {
                   unsubscribeStore();
                   if (this.#unsubscribeStore === unsubscribeStore) this.#unsubscribeStore = undefined;
+                }
+              ]),
+          ...(unsubscribeProtection === undefined
+            ? []
+            : [
+                () => {
+                  unsubscribeProtection();
+                  if (this.#unsubscribeProtection === unsubscribeProtection) this.#unsubscribeProtection = undefined;
                 }
               ]),
           ...(unsubscribeInput === undefined
@@ -727,6 +761,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
         !this.#opening &&
         this.#handle === undefined &&
         this.#unsubscribeStore === undefined &&
+        this.#unsubscribeProtection === undefined &&
         this.#unsubscribeInput === undefined &&
         this.#tooltip === undefined &&
         this.#cursor === undefined &&

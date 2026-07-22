@@ -55,6 +55,9 @@ describe('website interaction examples', () => {
     expect(demo).toContain('earth.elements.remove({} as never)');
     expect(demo).toContain("earth.animations.play({ id: TARGET_ID }, { type: 'path-travel' })");
     expect(demo).toContain("earth.measure.start({ type: 'area', policy: 'reject' })");
+    expect(demo).toContain('earth.elements.setProtection(TARGET_ID, {');
+    expect(demo).toContain('earth.draw.edit(target');
+    expect(demo).toContain("name: 'ElementProtectedError'");
     expect(demo).toContain('earth.styles.set({ id: TARGET_ID }, { nativeStyle: new Style() })');
     expect(demo).toContain('definition.recover(earth)');
     expect(demo).toContain('defineExpose({ reset, focus })');

@@ -19,6 +19,8 @@ describe('website API query', () => {
     expect(findApiModuleByRuntimeExport('useEarth')?.id).toBe('quick-create');
     expect(findApiModuleByMember('ElementService', 'add')?.id).toBe('elements-create');
     expect(findApiModuleByMember('ElementService', 'atPixel')?.id).toBe('elements-query');
+    expect(findApiModuleByMember('ElementService', 'setProtection')?.id).toBe('elements-protection');
+    expect(findApiModuleByMember('ElementService', 'getProtection')?.id).toBe('elements-protection');
     expect(findApiModuleByMember('Element', 'remove')?.id).toBe('elements-cleanup');
     expect(findApiModuleByMember('DrawService', 'edit')?.id).toBe('interactions-edit');
     expect(findApiModuleByMember('OverlayService', 'createDescriptor')?.id).toBe('services-descriptor');

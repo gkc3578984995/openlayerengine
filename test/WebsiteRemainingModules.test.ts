@@ -9,6 +9,7 @@ const remainingViews = [
   'website/src/views/elements/ElementCreateView.vue',
   'website/src/views/elements/ElementQueryView.vue',
   'website/src/views/elements/ElementUpdateView.vue',
+  'website/src/views/elements/ElementProtectionView.vue',
   'website/src/views/elements/ElementCleanupView.vue',
   'website/src/views/elements/ShapesView.vue',
   'website/src/views/elements/StylesView.vue',

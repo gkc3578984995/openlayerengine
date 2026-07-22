@@ -5,6 +5,7 @@ import {
   CapabilityError,
   DuplicateElementIdError,
   Earth,
+  ElementProtectedError,
   InteractionConflictError,
   InvalidArgumentError,
   InvalidSelectorError,
@@ -16,18 +17,15 @@ import {
 import '@vrsim/earth-engine-ol/style.css';
 import { createConfiguredLayer } from '../../config/mapSources';
 
-type StableError =
-  | InvalidArgumentError
-  | DuplicateElementIdError
-  | InvalidSelectorError
-  | ObjectDisposedError
-  | CapabilityError
-  | InteractionConflictError
-  | UnsupportedOperationError;
-
-interface ErrorClass {
-  new (message?: string): StableError;
-}
+type ErrorClass =
+  | typeof InvalidArgumentError
+  | typeof DuplicateElementIdError
+  | typeof InvalidSelectorError
+  | typeof ObjectDisposedError
+  | typeof CapabilityError
+  | typeof InteractionConflictError
+  | typeof ElementProtectedError
+  | typeof UnsupportedOperationError;
 
 interface ErrorDefinition {
   readonly name: string;
@@ -55,6 +53,7 @@ const earthRef = shallowRef<Earth | null>(null);
 const mapCenter = shallowRef<Coordinate | null>(null);
 const rows = ref<RecognitionRow[]>([]);
 let sequence = 0;
+let protectionRevision = 0;
 let conflictDraw: DrawSession | undefined;
 
 const nextId = (prefix: string) => `${prefix}-${++sequence}`;
@@ -173,6 +172,32 @@ const definitions: readonly ErrorDefinition[] = [
     }
   },
   {
+    name: 'ElementProtectedError',
+    ctor: ElementProtectedError,
+    trigger: '为协同保护中的目标启动 draw.edit()',
+    recovery: '应用更高 revision 的解锁消息，再重新发起并取消 Edit',
+    run: (earth) => {
+      earth.elements.setProtection(TARGET_ID, {
+        protected: true,
+        operatorId: 'remote-editor',
+        operatorName: '远端协作者',
+        revision: ++protectionRevision
+      });
+      const target = earth.elements.get(TARGET_ID);
+      if (target === undefined) throw new Error('错误示例目标不存在');
+      earth.draw.edit(target, { policy: 'replace' });
+    },
+    recover: (earth) => {
+      earth.elements.setProtection(TARGET_ID, { protected: false, revision: ++protectionRevision });
+      const target = earth.elements.get(TARGET_ID);
+      if (target === undefined) return '目标不存在，无法恢复 Edit';
+      const edit = earth.draw.edit(target, { policy: 'replace' });
+      edit.cancel();
+      edit.destroy();
+      return '更高 revision 已解锁；Edit 启动成功并完成清理';
+    }
+  },
+  {
     name: 'UnsupportedOperationError',
     ctor: UnsupportedOperationError,
     trigger: '把目标切到 nativeStyle 后调用结构化 styles.patch()',
@@ -251,6 +276,7 @@ const reset = () => {
   conflictDraw = undefined;
   earthRef.value?.animations.stopAll();
   earthRef.value?.measure.clear();
+  earthRef.value?.elements.setProtection(TARGET_ID, { protected: false, revision: ++protectionRevision });
   earthRef.value?.elements.remove({ module: TEMP_MODULE });
   if (earthRef.value?.elements.get(TARGET_ID) !== undefined) earthRef.value.styles.set({ id: TARGET_ID }, structuredTargetStyle());
   rows.value = [];
@@ -304,7 +330,7 @@ onBeforeUnmount(() => {
         <el-option v-for="definition in definitions" :key="definition.name" :label="definition.name" :value="definition.name" />
       </el-select>
       <el-button type="primary" @click="runOne">运行所选真实失败与恢复</el-button>
-      <el-button @click="runAll">依次运行全部 7 类</el-button>
+      <el-button @click="runAll">依次运行全部 8 类</el-button>
     </div>
 
     <el-descriptions :column="1" border>

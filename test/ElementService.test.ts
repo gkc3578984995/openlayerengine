@@ -15,6 +15,7 @@ import { ElementStore } from '../src/core/element/ElementStore.js';
 import { InvalidArgumentError, InvalidSelectorError, ObjectDisposedError } from '../src/core/errors.js';
 import { LayerManager } from '../src/core/layer/LayerManager.js';
 import type { HitTestPort } from '../src/core/ports/HitTestPort.js';
+import type { ElementProtectionViewPort } from '../src/core/ports/ElementProtectionPort.js';
 import type { ShapeProjectionPort } from '../src/core/ports/ShapeProjectionPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../src/core/style/types.js';
@@ -22,6 +23,7 @@ import { Element } from '../src/facade/Element.js';
 import { ElementServiceImpl } from '../src/facade/ElementService.js';
 import { LayerServiceImpl } from '../src/facade/LayerService.js';
 import type { ElementHit } from '../src/facade/types.js';
+import { ElementProtectionService } from '../src/services/protection/ElementProtectionService.js';
 import { assertStructuredStyleSpec } from '../src/services/style/StyleService.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { createTestMap } from './fixtures/Task8Map.js';
@@ -56,12 +58,50 @@ function setup(createIds: string[] = [], shapeProjection: ShapeProjectionPort = 
   const geometry = new GeometryCodec(shapes, shapeProjection);
   const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs));
   const hitTest = new FakeHitTest();
-  const elements = new ElementServiceImpl(store, manager, binding, geometry, layers, refs, hitTest, { createId });
-  return { adapter, binding, elements, hitTest, layers, manager, refs, store };
+  const protectionView: ElementProtectionViewPort = { upsert: vi.fn(), remove: vi.fn(), destroy: vi.fn() };
+  const protection = new ElementProtectionService(store, protectionView);
+  const elements = new ElementServiceImpl(store, manager, binding, geometry, layers, refs, hitTest, { createId, protection });
+  return { adapter, binding, elements, hitTest, layers, manager, protection, protectionView, refs, store };
 }
 
 describe('ElementService', () => {
   coversCapabilities('element-point', 'element-polyline', 'element-polygon', 'element-circle', 'layer-param-snapshot');
+
+  it('通过公共保护 API 精确匹配含首尾空格的 Element ID', () => {
+    const { elements, layers } = setup();
+    const layer = layers.add({ kind: 'vector', id: 'business' });
+    const elementId = '  protected-point  ';
+    elements.add({
+      id: elementId,
+      layerId: layer.id,
+      geometry: { type: 'point', controlPoints: [[10, 20]] }
+    });
+
+    expect(elements.setProtection(elementId, { protected: true, operatorName: ' 张三 ' })).toBe(true);
+    expect(elements.getProtection(elementId)).toEqual({ elementId, protected: true, operatorName: '张三' });
+    expect(elements.getProtection(elementId.trim())).toBeUndefined();
+  });
+
+  it('通过公共服务建立、读取和解除协同保护运行态', () => {
+    const { elements, layers } = setup();
+    const layer = layers.add({ kind: 'vector', id: 'business' });
+    elements.add({
+      id: 'protected-point',
+      layerId: layer.id,
+      geometry: { type: 'point', controlPoints: [[10, 20]] }
+    });
+
+    expect(elements.setProtection('protected-point', { protected: true, operatorName: '张三', revision: 1 })).toBe(true);
+    expect(elements.getProtection('protected-point')).toEqual({
+      elementId: 'protected-point',
+      protected: true,
+      operatorName: '张三',
+      revision: 1
+    });
+    expect(elements.setProtection('protected-point', { protected: false, revision: 2 })).toBe(true);
+    expect(elements.getProtection('protected-point')).toBeUndefined();
+    expect(elements.setProtection('missing', { protected: true })).toBe(false);
+  });
 
   it('passes the exact public ElementCreateInput and named ElementHit type fixture', () => {
     const root = fileURLToPath(new URL('../', import.meta.url));
@@ -163,11 +203,33 @@ describe('ElementService', () => {
     expect(ring[0]).toEqual(ring[ring.length - 1]);
     const xs = ring.map(([x]) => x);
     const ys = ring.map(([, y]) => y);
-    expect(first.extent).toEqual([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+    const extent = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as const;
+    expect(first.extent).toEqual(extent);
+    expect(first.extentPoints).toEqual([
+      [extent[0], extent[1]],
+      [extent[2], extent[1]],
+      [extent[2], extent[3]],
+      [extent[0], extent[3]]
+    ]);
+    expect(first.rangePoints).toEqual(first.renderGeometry.coordinates);
+    expect(first.controlPoints).toEqual([
+      [0, 0],
+      [100, 0]
+    ]);
+    const arrowStateGeometry = arrow.state.geometry;
+    if (arrowStateGeometry.type === 'circle') throw new Error('Fine arrow should expose control points');
+    expect(first.controlPoints).not.toBe(arrowStateGeometry.controlPoints);
+    expect(first.center).toBeNull();
+    expect(first.radius).toBeNull();
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.renderGeometry)).toBe(true);
     expect(Object.isFrozen(first.renderGeometry.coordinates)).toBe(true);
     expect(first.renderGeometry.coordinates.every(Object.isFrozen)).toBe(true);
+    expect(Object.isFrozen(first.extentPoints)).toBe(true);
+    expect(first.extentPoints.every(Object.isFrozen)).toBe(true);
+    expect(Object.isFrozen(first.rangePoints)).toBe(true);
+    expect(Object.isFrozen(first.controlPoints)).toBe(true);
+    expect(first.controlPoints?.every(Object.isFrozen)).toBe(true);
 
     const olGeometry = arrow.olFeature.getGeometry();
     expect(olGeometry).toBeInstanceOf(Polygon);
@@ -206,8 +268,19 @@ describe('ElementService', () => {
     expect(circle.state.geometry).toEqual({ type: 'circle', center: [10, 20], radius: 5 });
     expect(circle.geometryDetails).toEqual({
       renderGeometry: { type: 'circle', center: [10, 20], radius: 10 },
-      extent: [0, 10, 20, 30]
+      extent: [0, 10, 20, 30],
+      extentPoints: [
+        [0, 10],
+        [20, 10],
+        [20, 30],
+        [0, 30]
+      ],
+      rangePoints: [],
+      controlPoints: null,
+      center: [10, 20],
+      radius: { meters: 5, projected: 10 }
     });
+    expect(Object.isFrozen(circle.geometryDetails.radius)).toBe(true);
 
     elements.hide({ id: circle.id });
     expect(circle.geometryDetails.extent).toEqual([0, 10, 20, 30]);
@@ -333,7 +406,20 @@ describe('ElementService', () => {
 
     expect(element.olFeature.getStyle()).toBe(style);
     expect(isNativeStyleRef(element.state.style)).toBe(true);
-    expect(element.geometryDetails).toEqual({ renderGeometry: { type: 'point', coordinates: [0, 0] }, extent: [0, 0, 0, 0] });
+    expect(element.geometryDetails).toEqual({
+      renderGeometry: { type: 'point', coordinates: [0, 0] },
+      extent: [0, 0, 0, 0],
+      extentPoints: [
+        [0, 0],
+        [0, 0],
+        [0, 0],
+        [0, 0]
+      ],
+      rangePoints: [[[0, 0]]],
+      controlPoints: [[0, 0]],
+      center: null,
+      radius: null
+    });
   });
 
   it('binds handles to a Feature generation and never resurrects them after same-id re-add', () => {

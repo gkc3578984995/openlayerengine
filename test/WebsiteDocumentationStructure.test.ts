@@ -13,6 +13,7 @@ const documentationPages = [
   'elements/ElementCreateView.vue',
   'elements/ElementQueryView.vue',
   'elements/ElementUpdateView.vue',
+  'elements/ElementProtectionView.vue',
   'elements/ElementCleanupView.vue',
   'elements/ShapesView.vue',
   'elements/StylesView.vue',

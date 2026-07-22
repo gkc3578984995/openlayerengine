@@ -5,6 +5,7 @@ import type Map from 'ol/Map.js';
 import type { RenderGeometryState } from '../../src/core/shape/types.js';
 import { useEarth } from '../../src/index.js';
 import type {
+  Coordinate,
   Earth,
   Element,
   ElementGeometryDetails,
@@ -30,6 +31,21 @@ type ElementGeometryDetailsContract = Assert<Equal<Element['geometryDetails'], R
 type ElementGeometryContract = Assert<Equal<ElementGeometryDetails['renderGeometry'], ElementRenderGeometry>>;
 type ElementGeometryParityContract = Assert<Equal<ElementRenderGeometry, RenderGeometryState>>;
 type ElementExtentContract = Assert<Equal<ElementGeometryDetails['extent'], MapExtent>>;
+type ElementExtentPointsContract = Assert<
+  Equal<
+    ElementGeometryDetails['extentPoints'],
+    readonly [
+      lowerLeft: readonly [number, number],
+      lowerRight: readonly [number, number],
+      upperRight: readonly [number, number],
+      upperLeft: readonly [number, number]
+    ]
+  >
+>;
+type ElementRangePointsContract = Assert<Equal<ElementGeometryDetails['rangePoints'], readonly (readonly Coordinate[])[]>>;
+type ElementControlPointsContract = Assert<Equal<ElementGeometryDetails['controlPoints'], readonly Coordinate[] | null>>;
+type ElementCenterContract = Assert<Equal<ElementGeometryDetails['center'], Coordinate | null>>;
+type ElementRadiusContract = Assert<Equal<ElementGeometryDetails['radius'], Readonly<{ readonly meters: number; readonly projected: number }> | null>>;
 type LayerNativeContract = Assert<Equal<Layer['olLayer'], BaseLayer>>;
 type TransformModeContract = Assert<Equal<TransformSession['mode'], 'transform' | 'edit'>>;
 type TransformSetModeContract = Assert<Equal<Parameters<TransformSession['setMode']>[0], 'transform' | 'edit'>>;
@@ -56,6 +72,11 @@ export type V2PublicApiTypeContracts =
   | ElementGeometryContract
   | ElementGeometryParityContract
   | ElementExtentContract
+  | ElementExtentPointsContract
+  | ElementRangePointsContract
+  | ElementControlPointsContract
+  | ElementCenterContract
+  | ElementRadiusContract
   | LayerNativeContract
   | TransformModeContract
   | TransformSetModeContract;

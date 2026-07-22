@@ -11,6 +11,7 @@ export { Layer } from './facade/Layer.js';
 export {
   CapabilityError,
   DuplicateElementIdError,
+  ElementProtectedError,
   InteractionConflictError,
   InvalidArgumentError,
   InvalidSelectorError,
@@ -47,6 +48,7 @@ export type { AnimationType } from './builtins/animations/index.js';
 export type { AnimationHandle, AnimationManager } from './services/animation/types.js';
 export type { Color, Coordinate, Pixel } from './core/common/types.js';
 export type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from './core/element/types.js';
+export type { ElementProtectionState, ElementProtectionUpdate } from './core/protection/types.js';
 export type { LayerKind, LayerOwnership, LayerPatch } from './core/layer/types.js';
 export type { ShapeInput, ShapeState, ShapeType } from './core/shape/types.js';
 export type { ElementGeometryDetails, ElementRenderGeometry, MapExtent } from './facade/elementGeometryTypes.js';

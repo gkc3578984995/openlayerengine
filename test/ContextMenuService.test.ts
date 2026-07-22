@@ -294,7 +294,20 @@ describe('ContextMenuService', () => {
       feature,
       isCurrent: () => true,
       getState: () => elementState,
-      getGeometryDetails: () => ({ renderGeometry: { type: 'point', coordinates: [1, 2] }, extent: [1, 2, 1, 2] }),
+      getGeometryDetails: () => ({
+        renderGeometry: { type: 'point', coordinates: [1, 2] },
+        extent: [1, 2, 1, 2],
+        extentPoints: [
+          [1, 2],
+          [1, 2],
+          [1, 2],
+          [1, 2]
+        ],
+        rangePoints: [[[1, 2]]],
+        controlPoints: [[1, 2]],
+        center: null,
+        radius: null
+      }),
       update: vi.fn(),
       remove: vi.fn(),
       removedByHandle: false
@@ -335,7 +348,20 @@ describe('ContextMenuService', () => {
       feature: new Feature(),
       isCurrent: () => true,
       getState: () => elementState,
-      getGeometryDetails: () => ({ renderGeometry: { type: 'point', coordinates: [1, 2] }, extent: [1, 2, 1, 2] }),
+      getGeometryDetails: () => ({
+        renderGeometry: { type: 'point', coordinates: [1, 2] },
+        extent: [1, 2, 1, 2],
+        extentPoints: [
+          [1, 2],
+          [1, 2],
+          [1, 2],
+          [1, 2]
+        ],
+        rangePoints: [[[1, 2]]],
+        controlPoints: [[1, 2]],
+        center: null,
+        radius: null
+      }),
       update: vi.fn(),
       remove: vi.fn(),
       removedByHandle: false
@@ -413,7 +439,20 @@ describe('ContextMenuService', () => {
       feature: new Feature(),
       isCurrent: () => false,
       getState: () => element(),
-      getGeometryDetails: () => ({ renderGeometry: { type: 'point', coordinates: [1, 2] }, extent: [1, 2, 1, 2] }),
+      getGeometryDetails: () => ({
+        renderGeometry: { type: 'point', coordinates: [1, 2] },
+        extent: [1, 2, 1, 2],
+        extentPoints: [
+          [1, 2],
+          [1, 2],
+          [1, 2],
+          [1, 2]
+        ],
+        rangePoints: [[[1, 2]]],
+        controlPoints: [[1, 2]],
+        center: null,
+        radius: null
+      }),
       update: vi.fn(),
       remove: vi.fn(),
       removedByHandle: false

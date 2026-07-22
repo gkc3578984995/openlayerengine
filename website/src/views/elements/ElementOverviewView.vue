@@ -69,7 +69,7 @@ const propertyRows = [
     href: '/api/types#api-type-element-property-geometry-details',
     name: 'geometryDetails',
     type: 'ElementGeometryDetails',
-    desc: '从最新已提交 Shape 状态派生完整静态渲染几何，以及当前 View 投影下的二维外接矩形'
+    desc: '从最新已提交 Shape 状态派生完整静态渲染几何、二维范围、范围角点、最终轮廓点和统一控制参数'
   },
   {
     anchor: 'api-property-ol-feature',
@@ -152,6 +152,20 @@ const serviceMethodRows = [
     name: 'show',
     use: '批量显示',
     desc: '把非空选择器命中的业务 visible 状态设为 true'
+  },
+  {
+    anchor: 'api-service-method-set-protection',
+    href: '/components/elements/protection#api-method-set-protection',
+    name: 'setProtection',
+    use: '协同保护',
+    desc: '按 ID 应用保护、解锁或租约更新，并返回状态是否实际改变'
+  },
+  {
+    anchor: 'api-service-method-get-protection',
+    href: '/components/elements/protection#api-method-get-protection',
+    name: 'getProtection',
+    use: '读取保护',
+    desc: '读取当前代次的保护快照；未保护时返回 undefined'
   },
   {
     anchor: 'api-service-method-remove',
@@ -258,7 +272,7 @@ const apiMembers = {
               <ApiReference kind="type" to="/api/types#api-type-shape-input">ShapeInput</ApiReference>
               等相关类型入口。选中图形后，示例还会读取
               <ApiReference kind="property" to="#api-property-geometry-details">Element.geometryDetails</ApiReference>
-              ，显示控制点派生出的完整静态几何和地图坐标范围；详细控制点规则见
+              ，统一显示范围角点、最终轮廓点、规范控制点以及 Circle 圆心和双单位半径；详细控制点规则见
               <a href="/components/elements/shapes">图形类型（Shapes）</a>。
             </p>
           </template>
@@ -293,7 +307,14 @@ const apiMembers = {
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-card shadow="never" class="element-overview__workflow-card">
-              <template #header><strong>4. 删除与清理</strong></template>
+              <template #header><strong>4. 协同保护</strong></template>
+              <p>按 Element ID 同步编辑占用状态，并显示操作人、遮罩与交互禁用反馈。</p>
+              <el-link type="primary" href="/components/elements/protection">查看点线面保护与并发边界</el-link>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-card shadow="never" class="element-overview__workflow-card">
+              <template #header><strong>5. 删除与清理</strong></template>
               <p>删除当前对象用 <code>element.remove()</code>；按条件删除用 <code>elements.remove()</code>。</p>
               <el-link type="primary" href="/components/elements/cleanup">查看清理范围与生命周期</el-link>
             </el-card>
@@ -334,18 +355,28 @@ const apiMembers = {
           <ApiReference kind="property" to="#api-property-state">Element.state</ApiReference>
           。返回的
           <ApiReference kind="type" to="#api-type-element-geometry-details">ElementGeometryDetails</ApiReference>
-          是一份独立的不可变快照，同时包含类型为
+          是一份独立的不可变快照。它保留类型为
           <ApiReference kind="type" to="#api-type-element-render-geometry">ElementRenderGeometry</ApiReference>
-          的 <code>renderGeometry</code> 和 <code>extent</code>。
+          的 <code>renderGeometry</code> 和 <code>extent</code> 这两个无损字段，同时提供无需再次判断 Shape 类型的统一便利字段。
         </p>
         <ul>
+          <li>
+            <code>extentPoints</code> 固定返回四个二维范围角点，顺序为 <code>[minX, minY]</code>、<code>[maxX, minY]</code>、<code>[maxX, maxY]</code>、<code
+              >[minX, maxY]</code
+            >。
+          </li>
+          <li>
+            <code>rangePoints</code> 统一使用坐标组：Point 为 <code>[[point]]</code>，Polyline 为 <code>[path]</code>，Polygon 和 Plot 面为完整 rings；Circle
+            返回冻结的空数组，不离散圆周。
+          </li>
+          <li><code>controlPoints</code> 返回最新已提交的规范控制点；Circle 不使用控制点，因此固定为 <code>null</code>。它与最终轮廓点含义不同。</li>
           <li>
             箭头和其他派生面会返回 <code>type: 'polygon'</code>；<code>coordinates</code> 是完整的 polygon rings，不再只是绘制时输入的
             <code>controlPoints</code>。
           </li>
           <li>
-            圆返回 <code>type: 'circle'</code>、<code>center</code> 和当前 View 投影单位下的 <code>radius</code>；业务状态中的
-            <code>Element.state.geometry.radius</code> 仍以米保存。
+            Circle 的便利字段 <code>center</code> 返回 View 投影圆心，<code>radius</code> 同时提供米制 <code>meters</code> 和 View 投影单位下的
+            <code>projected</code>；其他 Shape 的两个字段均为 <code>null</code>。
           </li>
           <li>
             <code>extent</code> 是

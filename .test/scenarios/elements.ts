@@ -5,6 +5,8 @@ import {
   type Element,
   type ElementGeometryDetails,
   type ElementPatch,
+  type ElementProtectionState,
+  type ElementProtectionUpdate,
   type ElementRenderGeometry,
   type ElementSelector,
   type MapExtent,
@@ -21,7 +23,7 @@ export const elementsScenario: ScenarioDefinition = {
   id: 'elements',
   group: '图层与元素',
   title: 'Element 元素、Selector 与屏幕命中',
-  summary: '验证扁平坐标写入与规范坐标读取、完整渲染几何、地图范围、全部 Selector 字段、更新复制、显隐、移除、原生 Feature、像素命中和屏幕范围。',
+  summary: '验证扁平坐标写入与规范坐标读取、协同保护、完整渲染几何、全部 Selector 字段、更新复制、显隐、移除、原生 Feature、像素命中和屏幕范围。',
   steps: [
     '确认扁平坐标可以创建主元素和折线，读取时会返回规范的嵌套坐标。',
     '执行“检查全部 Selector”，确认 id、ids、module、layerId、type、visible、predicate 均能筛选。',
@@ -73,6 +75,11 @@ export const elementsScenario: ScenarioDefinition = {
     });
     context.render(earth);
 
+    const initialProtectionUpdate: ElementProtectionUpdate = { protected: true, operatorId: 'user-42', operatorName: '张三', revision: 1 };
+    context.check('ElementService.setProtection() 建立保护', earth.elements.setProtection(line.id, initialProtectionUpdate));
+    const initialProtection: ElementProtectionState | undefined = earth.elements.getProtection(line.id);
+    context.check('ElementService.getProtection() 返回协作者状态', initialProtection?.operatorName === '张三' && initialProtection.protected);
+
     context.check('ElementService.add() 使用全部 ElementCreateInput 字段', hasCompleteState(primary));
     context.check('ElementService.get() 返回相同句柄', earth.elements.get(primary.id) === primary);
     context.check(
@@ -84,6 +91,14 @@ export const elementsScenario: ScenarioDefinition = {
     const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
     const mapExtent: MapExtent = geometryDetails.extent;
     context.check('Element.geometryDetails 返回完整 Polygon 与地图范围', renderGeometry.type === 'polygon' && mapExtent.every(Number.isFinite));
+    context.check(
+      'Element.geometryDetails 统一返回范围角点、最终轮廓点和控制参数',
+      geometryDetails.extentPoints.length === 4 &&
+        geometryDetails.rangePoints.length === 1 &&
+        geometryDetails.controlPoints?.length === 3 &&
+        geometryDetails.center === null &&
+        geometryDetails.radius === null
+    );
     context.check('Element.olFeature 可用于 OpenLayers 互操作', primary.olFeature.getGeometry() !== undefined);
     renderElementStatus(context, earth.elements.query<DemoData>());
 
@@ -150,6 +165,35 @@ export const elementsScenario: ScenarioDefinition = {
       },
       '主要'
     );
+
+    const protectionSection = context.section('协同保护', '保护是当前 Earth 的临时协同运行态：内置 Edit / Transform 会被拦截，程序化同步仍可更新 Element。');
+    const protectionActions = context.actions(protectionSection);
+    let protectionRevision = 1;
+    context.button(protectionActions, '保护点线面', () => {
+      earth.elements.show({ id: polygon.id });
+      for (const [element, operatorName] of [
+        [primary, '王五'],
+        [line, '张三'],
+        [polygon, '李四']
+      ] as const) {
+        earth.elements.setProtection(element.id, { protected: true, operatorName, revision: ++protectionRevision });
+      }
+      context.status(
+        '当前保护',
+        [primary, line, polygon].map(({ id }) => earth.elements.getProtection(id))
+      );
+      earth.map.renderSync();
+    });
+    context.button(protectionActions, '解除全部保护', () => {
+      for (const element of [primary, line, polygon]) {
+        earth.elements.setProtection(element.id, { protected: false, revision: ++protectionRevision });
+      }
+      context.check(
+        '点线面保护均已解除',
+        [primary, line, polygon].every(({ id }) => earth.elements.getProtection(id) === undefined)
+      );
+      earth.map.renderSync();
+    });
     context.button(updateActions, 'Element.update() 更新数据', () => {
       primary.update({ data: { label: '句柄更新', score: 130 }, module: 'handle-update' });
       context.status('primary.state', primary.state);
@@ -254,6 +298,14 @@ const element = earth.elements.add({
 earth.elements.update({ module: 'vehicles' }, { visible: false });
 earth.elements.show({ id: element.id });
 const copy = earth.elements.copy(element.id, { module: 'vehicle-copies' });
+earth.elements.setProtection(copy.id, {
+  protected: true,
+  operatorName: '张三',
+  revision: 1,
+  expiresAt: Date.now() + 30_000
+});
+console.log(earth.elements.getProtection(copy.id));
+earth.elements.setProtection(copy.id, { protected: false, revision: 2 });
 const extent = earth.elements.getScreenExtent(copy);
 console.log(element.state.geometry); // 读取结果仍是嵌套坐标
 console.log(element.geometryDetails); // 完整静态渲染几何与地图坐标范围

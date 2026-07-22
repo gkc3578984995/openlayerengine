@@ -1,0 +1,36 @@
+.ol-element-protection-label {
+  position: relative;
+  display: inline-grid;
+  align-items: center;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 4px 8px;
+  overflow: hidden;
+  border: 1px solid rgb(245 158 11 / 80%);
+  border-radius: 4px;
+  background: rgb(17 24 39 / 92%);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 28%);
+  color: white;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+
+  &::after {
+    content: '暂不可操作';
+    color: rgb(255 255 255 / 70%);
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.ol-element-protection-label-overlay {
+  pointer-events: none !important;
+  transition: none !important;
+  will-change: transform;
+}

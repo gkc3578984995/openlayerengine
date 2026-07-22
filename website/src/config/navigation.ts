@@ -53,6 +53,7 @@ export const sideGroups: SideGroup[] = [
       { label: '创建', to: '/components/elements/create' },
       { label: '查询与选择器', to: '/components/elements/query' },
       { label: '更新、复制与显隐', to: '/components/elements/update' },
+      { label: '协同保护模式', to: '/components/elements/protection' },
       { label: '删除与清理', to: '/components/elements/cleanup' },
       { label: '图形类型（Shapes）', to: '/components/elements/shapes' },
       { label: '样式（Styles）', to: '/components/elements/styles' },

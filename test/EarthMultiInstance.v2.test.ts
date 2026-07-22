@@ -119,10 +119,17 @@ describe('Earth v2 多实例真实装配隔离', () => {
       }
       expect(mercatorDetails.renderGeometry.center).toEqual(mercatorCenter);
       expect(mercatorDetails.renderGeometry.radius).toBeCloseTo(mercatorGeometry.getRadius(), 10);
+      expect(mercatorDetails.center).toEqual(mercatorCenter);
+      expect(mercatorDetails.radius?.meters).toBe(1_000);
+      expect(mercatorDetails.radius?.projected).toBeCloseTo(mercatorGeometry.getRadius(), 10);
+      expect(mercatorDetails.rangePoints).toEqual([]);
+      expect(mercatorDetails.controlPoints).toBeNull();
       expect(mercatorDetails.extent[0]).toBeCloseTo(mercatorCenter[0] - mercatorDetails.renderGeometry.radius, 10);
       expect(mercatorDetails.extent[3]).toBeCloseTo(mercatorCenter[1] + mercatorDetails.renderGeometry.radius, 10);
       expect(geographicDetails.renderGeometry.center).toEqual(geographicCenter);
       expect(geographicDetails.renderGeometry.radius).toBeCloseTo(geographicRadius, 12);
+      expect(geographicDetails.radius?.meters).toBe(1_000);
+      expect(geographicDetails.radius?.projected).toBeCloseTo(geographicRadius, 12);
 
       mercatorElement.update({ geometry: { type: 'circle', center: [0, 0], radius: 1_000 } });
       expect(mercatorGeometry.getRadius()).toBeCloseTo(1_000, 6);
@@ -219,7 +226,20 @@ describe('Earth v2 多实例真实装配隔离', () => {
     const secondGeometry = secondElement.state.geometry;
     if (secondGeometry.type !== 'point') throw new Error('测试需要点元素状态');
     expect(secondGeometry.controlPoints).toEqual([[1, 1]]);
-    expect(secondElement.geometryDetails).toEqual({ renderGeometry: { type: 'point', coordinates: [1, 1] }, extent: [1, 1, 1, 1] });
+    expect(secondElement.geometryDetails).toEqual({
+      renderGeometry: { type: 'point', coordinates: [1, 1] },
+      extent: [1, 1, 1, 1],
+      extentPoints: [
+        [1, 1],
+        [1, 1],
+        [1, 1],
+        [1, 1]
+      ],
+      rangePoints: [[[1, 1]]],
+      controlPoints: [[1, 1]],
+      center: null,
+      radius: null
+    });
     expect(secondAnimation.status).toBe('running');
     expect(useEarth('map-b')).toBe(second);
     expect(useEarth('map-a')).not.toBe(first);

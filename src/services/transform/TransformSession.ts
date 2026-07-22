@@ -5,10 +5,11 @@ import type { ElementStore } from '../../core/element/ElementStore.js';
 import { compileSelector } from '../../core/element/selector.js';
 import { cloneElementSnapshot, createElementSnapshot, deriveElementSnapshot, isElementSnapshot, type ElementSnapshot } from '../../core/element/snapshot.js';
 import type { ElementCopyOptions, ElementState } from '../../core/element/types.js';
-import { CapabilityError, InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
+import { CapabilityError, ElementProtectedError, InvalidArgumentError, ObjectDisposedError, UnsupportedOperationError } from '../../core/errors.js';
 import type { TransformAnimationPort } from '../../core/ports/AnimationControlPort.js';
 import type { CursorPort, CursorViewHandle } from '../../core/ports/CursorPort.js';
 import type { EditControlAnchor, EditInteractionAnchor } from '../../core/ports/EditInteractionPort.js';
+import type { ElementProtectionChange, ElementProtectionGuard } from '../../core/ports/ElementProtectionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type {
@@ -69,6 +70,8 @@ export interface TransformSessionDependencies {
   readonly coordinator: InteractionCoordinator;
   /** 隔离 Transform Adapter 的交互 Port。 */
   readonly interaction: TransformInteractionPort;
+  /** Element 协同保护门禁。 */
+  readonly protection: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
@@ -120,6 +123,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   readonly #coordinator: InteractionCoordinator;
   /** 隔离 Transform Adapter 的交互 Port。 */
   readonly #interaction: TransformInteractionPort;
+  /** Element 协同保护门禁。 */
+  readonly #protection: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
   /** 元素动画控制端口。 */
@@ -199,6 +204,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   #copyPreview = false;
   /** ElementStore 订阅的释放函数。 */
   #unsubscribeStore: (() => void) | undefined;
+  /** 保护状态订阅释放函数。 */
+  #unsubscribeProtection: (() => void) | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
   /** 下一个监听器 ID。 */
@@ -224,6 +231,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     this.#styles = dependencies.styles;
     this.#coordinator = dependencies.coordinator;
     this.#interaction = dependencies.interaction;
+    this.#protection = dependencies.protection;
     this.#shapeProjection = dependencies.shapeProjection;
     this.#animations = dependencies.animations;
     this.#transients = dependencies.transients;
@@ -269,6 +277,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#handle !== undefined || this.#opening) throw new InvalidArgumentError('Transform session is already open');
     this.#opening = true;
     try {
+      this.#unsubscribeProtection = this.#protection.subscribe((change) => this.#handleProtectionChange(change));
       this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
       this.#handle = this.#interaction.open(this.id, this.#interactionOptions(), (event) => this.#handleInteractionEvent(event));
       this.#cursor = this.#cursorPort?.open();
@@ -329,6 +338,8 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     try {
       const working = this.#working;
       if (working !== undefined) {
+        if (this.#expectedGeneration === undefined) throw new ObjectDisposedError('Transform has no selected Element');
+        this.#protection.assertEditable(working.id, this.#expectedGeneration);
         this.#assertTargetCurrent();
         this.#ownCommit = true;
         const committed = this.#store.transaction((transaction) => {
@@ -491,6 +502,9 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (typeof elementId !== 'string' || elementId.trim().length === 0) throw new InvalidArgumentError('Transform element id must be a non-empty string');
     const state = this.#store.get<T>(elementId);
     if (state === undefined) throw new InvalidArgumentError(`Element does not exist: ${elementId}`);
+    const generation = this.#store.generationOf(elementId);
+    if (generation === undefined) throw new InvalidArgumentError(`Element does not exist: ${elementId}`);
+    this.#protection.assertEditable(elementId, generation);
     if (!this.#matches(state)) throw new CapabilityError(`Element is outside the Transform target filter: ${elementId}`);
     const definition = this.#shapes.get(state.type);
     const enabled =
@@ -508,7 +522,14 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const generation = this.#store.generationOf(snapshot.id);
     const revision = this.#store.revisionOf(snapshot.id);
     if (generation === undefined || revision === undefined) throw new InvalidArgumentError(`Element does not exist: ${snapshot.id}`);
+    this.#protection.assertEditable(snapshot.id, generation);
     if (this.#selected !== undefined) this.#clearSelection(true, true);
+    this.#assertMutable();
+    if (this.#selected !== undefined || this.#working !== undefined) throw new InvalidArgumentError('Transform selection changed during selectEnd');
+    if (!this.#store.isGenerationCurrent(snapshot.id, generation) || !this.#store.isRevisionCurrent(snapshot.id, revision)) {
+      throw new InvalidArgumentError(`Transform target changed externally: ${snapshot.id}`);
+    }
+    this.#protection.assertEditable(snapshot.id, generation);
     this.#selected = cloneElementSnapshot(this.#shapes, snapshot);
     this.#working = cloneElementSnapshot(this.#shapes, snapshot);
     this.#mode = 'transform';
@@ -681,6 +702,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       }
     } catch (error) {
       this.#emitError(error);
+      if (event.type === 'select-request' && error instanceof ElementProtectedError) return;
       if (this.#status === 'active') this.cancel('cancelled');
     }
   }
@@ -896,6 +918,25 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (change === undefined || this.#ownCommit || this.#ownRemove) return;
     this.#emitError(new InvalidArgumentError(`Transform target changed externally: ${change.id}`));
     this.cancel('cancelled');
+  }
+
+  /** 当前目标进入保护时立即回滚并结束 Transform Session。 */
+  #handleProtectionChange(change: ElementProtectionChange): void {
+    if (
+      this.#status !== 'active' ||
+      this.#finishing ||
+      this.#selected === undefined ||
+      this.#expectedGeneration === undefined ||
+      change.elementId !== this.#selected.id ||
+      change.generation !== this.#expectedGeneration ||
+      change.current === undefined
+    ) {
+      return;
+    }
+    this.#status = 'cancelled';
+    this.#emitError(new ElementProtectedError(change.elementId, change.current.operatorName, change.current.operatorId));
+    this.#cleanupSession();
+    this.#listeners.clear();
   }
 
   /** 断言目标元素代次和修订号仍然有效。 */
@@ -1292,6 +1333,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       const handle = this.#handle;
       const cursor = this.#cursor;
       const unsubscribeStore = this.#unsubscribeStore;
+      const unsubscribeProtection = this.#unsubscribeProtection;
       const unsubscribeInput = this.#unsubscribeInput;
       try {
         runFinalizers([
@@ -1319,6 +1361,14 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
                   if (this.#unsubscribeStore === unsubscribeStore) this.#unsubscribeStore = undefined;
                 }
               ]),
+          ...(unsubscribeProtection === undefined
+            ? []
+            : [
+                () => {
+                  unsubscribeProtection();
+                  if (this.#unsubscribeProtection === unsubscribeProtection) this.#unsubscribeProtection = undefined;
+                }
+              ]),
           ...(unsubscribeInput === undefined
             ? []
             : [
@@ -1344,6 +1394,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
         this.#handle === undefined &&
         this.#cursor === undefined &&
         this.#unsubscribeStore === undefined &&
+        this.#unsubscribeProtection === undefined &&
         this.#unsubscribeInput === undefined &&
         this.#toolbarCleanup.size === 0 &&
         this.#tooltipCleanup.size === 0 &&

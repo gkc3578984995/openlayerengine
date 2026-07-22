@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { InvalidArgumentError } from '../src/core/errors.js';
 import { createRenderGeometryDetails } from '../src/core/shape/geometryDetails.js';
-import type { RenderGeometryState } from '../src/core/shape/types.js';
+import type { RenderGeometryState, ShapeState } from '../src/core/shape/types.js';
+import { createElementGeometryDetails } from '../src/facade/resolveElementGeometryDetails.js';
 
 describe('RenderGeometry 详情', () => {
   it('复制并递归冻结 Point，且不冻结或复用输入', () => {
@@ -117,5 +118,71 @@ describe('RenderGeometry 详情', () => {
 
   it('拒绝 Circle extent 的数值溢出', () => {
     expect(() => createRenderGeometryDetails({ type: 'circle', center: [Number.MAX_VALUE, 0], radius: Number.MAX_VALUE })).toThrowError(InvalidArgumentError);
+  });
+});
+
+describe('Element 统一几何详情', () => {
+  it('统一返回 Point 的范围角点、最终点组和独立控制点快照', () => {
+    const controlPoints = [[3, 4, 9]] as Array<[number, number, number]>;
+    const renderCoordinate = [3, 4, 9] as [number, number, number];
+    const state: ShapeState<'point'> = { type: 'point', controlPoints };
+
+    const details = createElementGeometryDetails(state, { type: 'point', coordinates: renderCoordinate });
+
+    expect(details).toEqual({
+      renderGeometry: { type: 'point', coordinates: [3, 4, 9] },
+      extent: [3, 4, 3, 4],
+      extentPoints: [
+        [3, 4],
+        [3, 4],
+        [3, 4],
+        [3, 4]
+      ],
+      rangePoints: [[[3, 4, 9]]],
+      controlPoints: [[3, 4, 9]],
+      center: null,
+      radius: null
+    });
+    expect(details.controlPoints).not.toBe(controlPoints);
+    expect(details.controlPoints?.[0]).not.toBe(controlPoints[0]);
+    expect(Object.isFrozen(details.extentPoints)).toBe(true);
+    expect(details.extentPoints.every(Object.isFrozen)).toBe(true);
+    expect(Object.isFrozen(details.rangePoints)).toBe(true);
+    expect(details.rangePoints.every(Object.isFrozen)).toBe(true);
+    expect(Object.isFrozen(details.controlPoints)).toBe(true);
+    expect(details.controlPoints?.every(Object.isFrozen)).toBe(true);
+
+    controlPoints[0][0] = 30;
+    renderCoordinate[0] = 40;
+    expect(details.controlPoints).toEqual([[3, 4, 9]]);
+    expect(details.rangePoints).toEqual([[[3, 4, 9]]]);
+  });
+
+  it('统一返回 Circle 双单位半径，并拒绝状态与渲染类型不一致', () => {
+    const details = createElementGeometryDetails({ type: 'circle', center: [10, 20], radius: 5 }, { type: 'circle', center: [10, 20], radius: 10 });
+
+    expect(details).toEqual({
+      renderGeometry: { type: 'circle', center: [10, 20], radius: 10 },
+      extent: [0, 10, 20, 30],
+      extentPoints: [
+        [0, 10],
+        [20, 10],
+        [20, 30],
+        [0, 30]
+      ],
+      rangePoints: [],
+      controlPoints: null,
+      center: [10, 20],
+      radius: { meters: 5, projected: 10 }
+    });
+    expect(Object.isFrozen(details.center)).toBe(true);
+    expect(Object.isFrozen(details.radius)).toBe(true);
+
+    expect(() => createElementGeometryDetails({ type: 'circle', center: [0, 0], radius: 1 }, { type: 'point', coordinates: [0, 0] })).toThrowError(
+      InvalidArgumentError
+    );
+    expect(() => createElementGeometryDetails({ type: 'point', controlPoints: [[0, 0]] }, { type: 'circle', center: [0, 0], radius: 1 })).toThrowError(
+      InvalidArgumentError
+    );
   });
 });

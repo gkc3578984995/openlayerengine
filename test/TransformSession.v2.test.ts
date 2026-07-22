@@ -630,6 +630,23 @@ describe('TransformSession v2', () => {
     expect(harness.store.get('point-b')?.geometry).toMatchObject({ controlPoints: [[9, 9]] });
   });
 
+  it('does not overwrite a selection created re-entrantly from selectEnd', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'point-a', 'point', [[0, 0]]);
+    addElement(harness, 'point-b', 'point', [[4, 4]]);
+    addElement(harness, 'point-c', 'point', [[8, 8]]);
+    const session = harness.service.select('point-a');
+    session.on('selectEnd', () => session.select('point-c'));
+
+    expect(() => session.replaceSelected('point-b')).toThrow(InvalidArgumentError);
+    expect(session.status).toBe('active');
+    expect(session.selectedId).toBe('point-c');
+    expect(harness.interaction.handle?.target?.elementId).toBe('point-c');
+    expect(harness.log).toContain('animation:preview:set:point-c');
+    expect(harness.log).not.toContain('animation:preview:set:point-b');
+    session.cancel();
+  });
+
   it('isolates selections, previews, toolbars, and cleanup between Earth-scoped services', () => {
     const first = createTransformHarness({});
     const second = createTransformHarness({});

@@ -105,7 +105,20 @@ function createHarness<View extends ContextMenuViewPort>(view: View) {
           if (state === undefined) throw new Error(`Element 已移除：${id}`);
           return state;
         },
-        getGeometryDetails: () => ({ renderGeometry: { type: 'point', coordinates: [1, 2] }, extent: [1, 2, 1, 2] }),
+        getGeometryDetails: () => ({
+          renderGeometry: { type: 'point', coordinates: [1, 2] },
+          extent: [1, 2, 1, 2],
+          extentPoints: [
+            [1, 2],
+            [1, 2],
+            [1, 2],
+            [1, 2]
+          ],
+          rangePoints: [[[1, 2]]],
+          controlPoints: [[1, 2]],
+          center: null,
+          radius: null
+        }),
         update: vi.fn(),
         remove: vi.fn(),
         removedByHandle: false

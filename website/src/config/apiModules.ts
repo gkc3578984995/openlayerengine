@@ -89,6 +89,13 @@ export const apiModules: readonly ApiModuleDefinition[] = [
     runtimeNames: []
   },
   {
+    id: 'elements-protection',
+    label: '协同保护模式',
+    group: '地图元素',
+    typeNames: ['ElementProtectionUpdate', 'ElementProtectionState'],
+    runtimeNames: []
+  },
+  {
     id: 'elements-cleanup',
     label: '删除与清理',
     group: '地图元素',
@@ -296,6 +303,7 @@ export const apiModules: readonly ApiModuleDefinition[] = [
       'ObjectDisposedError',
       'CapabilityError',
       'InteractionConflictError',
+      'ElementProtectedError',
       'UnsupportedOperationError'
     ],
     runtimeNames: []
@@ -316,6 +324,8 @@ const apiMemberModuleIds: Readonly<Record<string, string>> = {
   'ElementService.copy': 'elements-update',
   'ElementService.hide': 'elements-update',
   'ElementService.show': 'elements-update',
+  'ElementService.setProtection': 'elements-protection',
+  'ElementService.getProtection': 'elements-protection',
   'ElementService.remove': 'elements-cleanup',
   'ElementService.clear': 'elements-cleanup',
   'Element.update': 'elements-update',

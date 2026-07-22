@@ -19,6 +19,7 @@ dist-ssr
 !/docs/superpowers/specs/2026-07-17-v2-linework-style-factory-design.md
 !/docs/superpowers/specs/2026-07-18-v2-polygon-inner-ring-and-hole-design.md
 !/docs/superpowers/specs/2026-07-21-v2-element-geometry-details-design.md
+!/docs/superpowers/specs/2026-07-22-v2-element-protection-design.md
 !/docs/superpowers/plans/
 /docs/superpowers/plans/*
 !/docs/superpowers/plans/2026-07-18-v2-user-documentation-and-release-audit.md
