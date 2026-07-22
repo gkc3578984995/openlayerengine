@@ -356,6 +356,27 @@ earth.styles.set(
 
 点、线、面和文字分别使用 `symbol`、`strokes`、`fill` 和 `text`。`stylePresets` 还包含 `icon-default`、`line-default`、`arrow-default`、`polygon-default`、`measure-default`、`draw-preview` 和 `transform-handle`。
 
+路径线饰可以通过根导出的 `lineStyles` 创建，并继续作为普通 `StyleSpec` 使用：
+
+```ts
+import { lineStyles } from '@vrsim/earth-engine-ol';
+
+const trackedLine = earth.elements.add({
+  geometry: {
+    type: 'polyline',
+    controlPoints: [
+      [0, 0],
+      [1_000_000, 500_000]
+    ]
+  },
+  style: lineStyles.polyline({
+    color: '#1677ff',
+    lines: ['solid', 'dashed'],
+    decoration: 'tick'
+  })
+});
+```
+
 ### 内置图形
 
 ```ts
@@ -542,7 +563,7 @@ toolbarSession.cancel(); // 结束 Transform 会话
 
 ## 9. Animations 动画
 
-动画需要兼容的几何：`pulse` 用于点，`dash-flow` 和 `path-travel` 用于线。
+内置动画共十种。`pulse`、`dash-flow`、`path-travel`、`grow`、`radar-scan` 与 `center-spread` 会校验目标几何能力；`blink`、`highlight`、`alert` 和 `fade` 作用于结构化样式目标。全部动画都不支持 `NativeStyleRef`。
 
 ```ts
 import { animationTypes } from '@vrsim/earth-engine-ol';
@@ -560,7 +581,9 @@ animation.finished.then(() => {
   console.log(animation.status); // 'stopped' 或 'finished'
 });
 
-console.log(animationTypes); // ['pulse', 'dash-flow', 'path-travel']
+console.log(animationTypes);
+// ['pulse', 'dash-flow', 'path-travel', 'blink', 'highlight',
+//  'alert', 'grow', 'radar-scan', 'center-spread', 'fade']
 ```
 
 批量控制使用同一个 ElementSelector：

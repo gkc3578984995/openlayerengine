@@ -1,29 +1,6 @@
 import typescript from '@rollup/plugin-typescript';
 import terser from '@rollup/plugin-terser';
-import { nodeResolve } from '@rollup/plugin-node-resolve';
-import commonjs from '@rollup/plugin-commonjs';
-import url from '@rollup/plugin-url';
 import { defineConfig } from 'rollup';
-import fs from 'fs';
-
-// 自定义 ?raw 资源加载插件，使 *.svg?raw 返回源代码字符串（兼容 vite 风格导入）
-function rawPlugin() {
-  return {
-    name: 'raw-plugin',
-    load(id) {
-      if (id.endsWith('?raw')) {
-        const realId = id.replace(/\?raw$/, '');
-        try {
-          const code = fs.readFileSync(realId, 'utf-8');
-          return `export default ${JSON.stringify(code)};`;
-        } catch (e) {
-          this.error(`raw-plugin: cannot read file ${realId}: ${e}`);
-        }
-      }
-      return null;
-    }
-  };
-}
 
 // eslint-disable-next-line no-undef
 const mode = process.env.MODE;
@@ -42,18 +19,6 @@ export default defineConfig({
     sourcemap: !isProd
   },
   plugins: [
-    // 放在最前，优先截获 *?raw 资源
-    rawPlugin(),
-    // 小图片自动转 base64，大于 limit 的复制到 dist/assets
-    // 资源文件处理：此前使用 limit:4096 以内联小图片，但出现部分 png 被压缩后 dataURI 内容为空的问题（可能与某些工具链/缓存交互有关）。
-    // 为保证发布库中引用的图标路径稳定且便于调试，这里改为 limit:0 强制始终复制到 dist/assets 下。
-    // 下游使用时可自行选择再行处理（例如通过构建工具做进一步的资产哈希或内联优化）。
-    url({
-      include: ['**/*.svg', '**/*.png', '**/*.jpg', '**/*.jpeg'],
-      // 将小图标（<4KB）内联为 data URI，减少消费端路径依赖；较大资源仍输出到 dist/assets
-      limit: 4096,
-      fileName: 'assets/[name][hash][extname]'
-    }),
     typescript({
       tsconfig: './tsconfig.json',
       declaration: false,
@@ -61,8 +26,6 @@ export default defineConfig({
       declarationDir: undefined,
       outDir: undefined
     }),
-    nodeResolve(),
-    commonjs(),
     terser()
   ]
 });

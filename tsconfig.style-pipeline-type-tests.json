@@ -5,6 +5,6 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["test/types/StylePipeline.type-test.ts", "test/types/StylePipeline.exact-type-test.ts", "src/global.d.ts"],
+  "include": ["test/types/StylePipeline.type-test.ts", "test/types/StylePipeline.exact-type-test.ts"],
   "exclude": [".test", "dist", "docs", "node_modules", "website"]
 }

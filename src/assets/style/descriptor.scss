@@ -1,7 +1,5 @@
 .earth-engine-component-descriptor {
-  // cursor: move;
   user-select: none;
-  // pointer-events: none;
   position: absolute;
   border: none;
   background-color: rgba(32, 23, 76, 0.5);
@@ -25,7 +23,6 @@
   }
 
   .icon {
-    // pointer-events: all;
     position: absolute;
     top: 5px;
     right: 5px;
@@ -34,13 +31,11 @@
 
     &.icon-lock {
       cursor: pointer;
-      // background: url('./images/descriptions/lock.png');
       background-size: contain;
     }
 
     &.icon-unlock {
       cursor: pointer;
-      // background: url('./images/descriptions/unlock.png');
       background-size: contain;
     }
   }
@@ -184,8 +179,6 @@
         display: inline-block;
         background: none;
         border: none;
-        // color: #edffff;
-        // fill: #edffff;
         cursor: pointer;
         overflow: hidden;
         -moz-user-select: none;
@@ -252,7 +245,7 @@
 }
 
 .earth-svg-component-line {
-  stroke: rgba(32, 23, 76, 0.5); // rgba(32, 23, 76, 0.8);
+  stroke: rgba(32, 23, 76, 0.5);
   stroke-width: 1;
   stroke-dasharray: 3 2;
 }

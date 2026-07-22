@@ -30,8 +30,7 @@
     "test/MultiEarthInputIsolation.test.ts",
     "test/TransientNativeEventRef.test.ts",
     "test/EventServiceTypes.test.ts",
-    "test/fixtures/Task8Map.ts",
-    "src/global.d.ts"
+    "test/fixtures/Task8Map.ts"
   ],
   "exclude": [".test", "dist", "docs", "node_modules", "website"]
 }

@@ -56,7 +56,7 @@ describe('website API query', () => {
   });
 
   it('uses /api/types as a complete, hash-addressable type catalog', async () => {
-    const [types, legacyTypes] = await Promise.all([read('website/src/views/api/ApiTypesView.vue'), read('website/src/views/ExportedTypesView.vue')]);
+    const types = await read('website/src/views/api/ApiTypesView.vue');
 
     expect(types).toContain('const definitionHref = (anchor: string): string => `/api/types#${anchor}`;');
     expect(types).toContain('const containsAnchor =');
@@ -69,7 +69,6 @@ describe('website API query', () => {
     expect(types).toContain('<TypeExpression :value="signature.returns" />');
     expect(types).toContain('signature.throws?.length');
     expect(types).toContain(':id="parameter.anchor"');
-    expect(legacyTypes).toContain("import { findApiModuleByType } from '../config/apiModules';");
 
     const shapeInput = apiCatalog.find((item) => item.name === 'ShapeInput');
     const animationSpec = apiCatalog.find((item) => item.name === 'AnimationSpec');

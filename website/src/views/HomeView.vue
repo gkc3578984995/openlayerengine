@@ -24,7 +24,7 @@ interface WorkbenchLayer {
 
 const heroActions: HeroAction[] = [
   { label: '快速开始', to: '/guide/quick-start', primary: true },
-  { label: '浏览组件', to: '/components/point-layer', primary: false }
+  { label: '创建地图', to: '/guide/earth-create', primary: false }
 ];
 
 const workbenchLayers: WorkbenchLayer[] = [{ label: '路线规划' }, { label: '业务区域' }, { label: '基础地图' }];

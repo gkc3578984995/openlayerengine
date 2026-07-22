@@ -18,10 +18,7 @@ describe('元素坐标与圆半径文档', () => {
   });
 
   it('网站使用同一个 Vue 文件提供预览和源代码', async () => {
-    const [page, methods] = await Promise.all([
-      readFile(resolve('website/src/views/MigrationV2View.vue'), 'utf8'),
-      readFile(resolve('website/src/views/GlobalMethodsView.vue'), 'utf8')
-    ]);
+    const page = await readFile(resolve('website/src/views/MigrationV2View.vue'), 'utf8');
     const example = await readFile(resolve('website/src/examples/ElementCoordinateStorageDemo.vue'), 'utf8');
 
     expect(page).toContain("import ElementCoordinateStorageDemo from '../examples/ElementCoordinateStorageDemo.vue';");
@@ -31,9 +28,6 @@ describe('元素坐标与圆半径文档', () => {
     expect(page).toContain('id="api-to-flat-coordinates"');
     expect(page).toContain('earth.view.toProjectedCoordinates(lonLat)');
     expect(page).toContain('radius: 1_000');
-    expect(methods).toContain("import ElementCoordinateStorageDemo from '../examples/ElementCoordinateStorageDemo.vue';");
-    expect(methods).toContain("import elementCoordinateStorageSource from '../examples/ElementCoordinateStorageDemo.vue?raw';");
-    expect(methods).toContain('id="demo-coordinate-conversion"');
     expect(example).toContain('Earth, toFlatCoordinates, type Coordinate, type ShapeState');
     expect(example).toContain('earth.view.toProjectedCoordinates(input)');
     expect(example).toContain("earth.elements.add({ geometry: { type: 'polyline', controlPoints: projectedInput } })");

@@ -1,12 +1,8 @@
 {
-  "excludePrivate": true, // 导出不包含private声明内容
-  "excludeProtected": true, // 导出不包含protected声明内容
-  "entryPoints": [
-    "./src"
-  ],
+  "excludePrivate": true, // 不输出 private 成员
+  "excludeProtected": true, // 不输出 protected 成员
+  "entryPoints": ["./src"],
   "out": "./website/public/api",
   "json": "./.cache/typedoc.json",
-  "plugin": [
-    "typedoc-plugin-markdown"
-  ]
+  "plugin": ["typedoc-plugin-markdown"]
 }

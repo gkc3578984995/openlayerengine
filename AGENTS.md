@@ -2,7 +2,7 @@
 
 ## 项目结构与模块组织
 
-本仓库是基于 OpenLayers 的 TypeScript 地图能力库。源码位于 `src/`：`Earth.ts`、`useEarth.ts` 和 `index.ts` 是核心入口；`src/base` 放置通用图层类；`src/components` 放置绘制、测量、标牌、右键菜单、Transform 等功能组件；`src/common` 放置共享工具；`src/extends` 放置 OpenLayers 扩展；`src/interface` 放置公共类型定义。样式和图片位于 `src/assets`。单元测试位于 `test/**/*.test.ts`，本地示例与测试夹具位于 `.test/`。TypeDoc 生成文档输出到 `docs/`，构建产物输出到 `dist/`。
+本仓库是基于 OpenLayers 的 TypeScript 地图能力库。`src/index.ts`、`src/Earth.ts` 和 `src/useEarth.ts` 是公共入口；`src/core` 放置与 OpenLayers、DOM 解耦的领域内核；`src/services` 放置业务服务与会话；`src/facade` 放置公共 API 门面；`src/adapters` 放置 OpenLayers 与 DOM 适配；`src/builtins` 放置内置图形、动画和样式；`src/internal` 负责实例装配。公共样式位于 `src/assets/style`。单元测试位于 `test/**/*.test.ts`，人工验收台位于 `.test/`，用户文档位于 `website/`。TypeDoc 生成内容输出到 `website/public/api/`，构建产物输出到 `dist/`。
 
 ## 构建、测试与开发命令
 
@@ -14,12 +14,12 @@
 - `npm run lint`：检查 `src/**/*.ts` 与 `test/**/*.ts`。
 - `npm run format:check`：检查 Prettier 格式。
 - `npm run build`：清理 `dist/`，生成 Rollup 包和类型声明。
-- `npm run verify`：依次执行类型检查、lint、测试和构建，提交前优先运行。
-- `npm run doc`：重新生成 `docs/` 下的 TypeDoc Markdown 文档。
+- `npm run verify`：依次执行类型检查、lint、构建、API 同步和测试，提交前优先运行。
+- `npm run doc`：重新生成 `website/public/api/` 下的 TypeDoc Markdown 文档。
 
 ## 编码风格与命名约定
 
-使用 TypeScript，并保持 `strict` 兼容。格式遵循 Prettier：2 空格缩进、单引号、分号、无尾随逗号、`printWidth` 为 160。类和主要功能模块使用 PascalCase，例如 `PointLayer`、`TransformInteraction`；函数、变量和方法使用 camelCase；枚举和类型名沿用现有领域命名，例如 `DrawType`。导出 API 应优先提供清晰的类型或接口。
+使用 TypeScript，并保持 `strict` 兼容。格式遵循 Prettier：2 空格缩进、单引号、分号、无尾随逗号、`printWidth` 为 160。类和主要功能模块使用 PascalCase，例如 `ElementStore`、`TransformSession`；函数、变量和方法使用 camelCase；枚举和类型名沿用现有领域命名，例如 `AnimationType`。导出 API 应优先提供清晰的类型或接口。
 
 中文注释应自然、简洁，重点说明代码无法直接表达的设计意图、业务约束和取舍，不逐字翻译实现过程，也不复述变量名、类型或语句本身。避免“用于实现……”“执行以下操作……”等模板化措辞；能从代码直接看出的内容不写注释。OpenLayers、Feature、Element、Session 等领域术语保留准确的英文写法，不为追求全中文而生硬翻译。修改既有注释时应保持原有技术含义，不借注释润色改变公共契约或运行行为。
 
@@ -37,7 +37,7 @@
 
 ## 文档同步
 
-修改公开 API、行为、参数或示例时，必须同步更新 `website/` 中对应的用户文档和可运行示例；文档风格遵循已配置完成的 `PointLayer 点图层` 页面。文档正文、示例说明和 API 表格需遵守 `website/AGENTS.md` 的页内链接规范，并在提交前运行 `npm run docs:build`。
+修改公开 API、行为、参数或示例时，必须同步更新 `website/` 中对应的用户文档和可运行示例；文档结构与交互遵循现有 Element 页面。文档正文、示例说明和 API 表格需遵守 `website/AGENTS.md` 的页内链接规范，并在提交前运行 `npm run docs:build`。
 
 ## 提交与 Pull Request 规范
 

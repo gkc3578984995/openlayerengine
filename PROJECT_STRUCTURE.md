@@ -33,7 +33,7 @@ ol-engine/
 │  ├─ adapters/               # OpenLayers 与 DOM 适配实现
 │  ├─ internal/               # Earth 实例装配根
 │  ├─ utils/                  # 公共小型工具
-│  └─ assets/                 # 图片和公共样式
+│  └─ assets/style/           # 公共样式
 ├─ test/                      # Vitest、类型测试和浏览器验收测试
 ├─ .test/                     # 人工验收台与可运行示例
 ├─ scripts/                   # 文档、打包和质量检查脚本
@@ -56,7 +56,7 @@ ol-engine/
 ├─ MIGRATION.txt              # V1 到 V2 的迁移说明
 ├─ PROJECT_STRUCTURE.md       # 当前目录结构说明
 ├─ AGENTS.md                  # 仓库协作和维护规则
-└─ ol.txt                     # 早期功能规划记录，不参与构建
+└─ V2_PUBLIC_API.md           # 2.0 公共 API 调用说明
 ```
 
 ## 3. 源码分层
@@ -152,13 +152,13 @@ services/
 ```text
 builtins/
 ├─ animations/
-│  ├─ pulse.ts                # 脉冲扩散动画
-│  ├─ dashFlow.ts             # 流动虚线动画
-│  └─ pathTravel.ts           # 路径飞行动画
+│  ├─ index.ts                # 十种内置动画及统一注册
+│  └─ *.ts                    # 动画定义、时间线和共享算法
 ├─ shapes/
 │  ├─ basic.ts                # 点、线、面、圆等基础图形
 │  └─ plot/                   # 箭头、曲线、多边形等 Plot 算法
 └─ styles/
+   ├─ lineStyles.ts           # 路径线饰样式工厂
    └─ presets.ts              # 内置样式预设
 ```
 
@@ -172,8 +172,9 @@ builtins/
 adapters/
 ├─ dom/
 │  ├─ ContextMenuViewAdapter.ts       # 右键菜单视图
+│  ├─ TooltipAdapter.ts                # Draw、Edit、Transform 共用提示
 │  ├─ TransformToolbarAdapter.ts      # Transform 工具栏
-│  └─ TransformTooltipAdapter.ts      # Transform 鼠标提示
+│  └─ transformToolbarIcons.ts        # 内嵌工具栏 SVG
 └─ openlayers/
    ├─ FeatureBinding.ts               # ElementState 到 OL Feature 的投影与绑定
    ├─ GeometryCodec.ts                # ShapeState 与 OL Geometry 转换
@@ -222,12 +223,10 @@ facade/
 
 当新增服务或适配器时，通常需要在 `createEngineContext.ts` 完成依赖注入和销毁注册。
 
-### 3.8 `src/assets` 和 `src/utils`
+### 3.8 `src/assets/style` 和 `src/utils`
 
-- `assets/image/`：保留的 Transform 手柄和工具栏图片源文件；当前运行时实际使用适配器内嵌的图片和 SVG 数据。
 - `assets/style/`：右键菜单、Descriptor、工具栏、提示框及公共样式入口。
 - `utils/`：ID、数学函数和 `throttle`。这里只放职责单一、无状态且适合公开复用的小工具。
-- `global.d.ts`：为图片资源和 `?raw` 导入提供 TypeScript 声明。
 
 ## 4. 测试与验收目录
 
@@ -277,12 +276,11 @@ test/
 
 - `src/views/`：用户文档页面。
 - `src/examples/`：页面内可运行示例。
-- `src/docs/`：手工维护的 API 表数据。
 - `src/components/docs/`：文档专用展示组件。
 - `src/config/`：导航、绘制类型和地图源配置。
 - `public/map-sources.json`：公开地图源配置。
 
-当前阶段暂不更新网站文档。后续进入文档阶段时，需要统一迁移 V2 API、示例和 OpenLayers 版本。
+网站只保留 2.0 页面和同源示例；1.x 能力差异统一维护在迁移页，不保留不可运行的旧页面副本。
 
 ### 5.2 `docs`
 
@@ -294,10 +292,10 @@ test/
 
 ```text
 scripts/
-├─ check-prettier-baseline.mjs        # 检查历史格式基线
 ├─ docs/
 │  ├─ api-docs.mjs                    # 生成网站 API 数据
-│  └─ check-api-coverage.mjs          # 检查 PointLayer 既有 API 表的局部覆盖
+│  ├─ check-api-coverage.mjs          # 检查公共 API 文档覆盖
+│  └─ check-component-api-ownership.mjs # 检查 API 的唯一页面归属
 └─ package/
    ├─ assert-package-contract.mjs     # 检查发布包内容与依赖契约
    └─ test-offline-install.mjs        # 验证离线安装和消费
@@ -341,7 +339,7 @@ scripts/
 | `npm run typecheck`       | 检查源码类型                               |
 | `npm run typecheck:tests` | 检查独立类型契约测试                       |
 | `npm run lint`            | 检查源码、测试和验收台代码                 |
-| `npm run format:check`    | 检查格式和历史格式基线                     |
+| `npm run format:check`    | 检查 Prettier 格式                         |
 | `npm run test:code`       | 运行不包含网站文档基线的代码测试           |
 | `npm run test:browser`    | 运行 Playwright 浏览器验收                 |
 | `npm run demo:check`      | 检查人工验收台的类型、覆盖率和两种构建模式 |
@@ -349,7 +347,7 @@ scripts/
 | `npm run test:package`    | 检查发布包、消费方式和离线安装             |
 | `npm run verify`          | 执行源码类型、Lint、构建和默认完整 Vitest  |
 | `npm run verify:code`     | 执行代码、示例、浏览器和发布包综合门禁     |
-| `npm run docs:build`      | 生成并构建网站文档，文档阶段再执行         |
+| `npm run docs:build`      | 生成并构建网站文档                         |
 
 `npm run test:package` 会先准备 `ol@10.9.0` 消费者缓存，再执行强制离线安装验证，因此整个命令并不等于完全断网运行。
 

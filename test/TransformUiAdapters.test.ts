@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TransformToolbarAdapter } from '../src/adapters/dom/TransformToolbarAdapter.js';
 import { TooltipAdapter } from '../src/adapters/dom/TooltipAdapter.js';
 import { transformToolbarIcons } from '../src/adapters/dom/transformToolbarIcons.js';
-import { TransformTooltipAdapter } from '../src/adapters/dom/TransformTooltipAdapter.js';
 import type { TransformToolbarViewEvent, TransformToolbarViewSpec } from '../src/core/ports/TransformToolbarPort.js';
 
 interface OverlayRecord {
@@ -159,7 +158,7 @@ describe('TransformToolbarAdapter', () => {
   });
 });
 
-describe('TransformTooltipAdapter', () => {
+describe('TooltipAdapter', () => {
   it('rolls back Overlay and DOM when map mounting throws after a partial add', () => {
     const documentTarget = new FakeDocument();
     installDomGlobals(documentTarget);
@@ -214,7 +213,7 @@ describe('TransformTooltipAdapter', () => {
     const documentTarget = new FakeDocument();
     installDomGlobals(documentTarget);
     const map = new FakeMap();
-    const view = new TransformTooltipAdapter(map as unknown as OlMap).open({
+    const view = new TooltipAdapter(map as unknown as OlMap).open({
       ownerId: 'transform-owner',
       position: [10, 20],
       lines: ['移动中'],
@@ -341,7 +340,7 @@ describe('TransformTooltipAdapter', () => {
     const documentTarget = new FakeDocument();
     installDomGlobals(documentTarget);
     const map = new FakeMap();
-    const view = new TransformTooltipAdapter(map as unknown as OlMap).open({
+    const view = new TooltipAdapter(map as unknown as OlMap).open({
       ownerId: 'transform-owner',
       position: [10, 20],
       lines: ['拖动控制点进行缩放', '按住 Shift 保持比例'],
@@ -384,7 +383,7 @@ describe('TransformTooltipAdapter', () => {
     const documentTarget = new FakeDocument();
     installDomGlobals(documentTarget);
     const map = new FakeMap();
-    const view = new TransformTooltipAdapter(map as unknown as OlMap).open({
+    const view = new TooltipAdapter(map as unknown as OlMap).open({
       ownerId: 'transform-owner',
       position: [10, 20],
       lines: ['移动中'],

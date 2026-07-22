@@ -12,11 +12,18 @@ describe('website homepage content', () => {
     expect(home).toContain('@vrsim/');
     expect(home).toContain('earth-engine-ol');
     expect(home).toContain('OpenLayers + TypeScript');
-    for (const route of ['/guide/quick-start', '/guide/earth-create', '/components/point-layer', '/components/measure', '/components/dynamic-draw']) {
+    for (const route of [
+      '/guide/quick-start',
+      '/guide/earth-create',
+      '/components/core/earth',
+      '/components/core/layers',
+      '/components/elements/overview',
+      '/components/interactions/draw'
+    ]) {
       expect(home).toContain(route);
     }
-    expect(home).toContain("{ label: '浏览组件', to: '/components/point-layer', primary: false }");
-    expect(home).not.toContain("{ label: '创建地图', to: '/guide/earth-create', primary: false }");
+    expect(home).toContain("{ label: '创建地图', to: '/guide/earth-create', primary: false }");
+    expect(home).not.toContain('/components/point-layer');
   });
 
   it('keeps both explicit package-title segments intact at responsive widths', () => {
@@ -63,7 +70,7 @@ describe('website homepage content', () => {
     expect(home).toMatch(/interface CoreModule\s*\{/);
     expect(home).toMatch(/const coreModules: CoreModule\[\] = \[/);
     expect(home).toContain('v-for="module in coreModules"');
-    for (const title of ['Earth 创建', 'PointLayer', 'Measure', 'DynamicDraw']) expect(home).toContain(title);
+    for (const title of ['创建 Earth', '组织图层', '添加 Element', '接入地图交互']) expect(home).toContain(title);
   });
 
   it('removes the generic homepage content and hard-coded visual data', () => {

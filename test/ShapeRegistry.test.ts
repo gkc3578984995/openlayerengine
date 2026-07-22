@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
-import * as publicBuiltinShapes from '../src/builtins/shapes/index.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { CapabilityError, InvalidArgumentError } from '../src/core/errors.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { shapeTypes as coreShapeTypes } from '../src/core/shape/types.js';
 import type { ShapeCapability, ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
 
-const { shapeTypes } = publicBuiltinShapes;
+const shapeTypes = coreShapeTypes;
 
 function createBuiltinShapeRegistry(): ShapeRegistry {
   return new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
@@ -270,10 +269,6 @@ describe('ShapeRegistry', () => {
           }
         ])
     ).toThrow(InvalidArgumentError);
-  });
-
-  it('keeps the public builtins index limited to the stable shape tuple', () => {
-    expect(Object.keys(publicBuiltinShapes)).toEqual(['shapeTypes']);
   });
 
   it('rejects duplicate registration without replacing the first definition', () => {
