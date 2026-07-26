@@ -31,6 +31,9 @@ dist-ssr
 /website/src/generated/
 /ol-docs/
 *.tgz
+/release/*
+!/release/README.md
+/.release-staging-*/
 .claude/
 .worktrees/
 .superpowers/

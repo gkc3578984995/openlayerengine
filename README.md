@@ -88,10 +88,14 @@ npm run docs:build
 ## 打包发布
 
 ```bash
-npm run build
-npm pack
+npm run release
 ```
 
-发布包只包含 `dist/`，公开 ESM 入口、类型声明和 `style.css`。OpenLayers 始终保持 external，不会被打入引擎产物。
+该命令会构建代码与文档，并在根目录生成以下发布产物：
+
+- `release/dist/`：可直接部署的文档站。
+- `release/vrsim-earth-engine-ol-<version>.tgz`：代码发布包。
+
+除 `package.json`、`README.md` 等 npm 标准元数据外，代码发布包的运行时、类型和样式产物只来自 `dist/`。OpenLayers 始终保持 external，不会被打入引擎产物。每次执行都会替换 `release/` 中的旧发布产物。
 
 从 1.x 升级时，请阅读 [MIGRATION.txt](./MIGRATION.txt)。

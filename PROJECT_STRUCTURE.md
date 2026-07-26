@@ -40,6 +40,7 @@ ol-engine/
 ├─ website/                   # Vue/Vite 用户文档站
 ├─ docs/                      # 已跟踪的设计方案和实施计划
 ├─ dist/                      # 构建产物，不提交
+├─ release/                   # 文档站与代码包的统一发布目录
 ├─ .test-output/              # 基于源码构建的验收台产物
 ├─ .test-output-dist/         # 基于 dist 构建的验收台产物
 ├─ test-results/              # Playwright 测试结果
@@ -292,6 +293,7 @@ test/
 
 ```text
 scripts/
+├─ release.mjs                        # 构建代码与文档并汇总发布产物
 ├─ docs/
 │  ├─ api-docs.mjs                    # 生成网站 API 数据
 │  ├─ check-api-coverage.mjs          # 检查公共 API 文档覆盖
@@ -308,6 +310,8 @@ scripts/
 | 路径                     | 用途                                            |
 | ------------------------ | ----------------------------------------------- |
 | `dist/`                  | ESM、类型声明、`style.css` 和可能生成的资源文件 |
+| `release/dist/`          | `npm run release` 生成的可部署文档站            |
+| `release/*.tgz`          | `npm run release` 生成的代码发布包              |
 | `.test-output/`          | 基于源码入口构建的验收台                        |
 | `.test-output-dist/`     | 基于 `dist` 入口构建的验收台                    |
 | `website/public/api/`    | TypeDoc 生成的 API Markdown                     |
@@ -348,6 +352,7 @@ scripts/
 | `npm run verify`          | 执行源码类型、Lint、构建和默认完整 Vitest  |
 | `npm run verify:code`     | 执行代码、示例、浏览器和发布包综合门禁     |
 | `npm run docs:build`      | 生成并构建网站文档                         |
+| `npm run release`         | 构建代码与文档并汇总发布产物               |
 
 `npm run test:package` 会先准备 `ol@10.9.0` 消费者缓存，再执行强制离线安装验证，因此整个命令并不等于完全断网运行。
 
