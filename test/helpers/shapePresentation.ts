@@ -1,4 +1,4 @@
-import type { ShapePresentationPort } from '../../src/core/ports/ShapePresentationPort.js';
+import type { ShapePresentationFrame, ShapePresentationPort } from '../../src/core/ports/ShapePresentationPort.js';
 import { moveTrustedShapeState, renderTrustedShapeState } from '../../src/core/shape/trustedRender.js';
 import type { ShapePresentationContext } from '../../src/core/shape/types.js';
 
@@ -21,6 +21,12 @@ export function createTestShapePresentation(getResolution: () => number = () => 
       definition.presentation === undefined
         ? Object.freeze({ state, geometry: renderTrustedShapeState(definition, state as never) })
         : definition.presentation.present(state as never, style, context),
+    presentAt: (definition, state, style, frame) => {
+      const frameContext = createFrameContext(frame);
+      return definition.presentation === undefined
+        ? Object.freeze({ state, geometry: renderTrustedShapeState(definition, state as never) })
+        : definition.presentation.present(state as never, style, frameContext);
+    },
     describeEdit: (definition, state, style) => {
       const contextual = definition.presentation?.edit;
       if (contextual !== undefined) return contextual.describe(state as never, style, context);
@@ -43,3 +49,26 @@ export const testShapePresentation = createTestShapePresentation();
 
 /** 兼容既有 identity Projection 命名。 */
 export const identityShapePresentation = testShapePresentation;
+
+function createFrameContext(frame: Readonly<ShapePresentationFrame>): Readonly<ShapePresentationContext> {
+  const cosine = Math.cos(frame.rotation);
+  const sine = Math.sin(frame.rotation);
+  return Object.freeze<ShapePresentationContext>({
+    toPixel: (coordinate) => {
+      const x = coordinate[0] - frame.center[0];
+      const y = coordinate[1] - frame.center[1];
+      return [(cosine * x + sine * y) / frame.resolution, (sine * x - cosine * y) / frame.resolution];
+    },
+    toCoordinate: (pixel, template) => {
+      const x = frame.center[0] + frame.resolution * (cosine * pixel[0] + sine * pixel[1]);
+      const y = frame.center[1] + frame.resolution * (sine * pixel[0] - cosine * pixel[1]);
+      return template?.length === 3 ? [x, y, template[2]] : [x, y];
+    },
+    measureTextWidth: contextMeasureTextWidth,
+    measureTextHeight: contextMeasureTextHeight,
+    getResolution: () => frame.resolution
+  });
+}
+
+const contextMeasureTextWidth = (_font: string, text: string): number => Array.from(text).length * 10;
+const contextMeasureTextHeight = (): number => 20;

@@ -216,12 +216,47 @@ describe('ShapePresentationAdapter', () => {
     expect(frameWidth(adapter.present(calloutDefinition, state, calloutStyle).geometry)).toBeCloseTo(100);
     adapter.destroy();
   });
+
+  it('presents a Callout from an explicit frozen frame instead of the active View', () => {
+    const view = new View({ projection: 'EPSG:4326', center: [0, 0], resolution: 1, rotation: 0 });
+    const map = new FrameMapHarness(view);
+    const adapter = new ShapePresentationAdapter(map as unknown as Map);
+    const state = adapter.materialize(calloutDefinition, {
+      type: 'callout',
+      anchor: [10, 20] as Coordinate,
+      center: [10, 20] as Coordinate,
+      size: [100, 40] as const
+    });
+
+    const active = adapter.present(calloutDefinition, state, calloutStyle).geometry;
+    const printed = adapter.presentAt(calloutDefinition, state, calloutStyle, {
+      center: [1000, -500],
+      resolution: 2,
+      rotation: Math.PI / 2
+    }).geometry;
+    if (printed.type !== 'polygon') throw new Error('Callout print presentation must be a polygon');
+
+    expect(frameWidth(active)).toBeCloseTo(100);
+    expect(frameHeight(active)).toBeCloseTo(40);
+    expect(frameWidth(printed)).toBeCloseTo(40);
+    expect(frameHeight(printed)).toBeCloseTo(100);
+    expect(printed.label).toEqual({ coordinate: [10, 20], text: '测试', visualScale: 0.5 });
+    expect(view.getResolution()).toBe(1);
+    expect(view.getRotation()).toBe(0);
+    adapter.destroy();
+  });
 });
 
 function frameWidth(geometry: ReturnType<ShapePresentationAdapter['present']>['geometry']): number {
   if (geometry.type !== 'polygon') throw new Error('Callout presentation must be a polygon');
   const xs = geometry.coordinates[0].map((coordinate) => coordinate[0]);
   return Math.max(...xs) - Math.min(...xs);
+}
+
+function frameHeight(geometry: ReturnType<ShapePresentationAdapter['present']>['geometry']): number {
+  if (geometry.type !== 'polygon') throw new Error('Callout presentation must be a polygon');
+  const ys = geometry.coordinates[0].map((coordinate) => coordinate[1]);
+  return Math.max(...ys) - Math.min(...ys);
 }
 
 function toPixel(coordinate: readonly number[], center: readonly number[], resolution: number, rotation: number): number[] {

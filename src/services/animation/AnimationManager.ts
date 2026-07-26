@@ -1,4 +1,6 @@
 import type { AnimationChannel, AnimationSpec, AnimationStatus } from '../../core/animation/types.js';
+import { cloneCoreState } from '../../core/common/clone.js';
+import type { Coordinate } from '../../core/common/types.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import { cloneElementSnapshot, isElementSnapshot } from '../../core/element/snapshot.js';
 import type { ElementSelector, ElementState } from '../../core/element/types.js';
@@ -31,6 +33,7 @@ import { createAnimationFrameBuffer } from './AnimationFrameBuffer.js';
 import { AnimationDeadlineScheduler } from './AnimationDeadlineScheduler.js';
 import { AnimationHandleImpl } from './AnimationHandle.js';
 import type { AnimationRegistry } from './AnimationRegistry.js';
+import type { AnimationElementPresentationSnapshot, AnimationPresentationSnapshot, AnimationPrintFrame } from './AnimationPresentationSnapshot.js';
 import type {
   AnimationDefinition,
   AnimationFrameBuffer,
@@ -194,6 +197,25 @@ interface ActivePreviewState {
   readonly geometry: RenderGeometryState;
 }
 
+interface DetachedAnimationOverlay {
+  readonly active: boolean;
+  readonly geometryKind: 'effective-target' | 'snapshot';
+  readonly geometry: RenderGeometryState | undefined;
+  readonly opacity: number;
+  readonly lineDashOffset: number | undefined;
+  readonly lineDashOffsetStrokeIndex: number | undefined;
+  readonly symbolRadius: number | undefined;
+  readonly strokeWidth: number | undefined;
+  readonly rotation: number | undefined;
+}
+
+interface DetachedAnimationFrame {
+  readonly targetOpacity: number | undefined;
+  readonly targetGeometry: RenderGeometryState | undefined;
+  readonly targetReveal: AnimationFrameBuffer['targetReveal'];
+  readonly overlays: readonly DetachedAnimationOverlay[];
+}
+
 const ANIMATION_RENDER_CHANNEL = '$animation';
 
 /** 统一管理 Element 动画、Session 临时预览和图层级渲染循环。 */
@@ -252,6 +274,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #storeSubscribed = true;
   /** Shape presentation 帧订阅是否仍有效。 */
   #presentationSubscribed = true;
+  readonly #presentationListeners = new Set<() => void>();
+  #presentationRevision = 0;
 
   /** 创建动画管理器并订阅元素变化。 */
   constructor(dependencies: AnimationManagerDependencies) {
@@ -293,6 +317,187 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   /** 返回当前活动渲染图层数量。 */
   get activeLayerCount(): number {
     return this.#passes.size;
+  }
+
+  /** 当前会影响打印展示快照的稳定 revision；Clock 自然推进不会改变它。 */
+  get presentationRevision(): number {
+    this.#assertActive();
+    return this.#presentationRevision;
+  }
+
+  /** 订阅会改变打印展示语义的显式动画操作；Clock 自然推进不会逐帧制造 Session revision。 */
+  subscribePresentationChanges(listener: () => void): () => void {
+    this.#assertActive();
+    this.#presentationListeners.add(listener);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      this.#presentationListeners.delete(listener);
+    };
+  }
+
+  /**
+   * 在一个 Clock 时刻复制 current-frame 合成结果。Runtime 只做同步确定性采样，随后恢复原有稳定 buffer。
+   */
+  capturePresentationSnapshot(frame: Readonly<AnimationPrintFrame>): Readonly<AnimationPresentationSnapshot> {
+    this.#assertActive();
+    assertPrintFrame(frame);
+    const capturedAt = this.#clock.now();
+    if (!Number.isFinite(capturedAt)) throw new InvalidArgumentError('Animation clock must return a finite timestamp');
+    for (const elementId of this.#activePreviews.keys()) {
+      if (this.#elementRecords(elementId).some((record) => this.#shouldRender(record))) {
+        throw new CapabilityError(`Animation current-frame snapshot is unavailable during an active interaction preview: ${elementId}`);
+      }
+    }
+
+    const styleCopies = new WeakMap<object, StyleSpec>();
+    const elements: AnimationElementPresentationSnapshot[] = [];
+    for (const [elementId, indexed] of this.#recordsByElement) {
+      const group = [...indexed].filter((record) => this.#shouldRender(record)).sort((left, right) => left.order - right.order);
+      if (group.length === 0) continue;
+      const committed = this.#committedStates.get(elementId);
+      if (committed === undefined || !committed.state.visible || group.some((record) => record.layerId !== committed.state.layerId)) continue;
+      const prepared = this.#preparePrintState(committed, frame);
+
+      let targetOpacity = 1;
+      let effectiveGeometry: RenderGeometryState | undefined = prepared.geometry;
+      let effectiveReveal: AnimationFrameBuffer['targetReveal'];
+      const detached: Array<{
+        readonly record: ElementRecord;
+        readonly sample: AnimationSample;
+        readonly buffer: DetachedAnimationFrame;
+        readonly slots: readonly AnimationSlotDefinition[];
+      }> = [];
+      for (const record of group) {
+        const sampled = this.#sampleForPrint(record, prepared, committed, frame, capturedAt);
+        detached.push({ record, sample: sampled.sample, buffer: sampled.buffer, slots: sampled.slots });
+        const contributes = !sampled.sample.finished || sampled.sample.retain === true;
+        if (contributes && record.definition.writeDomains.has('target-opacity')) {
+          targetOpacity *= normalizeAnimationOpacity(sampled.buffer.targetOpacity);
+        }
+        if (contributes && record.definition.writeDomains.has('target-geometry')) {
+          effectiveGeometry = sampled.buffer.targetGeometry;
+          effectiveReveal = sampled.buffer.targetReveal;
+        }
+      }
+
+      const replacesBase = group.some(({ definition }) => definition.writeDomains.has('target-opacity') || definition.writeDomains.has('target-geometry'));
+      const primitives: LayerRenderPrimitive[] = [];
+      for (const { record, sample, buffer, slots } of detached) {
+        if (sample.finished && sample.retain !== true) continue;
+        if (slots.length !== buffer.overlays.length) throw new InvalidArgumentError('Animation runtime changed slots without rebind');
+        for (let index = 0; index < slots.length; index += 1) {
+          const value = buffer.overlays[index];
+          if (!value.active) continue;
+          const opacity = normalizeAnimationOpacity(value.opacity) * targetOpacity;
+          if (opacity === 0) continue;
+          const geometry = value.geometryKind === 'effective-target' ? effectiveGeometry : value.geometry;
+          if (geometry === undefined) continue;
+          const slot = slots[index];
+          assertDynamicParameters(slot.dynamicParameters, value);
+          const dynamicStyle = dynamicStyleValue(value);
+          const pathReveal = value.geometryKind === 'effective-target' ? effectiveReveal : undefined;
+          primitives.push(
+            Object.freeze({
+              slotKey: `${record.channel}/${slot.slotKey}`,
+              geometry: cloneRenderGeometry(geometry),
+              style: clonePrintStyle(slot.style, styleCopies),
+              opacity,
+              ...(dynamicStyle === undefined ? {} : { dynamicStyle: Object.freeze({ ...dynamicStyle }) }),
+              ...(pathReveal === undefined ? {} : { pathReveal: Object.freeze({ ...pathReveal }) })
+            })
+          );
+        }
+      }
+
+      const presentation =
+        replacesBase && effectiveGeometry !== undefined
+          ? Object.freeze({
+              slotKey: 'base',
+              geometry: cloneRenderGeometry(effectiveGeometry),
+              style: clonePrintStyle(prepared.target.style, styleCopies),
+              opacity: targetOpacity,
+              ...(effectiveReveal === undefined ? {} : { pathReveal: Object.freeze({ ...effectiveReveal }) })
+            })
+          : undefined;
+      if (!replacesBase && primitives.length === 0) continue;
+      elements.push(
+        Object.freeze({
+          elementId,
+          layerId: prepared.state.layerId,
+          targetZIndex: prepared.target.style.zIndex ?? 0,
+          replacesBase,
+          ...(presentation === undefined ? {} : { presentation }),
+          primitives: Object.freeze(primitives)
+        })
+      );
+    }
+    return Object.freeze({ revision: this.#presentationRevision, capturedAt, elements: Object.freeze(elements) });
+  }
+
+  #sampleForPrint(
+    record: ElementRecord,
+    prepared: PreparedElementState,
+    activePrepared: PreparedElementState,
+    frame: Readonly<AnimationPrintFrame>,
+    capturedAt: number
+  ): { readonly sample: AnimationSample; readonly buffer: DetachedAnimationFrame; readonly slots: readonly AnimationSlotDefinition[] } {
+    if (record.retained && record.sample === undefined) throw new InvalidArgumentError('Retained animation does not have a stable sample');
+    const originalSample = record.sample;
+    const originalFrame = record.lastRenderFrame;
+    const elapsedMs =
+      this.#isRunning(record) && record.lastFrameTime !== undefined ? record.elapsedMs + Math.max(0, capturedAt - record.lastFrameTime) : record.elapsedMs;
+    let sampled: AnimationSample;
+    let detached: DetachedAnimationFrame;
+    let slots: readonly AnimationSlotDefinition[];
+    let samplingError: unknown;
+    let rebindAttempted = false;
+    try {
+      record.definition.assertCompatible(prepared.target);
+      rebindAttempted = true;
+      record.runtime.rebind(prepared.target);
+      slots = Object.freeze([...record.runtime.slots]);
+      const output = createAnimationFrameBuffer(slots);
+      sampled = record.runtime.sample(
+        {
+          target: prepared.target,
+          elapsedMs,
+          resolution: frame.resolution,
+          rotation: frame.rotation,
+          pixelRatio: frame.pixelRatio,
+          extent: frame.extent
+        },
+        output
+      );
+      detached = detachAnimationFrame(output);
+    } catch (error) {
+      samplingError = error;
+    }
+    let restorationError: CapabilityError | undefined;
+    if (rebindAttempted) {
+      try {
+        record.runtime.rebind(activePrepared.target);
+        record.buffer.reset();
+        void record.runtime.sample(
+          {
+            target: activePrepared.target,
+            elapsedMs: record.elapsedMs,
+            resolution: originalFrame?.resolution ?? 1,
+            rotation: originalFrame?.rotation ?? 0,
+            pixelRatio: originalFrame?.pixelRatio ?? 1,
+            ...(originalFrame === undefined ? {} : { extent: originalFrame.extent })
+          },
+          record.buffer
+        );
+        record.sample = originalSample;
+      } catch (cause) {
+        restorationError = new CapabilityError(`Animation runtime could not restore after print snapshot: ${record.elementId}: ${String(cause)}`);
+      }
+    }
+    if (restorationError !== undefined) throw restorationError;
+    if (samplingError !== undefined) throw samplingError;
+    return Object.freeze({ sample: sampled!, buffer: detached!, slots: slots! });
   }
 
   /** 为匹配元素启动结构化动画。 */
@@ -403,6 +608,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       this.#refreshHandle(handle.id);
       this.#syncPasses();
       this.#requestLayers(new Set(added.map(({ layerId }) => layerId)));
+      this.#notifyPresentationChange();
       return handle;
     } catch (error) {
       for (const record of added) this.#removeRecord(record, 'stopped');
@@ -474,6 +680,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#refreshHandles(records);
     this.#syncPasses(layers);
     this.#requestLayers(layers);
+    if (records.length > 0) this.#notifyPresentationChange();
     return records.length;
   }
 
@@ -491,6 +698,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#refreshHandles(records);
     this.#syncPasses(layers);
     this.#requestLayers(layers);
+    if (records.length > 0) this.#notifyPresentationChange();
     return records.length;
   }
 
@@ -502,6 +710,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     for (const record of records) this.#removeRecord(record, 'stopped');
     this.#syncPasses(layers);
     this.#requestLayers(layers);
+    if (records.length > 0) this.#notifyPresentationChange();
     return records.length;
   }
 
@@ -520,8 +729,10 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   /** 停止管理器中的全部动画。 */
   stopAll(): void {
     if (this.#disposed && !this.#destroying) return;
+    const hadElementRecords = [...this.#records.values()].some((record) => record.kind === 'element');
     for (const record of [...this.#records.values()]) this.#removeRecord(record, 'stopped');
     this.#syncPasses();
+    if (hadElementRecords) this.#notifyPresentationChange();
   }
 
   /** 设置交互期间优先渲染的 Session 工作态，不写回 ElementStore。 */
@@ -558,6 +769,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#syncPresentation(elementId);
     this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
+    this.#notifyPresentationChange();
   }
 
   /** 清除指定元素的预览状态。 */
@@ -588,6 +800,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#syncPresentation(safeId);
     this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
+    if (records.length > 0) this.#notifyPresentationChange();
   }
 
   /** 通过句柄 ID 暂停动画组。 */
@@ -605,6 +818,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#refreshHandle(id);
     this.#syncPasses(layers);
     this.#requestLayers(layers);
+    if (records.length > 0) this.#notifyPresentationChange();
   }
 
   /** 通过句柄 ID 恢复动画组。 */
@@ -622,6 +836,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#refreshHandle(id);
     this.#syncPasses(layers);
     this.#requestLayers(layers);
+    if (records.length > 0) this.#notifyPresentationChange();
   }
 
   /** 通过句柄 ID 停止动画组。 */
@@ -634,6 +849,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#terminateHandle(id, 'stopped');
     this.#syncPasses(layers);
     this.#requestLayers(layers);
+    if (records.some((record) => record.kind === 'element')) this.#notifyPresentationChange();
   }
 
   /** 销毁动画记录、渲染循环和仓库订阅。 */
@@ -670,6 +886,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       this.#previews.clear();
       this.#committedStates.clear();
       this.#handles.clear();
+      this.#presentationListeners.clear();
       this.#disposed = true;
     } finally {
       this.#destroying = false;
@@ -1350,6 +1567,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     }
     this.#syncPasses(affectedLayers);
     this.#requestLayers(affectedLayers);
+    if (affectedLayers.size > 0) this.#notifyPresentationChange();
   }
 
   /** 解析当前仓库版本并复用或生成对应的动画帧输入。 */
@@ -1375,6 +1593,28 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
       target: Object.freeze({ state, viewShape: presented.state, geometry, style: state.style as StyleSpec, shape }),
       generation,
       revision
+    });
+  }
+
+  /** 使用打印帧重新派生 View-dependent presentation，不复用活动 Map 的展示几何。 */
+  #preparePrintState(committed: PreparedElementState, frame: Readonly<AnimationPrintFrame>): PreparedElementState {
+    const projectedShape = this.#shapeProjection.toViewState(committed.state.geometry);
+    const presented = this.#shapePresentation.presentAt(committed.target.shape, projectedShape, committed.target.style, frame);
+    const geometry = freezeRenderGeometry(presented.geometry);
+    return Object.freeze({
+      state: committed.state,
+      geometry,
+      bounds: renderGeometryBounds(geometry),
+      baseVisualOutsetPx: committed.baseVisualOutsetPx,
+      target: Object.freeze({
+        state: committed.state,
+        viewShape: presented.state,
+        geometry,
+        style: committed.target.style,
+        shape: committed.target.shape
+      }),
+      generation: committed.generation,
+      revision: committed.revision
     });
   }
 
@@ -1449,12 +1689,112 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   }
 
   /** 确保动画管理器仍可使用。 */
+  #notifyPresentationChange(): void {
+    this.#presentationRevision += 1;
+    for (const listener of [...this.#presentationListeners]) {
+      try {
+        listener();
+      } catch {
+        // 打印 revision 订阅者不能破坏动画控制操作。
+      }
+    }
+  }
+
   #assertActive(): void {
     if (this.#disposed || this.#destroyRequested) throw new ObjectDisposedError('AnimationManager has been destroyed');
   }
 }
 
 /** 深冻结动画渲染几何，确保按对象身份命中的帧缓存不会被外部改写。 */
+function assertPrintFrame(frame: Readonly<AnimationPrintFrame>): void {
+  if (
+    (frame.center.length !== 2 && frame.center.length !== 3) ||
+    frame.center.some((value) => !Number.isFinite(value)) ||
+    !Number.isFinite(frame.resolution) ||
+    frame.resolution <= 0 ||
+    !Number.isFinite(frame.rotation) ||
+    !Number.isFinite(frame.pixelRatio) ||
+    frame.pixelRatio <= 0 ||
+    frame.extent.length !== 4 ||
+    frame.extent.some((value) => !Number.isFinite(value))
+  ) {
+    throw new InvalidArgumentError('Animation print frame must contain finite center, resolution, rotation, pixel ratio, and extent');
+  }
+}
+
+function detachAnimationFrame(buffer: AnimationFrameBuffer): DetachedAnimationFrame {
+  return Object.freeze({
+    targetOpacity: buffer.targetOpacity,
+    targetGeometry: buffer.targetGeometry === undefined ? undefined : cloneRenderGeometry(buffer.targetGeometry),
+    targetReveal: buffer.targetReveal === undefined ? undefined : Object.freeze({ ...buffer.targetReveal }),
+    overlays: Object.freeze(
+      buffer.overlays.map((value) =>
+        Object.freeze({
+          active: value.active,
+          geometryKind: value.geometryKind,
+          geometry: value.geometry === undefined ? undefined : cloneRenderGeometry(value.geometry),
+          opacity: value.opacity,
+          lineDashOffset: value.lineDashOffset,
+          lineDashOffsetStrokeIndex: value.lineDashOffsetStrokeIndex,
+          symbolRadius: value.symbolRadius,
+          strokeWidth: value.strokeWidth,
+          rotation: value.rotation
+        })
+      )
+    )
+  });
+}
+
+function cloneRenderGeometry(geometry: RenderGeometryState): RenderGeometryState {
+  if (geometry.type === 'point') {
+    return Object.freeze({ type: 'point', coordinates: clonePrintCoordinate(geometry.coordinates) });
+  }
+  if (geometry.type === 'polyline') {
+    return Object.freeze({
+      type: 'polyline',
+      coordinates: Object.freeze(geometry.coordinates.map(clonePrintCoordinate))
+    });
+  }
+  if (geometry.type === 'polygon') {
+    const label =
+      geometry.label === undefined
+        ? undefined
+        : Object.freeze({
+            coordinate: clonePrintCoordinate(geometry.label.coordinate),
+            text: geometry.label.text,
+            ...(geometry.label.visualScale === undefined ? {} : { visualScale: geometry.label.visualScale })
+          });
+    return Object.freeze({
+      type: 'polygon',
+      coordinates: Object.freeze(geometry.coordinates.map((ring) => Object.freeze(ring.map(clonePrintCoordinate)))),
+      ...(label === undefined ? {} : { label })
+    });
+  }
+  return Object.freeze({ type: 'circle', center: clonePrintCoordinate(geometry.center), radius: geometry.radius });
+}
+
+function clonePrintCoordinate(coordinate: Coordinate): Coordinate {
+  return Object.freeze(coordinate.length === 3 ? [coordinate[0], coordinate[1], coordinate[2]] : [coordinate[0], coordinate[1]]) as Coordinate;
+}
+
+function clonePrintStyle(style: StyleSpec, cache: WeakMap<object, StyleSpec>): StyleSpec {
+  const previous = cache.get(style);
+  if (previous !== undefined) return previous;
+  const clone = deepFreezePrintValue(cloneCoreState(style));
+  cache.set(style, clone);
+  return clone;
+}
+
+function deepFreezePrintValue<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return value;
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor !== undefined && 'value' in descriptor) deepFreezePrintValue(descriptor.value, seen);
+  }
+  return Object.freeze(value);
+}
+
 function normalizeAnimationOpacity(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
     throw new InvalidArgumentError('Animation opacity must be a finite number between zero and one');

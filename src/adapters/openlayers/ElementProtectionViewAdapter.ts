@@ -29,6 +29,7 @@ import type { ShapeState } from '../../core/shape/types.js';
 import type { ElementStyleState } from '../../core/style/types.js';
 import type { GeometryCodec } from './GeometryCodec.js';
 import { projectRenderGeometry } from './GeometryCodec.js';
+import { markInternalTransientLayer } from './internalLayerRole.js';
 import type { LayerAdapter } from './LayerAdapter.js';
 import type { StyleCompiler } from './style/StyleCompiler.js';
 import { compiledImageVisualExtentPx, compiledTextVisualFootprintPx, isRenderableCompiledStyle } from './style/visualFootprint.js';
@@ -320,14 +321,16 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
     if (collection === undefined) throw new InvalidArgumentError(`Element protection target layer is not attached: ${layerId}`);
 
     const source = new VectorSource<ProtectionFeature>({ wrapX: targetSource.getWrapX() });
-    const layer = new VectorLayer<ProtectionSource>({
-      source,
-      style: null,
-      declutter: targetLayer.getDeclutter(),
-      // 保护替身与原 Element 共用 view-dependent presentation，缩放期间也必须同步重投影。
-      updateWhileAnimating: true,
-      updateWhileInteracting: true
-    });
+    const layer = markInternalTransientLayer(
+      new VectorLayer<ProtectionSource>({
+        source,
+        style: null,
+        declutter: targetLayer.getDeclutter(),
+        // 保护替身与原 Element 共用 view-dependent presentation，缩放期间也必须同步重投影。
+        updateWhileAnimating: true,
+        updateWhileInteracting: true
+      })
+    );
     const bucket: ProtectionLayerBucket = {
       layerId,
       targetLayer,

@@ -40,6 +40,26 @@ const servicePages = [
     demo: 'website/src/examples/services/DescriptorDemo.vue',
     region: 'descriptor-create',
     types: ['DescriptorHandle', 'DescriptorSpec', 'DescriptorPatch', 'DescriptorContent', 'DescriptorListItem', 'DescriptorEvent', 'OverlayService']
+  },
+  {
+    name: 'Print',
+    view: 'website/src/views/services/PrintView.vue',
+    demo: 'website/src/examples/services/PrintDemo.vue',
+    region: 'print-workflows',
+    types: [
+      'PrintFacade',
+      'PrintCapabilities',
+      'PrintDialogHandle',
+      'PrintSession',
+      'PrintSpec',
+      'PrintPlan',
+      'PrintResolvedRange',
+      'PrintLegendSpec',
+      'PrintPreviewResult',
+      'PrintExportOptions',
+      'PrintValidationReport',
+      'PrintError'
+    ]
   }
 ] as const;
 

@@ -24,6 +24,8 @@ describe('website API query', () => {
     expect(findApiModuleByMember('Element', 'remove')?.id).toBe('elements-cleanup');
     expect(findApiModuleByMember('DrawService', 'edit')?.id).toBe('interactions-edit');
     expect(findApiModuleByMember('OverlayService', 'createDescriptor')?.id).toBe('services-descriptor');
+    expect(findApiModuleByMember('PrintFacade', 'create')?.id).toBe('services-print');
+    expect(findApiModuleByMember('PrintSession', 'export')?.id).toBe('services-print');
   });
 
   it('provides independent method and type query pages with grouped search and exact links', async () => {

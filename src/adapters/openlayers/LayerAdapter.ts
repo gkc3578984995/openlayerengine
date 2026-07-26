@@ -15,6 +15,7 @@ import type { CoreLayerSpec, CoreLayerState, LayerOwnership, LayerPresentation, 
 import { isNativeRef } from '../../core/native/types.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { LayerPort } from '../../core/ports/LayerPort.js';
+import { markInternalTransientLayer } from './internalLayerRole.js';
 import type { NativeRefRegistry } from './NativeRefRegistry.js';
 
 type VectorFeatureSource = VectorSource<Feature<Geometry>>;
@@ -203,14 +204,16 @@ export class LayerAdapter implements LayerPort {
     const source = new VectorSource<Feature<Geometry>>({ wrapX: owner.vectorSource.getWrapX() });
     let layer: VectorLayer | undefined;
     try {
-      layer = new VectorLayer({
-        source,
-        style: null,
-        ...(owner.declutter === undefined ? {} : { declutter: owner.declutter }),
-        visible: false,
-        opacity: owner.layer.getOpacity(),
-        ...(owner.layer.getZIndex() === undefined ? {} : { zIndex: owner.layer.getZIndex() })
-      });
+      layer = markInternalTransientLayer(
+        new VectorLayer({
+          source,
+          style: null,
+          ...(owner.declutter === undefined ? {} : { declutter: owner.declutter }),
+          visible: false,
+          opacity: owner.layer.getOpacity(),
+          ...(owner.layer.getZIndex() === undefined ? {} : { zIndex: owner.layer.getZIndex() })
+        })
+      );
       const ownerIndex = this.#rootLayers.getArray().indexOf(owner.layer);
       if (ownerIndex < 0) throw new ObjectDisposedError(`Layer is not attached: ${id}`);
       let inserted = false;

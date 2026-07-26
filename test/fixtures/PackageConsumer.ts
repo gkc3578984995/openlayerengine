@@ -2,6 +2,7 @@ import {
   Earth,
   Element,
   Layer,
+  PrintError,
   animationTypes,
   lineStyles,
   measureTypes,
@@ -25,6 +26,10 @@ import type {
   MapExtent,
   MeasureService,
   OverlayService,
+  PrintFacade,
+  PrintLegendLayoutSpec,
+  PrintSession,
+  PrintSpec,
   ShapeInput,
   StyleService,
   TransformService,
@@ -57,6 +62,16 @@ const measure: MeasureService = earth.measure;
 const transform: TransformService = earth.transform;
 const overlays: OverlayService = earth.overlays;
 const view: ViewService = earth.view;
+const print: PrintFacade = earth.print;
+const printLegendLayout: PrintLegendLayoutSpec = { position: 'bottom-right', columns: 2 };
+const printSpec: PrintSpec = {
+  range: { source: { mode: 'view' }, scale: { mode: 'fixed', denominator: 50_000 } },
+  paper: { size: { widthMm: 260, heightMm: 180 }, orientation: 'landscape', marginMm: 10, dpi: 150 },
+  layout: { classification: '内部资料', title: '规划态势图', date: '2026-07-23', issuer: '规划处' },
+  legend: { mode: 'auto', showCounts: true },
+  content: { animations: 'current-frame', domOverlays: 'exclude', controls: 'exclude' }
+};
+const printSession: PrintSession = print.create({ initialSpec: printSpec, sessionConflictPolicy: 'replace' });
 declare const element: Element;
 const geometryDetails: ElementGeometryDetails = element.geometryDetails;
 const renderGeometry: ElementRenderGeometry = geometryDetails.renderGeometry;
@@ -86,6 +101,11 @@ void [
   transform,
   overlays,
   view,
+  print,
+  printLegendLayout,
+  printSpec,
+  printSession,
+  PrintError,
   element,
   geometryDetails,
   renderGeometry,

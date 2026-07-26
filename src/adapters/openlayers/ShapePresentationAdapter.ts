@@ -3,7 +3,7 @@ import { checkedFonts, measureTextHeight as measureCanvasTextHeight, measureText
 import { runFinalizers } from '../../core/common/dispose.js';
 import type { Coordinate, Pixel } from '../../core/common/types.js';
 import { CapabilityError, InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
-import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
+import type { ShapePresentationFrame, ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { ControlPointTopology, ShapeDefinition, ShapePresentationContext, ShapePresentationResult, ShapeState } from '../../core/shape/types.js';
 import { moveTrustedShapeState, renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { ElementStyleState } from '../../core/style/types.js';
@@ -92,6 +92,15 @@ export class ShapePresentationAdapter implements ShapePresentationPort {
       return Object.freeze({ state, geometry: renderTrustedShapeState(definition, state as never) });
     }
     return profile.present(state as never, style, this.#context) as ShapePresentationResult;
+  }
+
+  presentAt(definition: ShapeDefinition, state: ShapeState, style: ElementStyleState, frame: Readonly<ShapePresentationFrame>): ShapePresentationResult {
+    this.#assertActive();
+    const profile = definition.presentation;
+    if (profile === undefined) {
+      return Object.freeze({ state, geometry: renderTrustedShapeState(definition, state as never) });
+    }
+    return profile.present(state as never, style, createFramePresentationContext(frame)) as ShapePresentationResult;
   }
 
   describeEdit(definition: ShapeDefinition, state: ShapeState, style: ElementStyleState): ControlPointTopology {
@@ -249,4 +258,38 @@ export class ShapePresentationAdapter implements ShapePresentationPort {
   #assertActive(): void {
     if (this.#lifecycle !== 'active') throw new ObjectDisposedError('ShapePresentationAdapter has been destroyed');
   }
+}
+
+/** 打印等隔离渲染使用冻结 View 帧，避免借用活动 Map 的像素变换。 */
+function createFramePresentationContext(frame: Readonly<ShapePresentationFrame>): Readonly<ShapePresentationContext> {
+  const center = frame.center;
+  const centerX = center[0];
+  const centerY = center[1];
+  const resolution = frame.resolution;
+  const rotation = frame.rotation;
+  if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) throw new InvalidArgumentError('Shape presentation frame center must be finite');
+  if (!Number.isFinite(resolution) || resolution <= 0) {
+    throw new InvalidArgumentError('Shape presentation frame resolution must be positive and finite');
+  }
+  if (!Number.isFinite(rotation)) throw new InvalidArgumentError('Shape presentation frame rotation must be finite');
+  const cosine = Math.cos(rotation);
+  const sine = Math.sin(rotation);
+  return Object.freeze({
+    toPixel: (coordinate: Coordinate): Pixel => {
+      const x = coordinate[0] - centerX;
+      const y = coordinate[1] - centerY;
+      return [(cosine * x + sine * y) / resolution, (sine * x - cosine * y) / resolution];
+    },
+    toCoordinate: (pixel: Pixel, template?: Coordinate): Coordinate => {
+      if (pixel.length < 2 || !Number.isFinite(pixel[0]) || !Number.isFinite(pixel[1])) {
+        throw new InvalidArgumentError('Shape presentation frame pixel must contain two finite numbers');
+      }
+      const x = centerX + resolution * (cosine * pixel[0] + sine * pixel[1]);
+      const y = centerY + resolution * (sine * pixel[0] - cosine * pixel[1]);
+      return template?.length === 3 ? [x, y, template[2]] : [x, y];
+    },
+    measureTextWidth: measurePresentationTextWidth,
+    measureTextHeight: measurePresentationTextHeight,
+    getResolution: () => resolution
+  });
 }

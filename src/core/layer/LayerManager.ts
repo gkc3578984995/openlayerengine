@@ -15,9 +15,12 @@ export class LayerManager {
   readonly #store: ElementStore;
   readonly #port: LayerPort;
   readonly #states = new Map<string, Readonly<CoreLayerState>>();
+  readonly #generations = new Map<string, number>();
   readonly #detachingIds = new Set<string>();
+  readonly #listeners = new Set<() => void>();
   #disposed = false;
   #mutating = false;
+  #nextGeneration = 0;
 
   /** 创建与 ElementStore 和 LayerPort 绑定的管理器。 */
   constructor(store: ElementStore, port: LayerPort) {
@@ -52,6 +55,8 @@ export class LayerManager {
       }
       const state = stateFromAttachment(safeSpec, presentation);
       this.#states.set(state.id, state);
+      this.#generations.set(state.id, ++this.#nextGeneration);
+      this.#notify();
       return snapshot(state);
     });
   }
@@ -70,6 +75,13 @@ export class LayerManager {
     return Object.freeze([...this.#states.values()].map(snapshot));
   }
 
+  /** 读取 Layer ID 当前实例生命周期的内部 generation；同 ID 删除重建会获得新值。 */
+  generationOf(id: string): number | undefined {
+    this.#assertActive();
+    assertId(id);
+    return this.#generations.get(id);
+  }
+
   /** 更新指定图层的显示状态。 */
   update(id: string, patch: LayerPatch): Readonly<CoreLayerState> {
     return this.#mutation(() => {
@@ -82,6 +94,7 @@ export class LayerManager {
       this.#port.update(before, after);
       if (samePresentation(before, after)) return snapshot(before);
       this.#states.set(id, after);
+      this.#notify();
       return snapshot(after);
     });
   }
@@ -97,6 +110,8 @@ export class LayerManager {
       try {
         this.#port.detach(id);
         this.#states.delete(id);
+        this.#generations.delete(id);
+        this.#notify();
         return true;
       } finally {
         this.#detachingIds.delete(id);
@@ -113,6 +128,8 @@ export class LayerManager {
       try {
         for (const id of ids) this.#port.detach(id);
         this.#states.clear();
+        this.#generations.clear();
+        if (ids.length > 0) this.#notify();
       } finally {
         for (const id of ids) this.#detachingIds.delete(id);
       }
@@ -129,6 +146,8 @@ export class LayerManager {
     try {
       for (const id of ids) this.#port.detach(id);
       this.#states.clear();
+      this.#generations.clear();
+      this.#listeners.clear();
       this.#disposed = true;
     } finally {
       for (const id of ids) this.#detachingIds.delete(id);
@@ -144,6 +163,27 @@ export class LayerManager {
     if (state === undefined) throw new InvalidArgumentError(`Vector layer does not exist: ${id}`);
     if (state.kind !== 'vector') throw new InvalidArgumentError(`Layer is not vector: ${id}`);
     return snapshot(state) as Readonly<Extract<CoreLayerState, { kind: 'vector' }>>;
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.#assertActive();
+    this.#listeners.add(listener);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      this.#listeners.delete(listener);
+    };
+  }
+
+  #notify(): void {
+    for (const listener of [...this.#listeners]) {
+      try {
+        listener();
+      } catch {
+        // 图层状态已提交，外部订阅者失败不能回滚 Core 真源。
+      }
+    }
   }
 
   #assertUnoccupied(id: string): void {

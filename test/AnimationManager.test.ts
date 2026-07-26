@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { PulseAnimationSpec } from '../src/core/animation/types.js';
 import { cloneElementSnapshot } from '../src/core/element/snapshot.js';
-import { InvalidArgumentError, UnsupportedOperationError } from '../src/core/errors.js';
+import type { ElementState } from '../src/core/element/types.js';
+import { CapabilityError, InvalidArgumentError, UnsupportedOperationError } from '../src/core/errors.js';
+import type { ShapePresentationPort } from '../src/core/ports/ShapePresentationPort.js';
 import { createNativeStyleRef } from '../src/core/style/types.js';
-import type { AnimationManager } from '../src/services/animation/types.js';
+import { AnimationRegistry } from '../src/services/animation/AnimationRegistry.js';
+import type { AnimationDefinition, AnimationManager } from '../src/services/animation/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { createAnimationHarness, pointElement, polylineElement } from './helpers/animationHarness.js';
+import { createTestShapePresentation } from './helpers/shapePresentation.js';
 
 describe('AnimationManager', () => {
   it('通过统一句柄控制播放、暂停、恢复和停止，并完成 finished', async () => {
@@ -334,4 +339,171 @@ describe('AnimationManager', () => {
       expect(() => manager.setPreview(preview as never, geometry)).toThrowError(InvalidArgumentError);
     }
   });
+
+  it('在单一 Clock 时刻冻结 current-frame，恢复活动 Runtime，并只为显式展示操作推进 revision', () => {
+    const { manager, render } = createAnimationHarness([pointElement('print-point')]);
+    const revisions: number[] = [];
+    manager.subscribePresentationChanges(() => revisions.push(manager.presentationRevision));
+    const handle = manager.play({ id: 'print-point' }, { type: 'pulse', periodMs: 1000 });
+    render.advanceTime(250);
+    const before = render.frame('default', 250);
+
+    const snapshot = manager.capturePresentationSnapshot({
+      center: [0, 0],
+      resolution: 1,
+      rotation: 0,
+      pixelRatio: 1,
+      extent: [-100, -100, 100, 100]
+    });
+    const after = render.frame('default', 250);
+
+    expect(snapshot.capturedAt).toBe(250);
+    expect(snapshot.revision).toBe(manager.presentationRevision);
+    expect(snapshot.elements).toEqual([expect.objectContaining({ elementId: 'print-point' })]);
+    expect(after).toEqual(before);
+    expect(revisions).toHaveLength(1);
+    handle.pause();
+    expect(revisions).toHaveLength(2);
+    manager.destroy();
+  });
+
+  it('按打印 View 重新派生 Callout presentation，并恢复活动 View 的 Runtime', () => {
+    const basePresentation = createTestShapePresentation();
+    const slots = Object.freeze([
+      Object.freeze({ slotKey: 'callout-probe', style: Object.freeze({ fill: Object.freeze({ type: 'solid' as const, color: '#ffffff' }) }) })
+    ]);
+    const definition = {
+      type: 'pulse',
+      writeDomains: new Set(['overlay'] as const),
+      requirements: new Set(['structured-presentation'] as const),
+      interactionPolicy: Object.freeze({ edit: 'pause-and-suppress' as const, transform: 'pause-and-suppress' as const }),
+      normalize: () => Object.freeze({ type: 'pulse' as const, channel: 'callout-probe', repeat: true }),
+      assertCompatible: () => undefined,
+      create(initialTarget) {
+        let target = initialTarget;
+        return {
+          slots,
+          rebind(next) {
+            target = next;
+          },
+          sample(_context, output) {
+            output.reset();
+            const slot = output.overlay('callout-probe');
+            slot.active = true;
+            slot.geometryKind = 'snapshot';
+            slot.geometry = target.geometry;
+            slot.opacity = 1;
+            return { finished: false, schedule: { kind: 'stable' as const } };
+          },
+          destroy() {
+            return;
+          }
+        };
+      }
+    } satisfies AnimationDefinition<PulseAnimationSpec>;
+    const registry = new AnimationRegistry([definition]);
+    let activeGeometry: unknown;
+    let printGeometry: unknown;
+    const shapePresentation: ShapePresentationPort = {
+      ...basePresentation,
+      present(definition, state, style) {
+        const result = basePresentation.present(definition, state, style);
+        activeGeometry = result.geometry;
+        return result;
+      },
+      presentAt(definition, state, style, frame) {
+        const result = basePresentation.presentAt(definition, state, style, frame);
+        printGeometry = result.geometry;
+        return result;
+      }
+    };
+    const { manager, render } = createAnimationHarness([calloutElement('print-callout')], registry, shapePresentation);
+    manager.play({ id: 'print-callout' }, { type: 'pulse' });
+    const before = render.frame('default', 0);
+
+    const snapshot = manager.capturePresentationSnapshot({
+      center: [25, -10],
+      resolution: 2,
+      rotation: Math.PI / 3,
+      pixelRatio: 2,
+      extent: [-100, -100, 300, 200]
+    });
+    const after = render.frame('default', 0);
+    const geometry = snapshot.elements[0]?.primitives[0]?.geometry;
+    if (geometry?.type !== 'polygon' || geometry.label === undefined) throw new Error('测试快照缺少 Callout presentation label');
+
+    expect(geometry).toEqual(printGeometry);
+    expect(geometry).not.toBe(printGeometry);
+    expect(geometry).not.toEqual(activeGeometry);
+    expect(geometry.label).toEqual({ coordinate: [100, 50], text: '第一行\n第二行', visualScale: 0.5 });
+    expect(Object.isFrozen(geometry.label)).toBe(true);
+    expect(Object.isFrozen(geometry.label.coordinate)).toBe(true);
+    expect(after).toEqual(before);
+    manager.destroy();
+  });
+
+  it('每次 view-dependent presentation 帧只推进一次展示 revision', () => {
+    const basePresentation = createTestShapePresentation();
+    let publishPresentationFrame: (() => void) | undefined;
+    const shapePresentation: ShapePresentationPort = {
+      ...basePresentation,
+      subscribe(listener) {
+        publishPresentationFrame = listener;
+        return () => {
+          if (publishPresentationFrame === listener) publishPresentationFrame = undefined;
+        };
+      }
+    };
+    const { manager } = createAnimationHarness([calloutElement('callout-a'), calloutElement('callout-b')], undefined, shapePresentation);
+    manager.play({ type: 'callout' }, { type: 'blink' });
+    const revisions: number[] = [];
+    manager.subscribePresentationChanges(() => revisions.push(manager.presentationRevision));
+    const initialRevision = manager.presentationRevision;
+
+    publishPresentationFrame?.();
+
+    expect(manager.presentationRevision).toBe(initialRevision + 1);
+    expect(revisions).toEqual([initialRevision + 1]);
+
+    publishPresentationFrame?.();
+    expect(manager.presentationRevision).toBe(initialRevision + 2);
+    expect(revisions).toEqual([initialRevision + 1, initialRevision + 2]);
+
+    manager.stopAll();
+    const stoppedRevision = manager.presentationRevision;
+    const notificationCount = revisions.length;
+    publishPresentationFrame?.();
+    expect(manager.presentationRevision).toBe(stoppedRevision);
+    expect(revisions).toHaveLength(notificationCount);
+    manager.destroy();
+  });
+
+  it('reports current-frame snapshot capability as unavailable during an active interaction preview', () => {
+    const { manager, shapes, store } = createAnimationHarness([polylineElement('previewed')]);
+    manager.play({ id: 'previewed' }, { type: 'dash-flow' });
+    const element = store.get('previewed');
+    if (element === undefined) throw new Error('测试元素不存在');
+    manager.setPreview(element, shapes.get(element.type).toRenderGeometry(element.geometry as never));
+
+    expect(() =>
+      manager.capturePresentationSnapshot({ center: [0, 0], resolution: 1, rotation: 0, pixelRatio: 1, extent: [-100, -100, 100, 100] })
+    ).toThrowError(CapabilityError);
+    manager.destroy();
+  });
 });
+
+function calloutElement(id: string): ElementState {
+  return {
+    id,
+    type: 'callout',
+    geometry: { type: 'callout', anchor: [0, 120], center: [100, 50], size: [160, 60], referenceResolution: 1 },
+    style: {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [{ color: '#222222', width: 2 }],
+      text: { text: '第一行\n第二行', padding: [8, 12, 8, 12] }
+    },
+    module: 'labels',
+    layerId: 'default',
+    visible: true
+  };
+}

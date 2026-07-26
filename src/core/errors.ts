@@ -169,3 +169,56 @@ export class UnsupportedOperationError extends Error {
     this.name = 'UnsupportedOperationError';
   }
 }
+
+/** 地图打印异步流程中的稳定错误代码。 */
+export type PrintErrorCode =
+  | 'cancelled'
+  | 'resource-timeout'
+  | 'resource-load-failed'
+  | 'cors-tainted-canvas'
+  | 'render-failed'
+  | 'png-encode-failed'
+  | 'pdf-encode-failed'
+  | 'print-window-blocked';
+
+/** 创建 PrintError 时可提供的安全错误上下文。 */
+export interface PrintErrorOptions {
+  /** 可选的底层失败原因。 */
+  readonly cause?: unknown;
+  /** 已清除凭据、URL 和平台对象的结构化补充信息。 */
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+
+/** 地图打印在资源等待、渲染或输出阶段失败。 */
+export class PrintError extends Error {
+  /** 供调用方稳定分支处理的错误代码。 */
+  readonly code: PrintErrorCode;
+  /** 已清除敏感内容的补充信息。 */
+  readonly details: Readonly<Record<string, unknown>> | undefined;
+  /** 底层失败原因。 */
+  override readonly cause: unknown;
+
+  /**
+   * 创建一个不会暴露 OpenLayers 或 DOM 对象的打印错误。
+   *
+   * @param code 供调用方稳定分支处理的打印错误代码。
+   * @param message 可直接记录或呈现的错误说明。
+   * @param options 可选的底层原因和已脱敏补充信息。
+   *
+   * @example
+   * ```ts
+   * import { PrintError } from '@vrsim/earth-engine-ol';
+   *
+   * throw new PrintError('resource-timeout', '等待地图资源超时', {
+   *   details: { timeoutMs: 10_000 }
+   * });
+   * ```
+   */
+  constructor(code: PrintErrorCode, message: string, options: PrintErrorOptions = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.name = 'PrintError';
+    this.code = code;
+    this.cause = options.cause;
+    this.details = options.details === undefined ? undefined : Object.freeze({ ...options.details });
+  }
+}

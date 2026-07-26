@@ -35,6 +35,8 @@ export interface PatternCanvasContext {
 /** 按给定尺寸创建纹理画布上下文。 */
 export type PatternCanvasFactory = (width: number, height: number) => PatternCanvasContext;
 
+const structuredPatterns = new WeakMap<object, Readonly<{ pattern: ResolvedPatternFill; createContext: PatternCanvasFactory }>>();
+
 /** 规范化纹理参数，并为无效尺寸、线宽和圆点半径采用默认值。 */
 export function normalizePatternFill(fill: PatternFillSpec, strokeColor?: Color): ResolvedPatternFill {
   const size = patternSizes.includes(fill.size as (typeof patternSizes)[number]) ? (fill.size as (typeof patternSizes)[number]) : 16;
@@ -84,6 +86,17 @@ export function drawPatternFill(context: PatternCanvasContext, pattern: Resolved
 /** 创建可直接交给 OpenLayers Fill 的重复纹理。 */
 export function createPatternFill(fill: PatternFillSpec, strokeColor?: Color, createContext: PatternCanvasFactory = defaultCanvasFactory): CanvasPattern {
   const pattern = normalizePatternFill(fill, strokeColor);
+  return createResolvedPatternFill(pattern, createContext);
+}
+
+/** 仅重建由结构化 StyleSpec 生成的 Pattern，任意外部 CanvasPattern 不在可信范围内。 */
+export function cloneStructuredPatternFill(value: unknown): CanvasPattern | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const metadata = structuredPatterns.get(value);
+  return metadata === undefined ? undefined : createResolvedPatternFill(metadata.pattern, metadata.createContext);
+}
+
+function createResolvedPatternFill(pattern: ResolvedPatternFill, createContext: PatternCanvasFactory): CanvasPattern {
   const context = createContext(pattern.size, pattern.size);
   if (pattern.backgroundColor !== undefined) {
     context.fillStyle = pattern.backgroundColor;
@@ -92,6 +105,7 @@ export function createPatternFill(fill: PatternFillSpec, strokeColor?: Color, cr
   drawPatternFill(context, pattern);
   const result = context.createPattern(context.canvas, 'repeat');
   if (result === null) throw new InvalidArgumentError('Unable to create a repeating fill pattern');
+  structuredPatterns.set(result, { pattern: Object.freeze({ ...pattern }), createContext });
   return result;
 }
 

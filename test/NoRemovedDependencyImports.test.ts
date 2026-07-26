@@ -10,6 +10,7 @@ const centralizedRenderOwners: Readonly<Record<string, readonly string[]>> = {
   'src/adapters/openlayers/render/LayerRenderPass.ts': ['postrender', 'requestAnimationFrame', 'cancelAnimationFrame'],
   'src/adapters/openlayers/OverlayAdapter.ts': ['postrender'],
   'src/adapters/openlayers/ElementProtectionViewAdapter.ts': ['postrender'],
+  'src/adapters/openlayers/PrintBoxSelectionAdapter.ts': ['requestAnimationFrame', 'cancelAnimationFrame'],
   'src/adapters/dom/ContextMenuViewAdapter.ts': ['postrender']
 };
 

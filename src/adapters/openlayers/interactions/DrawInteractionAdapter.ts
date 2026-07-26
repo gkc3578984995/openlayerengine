@@ -29,6 +29,7 @@ import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/Er
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import { createPresentedPolygonGeometry, PresentedPolygonGeometry, updatePresentationLabel } from '../PresentedPolygonGeometry.js';
+import { markInternalTransientLayer } from '../internalLayerRole.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 
 type PreviewFeature = Feature<Geometry>;
@@ -126,13 +127,15 @@ export class DrawInteractionAdapter implements DrawInteractionPort {
     let handle: OpenLayersDrawInteractionHandle | undefined;
     try {
       previewSource = new VectorSource<PreviewFeature>({ wrapX: source.getWrapX() });
-      previewLayer = new VectorLayer<PreviewSource>({
-        source: previewSource,
-        style: null,
-        // View-dependent 草稿在缩放与旋转期间仍须保持 CSS 像素尺寸。
-        updateWhileAnimating: true,
-        updateWhileInteracting: true
-      });
+      previewLayer = markInternalTransientLayer(
+        new VectorLayer<PreviewSource>({
+          source: previewSource,
+          style: null,
+          // View-dependent 草稿在缩放与旋转期间仍须保持 CSS 像素尺寸。
+          updateWhileAnimating: true,
+          updateWhileInteracting: true
+        })
+      );
       const routing: { handle?: OpenLayersDrawInteractionHandle } = {};
       const interaction = new Interaction({ handleEvent: (event) => routing.handle?.handleEvent(event) ?? true });
       handle = new OpenLayersDrawInteractionHandle(

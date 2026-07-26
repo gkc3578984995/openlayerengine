@@ -155,6 +155,8 @@ class RevisionPresentation implements ShapePresentationPort {
     return definition.presentation.present(state as never, style, this.context());
   };
 
+  presentAt: ShapePresentationPort['presentAt'] = (definition, state, style, frame) => testShapePresentation.presentAt(definition, state, style, frame);
+
   describeEdit: ShapePresentationPort['describeEdit'] = (definition, state, style) => {
     if (definition.presentation?.edit === undefined) return testShapePresentation.describeEdit(definition, state, style);
     return definition.presentation.edit.describe(state as never, style, this.context());

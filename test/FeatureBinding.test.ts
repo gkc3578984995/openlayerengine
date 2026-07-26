@@ -121,6 +121,7 @@ function presentationHarness(): {
         })
       });
     },
+    presentAt: (definition, state, style, frame) => testShapePresentation.presentAt(definition, state, style, frame),
     describeEdit: (definition, state, style) => testShapePresentation.describeEdit(definition, state, style),
     moveEdit: (definition, state, style, index, coordinate) => testShapePresentation.moveEdit(definition, state, style, index, coordinate),
     subscribe(listener) {
@@ -292,6 +293,56 @@ describe('FeatureBinding', () => {
     expect((labelFeatures[0]?.getGeometry() as PresentedPolygonGeometry).getPresentationLabel()?.coordinate).toEqual([40, 30]);
     const pointStyles = pointFeature.getStyleFunction()?.(pointFeature, 1) as Style[];
     expect(pointStyles.some((style) => style.getText() !== null)).toBe(true);
+  });
+
+  it('rebuilds a printable Callout from the frozen frame and keeps its explicit label', () => {
+    const state = callout('print-callout');
+    const centered: ElementState<{ label: string }> = {
+      ...state,
+      geometry: { type: 'callout', anchor: [40, 30], center: [40, 30], size: [120, 50], referenceResolution: 2 }
+    };
+    const { binding } = setup([centered], testShapePresentation);
+    const activeGeometry = binding.requireFeature('print-callout').getGeometry();
+    if (!(activeGeometry instanceof PresentedPolygonGeometry)) throw new Error('活动 Callout 必须投影为 Polygon');
+    expect(activeGeometry.getPresentationLabel()).toBeUndefined();
+    expect(activeGeometry.getExtent()).toEqual([-80, -20, 160, 80]);
+
+    const snapshots = binding.captureCanonicalLayerFeatures('default', {
+      center: [1000, -500],
+      resolution: 4,
+      rotation: Math.PI / 2
+    });
+    const feature = snapshots[0]?.feature;
+    const geometry = feature?.getGeometry();
+    if (feature === undefined || !(geometry instanceof PresentedPolygonGeometry)) throw new Error('打印 Callout 必须投影为 Polygon');
+    const styles = feature.getStyleFunction()?.(feature, 4);
+    const resolved = styles === undefined ? [] : Array.isArray(styles) ? styles : [styles];
+    const printedExtent = geometry.getExtent();
+
+    expect(printedExtent[0]).toBeCloseTo(-10);
+    expect(printedExtent[1]).toBeCloseTo(-90);
+    expect(printedExtent[2]).toBeCloseTo(90);
+    expect(printedExtent[3]).toBeCloseTo(150);
+    expect(geometry.getPresentationLabel()).toEqual({ coordinate: [40, 30], text: '自动换行文本', visualScale: 0.5 });
+    expect(resolved.some((style) => style.getText()?.getText() === '自动换行文本')).toBe(true);
+    expect(
+      resolved
+        .find((style) => style.getStroke() !== null)
+        ?.getStroke()
+        ?.getWidth()
+    ).toBe(1);
+    expect(
+      resolved
+        .find((style) => style.getText() !== null)
+        ?.getText()
+        ?.getScale()
+    ).toBe(0.5);
+    expect(binding.requireFeature('print-callout').getGeometry()).toBe(activeGeometry);
+    expect(binding.queryPrintCandidateIds('default', [[900, 900, 910, 910]])).toEqual(['print-callout']);
+
+    feature.setGeometry(undefined);
+    feature.setStyle(undefined);
+    feature.dispose();
   });
 
   it('closes the subscribe-before-seed initialization window', () => {
@@ -731,6 +782,27 @@ describe('FeatureBinding', () => {
     expect(feature.get('layerId')).toBeUndefined();
     expect(feature.get('style')).toBeUndefined();
     expect(binding.elementIdFor(new Feature<Geometry>())).toBeUndefined();
+  });
+
+  it('uses the VectorSource spatial index while conservatively retaining native Style and suppressed candidates', () => {
+    const farGeometry = { type: 'point' as const, controlPoints: [[100, 100] as const] };
+    const { adapter, binding, refs, store } = setup([
+      point('inside'),
+      point('outside', 'default', { geometry: farGeometry }),
+      point('suppressed', 'default', { geometry: farGeometry })
+    ]);
+    const nativeStyle = refs.registerStyle(new Style());
+    store.add(point('native', 'default', { geometry: farGeometry, style: nativeStyle }));
+    const source = adapter.requireVectorSource('default');
+    const getFeaturesInExtent = vi.spyOn(source, 'getFeaturesInExtent');
+    const suppression = binding.suppressProjection('suppressed');
+
+    const candidates = binding.queryPrintCandidateIds('default', [[0, 0, 10, 10]]);
+
+    expect(getFeaturesInExtent).toHaveBeenCalledOnce();
+    expect(candidates).toEqual(['inside', 'suppressed', 'native']);
+    expect(candidates).not.toContain('outside');
+    suppression.release();
   });
 
   it('展示租约保留规范 Feature、规范 Geometry 和透明命中代理，并在最终释放时恢复最新样式', async () => {

@@ -16,6 +16,7 @@ export {
   InvalidArgumentError,
   InvalidSelectorError,
   ObjectDisposedError,
+  PrintError,
   UnsupportedOperationError
 } from './core/errors.js';
 export { add2, closeRing, degToRad, lerp2, quadraticBezier2, radToDeg, scale2, toFlatCoordinates, trimClosingCoordinate } from './utils/math.js';
@@ -47,6 +48,7 @@ export type {
 export type { AnimationType } from './builtins/animations/index.js';
 export type { AnimationHandle, AnimationManager } from './services/animation/types.js';
 export type { Color, Coordinate, Pixel } from './core/common/types.js';
+export type { PrintErrorCode, PrintErrorOptions } from './core/errors.js';
 export type { ElementCopyOptions, ElementPatch, ElementSelector, ElementState } from './core/element/types.js';
 export type { ElementProtectionState, ElementProtectionUpdate } from './core/protection/types.js';
 export type { LayerKind, LayerOwnership, LayerPatch } from './core/layer/types.js';
@@ -95,6 +97,40 @@ export type { EarthLifecycleState, EarthOptions } from './Earth.js';
 export type { EarthEventMap, EarthEventType, EarthKeyboardEvent, EarthPointerEvent, EventService, EventSubscriptionOptions } from './facade/EventFacade.js';
 export type { MeasureOptions, MeasureResult, MeasureService, MeasureSession, MeasureSessionEventMap, MeasureType } from './facade/measureTypes.js';
 export type {
+  PrintAutoLegendSpec,
+  PrintContentSpec,
+  PrintExtent,
+  PrintFootprint,
+  PrintIconLegendSymbol,
+  PrintLayoutSpec,
+  PrintLegendFillSpec,
+  PrintLegendGroup,
+  PrintLegendItem,
+  PrintLegendLayoutSpec,
+  PrintLegendResult,
+  PrintLegendSpec,
+  PrintLegendStrokeSpec,
+  PrintLegendSymbolSpec,
+  PrintLineLegendSymbol,
+  PrintManualLegendSpec,
+  PrintPageInsets,
+  PrintPageRect,
+  PrintPaperSize,
+  PrintPaperSpec,
+  PrintPlan,
+  PrintPointLegendSymbol,
+  PrintPolygonLegendSymbol,
+  PrintRangeSource,
+  PrintRangeSpec,
+  PrintResolvedRange,
+  PrintResourceSpec,
+  PrintScaleSpec,
+  PrintSpec,
+  PrintValidationIssue,
+  PrintValidationReport,
+  PrintWarning
+} from './core/print/types.js';
+export type {
   DescriptorContent,
   DescriptorEvent,
   DescriptorHandle,
@@ -111,6 +147,31 @@ export type {
   PanIntoViewSpec
 } from './facade/overlayTypes.js';
 export type { StyleInput, StyleService } from './facade/styleTypes.js';
+export type {
+  BrowserPrintResult,
+  PrintArtifact,
+  PrintCapabilities,
+  PrintCapabilityLimits,
+  PrintCreateOptions,
+  PrintDialogHandle,
+  PrintDialogOptions,
+  PrintExportOptions,
+  PrintExportResult,
+  PrintFacade,
+  PrintPdfEncodeInput,
+  PrintPdfEncoder,
+  PrintPreviewOptions,
+  PrintPreviewResult,
+  PrintPrintableLayerContext,
+  PrintPrintableLayerFactory,
+  PrintPrintableLayerOutput,
+  PrintSession,
+  PrintSessionConflictPolicy,
+  PrintSessionEventListener,
+  PrintSessionEventMap,
+  PrintSessionEventType,
+  PrintSessionStatus
+} from './facade/printTypes.js';
 export type {
   TransformEventMap,
   TransformMode,

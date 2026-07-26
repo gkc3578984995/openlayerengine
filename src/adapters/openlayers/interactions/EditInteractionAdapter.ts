@@ -31,6 +31,7 @@ import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/Er
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { ElementStyleState } from '../../../core/style/types.js';
 import type { FeatureBinding, ProjectionSuppressionLease } from '../FeatureBinding.js';
+import { markInternalTransientLayer } from '../internalLayerRole.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
 import { createPresentedPolygonGeometry, PresentedPolygonGeometry, updatePresentationLabel } from '../PresentedPolygonGeometry.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
@@ -185,14 +186,16 @@ export class EditInteractionAdapter implements EditInteractionPort {
     try {
       transientSource = new VectorSource<EditFeature>({ wrapX: false, useSpatialIndex: false });
       const targetZIndex = targetLayer.getZIndex();
-      transientLayer = new VectorLayer<EditSource>({
-        source: transientSource,
-        style: null,
-        // View-dependent 编辑预览在连续 View 变化期间不能复用旧 replay group。
-        updateWhileAnimating: true,
-        updateWhileInteracting: true,
-        ...(targetZIndex === undefined ? {} : { zIndex: targetZIndex + 1 })
-      });
+      transientLayer = markInternalTransientLayer(
+        new VectorLayer<EditSource>({
+          source: transientSource,
+          style: null,
+          // View-dependent 编辑预览在连续 View 变化期间不能复用旧 replay group。
+          updateWhileAnimating: true,
+          updateWhileInteracting: true,
+          ...(targetZIndex === undefined ? {} : { zIndex: targetZIndex + 1 })
+        })
+      );
       const interactionOwner: { handle?: OpenLayersEditInteractionHandle } = {};
       const interaction = new Interaction({ handleEvent: (event) => interactionOwner.handle?.handleEvent(event) ?? true });
       const ownedHandle = new OpenLayersEditInteractionHandle(

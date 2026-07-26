@@ -4,7 +4,9 @@ import { defaults as defaultControls } from 'ol/control/defaults.js';
 import { defaults as defaultInteractions } from 'ol/interaction/defaults.js';
 import { fromLonLat } from 'ol/proj.js';
 import { ContextMenuViewAdapter } from '../adapters/dom/ContextMenuViewAdapter.js';
+import { BrowserPrintAdapter } from '../adapters/dom/BrowserPrintAdapter.js';
 import { CursorAdapter } from '../adapters/dom/CursorAdapter.js';
+import { PrintPageRenderer } from '../adapters/dom/PrintPageRenderer.js';
 import { TooltipAdapter } from '../adapters/dom/TooltipAdapter.js';
 import { TransformToolbarAdapter } from '../adapters/dom/TransformToolbarAdapter.js';
 import { FeatureBinding } from '../adapters/openlayers/FeatureBinding.js';
@@ -16,6 +18,10 @@ import { ElementProtectionViewAdapter } from '../adapters/openlayers/ElementProt
 import { MeasurementAdapter } from '../adapters/openlayers/MeasurementAdapter.js';
 import { NativeRefRegistry } from '../adapters/openlayers/NativeRefRegistry.js';
 import { OverlayAdapter } from '../adapters/openlayers/OverlayAdapter.js';
+import { PrintBoxSelectionAdapter } from '../adapters/openlayers/PrintBoxSelectionAdapter.js';
+import { PrintGeometryHitAdapter } from '../adapters/openlayers/PrintGeometryHitAdapter.js';
+import { PrintMapRenderer } from '../adapters/openlayers/PrintMapRenderer.js';
+import { PrintViewAdapter } from '../adapters/openlayers/PrintViewAdapter.js';
 import { ShapeProjectionAdapter } from '../adapters/openlayers/ShapeProjectionAdapter.js';
 import { ShapePresentationAdapter } from '../adapters/openlayers/ShapePresentationAdapter.js';
 import { getWorldWidth } from '../adapters/openlayers/world.js';
@@ -26,6 +32,7 @@ import { LayerRenderPass } from '../adapters/openlayers/render/LayerRenderPass.j
 import { StyleCompiler } from '../adapters/openlayers/style/StyleCompiler.js';
 import { TransformHitTest } from '../adapters/openlayers/transform/HitTest.js';
 import { createBuiltinAnimationRegistry } from '../builtins/animations/index.js';
+import { printPageTokens } from '../builtins/print/tokens.js';
 import { basicShapeDefinitions } from '../builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../builtins/shapes/plot/index.js';
 import { stylePresets } from '../builtins/styles/presets.js';
@@ -43,6 +50,7 @@ import { EventFacade } from '../facade/EventFacade.js';
 import { LayerServiceImpl } from '../facade/LayerService.js';
 import { MeasureFacade } from '../facade/MeasureFacade.js';
 import { OverlayFacade } from '../facade/OverlayFacade.js';
+import { PrintFacadeImpl } from '../facade/PrintFacade.js';
 import { StyleFacade } from '../facade/StyleFacade.js';
 import { TransformFacade } from '../facade/TransformFacade.js';
 import { ViewServiceImpl } from '../facade/ViewService.js';
@@ -56,6 +64,8 @@ import { InteractionCoordinator } from '../services/events/InteractionCoordinato
 import { MeasureService } from '../services/measure/MeasureService.js';
 import { OverlayService } from '../services/overlay/OverlayService.js';
 import { ElementProtectionService } from '../services/protection/ElementProtectionService.js';
+import { PrintLegendBuilder } from '../services/print/PrintLegendBuilder.js';
+import { PrintSnapshotService } from '../services/print/PrintSnapshotService.js';
 import { assertCalloutShapeCompatibility, assertLineworkShapeCompatibility, assertStructuredStyleSpec, StyleService } from '../services/style/StyleService.js';
 import { TransformService } from '../services/transform/TransformService.js';
 import type { EngineContext } from './EngineContext.js';
@@ -290,11 +300,39 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const controlService = new ControlServiceImpl({ map });
     rollback.push(() => controlService.destroy());
 
+    const printView = new PrintViewAdapter(map);
+    const printBoxSelection = new PrintBoxSelectionAdapter(map, viewport, coordinator, interactionCursor);
+    const printMapRenderer = new PrintMapRenderer(map, { layers: layerManager, layerAdapter, binding, animations, styles: styleCompiler });
+    const browserPrint = new BrowserPrintAdapter();
+    const worldWidth = olView.getProjection().canWrapX() ? getWorldWidth(olView) : undefined;
+    const printLegendBuilder = new PrintLegendBuilder({
+      store,
+      layers: layerManager,
+      geometryHit: new PrintGeometryHitAdapter(binding, {
+        map,
+        layers: layerAdapter,
+        ...(worldWidth === undefined ? {} : { worldWidth })
+      })
+    });
+    const printSnapshot = new PrintSnapshotService({ store, mapRenderer: printMapRenderer, legendBuilder: printLegendBuilder, animations });
+    const print = new PrintFacadeImpl({
+      target: viewport,
+      view: printView,
+      boxSelection: printBoxSelection,
+      mapRenderer: printMapRenderer,
+      snapshot: printSnapshot,
+      pageRenderer: new PrintPageRenderer(printPageTokens),
+      browserPrint,
+      legendBuilder: printLegendBuilder
+    });
+    rollback.push(() => print.destroy());
+
     let destroyed = false;
     const destroy = (): void => {
       if (destroyed) return;
       destroyed = true;
       runFinalizers([
+        () => print.destroy(),
         () => coordinator.destroy(),
         () => internalTransform.destroy(),
         () => measure.destroy(),
@@ -339,6 +377,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       overlays,
       view,
       controls: controlService,
+      print,
       destroy
     });
   } catch (error) {

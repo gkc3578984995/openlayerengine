@@ -27,6 +27,7 @@ const documentationPages = [
   'services/EventsView.vue',
   'services/OverlaysView.vue',
   'services/DescriptorView.vue',
+  'services/PrintView.vue',
   'reference/UtilsView.vue',
   'reference/ErrorsView.vue'
 ] as const;

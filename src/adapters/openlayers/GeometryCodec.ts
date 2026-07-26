@@ -5,7 +5,7 @@ import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import { CapabilityError } from '../../core/errors.js';
-import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
+import type { ShapePresentationFrame, ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import { renderTrustedShapeState } from '../../core/shape/trustedRender.js';
@@ -51,6 +51,15 @@ export class GeometryCodec {
     if (this.#presentation === undefined) throw new CapabilityError(`Shape presentation adapter is unavailable: ${state.type}`);
     if (style === undefined) throw new CapabilityError(`Shape presentation requires an Element style: ${state.type}`);
     return this.#presentation.present(definition, this.#projection.toViewState(state), style).geometry;
+  }
+
+  /** 在冻结 View 帧中解析最终展示几何，不借用活动 Map 的 presentation。 */
+  presentAt(state: ShapeState, style: ElementStyleState, frame: Readonly<ShapePresentationFrame>): RenderGeometryState {
+    const definition = this.#shapes.get(state.type);
+    const viewState = this.#projection.toViewState(state);
+    if (definition.presentation === undefined) return renderTrustedShapeState(definition, viewState as never);
+    if (this.#presentation === undefined) throw new CapabilityError(`Shape presentation adapter is unavailable: ${state.type}`);
+    return this.#presentation.presentAt(definition, viewState, style, frame).geometry;
   }
 
   /** 判断 Shape 是否需要在 View presentation revision 变化时重新投影。 */
