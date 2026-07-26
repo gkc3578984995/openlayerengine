@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { expect, test, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import { sideGroups } from '../../website/src/config/navigation';
 
 const documentationRoutes = sideGroups.flatMap((group) => group.items.map((item) => item.to));
@@ -24,6 +24,47 @@ const controlRegionSelector = [
 
 const sharedSurfaceSelector = '.example-demo__control-panel, .example-demo__toolbar';
 
+const expectSingleBalancedRow = async (page: Page, containerSelector: string, childClass: string, expectedCount: number) => {
+  const container = page.locator(containerSelector);
+  await container.waitFor({ state: 'attached' });
+  expect(await container.count(), containerSelector).toBe(1);
+
+  const layout = await container.evaluate((element, targetClass) => {
+    const bounds = element.getBoundingClientRect();
+    const children = Array.from(element.children)
+      .filter((child) => child.classList.contains(targetClass))
+      .map((child) => {
+        const childBounds = child.getBoundingClientRect();
+        return {
+          top: childBounds.top,
+          right: childBounds.right,
+          bottom: childBounds.bottom,
+          left: childBounds.left,
+          width: childBounds.width,
+          height: childBounds.height
+        };
+      });
+
+    return {
+      container: { left: bounds.left, right: bounds.right },
+      children
+    };
+  }, childClass);
+
+  expect(layout.children, containerSelector).toHaveLength(expectedCount);
+  expect(Math.max(...layout.children.map(({ top }) => top)) - Math.min(...layout.children.map(({ top }) => top)), containerSelector).toBeLessThanOrEqual(2);
+  expect(
+    Math.max(...layout.children.map(({ width }) => width)) - Math.min(...layout.children.map(({ width }) => width)),
+    containerSelector
+  ).toBeLessThanOrEqual(2);
+  expect(
+    Math.max(...layout.children.map(({ height }) => height)) - Math.min(...layout.children.map(({ height }) => height)),
+    containerSelector
+  ).toBeLessThanOrEqual(2);
+  expect(Math.abs(layout.children[0].left - layout.container.left), containerSelector).toBeLessThanOrEqual(2);
+  expect(Math.abs(layout.children.at(-1)!.right - layout.container.right), containerSelector).toBeLessThanOrEqual(2);
+};
+
 test.beforeEach(async ({ page }) => {
   const fulfillTile = (route: Route) => route.fulfill({ status: 200, contentType: 'image/png', body: transparentTile });
   await page.route('https://tile.openstreetmap.org/**', fulfillTile);
@@ -31,7 +72,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const viewport of [
+  { name: 'wide', width: 1_920, height: 1_080 },
   { name: 'desktop', width: 1_280, height: 900 },
+  { name: 'tablet', width: 700, height: 900 },
   { name: 'mobile', width: 390, height: 844 }
 ] as const) {
   test(`全部示例控制区域在 ${viewport.name} 布局下无重叠或横向溢出`, async ({ page }) => {
@@ -40,7 +83,7 @@ for (const viewport of [
 
     for (const route of documentationRoutes) {
       await page.goto(route, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(80);
+      await page.locator('.doc-page').waitFor({ state: 'attached' });
 
       const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth > 2);
       if (pageOverflow) issues.push(`${route}: 页面产生横向溢出`);
@@ -141,6 +184,49 @@ for (const viewport of [
       });
       issues.push(...actionGroupIssues.map((issue) => `${route}: ${issue}`));
 
+      const balancedGroupIssues = await page.locator('.example-demo__action-groups').evaluateAll((containers) => {
+        const findings: string[] = [];
+
+        containers.forEach((container, containerIndex) => {
+          const containerBounds = container.getBoundingClientRect();
+          const groups = Array.from(container.children)
+            .filter((child) => child.classList.contains('example-demo__action-group'))
+            .map((group) => group.getBoundingClientRect())
+            .filter(({ width, height }) => width > 0 && height > 0);
+          if (groups.length < 2) return;
+
+          const rows: Array<typeof groups> = [];
+          groups.forEach((group) => {
+            const row = rows.find(([candidate]) => Math.abs(candidate.top - group.top) <= 2);
+            if (row) row.push(group);
+            else rows.push([group]);
+          });
+
+          rows.forEach((row, rowIndex) => {
+            const widths = row.map(({ width }) => width);
+            const heights = row.map(({ height }) => height);
+            if (Math.max(...widths) - Math.min(...widths) > 2) findings.push(`action-groups-${containerIndex} 第 ${rowIndex + 1} 行宽度不一致`);
+            if (Math.max(...heights) - Math.min(...heights) > 2) findings.push(`action-groups-${containerIndex} 第 ${rowIndex + 1} 行高度不一致`);
+          });
+
+          const visibleChildren = Array.from(container.children).filter((child) => {
+            const bounds = child.getBoundingClientRect();
+            return bounds.width > 0 && bounds.height > 0 && window.getComputedStyle(child).display !== 'none';
+          });
+          if (visibleChildren.every((child) => child.classList.contains('example-demo__action-group'))) {
+            rows.forEach((row, rowIndex) => {
+              const ordered = [...row].sort((left, right) => left.left - right.left);
+              if (Math.abs(ordered[0].left - containerBounds.left) > 2 || Math.abs(ordered.at(-1)!.right - containerBounds.right) > 2) {
+                findings.push(`action-groups-${containerIndex} 第 ${rowIndex + 1} 行没有铺满容器`);
+              }
+            });
+          }
+        });
+
+        return findings;
+      });
+      issues.push(...balancedGroupIssues.map((issue) => `${route}: ${issue}`));
+
       const ungroupedActionIssues = await page.locator('.example-demo__control-panel .example-demo__action-buttons').evaluateAll((buttonGroups) => {
         const findings: string[] = [];
         buttonGroups.forEach((buttonGroup, index) => {
@@ -154,6 +240,31 @@ for (const viewport of [
     expect(issues).toEqual([]);
   });
 }
+
+test('重点示例的同级操作组在宽屏下等宽铺满', async ({ page }) => {
+  await page.setViewportSize({ width: 1_920, height: 1_080 });
+
+  await page.goto('/components/interactions/transform', { waitUntil: 'domcontentloaded' });
+  await expectSingleBalancedRow(page, '.transform-session-demo__option-controls', 'example-demo__action-group', 2);
+  await expectSingleBalancedRow(page, '.transform-session-demo__primary-actions', 'example-demo__action-group', 2);
+  await expectSingleBalancedRow(page, '.transform-session-demo__secondary-actions', 'example-demo__action-group', 3);
+
+  await page.goto('/components/interactions/edit', { waitUntil: 'domcontentloaded' });
+  await expectSingleBalancedRow(page, '.edit-session-demo__controls', 'example-demo__action-group', 3);
+
+  await page.goto('/components/interactions/measure', { waitUntil: 'domcontentloaded' });
+  await expectSingleBalancedRow(page, '.measure-session-demo .example-demo__action-groups', 'example-demo__action-group', 2);
+
+  await page.goto('/components/elements/styles', { waitUntil: 'domcontentloaded' });
+  await expectSingleBalancedRow(page, '.styles-demo__primary-controls', 'example-demo__action-group', 3);
+
+  await page.goto('/components/presentation/animations', { waitUntil: 'domcontentloaded' });
+  const radarButton = page.locator('.animation-manager-demo__target-button').filter({ hasText: 'radar-scan' });
+  await radarButton.waitFor({ state: 'attached' });
+  expect(await radarButton.count()).toBe(1);
+  await radarButton.click();
+  await expectSingleBalancedRow(page, '.animation-manager-demo__radar-controls', 'animation-manager-demo__options', 3);
+});
 
 test('删除示例的选择框与操作按钮按底边对齐', async ({ page }) => {
   await page.setViewportSize({ width: 1_280, height: 900 });
@@ -184,11 +295,18 @@ test('纹理示例把状态反馈与操作按钮明确分开', async ({ page }) 
   expect(Math.max(divider.top, divider.left)).toBeGreaterThanOrEqual(1);
 });
 
-test('四个重点示例在深色模式下沿用统一语义表面', async ({ page }) => {
+test('重点示例在深色模式下沿用统一语义表面', async ({ page }) => {
   await page.setViewportSize({ width: 1_280, height: 900 });
 
-  for (const route of ['/components/elements/cleanup', '/components/elements/styles', '/components/interactions/measure', '/components/elements/query']) {
+  for (const route of [
+    '/components/elements/cleanup',
+    '/components/elements/styles',
+    '/components/interactions/measure',
+    '/components/interactions/transform',
+    '/components/elements/query'
+  ]) {
     await page.goto(route, { waitUntil: 'domcontentloaded' });
+    await page.locator('.example-demo__control-panel').first().waitFor({ state: 'attached' });
 
     const result = await page.evaluate(() => {
       document.documentElement.classList.add('dark');

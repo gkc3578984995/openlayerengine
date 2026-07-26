@@ -528,26 +528,28 @@ defineExpose({ reset, focusSelected });
         </el-radio-group>
       </div>
       <div v-else-if="selectedType === 'radar-scan'" class="animation-manager-demo__radial-options animation-manager-demo__radial-options--radar">
-        <div class="animation-manager-demo__options">
-          <span>Sector 扫描方式</span>
-          <el-radio-group v-model="radarScanMode" aria-label="Sector 扫描方式" @change="applyRunningRadialOptions('radar-scan')">
-            <el-radio-button value="one-way">单向</el-radio-button>
-            <el-radio-button value="round-trip">往复</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div class="animation-manager-demo__options">
-          <span>Sector 首程方向</span>
-          <el-radio-group v-model="radarDirection" aria-label="Sector 首程方向" @change="applyRunningRadialOptions('radar-scan')">
-            <el-radio-button value="clockwise">顺时针</el-radio-button>
-            <el-radio-button value="counterclockwise">逆时针</el-radio-button>
-          </el-radio-group>
-        </div>
-        <div class="animation-manager-demo__options">
-          <span>尾迹</span>
-          <el-radio-group v-model="radarTrailStyle" aria-label="雷达尾迹样式" @change="applyRunningRadialOptions('radar-scan')">
-            <el-radio-button value="gradient">三段 gradient</el-radio-button>
-            <el-radio-button value="solid">纯色</el-radio-button>
-          </el-radio-group>
+        <div class="animation-manager-demo__radar-controls">
+          <div class="animation-manager-demo__options">
+            <span>Sector 扫描方式</span>
+            <el-radio-group v-model="radarScanMode" aria-label="Sector 扫描方式" @change="applyRunningRadialOptions('radar-scan')">
+              <el-radio-button value="one-way">单向</el-radio-button>
+              <el-radio-button value="round-trip">往复</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div class="animation-manager-demo__options">
+            <span>Sector 首程方向</span>
+            <el-radio-group v-model="radarDirection" aria-label="Sector 首程方向" @change="applyRunningRadialOptions('radar-scan')">
+              <el-radio-button value="clockwise">顺时针</el-radio-button>
+              <el-radio-button value="counterclockwise">逆时针</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div class="animation-manager-demo__options">
+            <span>尾迹</span>
+            <el-radio-group v-model="radarTrailStyle" aria-label="雷达尾迹样式" @change="applyRunningRadialOptions('radar-scan')">
+              <el-radio-button value="gradient">三段 gradient</el-radio-button>
+              <el-radio-button value="solid">纯色</el-radio-button>
+            </el-radio-group>
+          </div>
         </div>
         <div class="animation-manager-demo__colors">
           <label v-if="radarTrailStyle === 'solid'"
@@ -711,9 +713,20 @@ defineExpose({ reset, focusSelected });
 
 .animation-manager-demo__radial-options--radar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
-  gap: 14px 12px;
+  gap: 14px;
   padding: 14px;
+}
+
+.animation-manager-demo__radar-controls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 14px 12px;
+}
+
+.animation-manager-demo__radar-controls > .animation-manager-demo__options {
+  flex: 1 1 180px;
 }
 
 .animation-manager-demo__radial-options--radar .animation-manager-demo__options {
@@ -749,7 +762,6 @@ defineExpose({ reset, focusSelected });
 }
 
 .animation-manager-demo__radial-options--radar .animation-manager-demo__colors {
-  grid-column: 1 / -1;
   gap: 10px 14px;
   padding-top: 12px;
   border-top: 1px solid var(--doc-border);

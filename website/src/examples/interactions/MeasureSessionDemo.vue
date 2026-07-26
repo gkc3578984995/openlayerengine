@@ -179,7 +179,7 @@ onBeforeUnmount(() => {
         <el-checkbox v-model="customFormatter" :disabled="isActive">自定义 formatter</el-checkbox>
         <el-checkbox v-model="showTotal" :disabled="isActive">分段时显示总计</el-checkbox>
       </div>
-      <div class="example-demo__action-row">
+      <div class="example-demo__action-row example-demo__action-groups">
         <div class="example-demo__action-group">
           <span>测量会话</span>
           <div class="example-demo__action-buttons">

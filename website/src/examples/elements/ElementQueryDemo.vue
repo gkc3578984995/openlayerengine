@@ -359,8 +359,8 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="example-demo__control-panel element-query-demo__actions">
-      <div class="example-demo__action-row">
-        <div class="example-demo__field element-query-demo__field">
+      <div class="example-demo__action-row example-demo__action-groups element-query-demo__selection-actions">
+        <div class="example-demo__field example-demo__action-group element-query-demo__field">
           <span>查询结果</span>
           <el-select v-model="selectedId" aria-label="选择查询结果" @change="focusSelected">
             <el-option v-if="selectedId && !results.some((row) => row.id === selectedId)" :label="`${selectedId} · 未匹配当前条件`" :value="selectedId" />

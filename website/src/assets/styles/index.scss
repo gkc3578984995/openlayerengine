@@ -1436,6 +1436,18 @@ html.dark .code-block-highlight .shiki span {
   gap: 10px 14px;
 }
 
+.example-demo__action-groups {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px 14px;
+}
+
+.example-demo__action-groups > .example-demo__action-group {
+  flex: 1 1 var(--example-action-group-basis, 220px);
+}
+
 .example-demo__action-group {
   display: grid;
   min-width: 0;

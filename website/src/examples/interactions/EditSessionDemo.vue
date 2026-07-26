@@ -245,7 +245,7 @@ onBeforeUnmount(() => {
     </el-descriptions>
 
     <div class="example-demo__control-panel">
-      <div class="example-demo__control-grid edit-session-demo__controls">
+      <div class="example-demo__action-groups edit-session-demo__controls">
         <div class="example-demo__action-group">
           <span>会话启动</span>
           <div class="example-demo__action-buttons">
@@ -338,8 +338,7 @@ onBeforeUnmount(() => {
 }
 
 .edit-session-demo__controls {
-  grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr);
-  align-items: stretch;
+  --example-action-group-basis: 280px;
 }
 
 .edit-session-demo__field {
@@ -377,11 +376,5 @@ onBeforeUnmount(() => {
 .edit-session-demo__matrix-title {
   margin: 18px 0 10px;
   color: var(--doc-text);
-}
-
-@media (max-width: 640px) {
-  .edit-session-demo__controls {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

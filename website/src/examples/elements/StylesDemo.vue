@@ -263,34 +263,36 @@ onBeforeUnmount(() => {
 <template>
   <div class="example-demo styles-demo">
     <div class="example-demo__control-panel">
-      <el-form class="example-demo__control-grid styles-demo__controls" label-position="top">
-        <div class="example-demo__action-group styles-demo__control-group">
-          <strong>完整替换</strong>
-          <el-form-item label="样式预设">
-            <el-select v-model="presetName" @change="applyPreset">
-              <el-option v-for="name in presetNames" :key="name" :label="`${presetLabels[name]} · ${name}`" :value="name" />
-            </el-select>
-          </el-form-item>
-          <div class="example-demo__action-buttons">
-            <el-button type="primary" @click="applyPreset">应用 styles.set()</el-button>
+      <el-form class="styles-demo__controls" label-position="top">
+        <div class="example-demo__action-groups styles-demo__primary-controls">
+          <div class="example-demo__action-group styles-demo__control-group">
+            <strong>完整替换</strong>
+            <el-form-item label="样式预设">
+              <el-select v-model="presetName" @change="applyPreset">
+                <el-option v-for="name in presetNames" :key="name" :label="`${presetLabels[name]} · ${name}`" :value="name" />
+              </el-select>
+            </el-form-item>
+            <div class="example-demo__action-buttons">
+              <el-button type="primary" @click="applyPreset">应用 styles.set()</el-button>
+            </div>
           </div>
-        </div>
-        <div class="example-demo__action-group styles-demo__control-group">
-          <strong>Callout 自动换行</strong>
-          <el-form-item label="text.maxWidth · CSS px">
-            <el-slider v-model="calloutMaxWidth" :min="100" :max="260" :step="10" show-input />
-          </el-form-item>
-          <div class="example-demo__action-buttons">
-            <el-button type="primary" plain @click="applyCalloutExample">应用 Callout 示例</el-button>
+          <div class="example-demo__action-group styles-demo__control-group">
+            <strong>Callout 自动换行</strong>
+            <el-form-item label="text.maxWidth · CSS px">
+              <el-slider v-model="calloutMaxWidth" :min="100" :max="260" :step="10" show-input />
+            </el-form-item>
+            <div class="example-demo__action-buttons">
+              <el-button type="primary" plain @click="applyCalloutExample">应用 Callout 示例</el-button>
+            </div>
           </div>
-        </div>
-        <div class="example-demo__action-group styles-demo__control-group">
-          <strong>保留其余字段</strong>
-          <el-form-item label="局部颜色">
-            <el-color-picker v-model="accentColor" aria-label="局部更新颜色" />
-          </el-form-item>
-          <div class="example-demo__action-buttons">
-            <el-button :disabled="styleMode === 'native'" @click="patchAccent">应用 styles.patch()</el-button>
+          <div class="example-demo__action-group styles-demo__control-group">
+            <strong>保留其余字段</strong>
+            <el-form-item label="局部颜色">
+              <el-color-picker v-model="accentColor" aria-label="局部更新颜色" />
+            </el-form-item>
+            <div class="example-demo__action-buttons">
+              <el-button :disabled="styleMode === 'native'" @click="patchAccent">应用 styles.patch()</el-button>
+            </div>
           </div>
         </div>
         <div class="example-demo__action-group styles-demo__control-group styles-demo__boundary-group">
@@ -335,7 +337,12 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .styles-demo__controls {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  display: grid;
+  gap: 12px;
+}
+
+.styles-demo__primary-controls {
+  --example-action-group-basis: 280px;
 }
 
 .styles-demo__control-group {
@@ -346,10 +353,6 @@ onBeforeUnmount(() => {
 }
 
 .styles-demo__control-group > strong {
-  grid-column: 1 / -1;
-}
-
-.styles-demo__boundary-group {
   grid-column: 1 / -1;
 }
 

@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
 
     <div class="example-demo__control-panel events-demo__toolbar">
       <div class="example-demo__action-row events-demo__action-row">
-        <div class="example-demo__actions events-demo__actions">
+        <div class="example-demo__actions example-demo__action-groups events-demo__actions">
           <div class="example-demo__action-group events-demo__action-group" role="group" aria-label="订阅控制">
             <span>订阅控制</span>
             <div class="example-demo__action-buttons events-demo__action-buttons">

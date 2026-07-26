@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
         </el-select>
       </div>
 
-      <div class="example-demo__actions descriptor-demo__toolbar">
+      <div class="example-demo__actions example-demo__action-groups descriptor-demo__toolbar">
         <div class="example-demo__action-group descriptor-demo__action-group" role="group" aria-label="创建与更新">
           <span>创建与更新</span>
           <div class="example-demo__action-buttons descriptor-demo__action-buttons">
@@ -287,7 +287,7 @@ onBeforeUnmount(() => {
 }
 
 .descriptor-demo__toolbar {
-  align-items: flex-start;
+  align-items: stretch;
   gap: 10px;
 }
 

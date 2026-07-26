@@ -503,17 +503,19 @@ onBeforeUnmount(() => {
     </el-descriptions>
 
     <div class="example-demo__control-panel transform-session-demo__options-panel">
-      <div class="example-demo__action-group transform-session-demo__preset-control">
-        <span>TransformOptions 预设（新 Session 生效）</span>
-        <el-radio-group :model-value="optionPresetId" :disabled="isActive" @update:model-value="setOptionPreset">
-          <el-radio-button v-for="preset in transformOptionPresetRows" :key="preset.id" :value="preset.id">
-            {{ preset.id }}
-          </el-radio-button>
-        </el-radio-group>
-      </div>
-      <div class="example-demo__field transform-session-demo__hit-tolerance">
-        <span>hitTolerance · CSS px</span>
-        <el-slider v-model="hitTolerance" :min="0" :max="32" :step="1" :disabled="isActive" show-input />
+      <div class="example-demo__action-groups transform-session-demo__option-controls">
+        <div class="example-demo__action-group transform-session-demo__preset-control">
+          <span>TransformOptions 预设（新 Session 生效）</span>
+          <el-radio-group :model-value="optionPresetId" :disabled="isActive" @update:model-value="setOptionPreset">
+            <el-radio-button v-for="preset in transformOptionPresetRows" :key="preset.id" :value="preset.id">
+              {{ preset.id }}
+            </el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="example-demo__field example-demo__action-group transform-session-demo__hit-tolerance">
+          <span>hitTolerance · CSS px</span>
+          <el-slider v-model="hitTolerance" :min="0" :max="32" :step="1" :disabled="isActive" show-input />
+        </div>
       </div>
       <p class="transform-session-demo__preset-description">
         <strong>{{ activeOptionPreset.label }}</strong>
@@ -556,22 +558,24 @@ onBeforeUnmount(() => {
     </el-descriptions>
 
     <div class="example-demo__control-panel transform-session-demo__control-panel">
-      <div class="example-demo__action-group">
-        <span>目标选择</span>
-        <div class="example-demo__action-buttons">
-          <el-button type="primary" @click="startWaiting">start() 后地图选择</el-button>
-          <el-button :disabled="firstRef === null" @click="selectFirst">select(A)</el-button>
-          <el-button :disabled="!hasSelection || !hasBothTargets" @click="replaceSelected">replaceSelected(A / B)</el-button>
+      <div class="example-demo__action-groups transform-session-demo__primary-actions">
+        <div class="example-demo__action-group">
+          <span>目标选择</span>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" @click="startWaiting">start() 后地图选择</el-button>
+            <el-button :disabled="firstRef === null" @click="selectFirst">select(A)</el-button>
+            <el-button :disabled="!hasSelection || !hasBothTargets" @click="replaceSelected">replaceSelected(A / B)</el-button>
+          </div>
+        </div>
+        <div class="example-demo__field example-demo__action-group">
+          <span>编辑模式</span>
+          <el-radio-group :model-value="mode" :disabled="!hasSelection" @update:model-value="setMode">
+            <el-radio-button value="transform">变换</el-radio-button>
+            <el-radio-button value="edit">{{ canEditSelected ? 'Edit 控制点' : '尝试 Edit（Shape 将拒绝）' }}</el-radio-button>
+          </el-radio-group>
         </div>
       </div>
-      <div class="example-demo__field">
-        <span>编辑模式</span>
-        <el-radio-group :model-value="mode" :disabled="!hasSelection" @update:model-value="setMode">
-          <el-radio-button value="transform">变换</el-radio-button>
-          <el-radio-button value="edit">{{ canEditSelected ? 'Edit 控制点' : '尝试 Edit（Shape 将拒绝）' }}</el-radio-button>
-        </el-radio-group>
-      </div>
-      <div class="example-demo__action-row transform-session-demo__secondary-actions">
+      <div class="example-demo__action-row example-demo__action-groups transform-session-demo__secondary-actions">
         <div class="example-demo__action-group">
           <span>历史</span>
           <div class="example-demo__action-buttons">
@@ -676,8 +680,9 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
-.transform-session-demo__options-panel {
-  grid-template-columns: minmax(360px, 1.4fr) minmax(280px, 1fr);
+.transform-session-demo__option-controls,
+.transform-session-demo__primary-actions {
+  --example-action-group-basis: 280px;
 }
 
 .transform-session-demo__preset-control {
@@ -690,7 +695,6 @@ onBeforeUnmount(() => {
 
 .transform-session-demo__preset-description {
   display: grid;
-  grid-column: 1 / -1;
   gap: 4px;
   margin: 0;
   color: var(--doc-text-muted);
@@ -706,15 +710,6 @@ onBeforeUnmount(() => {
 
 .transform-session-demo__option-values {
   margin-bottom: 12px;
-}
-
-.transform-session-demo__control-panel {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-}
-
-.transform-session-demo__feedback,
-.transform-session-demo__secondary-actions {
-  grid-column: 1 / -1;
 }
 
 .transform-session-demo__feedback {

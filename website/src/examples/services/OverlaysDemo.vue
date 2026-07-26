@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
     <el-alert type="info" :closable="false" show-icon title="普通 Overlay 由 OverlayService 查询；Descriptor 是独立复合句柄，但 clear() 会统一清理两者。" />
 
     <div class="example-demo__control-panel overlays-demo__toolbar">
-      <div class="example-demo__actions overlays-demo__actions">
+      <div class="example-demo__actions example-demo__action-groups overlays-demo__actions">
         <div class="example-demo__action-group overlays-demo__action-group" role="group" aria-label="创建与查询">
           <span>创建与查询</span>
           <div class="example-demo__action-buttons overlays-demo__action-buttons">

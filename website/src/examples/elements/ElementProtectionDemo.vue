@@ -332,8 +332,8 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="example-demo__control-panel">
-      <div class="example-demo__control-grid element-protection-demo__controls">
-        <div class="example-demo__field">
+      <div class="example-demo__action-groups element-protection-demo__controls">
+        <div class="example-demo__field example-demo__action-group">
           <span>正在操作的人</span>
           <el-input v-model="operatorName" clearable aria-label="正在操作的人名称" placeholder="可选" />
         </div>
@@ -410,7 +410,7 @@ onBeforeUnmount(() => {
 }
 
 .element-protection-demo__controls {
-  grid-template-columns: minmax(160px, 0.8fr) minmax(260px, 1.5fr) minmax(150px, 0.7fr);
+  --example-action-group-basis: 200px;
 }
 
 .element-protection-demo__table {
@@ -419,11 +419,5 @@ onBeforeUnmount(() => {
 
 .element-protection-demo__table :deep(.el-table__row) {
   cursor: pointer;
-}
-
-@media (max-width: 760px) {
-  .element-protection-demo__controls {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

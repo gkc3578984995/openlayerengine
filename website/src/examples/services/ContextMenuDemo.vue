@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
     </el-row>
 
     <div class="example-demo__control-panel context-menu-demo__controls">
-      <div class="example-demo__actions context-menu-demo__toolbar">
+      <div class="example-demo__actions example-demo__action-groups context-menu-demo__toolbar">
         <div class="example-demo__action-group context-menu-demo__action-group" role="group" aria-label="注册与项目状态">
           <span>注册与项目状态</span>
           <div class="example-demo__action-buttons context-menu-demo__action-buttons">
@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .context-menu-demo__toolbar {
-  align-items: flex-start;
+  align-items: stretch;
   gap: 10px;
 }
 

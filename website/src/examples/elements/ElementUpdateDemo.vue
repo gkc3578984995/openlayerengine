@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="example-demo__action-row">
-        <div class="example-demo__actions element-update-demo__actions">
+        <div class="example-demo__actions example-demo__action-groups element-update-demo__actions">
           <div class="example-demo__action-group element-update-demo__action-group" role="group" aria-label="更新与复制操作">
             <div class="example-demo__action-buttons">
               <el-button type="primary" :disabled="!selectedId" @click="updateHandle">句柄 update()</el-button>
