@@ -50,7 +50,7 @@ describe('AnimationManager effect composition', () => {
     expect(geometry?.type).toBe('polygon');
     if (geometry?.type !== 'polygon') throw new Error('Callout animation must use its final Polygon presentation');
     expect(geometry.coordinates[0].length).toBeGreaterThan(2);
-    expect(geometry.label).toEqual({ coordinate: [100, 50], text: '第一行\n第二行' });
+    expect(geometry.label).toEqual({ coordinate: [100, 50], text: '第一行\n第二行', visualScale: 1 });
 
     const composed = onlyContribution(render.frame('default', 400));
     expect(composed.value.presentation?.opacity).toBeCloseTo(0.15);
@@ -853,7 +853,7 @@ function calloutElement(id: string): ElementState {
   return {
     id,
     type: 'callout',
-    geometry: { type: 'callout', anchor: [0, 120], center: [100, 50], size: [160, 60] },
+    geometry: { type: 'callout', anchor: [0, 120], center: [100, 50], size: [160, 60], referenceResolution: 1 },
     style: {
       fill: { type: 'solid', color: '#ffffff' },
       strokes: [{ color: '#222222', width: 2 }],

@@ -17,7 +17,7 @@ import type { ElementStyleState } from '../../core/style/types.js';
 import type { ElementChangeSet } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
 import type { InteractionPolicy } from '../events/types.js';
-import { assertLineworkShapeCompatibility, type StyleService } from '../style/StyleService.js';
+import { assertCalloutShapeCompatibility, assertLineworkShapeCompatibility, type StyleService } from '../style/StyleService.js';
 import { DrawSession } from './DrawSession.js';
 import { EditSession } from './EditSession.js';
 import type { InternalDrawOptions, InternalDrawService, InternalEditOptions, InternalEditSession, SessionKeyboardInput } from './types.js';
@@ -146,6 +146,7 @@ export class DrawService implements InternalDrawService {
     const options = this.#normalizeDrawOptions(input);
     const definition = this.#shapes.get(options.type);
     if (options.style !== undefined) {
+      assertCalloutShapeCompatibility(options.style, definition);
       assertLineworkShapeCompatibility(options.style, definition);
       definition.presentation?.validateStyle?.(options.style);
     }

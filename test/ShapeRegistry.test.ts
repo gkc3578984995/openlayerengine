@@ -37,7 +37,7 @@ const inputs: Record<ShapeType, unknown> = {
       [3, 2]
     ]
   },
-  callout: { type: 'callout', anchor: [0, 0], center: [3, 2], size: [120, 48] },
+  callout: { type: 'callout', anchor: [0, 0], center: [3, 2], size: [120, 48], referenceResolution: 1 },
   'attack-arrow': {
     type: 'attack-arrow',
     controlPoints: [

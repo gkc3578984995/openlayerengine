@@ -166,7 +166,7 @@ describe('Transform shape capabilities', () => {
       canStretch: false,
       canEditVertices: true
     });
-    expect(editTarget?.editAnchors).toHaveLength(9);
+    expect(editTarget?.editAnchors).toHaveLength(10);
     expect(editTarget?.editAnchors.every((anchor) => anchor.kind === 'control' && !anchor.removable)).toBe(true);
     expect(editTarget?.editAnchors.map((anchor) => ('role' in anchor ? anchor.role : undefined))).toEqual([
       'anchor',
@@ -177,7 +177,8 @@ describe('Transform shape capabilities', () => {
       'resize-se',
       'resize-s',
       'resize-sw',
-      'resize-w'
+      'resize-w',
+      'center'
     ]);
     const originalSelection = editTarget?.selectionGeometry;
 
@@ -240,6 +241,62 @@ describe('Transform shape capabilities', () => {
     expect(harness.store.get('callout')?.geometry).toEqual(resized);
   });
 
+  it('moves only the Callout frame through contextual Edit center history and commits it on finish', () => {
+    const harness = createTransformHarness({});
+    const original = addElement(harness, 'callout-center', 'callout', representativePoints.callout);
+    if (original.geometry.type !== 'callout') throw new Error('Expected a Callout fixture');
+    const session = harness.service.select(original.id, { toolbar: {} });
+    const edits: ShapeState[] = [];
+    session.on('edit', ({ state }) => edits.push(state.geometry));
+
+    harness.toolbarPort.command?.('edit');
+    const center = harness.interaction.handle?.target?.editAnchors.find((anchor) => anchor.kind === 'control' && anchor.index === 9);
+    if (center?.kind !== 'control') throw new Error('Missing Callout center handle');
+    const movedCoordinate = [center.coordinate[0] + 40, center.coordinate[1] - 25] as const;
+
+    harness.interaction.emit({
+      type: 'operation-start',
+      operation: 'vertex',
+      delta: { type: 'vertex', index: center.index, coordinate: center.coordinate },
+      anchor: center
+    });
+    harness.interaction.emit({
+      type: 'operation-change',
+      operation: 'vertex',
+      delta: { type: 'vertex', index: center.index, coordinate: movedCoordinate },
+      anchor: center
+    });
+    expect(harness.store.get(original.id)?.geometry).toEqual(original.geometry);
+    harness.interaction.emit({
+      type: 'operation-end',
+      operation: 'vertex',
+      delta: { type: 'vertex', index: center.index, coordinate: movedCoordinate },
+      anchor: center
+    });
+
+    const moved = edits.at(-1);
+    if (moved?.type !== 'callout') throw new Error('Callout center edit did not produce Callout state');
+    expect(moved.center).toEqual(movedCoordinate);
+    expect(moved.anchor).toEqual(original.geometry.anchor);
+    expect(moved.size).toEqual(original.geometry.size);
+    expect(moved.referenceResolution).toBe(original.geometry.referenceResolution);
+    expect(harness.store.get(original.id)?.geometry).toEqual(original.geometry);
+
+    expect(session.undo()).toBe(true);
+    expect(edits.at(-1)).toEqual(original.geometry);
+    expect(harness.interaction.handle?.target?.editAnchors.find((anchor) => anchor.kind === 'control' && anchor.index === 9)?.coordinate).toEqual(
+      original.geometry.center
+    );
+    expect(session.redo()).toBe(true);
+    expect(edits.at(-1)).toEqual(moved);
+    expect(harness.interaction.handle?.target?.editAnchors.find((anchor) => anchor.kind === 'control' && anchor.index === 9)?.coordinate).toEqual(
+      movedCoordinate
+    );
+
+    session.finish();
+    expect(harness.store.get(original.id)?.geometry).toEqual(moved);
+  });
+
   it('keeps a distant Callout tail out of the Transform selection geometry and toolbar fallback', () => {
     const harness = createTransformHarness({});
     const element = addElement(
@@ -295,7 +352,7 @@ describe('Transform shape capabilities', () => {
     });
     expect(() =>
       session.copy({
-        geometry: { type: 'callout', anchor: [0, 0], center: [4, 2], size: [0, 0] }
+        geometry: { type: 'callout', anchor: [0, 0], center: [4, 2], size: [0, 0], referenceResolution: 1 }
       })
     ).toThrow(InvalidArgumentError);
     session.cancel();

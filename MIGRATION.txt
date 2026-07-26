@@ -800,6 +800,7 @@ const callout = earth.elements.add({
     size: [220, 96]
   },
   style: {
+    callout: { sizeMode: 'map' }, // V2 默认值；旧标注若需固定屏幕大小则改为 'screen'
     strokes: [{ color: '#2563eb', width: 3 }],
     fill: { type: 'solid', color: 'rgba(239, 246, 255, 0.96)' },
     text: {
@@ -812,9 +813,11 @@ const callout = earth.elements.add({
 });
 ```
 
-`anchor` 与 `center` 使用当前 View 投影坐标，`size` 使用 CSS 像素。原始文字只保存在 `StyleSpec.text.text`；`text.maxWidth` 是两点 Draw 自动计算初始内容宽度的 CSS px 上限，省略时为 240px。Callout Draw 第一次点击保存 `anchor`，第二次点击保存框体 `center` 并自动完成。独立 Edit 提供 1 个定位点和 8 个框体缩放点；Transform 的外包框模式只允许整体平移，不支持旋转、缩放或拉伸，但默认工具栏仍可切换到 Edit 模式，复用相同的 1 个 `anchor` 与 8 个 `resize` contextual 编辑点。Callout 文字固定居中且保持屏幕正向，不应迁移旧 Label 的沿线 placement、offset、rotation、随 View 旋转或文字背景，scale 只能省略或使用数值 `1`；框体背景与边框分别使用顶层 `fill` 和 `strokes`。
+`anchor` 与 `center` 使用当前 View 投影坐标，`size` 使用 `referenceResolution` 下的逻辑 CSS 像素。调用方通常无需传 `referenceResolution`：引擎会在写入 Store 前从当前 View 捕获一次，更新已有 Callout 时省略则保留原值。`StyleSpec.callout.sizeMode` 省略时默认为 `'map'`，使框体、尾巴、文字、padding 与描边同比随地图缩放；旧标注若要求固定屏幕尺寸，显式改为 `'screen'`。切换模式不会重写几何状态。
 
-持久 Callout 的文字由引擎托管在独立内部层。地图连续缩放或旋转时文字会暂时隐藏，View 稳定后按最终分辨率重排一次并恢复；普通业务 VectorLayer 保持 OpenLayers 默认缓存策略，同层普通文字不会被迁移或隐藏。
+原始文字只保存在 `StyleSpec.text.text`；`text.maxWidth` 是两点 Draw 自动计算初始内容宽度的 CSS px 上限，省略时为 240px。Callout Draw 第一次点击保存 `anchor`，第二次点击保存框体 `center` 并自动完成。独立 Edit 提供 1 个定位点、8 个框体缩放点和 1 个框体 `center` 移动点；拖拽该中心点只移动框体，`anchor` 不动。Transform 的外包框模式只允许整体平移并同时移动 `anchor` 与 `center`，不支持旋转、缩放或拉伸；默认工具栏仍可切换到 Edit 模式，复用相同的 10 个 contextual 编辑点。Callout 文字固定居中且保持屏幕正向，不应迁移旧 Label 的沿线 placement、offset、rotation、随 View 旋转或文字背景，scale 只能省略或使用数值 `1`；框体背景与边框分别使用顶层 `fill` 和 `strokes`。
+
+持久 Callout 的文字由引擎托管在独立内部层。地图连续缩放或旋转时文字会暂时隐藏，View 稳定后按最终分辨率重排一次并恢复；普通业务 VectorLayer 保持 OpenLayers 默认缓存策略，同层普通文字不会被迁移或隐藏，纯中心平移也不会触发该门控。
 
 ### 6.2 Plot 不再是独立入口
 
@@ -1532,7 +1535,7 @@ V2 还提供 `lineStyles.polyline()` 与 `lineStyles.polygon()`，用于生成�
 - [ ] 将 `feature.get('param')` 和 metadata key 访问迁移到 `Element.state`。
 - [ ] 经纬度写入 Element 前调用 `earth.view.toProjectedCoordinates()`，读取后调用 `earth.view.toGeographicCoordinates()`。
 - [ ] 将几何圆的 `radius` 统一改为米，不要持久化 `element.olFeature` 中使用投影单位的半径。
-- [ ] 将文本气泡迁移为 `callout` 的 `anchor + center + CSS px size`，并把原始文字放在 `StyleSpec.text.text`。
+- [ ] 将文本气泡迁移为 `callout` 的 `anchor + center + 逻辑 CSS px size`，并把原始文字放在 `StyleSpec.text.text`；确认使用默认随地图缩放的 `sizeMode: 'map'`，还是显式固定屏幕尺寸的 `'screen'`。
 - [ ] 将旧图层样式参数迁移为 `StyleSpec` 和 `earth.styles`。
 - [ ] 将可复用的线型参数迁移到 `lineStyles.polyline()` 或 `lineStyles.polygon()`；使用 `tracks`、`casing`、`caps` 与 `decoration` 组合，不再创建重复 Geometry 充当底衬。
 - [ ] 将 DynamicDraw、PlotDraw、PlotEdit 迁移到 `earth.draw` 会话。

@@ -34,6 +34,7 @@ const methodExampleRows = [
 const operationRows = [
   { input: '拖拽控制点', result: '移动已有拓扑点', cursor: 'move → grabbing', topology: 'ShapeDefinition.editTopology.move' },
   { input: '拖拽 Callout anchor', result: '只移动尾巴定位点，框体保持不动', cursor: 'move → grabbing', topology: 'contextual edit provider' },
+  { input: '拖拽 Callout center', result: '只移动框体，anchor 定位点保持不动', cursor: 'move → grabbing', topology: 'contextual edit provider' },
   { input: '拖拽 Callout resize', result: '左右点自动适高；上下与四角受文字最小高度约束', cursor: 'move → grabbing', topology: 'contextual edit provider' },
   { input: 'Alt + 单击插入点', result: '在合法候选位置插入点', cursor: 'move', topology: 'editTopology.insert（可选）' },
   { input: 'Alt + 单击控制点', result: '仅删除 removable 控制点', cursor: 'move', topology: 'editTopology.remove（可选）' },
@@ -59,7 +60,10 @@ const apiMembers = { DrawService: ['edit'] } as const;
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">地图交互</span>
         <h1>编辑（Edit）</h1>
-        <p>在隔离的工作态中操作 Shape 编辑拓扑，完成时一次提交，取消时完整回滚；Callout 使用 9 个派生控制点，但只持久化 anchor、center 与 size。</p>
+        <p>
+          在隔离的工作态中操作 Shape 编辑拓扑，完成时一次提交，取消时完整回滚；Callout 使用 10 个派生控制点，但只持久化
+          <code>anchor</code>、<code>center</code>、逻辑 <code>size</code> 与 <code>referenceResolution</code>。
+        </p>
       </header>
 
       <section id="overview" class="doc-prose">
@@ -105,8 +109,9 @@ const apiMembers = { DrawService: ['edit'] } as const;
               <ApiReference kind="method" to="/api/types#api-type-edit-session-method-finish">finish</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-edit-session-method-cancel">cancel</ApiReference> 或
               <ApiReference kind="method" to="/api/types#api-type-edit-session-method-destroy">destroy</ApiReference>
-              进入确定的终态。地图上用不同强度的蓝色锚点区分已有控制点和可插入位置，结果区只展示当前状态，不输出日志。 默认 Callout 目标显示 1 个定位点和 8
-              个框体缩放点；拖拽定位点只改变尾巴方向。左右中点改变宽度时会实时换行并自动增减高度，上下中点与四角仍由指针控制高度，但不会让文字越过内边界。
+              进入确定的终态。地图上用不同强度的蓝色锚点区分已有控制点和可插入位置，结果区只展示当前状态，不输出日志。默认 Callout 目标显示 1 个
+              <code>anchor</code> 定位点、8 个框体缩放点和 1 个位于框体中心的 <code>center</code> 点；拖拽 <code>anchor</code> 只改变尾巴定位，拖拽
+              <code>center</code> 只移动框体。左右中点改变宽度时会实时换行并双向自动适高，上下中点与四角仍由指针控制高度，但不会让文字越过内边界。
             </p>
           </template>
           <template #preview><EditSessionDemo ref="editSessionDemoRef" /></template>
@@ -125,9 +130,12 @@ const apiMembers = { DrawService: ['edit'] } as const;
           普通单击插入点不会改变拓扑；是否允许插入、删除以及最小点数都由 ShapeDefinition 决定，调用方无需按 ShapeType 自行分支。独立 Edit Session 不绑定
           Esc，取消请调用 <code>cancel()</code>；Transform 编辑模式中的 Esc 属于 Transform 自己的快捷键。
         </p>
-        <el-alert type="info" :closable="false" show-icon title="Callout 的 9 个 Edit 控制点不是持久几何">
+        <el-alert type="info" :closable="false" show-icon title="Callout 的 10 个 Edit 控制点不是持久几何">
           控制点稳定顺序为
-          <code>anchor、nw、n、ne、e、se、s、sw、w</code>，全部不可插入、不可删除。框体不可翻转；控制点外观继续使用统一蓝白视觉规范，不引入独立颜色主题。
+          <code>anchor、resize-nw、resize-n、resize-ne、resize-e、resize-se、resize-s、resize-sw、resize-w、center</code>，全部不可插入、不可删除。最后的
+          <code>center</code> 只替换框体中心，保留 <code>anchor</code>、<code>size</code> 与
+          <code>referenceResolution</code>；宽度不变，所以不会重新断行或改高。框体不可翻转；在默认 <code>map</code> 模式下，当前屏幕拖拽量会按显示倍率换回逻辑
+          <code>size</code>。控制点外观继续使用统一蓝白视觉规范，不引入独立颜色主题。
         </el-alert>
       </section>
 

@@ -624,7 +624,7 @@ onBeforeUnmount(() => {
       <div class="transform-session-demo__map-guide">
         {{
           activeSelectedTarget?.type === 'callout'
-            ? 'Callout 外包框只允许整体平移；可切换到 9 点 Edit，不会出现旋转、缩放或拉伸手柄'
+            ? 'Callout 外包框只允许整体平移；可切换到 10 点 Edit，center 只移动框体'
             : `${activeOptionPreset.id} · 选择 A 或 B；拖拽图形、外框手柄，或切换到 Edit 控制点`
         }}
       </div>

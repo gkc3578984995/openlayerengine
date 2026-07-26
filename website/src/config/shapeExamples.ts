@@ -88,9 +88,9 @@ const definitions = {
     label: '文本标注框',
     groupId: 'annotation',
     group: '文本标注',
-    points: 'anchor + center + CSS px size',
+    points: 'anchor + center + 逻辑 CSS px size',
     render: 'Polygon',
-    description: '屏幕轴对齐文本框自动换行；尾巴按 anchor 自动切换边，anchor 在框内时隐藏。',
+    description: '默认按 referenceResolution 随地图缩放；可切为固定屏幕尺寸，文字始终在框内自动换行。',
     normalizedPoints: [
       [-1.7, -1.5],
       [0, 0]

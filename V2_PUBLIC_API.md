@@ -384,7 +384,7 @@ earth.styles.set(
 );
 ```
 
-点、线、面和文字分别使用 `symbol`、`strokes`、`fill` 和 `text`。`stylePresets` 还包含 `icon-default`、`line-default`、`arrow-default`、`polygon-default`、`measure-default`、`draw-preview` 和 `transform-handle`。
+点、线、面和文字分别使用 `symbol`、`strokes`、`fill` 和 `text`；Callout 还可用 `callout.sizeMode` 选择地图缩放或固定屏幕尺寸。`stylePresets` 还包含 `icon-default`、`line-default`、`arrow-default`、`polygon-default`、`measure-default`、`draw-preview` 和 `transform-handle`。
 
 路径线饰可以通过根导出的 `lineStyles` 创建，并继续作为普通 `StyleSpec` 使用：
 
@@ -430,7 +430,7 @@ closed-curve-polygon, sector, lune-polygon, lune-polyline, curve-polyline
 
 V2 暂不提供公共 Shape 注册入口。高级 OpenLayers 样式可通过 `{ nativeStyle: olStyle }` 传入，但不能再使用 `styles.patch()` 做结构化字段更新。
 
-Callout 使用投影坐标保存定位点与文本框中心，使用 CSS 像素保存框体尺寸；顶层 `fill` / `strokes` 绘制框体和尾巴，`text` 绘制居中文字：
+Callout 使用投影坐标保存定位点与文本框中心，使用 `referenceResolution` 下的逻辑 CSS 像素保存框体尺寸；顶层 `fill` / `strokes` 绘制框体和尾巴，`text` 绘制居中文字：
 
 ```ts
 const callout = earth.elements.add({
@@ -441,6 +441,7 @@ const callout = earth.elements.add({
     size: [220, 96]
   },
   style: {
+    callout: { sizeMode: 'map' }, // 默认值；改为 'screen' 可固定屏幕尺寸
     strokes: [{ color: '#2563eb', width: 3 }],
     fill: { type: 'solid', color: 'rgba(239, 246, 255, 0.96)' },
     text: {
@@ -453,11 +454,13 @@ const callout = earth.elements.add({
 });
 ```
 
-`TextSpec.maxWidth` 是两点 Draw 自动计算初始内容宽度的上限，单位为 CSS 像素，省略时为 240px。显式换行会保留；中文与超长 token 可按 grapheme 断行，普通英文优先按 word 换行。换行结果只属于展示，不会覆盖 `style.text.text`。直接通过 `elements.add()` 创建时，`size` 应为正有限值。
+`TextSpec.maxWidth` 是两点 Draw 自动计算初始内容宽度的上限，单位为 CSS 像素，省略时为 240px。显式换行会保留；中文与超长 token 可按 grapheme 断行，普通英文优先按 word 换行。换行结果只属于展示，不会覆盖 `style.text.text`。直接通过 `elements.add()` 创建时，`size` 应为正有限值；`referenceResolution` 通常省略，引擎会在写入 Store 前从当前 View 捕获一次。更新已有 Callout 时省略该字段会保留原值，复制、历史和快照也不会重写它。
+
+`StyleSpec.callout.sizeMode` 省略时默认为 `'map'`：框体、尾巴、文字、padding 与描边按同一倍率随地图缩放，地图空间尺度保持稳定。设置为 `'screen'` 时，完整 Callout 保持固定 CSS 像素尺寸。尺寸模式只属于 Style，切换不会修改 `size`、`referenceResolution`、`anchor` 或 `center`。
 
 Callout 的文字固定在框体中心并保持屏幕正向，不接受 `placement: 'line'`、非零 offset、文字 rotation、`rotateWithView: true` 或 `text.backgroundFill/backgroundStroke`；scale 只能省略或使用数值 `1`。框体背景和边框使用顶层 `fill/strokes`。尾巴会根据 `anchor` 自动切换上、右、下、左边，`anchor` 位于框内时隐藏。
 
-持久 Callout 的文字由引擎放在独立的内部展示层。地图连续缩放或旋转时，该文字层会暂时隐藏，框体复用 OpenLayers 的缓存；View 稳定后只按最终分辨率重新排版一次，并在下一帧恢复文字。这样不会要求所有业务 VectorLayer 在交互期间持续重建，也不会隐藏同层普通图形或普通 `StyleSpec.text`。Draw、Edit、Transform 等少量临时预览仍实时刷新。
+持久 Callout 的文字由引擎放在独立的内部展示层。地图连续缩放或旋转时，该文字层会暂时隐藏，框体复用 OpenLayers 的缓存；View 稳定后只按最终分辨率重新排版一次，并在下一帧恢复文字。这样不会要求所有业务 VectorLayer 在交互期间持续重建，也不会隐藏同层普通图形或普通 `StyleSpec.text`。纯中心平移不会触发文字门控；Draw、Edit、Transform 等少量临时预览仍实时刷新。
 
 ## 6. Draw 与 Edit
 
@@ -509,6 +512,8 @@ const drawCallout = earth.draw.start({
 });
 ```
 
+首次形成完整草稿时，Draw 会自动捕获 `referenceResolution`；同一草稿后续的指针预览、`change` 事件、撤销重做和最终提交复用同一基准值。
+
 ### 编辑已有元素
 
 ```ts
@@ -534,9 +539,9 @@ if (target) {
 }
 ```
 
-独立 Edit 打开 Callout 时展示 9 个派生控制点：1 个 `anchor` 只改变尾巴指向，8 个框体控制点负责缩放、重新换行和最小高度钳制。左右中点改变宽度时，高度会按新的换行结果自动增减并保持纵向中心；上下中点与四角保留用户的高度控制，但不能压缩到文字所需高度以下。它们不写入 `Element.state`，Callout 仍只持久化 `anchor`、`center` 与 `size`；控制点外观复用统一 Edit 视觉规范。
+独立 Edit 打开 Callout 时展示 10 个派生控制点：1 个 `anchor` 只改变尾巴指向，8 个框体控制点负责缩放、重新换行和最小高度钳制，最后 1 个 `center` 位于框体中心，只移动框体而保持 `anchor` 不动。左右中点改变宽度时，高度会按新的换行结果自动增减并保持纵向中心；上下中点与四角保留用户的高度控制，但不能压缩到文字所需高度以下。这些派生点不写入 `Element.state`，Callout 只持久化 `anchor`、`center`、逻辑 `size` 与 `referenceResolution`；控制点外观复用统一 Edit 视觉规范。
 
-Callout 在 Transform 的外包框模式中只允许整体平移。默认工具栏仍提供 Edit 模式切换；进入后复用独立 Edit 的 1 个 `anchor` 与 8 个 `resize` contextual 编辑点。完整尾巴继续参与预览和命中，但选中框、Tooltip 与工具栏锚点只跟随文本框主体；连续 View 动画或交互缩放期间，持久文字会暂时隐藏，稳定后按最终 View 重排并恢复，不会因 OpenLayers 复用旧矢量帧而越界。
+Callout 在 Transform 的外包框模式中只允许整体平移，并同时移动 `anchor` 与 `center`。默认工具栏仍提供 Edit 模式切换；进入后复用独立 Edit 的 1 个 `anchor`、8 个 `resize` 与 1 个 `center` contextual 编辑点。完整尾巴继续参与预览和命中，但选中框、Tooltip 与工具栏锚点只跟随文本框主体；连续 View 动画或交互缩放期间，持久文字会暂时隐藏，稳定后按最终 View 重排并恢复，不会因 OpenLayers 复用旧矢量帧而越界。
 
 绘制服务创建的结果可单独查询和清理：
 
@@ -646,7 +651,7 @@ if (toolbar) {
 toolbarSession.cancel(); // 结束 Transform 会话
 ```
 
-Callout 在 Transform 的外包框模式中只声明整体平移；平移会同时更新 `anchor` 与 `center`，保持 CSS px `size` 不变。即使 `TransformOptions` 开启旋转、缩放或拉伸，Callout 也不会显示对应手柄。默认工具栏会提供 Edit 模式切换，显式调用 `setMode('edit')` 也可以进入该模式；其中复用 Callout 独立 Edit 的 1 个 `anchor` 与 8 个 `resize` contextual 编辑点，但不会因此开放 rotate、scale 或 stretch。
+Callout 在 Transform 的外包框模式中只声明整体平移；平移会同时更新 `anchor` 与 `center`，保持逻辑 `size`、`referenceResolution` 与 `StyleSpec.callout.sizeMode` 不变。即使 `TransformOptions` 开启旋转、缩放或拉伸，Callout 也不会显示对应手柄。默认工具栏会提供 Edit 模式切换，显式调用 `setMode('edit')` 也可以进入该模式；其中复用 Callout 独立 Edit 的 1 个 `anchor`、8 个 `resize` 与 1 个只移动框体的 `center` contextual 编辑点，但不会因此开放 rotate、scale 或 stretch。
 
 ## 9. Animations 动画
 

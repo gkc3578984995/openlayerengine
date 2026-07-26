@@ -42,7 +42,7 @@ const geometry: Record<ShapeType, ShapeState> = {
       [3, 2]
     ]
   },
-  callout: { type: 'callout', anchor: [0, 0], center: [4, 3], size: [160, 56] },
+  callout: { type: 'callout', anchor: [0, 0], center: [4, 3], size: [160, 56], referenceResolution: 1 },
   'attack-arrow': {
     type: 'attack-arrow',
     controlPoints: [

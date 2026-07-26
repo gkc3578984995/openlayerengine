@@ -155,9 +155,10 @@ earth.elements.add({
     type: 'callout',
     anchor,
     center,
-    size: [220, 96] // CSS px
+    size: [220, 96] // referenceResolution 下的逻辑 CSS px；基准分辨率通常由引擎自动捕获
   },
   style: {
+    callout: { sizeMode: 'map' }, // 默认值；改为 'screen' 可固定屏幕尺寸
     strokes: [{ color: '#be123c', width: 3 }],
     fill: { type: 'solid', color: 'rgba(255, 255, 255, 0.92)' },
     text: {

@@ -30,7 +30,8 @@ export function translateRenderGeometry(geometry: RenderGeometryState, x: number
       : {
           label: Object.freeze({
             coordinate: translate(geometry.label.coordinate, x, y),
-            text: geometry.label.text
+            text: geometry.label.text,
+            ...(geometry.label.visualScale === undefined ? {} : { visualScale: geometry.label.visualScale })
           })
         })
   });

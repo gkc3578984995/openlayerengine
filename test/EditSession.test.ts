@@ -385,7 +385,7 @@ describe('EditSession', () => {
     expect(session.status).toBe('active');
   });
 
-  it('edits Callout with one anchor and eight resize handles, publishes the clamped handle, and keeps history preview-only', () => {
+  it('edits Callout with one anchor, eight resize handles and one center handle, publishes the clamped handle, and keeps history preview-only', () => {
     const calloutStyle = {
       fill: { type: 'solid', color: '#ffffff' },
       strokes: [{ color: '#222222', width: 2 }],
@@ -394,7 +394,7 @@ describe('EditSession', () => {
     const entry: ElementState = {
       id: 'edit-callout',
       type: 'callout',
-      geometry: { type: 'callout', anchor: [0, 100], center: [100, 100], size: [160, 60] },
+      geometry: { type: 'callout', anchor: [0, 100], center: [100, 100], size: [160, 60], referenceResolution: 1 },
       style: calloutStyle,
       layerId: 'edit-layer',
       visible: true
@@ -402,7 +402,7 @@ describe('EditSession', () => {
     const { port, session, store } = setup(entry);
     const initialAnchors = port.renders[0].anchors.filter(({ kind }) => kind === 'control');
 
-    expect(port.spec?.controlPoints).toHaveLength(9);
+    expect(port.spec?.controlPoints).toHaveLength(10);
     expect(initialAnchors.map(({ role }) => role)).toEqual([
       'anchor',
       'resize-nw',
@@ -412,7 +412,8 @@ describe('EditSession', () => {
       'resize-se',
       'resize-s',
       'resize-sw',
-      'resize-w'
+      'resize-w',
+      'center'
     ]);
     expect(initialAnchors.every(({ removable }) => removable === false)).toBe(true);
 
@@ -423,7 +424,7 @@ describe('EditSession', () => {
     expect(port.renders.at(-1)?.anchors).toEqual([{ ...east, coordinate: [60, 100] }]);
     port.emit({ type: 'move-end', anchor: east, coordinate: [0, 100] });
 
-    expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'control')).toHaveLength(9);
+    expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'control')).toHaveLength(10);
     expect(store.get(entry.id)?.geometry).toEqual(entry.geometry);
     expect(session.undo()).toBe(true);
     expect(port.renders.at(-1)?.anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 4)?.coordinate).toEqual([180, 100]);
@@ -444,7 +445,7 @@ describe('EditSession', () => {
     const entry: ElementState = {
       id: 'edit-callout-auto-height',
       type: 'callout',
-      geometry: { type: 'callout', anchor: [0, 0], center: [0, 0], size: [120, 20] },
+      geometry: { type: 'callout', anchor: [0, 0], center: [0, 0], size: [120, 20], referenceResolution: 1 },
       style: { text: { text: 'ABCDEFGHIJKL', fontSize: 10, padding: [0, 0, 0, 0] } },
       layerId: 'edit-layer',
       visible: true
@@ -462,6 +463,35 @@ describe('EditSession', () => {
 
     session.finish();
     expect(store.get(entry.id)?.geometry).toEqual(entry.geometry);
+  });
+
+  it('moves only the Callout frame through the center handle and keeps the anchor fixed', () => {
+    const entry: ElementState = {
+      id: 'edit-callout-center',
+      type: 'callout',
+      geometry: { type: 'callout', anchor: [0, 100], center: [100, 100], size: [160, 60], referenceResolution: 2 },
+      style: { text: { text: 'Callout center handle' } },
+      layerId: 'edit-layer',
+      visible: true
+    };
+    const { port, session, store } = setup(entry);
+    const center = port.renders[0].anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 9);
+    if (center?.kind !== 'control') throw new Error('Missing Callout center handle');
+
+    port.emit({ type: 'move-start', anchor: center, coordinate: center.coordinate });
+    port.emit({ type: 'move', anchor: center, coordinate: [140, 120] });
+    expect(port.renders.at(-1)?.anchors).toEqual([{ ...center, coordinate: [140, 120] }]);
+    expect(store.get(entry.id)?.geometry).toEqual(entry.geometry);
+    port.emit({ type: 'move-end', anchor: center, coordinate: [140, 120] });
+
+    session.finish();
+    expect(store.get(entry.id)?.geometry).toEqual({
+      type: 'callout',
+      anchor: [0, 100],
+      center: [140, 120],
+      size: [160, 60],
+      referenceResolution: 2
+    });
   });
 
   it('starts a ten-thousand-vertex polyline without quadratic topology expansion', () => {

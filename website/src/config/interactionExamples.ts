@@ -66,7 +66,7 @@ export const interactionTargetExamples: readonly InteractionTargetExample[] = Ob
     id: 'callout',
     label: '文本标注框 Callout',
     type: 'callout',
-    description: 'Transform 外包框模式只允许整体平移；工具栏可切换 Edit，复用 1 个 anchor 与 8 个 resize contextual 编辑点。',
+    description: 'Transform 外包框模式只允许整体平移；工具栏可切换 Edit，复用 anchor、8 个 resize 与只移动框体的 center 控制点。',
     edit: Object.freeze({ move: true, insert: false, remove: false }),
     transform: Object.freeze({ translate: true, rotate: false, scale: false, vertex: true })
   }),

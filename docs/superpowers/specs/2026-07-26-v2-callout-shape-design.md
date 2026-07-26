@@ -4,7 +4,7 @@
 
 - 状态：已批准
 - 日期：2026-07-26
-- 批准记录：用户确认两点绘制、第二点位于文本框中心、Edit 使用框体缩放点与定位点、Transform 仅整体移动、文本自动换行、边框与填充可配置，并授权按约定实施及补齐文档；随后确认业务层恢复默认缓存、连续缩放或旋转时暂时隐藏独立文字层的性能修订；最终澄清 Transform 的几何能力与工具栏模式切换互不冲突，Transform 模式仍只整体平移，但工具栏必须允许切换到 Callout Edit
+- 批准记录：用户确认两点绘制、第二点位于文本框中心、Edit 使用框体缩放点与定位点、Transform 仅整体移动、文本自动换行、边框与填充可配置，并授权按约定实施及补齐文档；随后确认业务层恢复默认缓存、连续缩放或旋转时暂时隐藏独立文字层的性能修订；最终澄清 Transform 的几何能力与工具栏模式切换互不冲突，Transform 模式仍只整体平移，但工具栏必须允许切换到 Callout Edit；后续批准 Callout 默认随地图缩放、可通过 Style 切换固定屏幕尺寸，并在 Edit 末尾追加只移动框体而不移动定位点的中心控制点
 - 关联：2026-07-13-v2-element-kernel-architecture-design.md
 - 关联：2026-07-16-v2-interaction-visual-design.md
 - 修订：2026-07-21-v2-element-geometry-details-design.md
@@ -16,8 +16,8 @@
 1. 一个 Callout 由屏幕轴对齐的文本框、指向定位点的尾巴和居中文本组成，三者属于同一个原子 Element。
 2. Draw 使用两次点击：第一点是 `anchor`，第二点是文本框 `center`；第二次点击后自动完成。
 3. 初始框体尺寸由最终结构化 `StyleSpec.text` 的原始文本、字体、内边距和最大自动宽度计算，不要求第三个尺寸点。
-4. 独立 Edit 展示 8 个框体缩放点和 1 个定位点；缩放时重新换行并保证文字不越过框体内边界。
-5. Transform 模式只支持整体平移，不支持旋转、缩放或拉伸；默认工具栏提供 Edit 模式切换，并在该模式复用 Callout 的 9 个上下文编辑点。
+4. 独立 Edit 展示 8 个框体缩放点、1 个定位点和 1 个框体中心移动点；缩放时重新换行并保证文字不越过框体内边界，拖动中心点时只移动框体。
+5. Transform 模式只支持整体平移，不支持旋转、缩放或拉伸；默认工具栏提供 Edit 模式切换，并在该模式复用 Callout 的 10 个上下文编辑点。
 6. 首版不提供富文本、尾巴宽度配置、圆角、文字旋转、文字偏移、原生 Style 或独立尾巴控制点。
 
 ## 2. 规范状态与输入
@@ -30,6 +30,7 @@ type CalloutShapeInput = {
   readonly anchor: readonly number[];
   readonly center: readonly number[];
   readonly size: readonly [widthPx: number, heightPx: number];
+  readonly referenceResolution?: number;
 };
 
 type CalloutShapeState = {
@@ -37,13 +38,17 @@ type CalloutShapeState = {
   readonly anchor: Coordinate;
   readonly center: Coordinate;
   readonly size: readonly [widthPx: number, heightPx: number];
+  readonly referenceResolution: number;
 };
 ```
 
 - `anchor` 和 `center` 使用 Element 当前规范投影坐标，维度必须一致。
-- `size` 使用 CSS 像素，不乘 `devicePixelRatio`；两个值必须是非负有限数。
+- `size` 是 `referenceResolution` 下的逻辑 CSS 像素，不乘 `devicePixelRatio`；两个值必须是非负有限数。它不是当前 View 下持续回写的显示尺寸，也不是投影单位尺寸。
+- `referenceResolution` 是正有限数，表示 `size` 的基准 View resolution。它始终进入 ShapeState、快照、复制、历史和序列化，即使当前 Style 使用固定屏幕尺寸，也不得删除或随缩放重写，以保证切换尺寸模式不会累计误差。
 - `[0, 0]` 只作为两点 Draw 草稿的自动布局请求；提交 Draw 结果前必须解析为正有限数。直接写入 Element 时应传正尺寸。
-- 原始文字只保存在 `StyleSpec.text.text`。换行结果、框体 ring、尾巴 base、9 个编辑点和 View 投影坐标都是可丢弃的展示派生数据。
+- 原始文字只保存在 `StyleSpec.text.text`。换行结果、框体 ring、尾巴 base、10 个编辑点、当前显示缩放和 View 投影坐标都是可丢弃的展示派生数据。
+
+所有公共写入路径统一在 Element Store 事务之前物化 Callout 输入：新增或 Draw 首次形成完整草稿时，省略的 `referenceResolution` 从当前 View 的正有限 resolution 捕获一次；更新已有 Callout 且省略该字段时保留原 ShapeState 的值，复制、撤销、重做与快照也保留原值。物化通过 EngineContext 显式注入的通用 View 上下文完成，不允许 Element Store 导入 OpenLayers、读取隐式 Earth 或按 `type === 'callout'` 获取地图。Store 只接收 `referenceResolution` 已必填的规范 ShapeState；缺少可用 View resolution 时原子拒绝写入，不能把未解析输入保存为状态真源。
 
 ## 3. 能力与 ShapeDefinition 契约
 
@@ -58,6 +63,8 @@ ShapeDefinition 增加两项通用语义，而不是在 Draw、Edit、Transform 
 
 presentation profile 可提供纯 Style 约束校验；Element Store 在提交前调用它，确保删除 Callout 文本、切换 native Style 或写入不支持的文本放置参数时原子拒绝，不让无法展示的状态成为真源。
 
+view-dependent Shape 还可以参加 Store 前的通用状态物化阶段。该阶段只读取显式传入的 presentation 上下文，把允许省略的输入字段解析成完整 ShapeState；它与校验、展示派生分层，不能在后续缩放或渲染帧中反向修改状态。Callout 用这项能力解析 `referenceResolution`，Draw、Element 新增和 Element 更新必须复用同一入口。
+
 独立 Edit 可以使用普通 `editTopology` 或 presentation profile 的 contextual edit provider。Transform 的 Edit 模式不是缩放、旋转或拉伸能力；当 Shape 声明 `edit` 且提供 contextual edit provider 时，`TransformSession` 也复用同一套 `describe` / `move` 语义。普通 `editTopology` 继续通过 `vertexEdit` 声明 Transform Edit 能力，避免把仅供独立 Edit 的普通拓扑自动暴露给 Transform。
 
 ## 4. 两点 Draw 与自动尺寸
@@ -70,6 +77,7 @@ Callout 的控制点策略固定为：
 
 - 第一次点击保存 `anchor`。指针移动期间，以当前指针作为 `center` 生成完整预览。
 - 第二次点击保存 `center`，使用本会话最终 Style 完成排版，然后自动提交。
+- 首次形成包含 `anchor` 与 `center` 的完整草稿时捕获 `referenceResolution`；同一次 Draw 的预览、`change` 事件、撤销/重做和最终提交均复用该值，不能在每次指针移动或 View 帧中重新捕获。
 - `TextSpec.maxWidth` 是初次自动布局允许的最大文本内容宽度，单位为 CSS 像素；省略时使用 240px。
 - 自动宽度不超过 `maxWidth`，并至少容纳一个 grapheme、水平 padding 和描边安全区；自动高度容纳全部行、垂直 padding 和描边安全区。
 - Draw 预览、Draw `change` 事件和最终 Element 必须来自同一套 presentation 计算，不能分别使用近似尺寸。
@@ -77,22 +85,45 @@ Callout 的控制点策略固定为：
 ## 5. 文本排版
 
 1. `StyleSpec.text` 是 Callout 的必需结构化样式；native Style 不支持 Callout。
-2. 顶层 `fill` 和 `strokes` 同时绘制框体与尾巴；`text.fill` 和 `text.stroke` 绘制文字。文本背景样式不参与首版 Callout。
-3. `text.padding` 按 `[上, 右, 下, 左]` 解释；省略时使用 Callout 默认 padding。
-4. 保留显式换行。中文、日文、韩文和超长单词按 grapheme 断行；普通英文优先保留 word；任何一行都不得超过可用内容宽度。
-5. presentation 只把换行字符串放入临时 label，绝不覆盖 `StyleSpec.text.text`。
-6. 文字固定在框体中心并保持屏幕正向；Callout 不应用 `placement: 'line'`、offset、rotation、rotateWithView 或非单位 scale 等会破坏居中和边界保证的放置语义。
-7. 拖动左右中点改变宽度时重新断行，并把高度双向自动适配到当前文字所需高度，纵向中心保持不变；拖动上下中点或四角时保留用户的纵向控制，但不能小于当前换行文本的最小高度。不使用省略号，也不自动缩小字号。
+2. `StyleSpec.callout` 是 Callout 专属的公开呈现配置：
+
+   ```ts
+   type CalloutSizeMode = 'map' | 'screen';
+
+   type CalloutStyleSpec = {
+     readonly sizeMode?: CalloutSizeMode;
+   };
+   ```
+
+   `StyleSpec.callout.sizeMode` 省略时固定为 `'map'`；`'map'` 表示完整 Callout 随地图缩放，`'screen'` 表示保持固定屏幕尺寸。尺寸模式属于 Style，不进入 ShapeState；切换模式不得改写 `size`、`referenceResolution`、`anchor` 或 `center`。
+
+3. 顶层 `fill` 和 `strokes` 同时绘制框体与尾巴；`text.fill` 和 `text.stroke` 绘制文字。文本背景样式不参与首版 Callout。
+4. `text.padding` 按 `[上, 右, 下, 左]` 解释；省略时使用 Callout 默认 padding。
+5. 保留显式换行。中文、日文、韩文和超长单词按 grapheme 断行；普通英文优先保留 word；任何一行都不得超过可用内容宽度。
+6. presentation 只把换行字符串放入临时 label，绝不覆盖 `StyleSpec.text.text`。断行使用 `referenceResolution` 下的逻辑 `size`、字体、padding 和 stroke 安全区计算，单纯缩放 View 或切换尺寸模式不得改变行数。
+7. 文字固定在框体中心并保持屏幕正向；Callout 不应用 `placement: 'line'`、offset、rotation、rotateWithView 或用户提供的非单位 scale 等会破坏居中和边界保证的放置语义。presentation 为 `'map'` 模式施加的整体缩放不属于用户文本 scale。
+8. 拖动左右中点改变宽度时重新断行，并把高度双向自动适配到当前文字所需高度，纵向中心保持不变；拖动上下中点或四角时保留用户的纵向控制，但不能小于当前换行文本的最小高度。不使用省略号，也不自动缩小字号。
 
 ## 6. 框体、尾巴与 View 投影
 
 Callout 是 view-dependent presentation：
 
 1. 使用公开的 coordinate-to-pixel API 把 `anchor` 与 `center` 转为 viewport CSS 像素。
-2. 以 `center` 和 `size` 构造屏幕轴对齐矩形。
+2. 从当前 Style 解析尺寸模式，并计算统一显示倍率：
+
+   ```ts
+   const visualScale = sizeMode === 'map' ? referenceResolution / currentResolution : 1;
+   ```
+
+   `currentResolution` 必须是当前 View 的正有限 resolution。以 `center` 和 `size * visualScale` 构造屏幕轴对齐矩形。
+
 3. 从中心向 `anchor` 发射射线，与矩形边界的交点决定尾巴所在的上、右、下或左边；尾巴 base 沿该边钳制，tip 等于 `anchor`。
 4. `anchor` 进入矩形内部时隐藏尾巴，只保留矩形。
 5. 把完整 ring 和显式 label 中心重新转换为当前 View 坐标，最终仍输出标准 `polygon` RenderGeometry；不得新增 Callout 专用 RenderGeometry 判别项。
+
+`'map'` 是默认模式。在 resolution 变化时，框体宽高、尾巴 base、文字字号与行高、padding、框体及文字 stroke 宽度和虚线长度必须统一乘 `visualScale`，颜色等无长度量不变；因此 Callout 的地图空间尺度保持稳定，文字与边界不会产生不同倍率。`'screen'` 模式固定 `visualScale = 1`，保持现有 CSS 像素视觉尺寸。两种模式都以同一份逻辑排版结果为基础，不得把当前显示尺寸反向写入 ShapeState。
+
+Edit 在当前 View 中把屏幕拖拽量除以 `visualScale` 后再更新逻辑 `size`；因此用户在任意层级修改框体，拉窄和拉宽都使用同一套自动换行与双向适高规则。框体中心移动点和定位点直接更新规范投影坐标，不参与尺寸换算。
 
 Draw、Edit、Transform 与 Animation 等临时展示继续按 Map 帧订阅 View presentation revision，以保证少量预览要素和控制点实时跟随。FeatureBinding 对持久业务要素使用运动门控：稳定 View 下的 revision 立即重投影；连续 resolution 或 rotation 变化期间只记录最新 revision，结束后统一重排一次。不得使用 OpenLayers 私有 API，也不得只在 Style renderer 中伪造框体而让真实 Feature extent 保持为两个点。
 
@@ -100,8 +131,8 @@ Draw、Edit、Transform 与 Animation 等临时展示继续按 Map 帧订阅 Vie
 
 1. 业务主层保留框体和尾巴，恢复 OpenLayers 默认的 `updateWhileAnimating: false` 与 `updateWhileInteracting: false`。
 2. 仅带显式 presentation label 的文字进入按业务层延迟创建的 companion layer；它继承主层的 `visible`、`opacity`、`zIndex`、`declutter` 与 Source `wrapX`，但不登记为可命中的业务图层。
-3. resolution 或 rotation 首次变化时，在第一张 Map 帧之前同步隐藏 companion layer；主层可继续复用旧 replay，文字不会以固定 CSS 字号越过正在缩放的旧框体。
-4. 最终 View 的 `precompose` 边界先发布最新 revision，再由 FeatureBinding 只重排一次框体和文字；当前 frameState 仍保留隐藏快照，紧随其后的新 Map 帧才恢复 companion。动画合成路径复用同一门控，运动期间跳过显式 Callout label。
+3. resolution 或 rotation 首次变化时，在第一张 Map 帧之前同步隐藏 companion layer；主层继续复用旧 replay，不为 Callout 或其他业务 Element 开启逐帧重建。`'map'` 模式下旧框体和尾巴随地图 replay 自然缩放，文字隐藏后不会以错误倍率越界；`'screen'` 模式允许运动期旧框体随 replay 暂时变化，稳定帧重新恢复固定屏幕尺寸。
+4. 最终 View 的 `precompose` 边界先发布最新 revision，再由 FeatureBinding 按最终 `visualScale` 只重排一次框体和文字；当前 frameState 仍保留隐藏快照，紧随其后的新 Map 帧才恢复 companion。动画合成路径复用同一门控，运动期间跳过显式 Callout label。
 5. Draw、Edit、Transform 与 Protection 的临时 VectorLayer 要素数量受控，继续启用 `updateWhileAnimating` 和 `updateWhileInteracting`，以维持交互反馈；native Layer 不属于 Element 承载范围，引擎不修改其刷新策略。
 
 门控只针对会失真的 resolution / rotation，不因纯 center 平移或字体 revision 隐藏文字。伴随层使用直接隐藏而不是 CSS blur；这样无需额外滤镜合成，也不会让普通图形、框体或同层普通 TextSpec 一起消失。
@@ -125,8 +156,10 @@ View 的 change 事件只标记待刷新状态，revision 在 Map 的公开 `pre
 |     6 | `resize-s`  | 固定上边，纵向缩放     |
 |     7 | `resize-sw` | 固定右上角，双轴缩放   |
 |     8 | `resize-w`  | 固定右边，横向缩放     |
+|     9 | `center`    | 只移动框体，定位点不动 |
 
 - 控制点颜色、尺寸、hover、active 与强调层完全复用 2026-07-16 视觉规范，不新增红色或黄色主题。
+- `center` 固定追加在现有 0～8 索引之后，位置是当前框体中心。拖动它只替换 ShapeState 的 `center`，保留 `anchor`、`size` 与 `referenceResolution`；多维坐标保留原 center 的额外维度。尾巴边、base 和是否隐藏由新框体位置重新派生，宽度未变时不得重新断行或改高。
 - 框体不得翻转；指针越过固定边时钳制到当前文本最小尺寸。
 - 拖拽发布的 active handle 必须取重新布局后的权威坐标，不能继续显示未经约束的原始指针。
 - EditSession 的 world-wrap 放置和完成不再把全部 handles 送回 `createDraft()`；它只计算统一世界偏移，并通过 `translate` provider 作用于完整 ShapeState。此修订同时解除“编辑 handle 必须等于持久 controlPoints”的旧隐含假设。
@@ -134,9 +167,9 @@ View 的 change 事件只标记待刷新状态，revision 在 Map 的公开 `pre
 ## 8. Transform
 
 - Transform 模式的 presentation 只设置 `canTranslate: true`；`canRotate`、`canScale` 与 `canStretch` 均为 `false`。
-- 默认工具栏展示 Edit 项；`setMode('edit')` 切换到上下文编辑 presentation，设置 `canEditVertices: true`，展示与独立 Edit 相同的 1 个 anchor 和 8 个框体 resize 控制点，并隐藏 Transform 选中框与变换手柄。
+- 默认工具栏展示 Edit 项；`setMode('edit')` 切换到上下文编辑 presentation，设置 `canEditVertices: true`，展示与独立 Edit 相同的 1 个 anchor、8 个框体 resize 控制点和 1 个 center 控制点，并隐藏 Transform 选中框与变换手柄。
 - Edit 模式中的控制点移动必须调用 presentation profile 的 contextual edit provider，沿用自动换行、双向适高、最小尺寸和 active handle 权威坐标规则；退出 Edit 模式后恢复仅平移的 Transform presentation。
-- 整体平移同时移动 `anchor` 与 `center`，保持 CSS px `size` 不变。
+- 整体平移同时移动 `anchor` 与 `center`，保持逻辑 `size`、`referenceResolution` 和 `StyleSpec.callout.sizeMode` 不变；这与 Edit 模式下 center 控制点只移动框体是两项不同语义。
 - Transform 预览和 feature hit 使用完整框体、尾巴与文字；选中框、平移中心、Tooltip 与工具栏锚点使用框体 `selectionGeometry`，不受远端 anchor 或已包含在框内的文字 footprint 扩张。
 - 工具栏根节点以框体视觉右上角为 `top-left` 锚点，默认偏移为 `[15, 0]` CSS px：顶部与外部包络框对齐，水平方向向右留出 15px 间距。
 
@@ -155,10 +188,11 @@ View 的 change 事件只标记待刷新状态，revision 在 Map 的公开 `pre
 
 1. 状态校验、两点自动完成、初始文本尺寸和原始文本不变。
 2. 中英文混排、显式换行、超长 token、窄框自动增高和最小尺寸钳制。
-3. 四边与角部尾巴、anchor 位于框内、View 缩放与旋转后 CSS px 尺寸稳定。
-4. 9 个 role、8 种 resize、anchor 独立移动、undo/redo、world-wrap 和 active handle 权威坐标。
-5. Transform 模式仅平移并隐藏/拒绝 rotate、scale 与 stretch；默认工具栏可切换到复用 9 个上下文控制点的 Edit 模式，并覆盖拖拽、undo/redo 与最终提交。
+3. 四边与角部尾巴、anchor 位于框内、View 缩放与旋转；默认 `'map'` 模式的地图尺度稳定且所有长度量同比，显式 `'screen'` 模式的 CSS px 尺寸稳定。
+4. 10 个 role、8 种 resize、anchor 独立移动、center 只移动框体并保留 anchor/size/referenceResolution、多维坐标、undo/redo、world-wrap 和 active handle 权威坐标。
+5. Transform 模式仅平移并隐藏/拒绝 rotate、scale 与 stretch；默认工具栏可切换到复用 10 个上下文控制点的 Edit 模式，并覆盖 center 拖拽、undo/redo 与最终提交。
 6. 远端 anchor 与长文本不扩大 Transform 框体包络，完整尾巴仍可命中；工具栏固定在框体视觉右上角，顶部对齐并向右偏移 15 CSS px。
-7. 连续 View 动画与交互期间框体保持 CSS 像素尺寸，文字始终留在边界内。
-8. 顶层边框/填充、中心 Point 文本、Feature extent、hit detection 与生命周期清理。
-9. Shape/Draw/Edit/Transform/Style/Element 文档、可运行示例、公共 API 表和迁移说明同步更新。
+7. `referenceResolution` 的新增、更新保留、复制、快照、序列化、旧输入物化与非法 resolution 拒绝；Draw 的预览、事件和提交共享同一基准值。
+8. 连续 View 动画与交互期间不启用业务 VectorLayer 持续刷新，companion 文字及时隐藏，稳定后只按最终 revision 重排并恢复一次；地图缩放前后文字始终留在边界内。
+9. 顶层边框/填充、同比 stroke 与 padding、中心 Point 文本、Feature extent、hit detection、混合 `'map'` / `'screen'` Callout 与生命周期清理。
+10. Shape/Draw/Edit/Transform/Style/Element 文档、可运行示例、公共 API 表和迁移说明同步更新。

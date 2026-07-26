@@ -103,7 +103,8 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
         </el-alert>
         <el-alert type="info" :closable="false" show-icon title="Callout 固定使用两次点击">
           第一次点击保存尾巴 <code>anchor</code>，第二次点击保存文本框 <code>center</code> 并自动完成。框体初始宽高由
-          <code>style.text.text</code>、字体、padding 与 <code>text.maxWidth</code> 计算；原始文字不会被换行结果覆盖。
+          <code>style.text.text</code>、字体、padding 与 <code>text.maxWidth</code> 计算；原始文字不会被换行结果覆盖。首次形成完整草稿时会从当前 View 自动捕获
+          <code>referenceResolution</code>，同一草稿的预览、撤销重做和提交始终复用它，调用方通常无需传入。
         </el-alert>
       </section>
 
@@ -157,7 +158,9 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
               的完整流程。启动前可切换 <code>limit</code> 的 0 / 1 / 3 三档和 <code>keepGraphics</code>，状态区会并列显示同步
               <code>complete</code> 次数、句柄观测、<code>results</code> 与 <code>query()</code>；展开的代码与正在运行的组件来自同一文件。
               选择“文本标注框”即可实测 <code>anchor + center</code> 两点 Draw，示例同时提供顶层 <code>fill</code>/<code>strokes</code> 和
-              <code>text.maxWidth</code> 自动换行样式。
+              <code>text.maxWidth</code> 自动换行样式。示例省略
+              <ApiReference kind="property" to="/api/types#api-type-style-spec-property-callout">StyleSpec.callout</ApiReference>，因此使用默认
+              <code>sizeMode: 'map'</code>，完整 Callout 会随地图缩放；固定屏幕尺寸可显式设置 <code>'screen'</code>。
             </p>
           </template>
           <template #preview><DrawSessionDemo ref="drawSessionDemoRef" /></template>

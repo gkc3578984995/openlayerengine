@@ -902,7 +902,7 @@ describe('EditInteractionAdapter', () => {
       [0, 0]
     ];
     handle.render({
-      geometry: { type: 'polygon', coordinates: [firstRing], label: { coordinate: [4, 4], text: 'first' } },
+      geometry: { type: 'polygon', coordinates: [firstRing], label: { coordinate: [4, 4], text: 'first', visualScale: 2 } },
       style,
       anchors: [{ kind: 'control', index: 0, coordinate: [0, 0], removable: false }]
     });
@@ -914,7 +914,7 @@ describe('EditInteractionAdapter', () => {
       [0, 0]
     ];
     handle.render({
-      geometry: { type: 'polygon', coordinates: [movedRing], label: { coordinate: [5, 4], text: 'moved' } },
+      geometry: { type: 'polygon', coordinates: [movedRing], label: { coordinate: [5, 4], text: 'moved', visualScale: 0.5 } },
       style,
       anchors: [{ kind: 'control', index: 1, coordinate: [10, 1], removable: true }]
     });
@@ -933,7 +933,11 @@ describe('EditInteractionAdapter', () => {
       ]
     ]);
     expect(polygon).toBeInstanceOf(PresentedPolygonGeometry);
-    expect((polygon as PresentedPolygonGeometry | undefined)?.getPresentationLabel()).toEqual({ coordinate: [50 * 360 + 5, 4], text: 'moved' });
+    expect((polygon as PresentedPolygonGeometry | undefined)?.getPresentationLabel()).toEqual({
+      coordinate: [50 * 360 + 5, 4],
+      text: 'moved',
+      visualScale: 0.5
+    });
     expect(movedRing).toEqual([
       [0, 0],
       [10, 1],

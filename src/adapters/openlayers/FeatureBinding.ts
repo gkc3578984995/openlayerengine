@@ -161,8 +161,9 @@ export class FeatureBinding {
     const feature = new Feature<Geometry>();
     try {
       const geometry = this.#geometry.project(feature, state.geometry, state.style);
-      if (geometry instanceof PresentedPolygonGeometry && geometry.getPresentationLabel() !== undefined && !isNativeStyleRef(state.style)) {
-        void this.#styles.compilePresentationLabelParts(state.style);
+      const label = geometry instanceof PresentedPolygonGeometry ? geometry.getPresentationLabel() : undefined;
+      if (label !== undefined && !isNativeStyleRef(state.style)) {
+        void this.#styles.compilePresentationLabelParts(state.style, label.visualScale ?? 1);
       } else {
         void this.#styles.compile(state.style);
       }
@@ -605,8 +606,9 @@ export class FeatureBinding {
       try {
         binding.feature.setId(change.after.id);
         const geometry = this.#geometry.project(binding.feature, change.after.geometry, change.after.style);
-        const hasPresentationLabel = this.#projectPresentationLabel(binding, geometry, change.id);
-        this.#projectStyle(binding, change.after.style, hasPresentationLabel);
+        const presentationVisualScale = this.#projectPresentationLabel(binding, geometry, change.id);
+        const hasPresentationLabel = presentationVisualScale !== undefined;
+        this.#projectStyle(binding, change.after.style, presentationVisualScale);
         binding.layerId = change.after.layerId;
         binding.visible = change.after.visible;
         for (const source of sources) {
@@ -649,15 +651,15 @@ export class FeatureBinding {
   }
 
   /** 把显式定位文字复制到伴随 Feature，并从规范框体 Geometry 移除重复文字。 */
-  #projectPresentationLabel(binding: BindingRecord, geometry: Geometry, id: string): boolean {
+  #projectPresentationLabel(binding: BindingRecord, geometry: Geometry, id: string): number | undefined {
     if (!(geometry instanceof PresentedPolygonGeometry)) {
       binding.hasPresentationLabel = false;
-      return false;
+      return undefined;
     }
     const label = geometry.getPresentationLabel();
     if (label === undefined) {
       binding.hasPresentationLabel = false;
-      return false;
+      return undefined;
     }
 
     const feature = this.#ensurePresentationLabelFeature(binding, id);
@@ -670,7 +672,7 @@ export class FeatureBinding {
     }
     geometry.setPresentationLabel(undefined);
     binding.hasPresentationLabel = true;
-    return true;
+    return label.visualScale ?? 1;
   }
 
   /** 首次遇到显式文字时才分配内部 Feature。 */
@@ -698,10 +700,10 @@ export class FeatureBinding {
   }
 
   /** 保存最新业务样式，并在租约期间更新透明代理而不替换稳定 StyleFunction。 */
-  #projectStyle(binding: BindingRecord, style: ElementStyleState, hasPresentationLabel: boolean): void {
+  #projectStyle(binding: BindingRecord, style: ElementStyleState, presentationVisualScale: number | undefined): void {
     const structured = !isNativeStyleRef(style);
-    if (structured && hasPresentationLabel) {
-      const compiled = this.#styles.compilePresentationLabelParts(style as StyleSpec);
+    if (structured && presentationVisualScale !== undefined) {
+      const compiled = this.#styles.compilePresentationLabelParts(style as StyleSpec, presentationVisualScale);
       binding.canonicalStyle = compiled.base;
       binding.presentationLabelStyle = compiled.label;
     } else {

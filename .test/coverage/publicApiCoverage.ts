@@ -84,6 +84,8 @@ const typeGroups = {
   ],
   'styles-shapes': [
     'ArrowDecorationSpec',
+    'CalloutSizeMode',
+    'CalloutStyleSpec',
     'CircleSymbolSpec',
     'Color',
     'DecorationOnlyLineType',
@@ -338,7 +340,7 @@ const memberCoverage: CoverageItem[] = [
   ...members('elements', 'ElementProtectionUpdate', ['protected', 'operatorId', 'operatorName', 'revision', 'expiresAt']),
   ...members('elements', 'ElementProtectionState', ['elementId', 'protected', 'operatorId', 'operatorName', 'revision', 'expiresAt']),
   ...members('elements', 'ElementState', ['id', 'type', 'geometry', 'style', 'data', 'module', 'layerId', 'visible']),
-  ...members('elements', 'ShapeInput', ['type', 'controlPoints', 'center', 'radius', 'anchor', 'size']),
+  ...members('elements', 'ShapeInput', ['type', 'controlPoints', 'center', 'radius', 'anchor', 'size', 'referenceResolution']),
 
   ...members(
     'styles-shapes',
@@ -368,9 +370,11 @@ const memberCoverage: CoverageItem[] = [
     ],
     '可视'
   ),
-  ...members('styles-shapes', 'ShapeState', ['type', 'controlPoints', 'center', 'radius', 'anchor', 'size']),
+  ...members('styles-shapes', 'ShapeState', ['type', 'controlPoints', 'center', 'radius', 'anchor', 'size', 'referenceResolution']),
   ...members('styles-shapes', 'StyleService', ['set', 'patch']),
-  ...members('styles-shapes', 'StyleSpec', ['symbol', 'strokes', 'fill', 'text', 'decorations', 'linework', 'zIndex']),
+  ...members('styles-shapes', 'StyleSpec', ['symbol', 'strokes', 'fill', 'text', 'callout', 'decorations', 'linework', 'zIndex']),
+  ...members('styles-shapes', 'CalloutStyleSpec', ['sizeMode']),
+  ...members('styles-shapes', 'CalloutSizeMode', ['map', 'screen'], '可视'),
   ...members('styles-shapes', 'StrokeSpec', ['color', 'width', 'lineDash', 'lineDashOffset', 'lineCap', 'lineJoin', 'miterLimit', 'fitPatternOnce']),
   ...members('styles-shapes', 'PatternFillSpec', [
     'type',
@@ -521,7 +525,7 @@ const memberCoverage: CoverageItem[] = [
   ...members('styles-shapes', 'PolygonLineStyleOptions', ['color', 'tracks', 'casing', 'decoration']),
   ...members('styles-shapes', 'LineStyleFactories', ['polyline', 'polygon'], '可视'),
   ...members('styles-shapes', 'lineStyles', ['polyline', 'polygon'], '可视'),
-  ...members('styles-shapes', 'StylePatch', ['symbol', 'strokes', 'fill', 'text', 'decorations', 'linework', 'zIndex']),
+  ...members('styles-shapes', 'StylePatch', ['symbol', 'strokes', 'fill', 'text', 'callout', 'decorations', 'linework', 'zIndex']),
   ...members('styles-shapes', 'StyleInput', ['structured', 'nativeStyle=Style', 'nativeStyle=Style[]', 'nativeStyle=StyleFunction'], '透传'),
   ...members(
     'styles-shapes',

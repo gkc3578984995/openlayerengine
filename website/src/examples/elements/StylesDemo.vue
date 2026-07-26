@@ -5,7 +5,7 @@ import Fill from 'ol/style/Fill.js';
 import Stroke from 'ol/style/Stroke.js';
 import Style from 'ol/style/Style.js';
 import { UnsupportedOperationError, stylePresets, useEarth } from '@vrsim/earth-engine-ol';
-import type { Coordinate, Earth, ShapeInput, StylePatch, StylePresetName } from '@vrsim/earth-engine-ol';
+import type { CalloutSizeMode, Coordinate, Earth, ShapeInput, StylePatch, StylePresetName } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 import { createConfiguredLayer } from '../../config/mapSources';
 
@@ -32,6 +32,7 @@ const previewCenter = shallowRef<Coordinate | null>(null);
 const presetName = ref<StylePresetName>('point-default');
 const previewKind = ref<'preset' | 'callout'>('preset');
 const calloutMaxWidth = ref(190);
+const calloutSizeMode = ref<CalloutSizeMode>('map');
 const accentColor = ref<string | null>('#f56c6c');
 const currentAction = ref<'set' | 'patch' | 'callout' | 'native' | 'native-patch'>('set');
 const styleMode = ref<'structured' | 'native'>('structured');
@@ -124,6 +125,7 @@ const applyCalloutExample = () => {
       size: [calloutMaxWidth.value + 36, 68]
     },
     style: {
+      callout: { sizeMode: calloutSizeMode.value },
       strokes: [{ color: '#be123c', width: 3, lineJoin: 'round' }],
       fill: { type: 'solid', color: 'rgba(255, 241, 242, 0.96)' },
       text: {
@@ -139,8 +141,24 @@ const applyCalloutExample = () => {
   currentAction.value = 'callout';
   styleMode.value = 'structured';
   nativePatchResult.value = 'idle';
-  feedback.value = `已应用 Callout：内容最大宽度 ${calloutMaxWidth.value}px；顶层 fill / strokes 绘制框体和尾巴，text 绘制居中文字。`;
+  feedback.value = `已应用 Callout：sizeMode=${calloutSizeMode.value}，内容最大宽度 ${calloutMaxWidth.value}px；缩放地图可观察尺寸模式。`;
   focusPreview();
+};
+
+const patchCalloutSizeMode = () => {
+  const earth = earthRef.value;
+  if (earth === null) return;
+  if (previewKind.value !== 'callout') {
+    applyCalloutExample();
+    return;
+  }
+
+  earth.styles.patch({ id: PREVIEW_ID }, { callout: { sizeMode: calloutSizeMode.value } });
+  currentAction.value = 'patch';
+  feedback.value =
+    calloutSizeMode.value === 'map'
+      ? '已切换为默认 map：完整 Callout 随地图同比缩放；size 与 referenceResolution 保持不变。'
+      : '已切换为 screen：完整 Callout 固定屏幕尺寸；size 与 referenceResolution 保持不变。';
 };
 // #endregion callout-style
 
@@ -281,6 +299,12 @@ onBeforeUnmount(() => {
             <el-form-item label="text.maxWidth · CSS px">
               <el-slider v-model="calloutMaxWidth" :min="100" :max="260" :step="10" show-input />
             </el-form-item>
+            <el-form-item label="callout.sizeMode">
+              <el-radio-group v-model="calloutSizeMode" @change="patchCalloutSizeMode">
+                <el-radio-button value="map">map（默认）</el-radio-button>
+                <el-radio-button value="screen">screen</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
             <div class="example-demo__action-buttons">
               <el-button type="primary" plain @click="applyCalloutExample">应用 Callout 示例</el-button>
             </div>
@@ -327,7 +351,7 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="styles.set()">用选中的 <code>StyleSpec</code> 完整替换当前样式。</el-descriptions-item>
       <el-descriptions-item label="styles.patch()">只合并颜色等局部字段，未提供的字段继续保留。</el-descriptions-item>
       <el-descriptions-item label="Callout"
-        >顶层 <code>fill / strokes</code> 绘制框体与尾巴；<code>text.maxWidth</code> 参与两点 Draw 初始尺寸。</el-descriptions-item
+        >顶层 <code>fill / strokes</code> 绘制框体与尾巴；<code>callout.sizeMode</code> 在默认地图缩放与固定屏幕尺寸之间切换。</el-descriptions-item
       >
       <el-descriptions-item label="{ nativeStyle }">通过 <code>styles.set()</code> 正向注册 OpenLayers Style。</el-descriptions-item>
       <el-descriptions-item label="失败原子性">原生样式上的结构化 patch 抛错，且保留原 <code>NativeStyleRef</code>。</el-descriptions-item>

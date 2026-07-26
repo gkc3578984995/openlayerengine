@@ -40,6 +40,8 @@ export const publicApiManifest = {
     'AnimationType',
     'ArrowDecorationSpec',
     'BlinkAnimationSpec',
+    'CalloutSizeMode',
+    'CalloutStyleSpec',
     'CenterSpreadAnimationSpec',
     'CircleSymbolSpec',
     'Color',

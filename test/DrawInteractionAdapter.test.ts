@@ -500,7 +500,7 @@ describe('DrawInteractionAdapter', () => {
             [175 + farWorldOffset, 2]
           ]
         ],
-        label: { coordinate: [180 + farWorldOffset, 5], text: 'wrapped' }
+        label: { coordinate: [180 + farWorldOffset, 5], text: 'wrapped', visualScale: 2 }
       },
       style
     });
@@ -519,7 +519,7 @@ describe('DrawInteractionAdapter', () => {
       ]
     ]);
     expect(wrappedPolygon).toBeInstanceOf(PresentedPolygonGeometry);
-    expect((wrappedPolygon as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [180, 5], text: 'wrapped' });
+    expect((wrappedPolygon as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [180, 5], text: 'wrapped', visualScale: 2 });
 
     wrappedHandle.render({ geometry: { type: 'circle', center: [12 + farWorldOffset, 3], radius: 4 }, style });
     const circle = wrappedSource.getFeatures()[0].getGeometry() as Circle;

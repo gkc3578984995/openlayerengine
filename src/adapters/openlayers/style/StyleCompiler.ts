@@ -12,7 +12,7 @@ import type { NativeRefRegistry } from '../NativeRefRegistry.js';
 import { presentationLabel } from '../PresentedPolygonGeometry.js';
 import { cloneCoreState } from '../../../core/common/clone.js';
 import type { Color } from '../../../core/common/types.js';
-import { ObjectDisposedError } from '../../../core/errors.js';
+import { InvalidArgumentError, ObjectDisposedError } from '../../../core/errors.js';
 import type { LayerRenderPathReveal } from '../../../core/ports/LayerRenderPort.js';
 import { isNativeStyleRef, type ArrowDecorationSpec, type IconSymbolSpec, type StrokeSpec, type StyleSpec, type TextSpec } from '../../../core/style/types.js';
 import { assertStructuredStyleSpec } from '../../../services/style/StyleService.js';
@@ -156,17 +156,18 @@ export class StyleCompiler {
   }
 
   /** 把显式 presentation label 拆到独立样式，供绑定层分别投影框体与文字。 */
-  compilePresentationLabelParts(style: StyleSpec): Readonly<{ readonly base: StyleLike; readonly label: StyleLike }> {
+  compilePresentationLabelParts(style: StyleSpec, visualScale = 1): Readonly<{ readonly base: StyleLike; readonly label: StyleLike }> {
     const spec = cloneCoreState(style);
     assertStructuredStyleSpec(spec);
+    const scale = requireVisualScale(visualScale);
     return Object.freeze({
-      base: this.#compileStructuredStyle(spec, 'base'),
-      label: this.#compileStructuredStyle(spec, 'label')
+      base: this.#compileStructuredStyle(spec, 'base', scale),
+      label: this.#compileStructuredStyle(spec, 'label', scale)
     });
   }
 
   /** 按指定分区建立结构化样式函数，同时保持原有上下文依赖与缓存语义。 */
-  #compileStructuredStyle(spec: StyleSpec, partition: StructuredStylePartition): StyleLike {
+  #compileStructuredStyle(spec: StyleSpec, partition: StructuredStylePartition, fixedVisualScale?: number): StyleLike {
     const needsFitPaths =
       spec.strokes?.some((stroke) => stroke.fitPatternOnce === true && stroke.lineDash !== undefined && stroke.lineDash.length > 0) ?? false;
     const needsDecorations = (spec.decorations?.length ?? 0) > 0;
@@ -196,7 +197,8 @@ export class StyleCompiler {
         needsDecorations,
         true,
         context.viewport,
-        partition
+        partition,
+        fixedVisualScale
       );
       if (context.cacheable) {
         const entry: CacheEntry = {
@@ -292,12 +294,14 @@ export class StyleCompiler {
     needsDecorations: boolean,
     includeLinework = true,
     viewport?: PathViewport,
-    partition: StructuredStylePartition = 'complete'
+    partition: StructuredStylePartition = 'complete',
+    fixedVisualScale?: number
   ): Style[] {
     const includeBase = partition !== 'label';
     const includeLabel = partition !== 'base';
     const extracted = includeBase && (needsFitPaths || needsDecorations) ? extractGeometryPaths(geometry) : undefined;
     const explicitLabel = presentationLabel(geometry);
+    const visualScale = fixedVisualScale ?? explicitLabel?.visualScale;
     const fitPaths = needsFitPaths ? (extracted?.paths ?? []) : [];
     const inheritedColor = lastExplicitStrokeColor(spec.strokes);
     const strokes = spec.strokes ?? [];
@@ -308,7 +312,7 @@ export class StyleCompiler {
         const foreground = index === strokes.length - 1;
         styles.push(
           new Style({
-            stroke: compileStroke(strokes[index], fitPaths, resolution),
+            stroke: compileStroke(strokes[index], fitPaths, resolution, visualScale),
             ...(foreground && spec.fill !== undefined ? { fill: compileFill(spec.fill, inheritedColor, this.#createCanvasContext) } : {}),
             ...(foreground && spec.symbol !== undefined ? { image: compileSymbol(spec.symbol, inheritedColor, viewRotation, this.#createCanvasContext) } : {}),
             ...(partition === 'complete' && foreground && spec.text !== undefined && explicitLabel === undefined
@@ -341,7 +345,7 @@ export class StyleCompiler {
       styles.push(
         new Style({
           geometry: new Point([...explicitLabel.coordinate]),
-          text: compileText(calloutTextSpec(spec.text, explicitLabel.text), inheritedColor, 0, this.#createCanvasContext),
+          text: compileText(calloutTextSpec(spec.text, explicitLabel.text), inheritedColor, 0, this.#createCanvasContext, visualScale),
           ...(spec.zIndex === undefined ? {} : { zIndex: spec.zIndex })
         })
       );
@@ -456,13 +460,14 @@ function transparentClone(source: Style, cache: WeakMap<Style, Style>): Style {
 }
 
 /** 编译单层线样式。 */
-function compileStroke(spec: StrokeSpec, paths: readonly Coordinate2[][], resolution: number): Stroke {
-  const lineDash = spec.fitPatternOnce ? fitDashPattern(spec.lineDash, paths, resolution) : copyNumbers(spec.lineDash);
+function compileStroke(spec: StrokeSpec, paths: readonly Coordinate2[][], resolution: number, visualScale?: number): Stroke {
+  const scale = visualScale ?? 1;
+  const lineDash = spec.fitPatternOnce ? fitDashPattern(spec.lineDash, paths, resolution) : scaleNumbers(spec.lineDash, scale);
   return new Stroke({
     ...(spec.color === undefined ? {} : { color: copyColor(spec.color) }),
-    ...(spec.width === undefined ? {} : { width: spec.width }),
+    ...(visualScale === undefined && spec.width === undefined ? {} : { width: (spec.width ?? 1) * scale }),
     ...(lineDash === undefined ? {} : { lineDash }),
-    ...(spec.lineDashOffset === undefined ? {} : { lineDashOffset: spec.lineDashOffset }),
+    ...(spec.lineDashOffset === undefined ? {} : { lineDashOffset: spec.lineDashOffset * scale }),
     ...(spec.lineCap === undefined ? {} : { lineCap: spec.lineCap }),
     ...(spec.lineJoin === undefined ? {} : { lineJoin: spec.lineJoin }),
     ...(spec.miterLimit === undefined ? {} : { miterLimit: spec.miterLimit })
@@ -516,9 +521,17 @@ function compileIcon(spec: IconSymbolSpec, viewRotation: number, additionalRotat
 }
 
 /** 编译文本及其前景、背景样式。 */
-function compileText(spec: TextSpec, inheritedColor: Color | undefined, viewRotation: number, createCanvasContext: PatternCanvasFactory | undefined): Text {
+function compileText(
+  spec: TextSpec,
+  inheritedColor: Color | undefined,
+  viewRotation: number,
+  createCanvasContext: PatternCanvasFactory | undefined,
+  visualScale?: number
+): Text {
   const rotation = degreesToRadians(spec.rotation ?? 0);
   const offset = compensateOffset([spec.offsetX ?? 0, spec.offsetY ?? 0], rotation + (spec.rotateWithView ? viewRotation : 0));
+  const textScale = visualScale === undefined ? (spec.scale === undefined ? undefined : copyScale(spec.scale)) : scaleText(spec.scale, visualScale);
+  const padding = visualScale === undefined ? copyNumbers(spec.padding) : scaleNumbers(spec.padding, visualScale);
   return new Text({
     text: spec.text,
     ...(composeFont(spec) === undefined ? {} : { font: composeFont(spec) }),
@@ -528,10 +541,10 @@ function compileText(spec: TextSpec, inheritedColor: Color | undefined, viewRota
       ? {}
       : { backgroundFill: compileFill(spec.backgroundFill, spec.backgroundStroke?.color ?? inheritedColor, createCanvasContext) }),
     ...(spec.backgroundStroke === undefined ? {} : { backgroundStroke: compileStroke(spec.backgroundStroke, [], 1) }),
-    ...(spec.padding === undefined ? {} : { padding: [...spec.padding] }),
+    ...(padding === undefined ? {} : { padding }),
     offsetX: offset[0],
     offsetY: -offset[1],
-    ...(spec.scale === undefined ? {} : { scale: copyScale(spec.scale) }),
+    ...(textScale === undefined ? {} : { scale: textScale }),
     ...(spec.textAlign === undefined ? {} : { textAlign: spec.textAlign }),
     ...(spec.textBaseline === undefined ? {} : { textBaseline: spec.textBaseline }),
     rotation,
@@ -614,7 +627,7 @@ function presentationLabelStyleSlot(baseStyles: readonly Style[]): PresentationL
 }
 
 /** 同步本帧显式文字坐标与自动换行结果，同时保持 OL Style 身份稳定。 */
-function updatePresentationLabelStyle(slot: PresentationLabelStyleSlot | undefined, geometry: object | undefined): void {
+function updatePresentationLabelStyle(slot: PresentationLabelStyleSlot | undefined, geometry: object | undefined, spec: TextSpec | undefined): void {
   if (slot === undefined) return;
   const label = presentationLabel(geometry);
   if (label === undefined) return;
@@ -623,7 +636,11 @@ function updatePresentationLabelStyle(slot: PresentationLabelStyleSlot | undefin
     slot.geometry.setCoordinates([...label.coordinate]);
   }
   const text = slot.style.getText();
-  if (text !== null && text.getText() !== label.text) text.setText(label.text);
+  if (text === null) return;
+  if (text.getText() !== label.text) text.setText(label.text);
+  const visualScale = label.visualScale ?? 1;
+  text.setScale(scaleText(spec?.scale, visualScale));
+  text.setPadding(spec?.padding === undefined ? null : (scaleNumbers(spec.padding, visualScale) ?? null));
 }
 
 /** 用当前有效路径更新预分配 Decoration slot，不创建新的 OL 对象。 */
@@ -654,8 +671,13 @@ function updatePresentationPool(
 ): void {
   const extracted = needsFitPaths || pool.decorations.length > 0 ? extractGeometryPaths(geometry) : undefined;
   const paths = extracted?.paths ?? [];
-  if (needsFitPaths) updateFitPatternStyles(pool.baseStyles, spec.strokes, paths, resolution);
-  updatePresentationLabelStyle(pool.label, geometry);
+  const label = presentationLabel(geometry);
+  if (label === undefined) {
+    if (needsFitPaths) updateFitPatternStyles(pool.baseStyles, spec.strokes, paths, resolution);
+  } else {
+    updatePresentationStrokeStyles(pool.baseStyles, spec.strokes, paths, resolution, label.visualScale ?? 1);
+  }
+  updatePresentationLabelStyle(pool.label, geometry, spec.text);
 
   const active = pool.activeStyles;
   active.length = pool.baseStyles.length;
@@ -672,6 +694,25 @@ function updatePresentationPool(
       updateDecorationStyleSlot(slot, decorationPool.decoration, arrows[index], viewRotation);
       active.push(slot.style);
     }
+  }
+}
+
+/** Callout 动画帧只更新现有 Stroke 的长度量，保持 Style 池身份稳定。 */
+function updatePresentationStrokeStyles(
+  styles: readonly Style[],
+  strokes: readonly StrokeSpec[] | undefined,
+  paths: readonly Coordinate2[][],
+  resolution: number,
+  visualScale: number
+): void {
+  if (strokes === undefined) return;
+  for (let index = 0; index < strokes.length; index += 1) {
+    const spec = strokes[index];
+    const stroke = styles[index]?.getStroke();
+    if (stroke === null || stroke === undefined) continue;
+    stroke.setWidth((spec.width ?? 1) * visualScale);
+    stroke.setLineDash((spec.fitPatternOnce ? fitDashPattern(spec.lineDash, paths, resolution) : scaleNumbers(spec.lineDash, visualScale)) ?? null);
+    stroke.setLineDashOffset(spec.lineDashOffset === undefined ? undefined : spec.lineDashOffset * visualScale);
   }
 }
 
@@ -1012,8 +1053,22 @@ function copyNumbers(numbers: readonly number[] | undefined): number[] | undefin
   return numbers === undefined ? undefined : [...numbers];
 }
 
+function scaleNumbers(numbers: readonly number[] | undefined, scale: number): number[] | undefined {
+  return numbers === undefined ? undefined : numbers.map((value) => value * scale);
+}
+
 function copyScale(scale: number | readonly [number, number]): number | [number, number] {
   return typeof scale === 'number' ? scale : [...scale];
+}
+
+function scaleText(scale: TextSpec['scale'] | undefined, visualScale: number): number | [number, number] {
+  if (scale === undefined) return visualScale;
+  return typeof scale === 'number' ? scale * visualScale : [scale[0] * visualScale, scale[1] * visualScale];
+}
+
+function requireVisualScale(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) throw new InvalidArgumentError('Presentation label visualScale must be a positive finite number');
+  return value;
 }
 
 function degreesToRadians(degrees: number): number {

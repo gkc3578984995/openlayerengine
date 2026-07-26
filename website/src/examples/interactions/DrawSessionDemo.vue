@@ -310,7 +310,7 @@ onBeforeUnmount(() => {
       type="info"
       :closable="false"
       show-icon
-      title="全部公开 Shape 共用同一个 earth.draw.start()；Callout 以 anchor + center 两点绘制，并从最终文字样式自动计算初始尺寸。"
+      title="全部公开 Shape 共用同一个 earth.draw.start()；Callout 以 anchor + center 两点绘制，自动计算尺寸与 referenceResolution，并默认随地图缩放。"
     />
 
     <el-tabs v-model="selectedCategory" class="draw-session-demo__catalog-tabs">

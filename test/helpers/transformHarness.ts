@@ -347,10 +347,11 @@ export function addElement<T = unknown>(
   const definition = harness.shapes.get(type);
   const draft = definition.createDraft(points);
   if (draft === undefined) throw new Error(`Incomplete representative geometry: ${type}`);
-  const completion = definition.tryComplete(draft as never);
+  const materialized = harness.shapePresentation.materialize(definition, draft);
+  const presented = harness.shapePresentation.present(definition, materialized, style).state;
+  const completion = definition.tryComplete(presented as never);
   if (completion.status !== 'complete') throw new Error(`Incomplete representative geometry: ${type}`);
-  const geometry =
-    completion.state.type === 'callout' ? testShapePresentation.present(definition, completion.state, style).state : (completion.state as ShapeState);
+  const geometry = completion.state as ShapeState;
   return harness.store.add<T>({
     id,
     type,

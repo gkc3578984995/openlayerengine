@@ -39,7 +39,7 @@ const supportRows = interactionTargetExamples.map((target) => ({
 
 const controlPointCount = (geometry: ShapeState) => {
   if (geometry.type === 'circle') return 2;
-  if (geometry.type === 'callout') return 9;
+  if (geometry.type === 'callout') return 10;
   return geometry.controlPoints.length;
 };
 
@@ -215,7 +215,7 @@ onBeforeUnmount(() => {
       type="info"
       :closable="false"
       show-icon
-      title="Callout 使用 1 个 anchor + 8 个框体缩放点；颜色、尺寸、hover 与 active 状态复用统一 Edit 控制点规范。"
+      title="Callout 使用 1 个 anchor + 8 个框体缩放点 + 1 个 center；颜色、尺寸、hover 与 active 状态复用统一 Edit 控制点规范。"
     />
 
     <div class="edit-session-demo__catalog" aria-label="Edit 目标目录">
@@ -237,7 +237,7 @@ onBeforeUnmount(() => {
     <el-descriptions class="edit-session-demo__target-detail" :column="2" border>
       <el-descriptions-item label="当前目标">{{ selectedTarget.label }}</el-descriptions-item>
       <el-descriptions-item label="ShapeType">{{ selectedTarget.type }}</el-descriptions-item>
-      <el-descriptions-item label="移动控制点">{{ selectedTargetId === 'callout' ? '1 个 anchor + 8 个 resize' : '支持' }}</el-descriptions-item>
+      <el-descriptions-item label="移动控制点">{{ selectedTargetId === 'callout' ? '1 个 anchor + 8 个 resize + 1 个 center' : '支持' }}</el-descriptions-item>
       <el-descriptions-item label="插入 / 删除">
         {{ selectedTarget.edit.insert ? '支持 Alt + 单击插入 / 删除' : '— 不支持，只有固定控制点' }}
       </el-descriptions-item>
@@ -285,7 +285,7 @@ onBeforeUnmount(() => {
       <div class="edit-session-demo__map-guide">
         {{
           selectedTargetId === 'callout'
-            ? '拖拽 anchor 改变指向；左右中点改宽并自动适高，上下与四角保留高度控制'
+            ? '拖拽 anchor 改变指向；拖拽 center 只移动框体；左右中点改宽并自动适高'
             : '先点“开始编辑当前目标”，再拖拽地图上的蓝色控制点'
         }}
       </div>

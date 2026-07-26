@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
-import { testShapePresentation } from './helpers/shapePresentation.js';
+import { createTestShapePresentation, testShapePresentation } from './helpers/shapePresentation.js';
 import type {
   DrawInteractionEvent,
   DrawInteractionHandle,
@@ -9,6 +9,7 @@ import type {
   DrawInteractionSpec
 } from '../src/core/ports/DrawInteractionPort.js';
 import type { EditInteractionPort } from '../src/core/ports/EditInteractionPort.js';
+import type { ShapePresentationPort } from '../src/core/ports/ShapePresentationPort.js';
 import type { HorizontalWorld } from '../src/core/common/worldWrap.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import { InteractionConflictError, InvalidArgumentError } from '../src/core/errors.js';
@@ -90,7 +91,11 @@ class FakeKeyboardInput {
   }
 }
 
-function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[] = [...basicShapeDefinitions, ...plotShapeDefinitions]) {
+function setup(
+  input?: FakeKeyboardInput,
+  definitions: readonly ShapeDefinition[] = [...basicShapeDefinitions, ...plotShapeDefinitions],
+  shapePresentation: ShapePresentationPort = testShapePresentation
+) {
   const shapes = new ShapeRegistry(definitions);
   const store = new ElementStore(shapes);
   const port = new FakeDrawPort();
@@ -103,7 +108,7 @@ function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[
     store,
     shapes,
     shapeProjection: identityShapeProjection,
-    shapePresentation: testShapePresentation,
+    shapePresentation,
     styles: new StyleService(store),
     coordinator,
     drawPort: port,
@@ -300,9 +305,71 @@ describe('DrawSession', () => {
     expect(geometry.center).toEqual([100, 80]);
     expect(geometry.size[0]).toBeGreaterThan(0);
     expect(geometry.size[1]).toBeGreaterThan(0);
+    expect(geometry.referenceResolution).toBe(1);
     expect(store.get(session.results[0].id)?.style).toEqual(calloutStyle);
     expect(calloutStyle.text.text).toBe('测试 Callout 自动换行');
     await expect(session.finished).resolves.toEqual(session.results);
+  });
+
+  it('captures one Callout resolution per draft and preserves it across pointer moves and undo/redo', () => {
+    let resolution = 4;
+    const presentation = createTestShapePresentation(() => resolution);
+    const { port, service } = setup(undefined, [...basicShapeDefinitions, ...plotShapeDefinitions], presentation);
+    const session = service.start({
+      type: 'callout',
+      layerId: 'draw-layer',
+      style: { strokes: [{ width: 2 }], text: { text: '基准分辨率', padding: [4, 8, 4, 8] } },
+      limit: 2
+    });
+
+    port.emit({ type: 'click', coordinate: [0, 0] });
+    port.emit({ type: 'move', coordinate: [20, 10] });
+    expect(port.previews.at(-1)?.geometry.type).toBe('polygon');
+    if (port.previews.at(-1)?.geometry.type === 'polygon') {
+      expect(port.previews.at(-1)?.geometry.label?.visualScale).toBe(1);
+    }
+
+    resolution = 2;
+    port.emit({ type: 'move', coordinate: [25, 12] });
+    if (port.previews.at(-1)?.geometry.type === 'polygon') {
+      expect(port.previews.at(-1)?.geometry.label?.visualScale).toBe(2);
+    }
+    expect(session.undo()).toBe(true);
+    expect(session.redo()).toBe(true);
+    resolution = 1;
+    port.emit({ type: 'move', coordinate: [30, 15] });
+    port.emit({ type: 'click', coordinate: [30, 15] });
+    expect(session.results[0]?.geometry).toMatchObject({ type: 'callout', referenceResolution: 4 });
+
+    resolution = 2;
+    port.emit({ type: 'click', coordinate: [100, 100] });
+    port.emit({ type: 'move', coordinate: [120, 110] });
+    port.emit({ type: 'click', coordinate: [120, 110] });
+    expect(session.results[1]?.geometry).toMatchObject({ type: 'callout', referenceResolution: 2 });
+    expect(session.status).toBe('finished');
+  });
+
+  it('captures a new Callout resolution after undoing to an empty draft and choosing a new anchor', () => {
+    let resolution = 4;
+    const presentation = createTestShapePresentation(() => resolution);
+    const { port, service } = setup(undefined, [...basicShapeDefinitions, ...plotShapeDefinitions], presentation);
+    const session = service.start({
+      type: 'callout',
+      layerId: 'draw-layer',
+      style: { text: { text: '重新选择定位点' } },
+      limit: 1
+    });
+
+    port.emit({ type: 'click', coordinate: [0, 0] });
+    port.emit({ type: 'move', coordinate: [20, 10] });
+    expect(session.undo()).toBe(true);
+
+    resolution = 2;
+    port.emit({ type: 'click', coordinate: [100, 100] });
+    port.emit({ type: 'move', coordinate: [120, 110] });
+    port.emit({ type: 'click', coordinate: [120, 110] });
+
+    expect(session.results[0]?.geometry).toMatchObject({ type: 'callout', referenceResolution: 2 });
   });
 
   it('keeps fixed shapes continuous until a positive result limit is reached', async () => {

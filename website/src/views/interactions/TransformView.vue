@@ -199,9 +199,11 @@ const apiTypes = [
           编辑点，两种模式共享 Session 历史和最终事务。
         </p>
         <el-alert type="info" :closable="false" show-icon title="Callout 在 Transform 中只允许整体平移">
-          Callout 同时移动 <code>anchor</code> 与 <code>center</code>，CSS px <code>size</code> 保持不变。它不声明 rotate、scale 或 stretch，
-          因此不会显示旋转、缩放和拉伸手柄；默认工具栏仍提供 Edit 模式切换，显式调用 <code>setMode('edit')</code> 也可进入该模式，并复用独立 Edit 的 1 个
-          <code>anchor</code> 与 8 个 <code>resize</code> contextual 编辑点。
+          Callout 同时移动 <code>anchor</code> 与 <code>center</code>，逻辑 <code>size</code>、<code>referenceResolution</code> 和
+          <ApiReference kind="property" to="/api/types#api-type-style-spec-property-callout">StyleSpec.callout</ApiReference> 的
+          <code>sizeMode</code> 保持不变。它不声明 rotate、scale 或 stretch， 因此不会显示旋转、缩放和拉伸手柄；默认工具栏仍提供 Edit 模式切换，显式调用
+          <code>setMode('edit')</code> 也可进入该模式，并复用独立 Edit 的 1 个 <code>anchor</code>、8 个 <code>resize</code> 与 1 个
+          <code>center</code> contextual 编辑点。Edit 的 <code>center</code> 只移动框体而不移动 <code>anchor</code>，与 Transform 的整体平移是两项独立语义。
         </el-alert>
       </section>
 
@@ -263,7 +265,7 @@ const apiTypes = [
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-copy">copy</ApiReference>、 <code>replaceSelected</code> 与 Toolbar
               的显隐、更新和销毁。启动前可以在 full、rectangle、translate-only 之间切换，并独立调整 <code>hitTolerance</code>；状态区会列出本次 Session
               的全部实验选项，不输出事件日志。默认 Callout 目标可以直接验证：即使 options 开启全部外框操作，Shape 能力仍把外包框 presentation
-              收窄为仅平移；工具栏的 Edit 模式则复用 Callout 的 contextual 编辑点。
+              收窄为仅平移；工具栏的 Edit 模式则复用 Callout 的 10 个 contextual 编辑点，中心点只移动框体。
             </p>
           </template>
           <template #preview><TransformSessionDemo ref="transformSessionDemoRef" /></template>
@@ -310,8 +312,10 @@ const apiTypes = [
           <li>跨世界副本只改变展示坐标；业务状态、事务和历史始终保存规范世界坐标。</li>
           <li>Circle 的历史半径保持米制；平移和旋转不改变业务半径，缩放按既定规则更新。</li>
           <li>
-            Callout 平移时同时更新 <code>anchor</code> 与 <code>center</code>，屏幕像素
-            <code>size</code>、原始文字和自动换行规则保持不变；预览和命中仍覆盖完整尾巴，选中框与工具栏只跟随文本框主体，不会被远端 anchor 拉大。
+            Callout 平移时同时更新 <code>anchor</code> 与 <code>center</code>，逻辑
+            <code>size</code
+            >、<code>referenceResolution</code>、尺寸模式、原始文字和自动换行规则保持不变；预览和命中仍覆盖完整尾巴，选中框与工具栏只跟随文本框主体，不会被远端
+            anchor 拉大。
           </li>
         </ul>
         <el-alert type="info" :closable="false" show-icon title="复制不是动画快照">

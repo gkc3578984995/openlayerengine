@@ -9,6 +9,7 @@ import {
   type Coordinate,
   type IconSymbolSpec,
   type PatternFillSpec,
+  type ShapeInput,
   type ShapeState,
   type ShapeType,
   type SolidFillSpec,
@@ -860,7 +861,7 @@ function shapeElementId(type: ShapeType): string {
   return `shape-${type}`;
 }
 
-function shapeGeometry(type: ShapeType, origin: Coordinate, unit: number): ShapeState {
+function shapeGeometry(type: ShapeType, origin: Coordinate, unit: number): ShapeInput {
   if (type === 'circle') return { type, center: origin, radius: unit * 2.2 };
   if (type === 'callout') {
     return {
@@ -874,7 +875,7 @@ function shapeGeometry(type: ShapeType, origin: Coordinate, unit: number): Shape
   return {
     type,
     controlPoints: template.map(([x, y]) => [origin[0] + x * unit, origin[1] + y * unit] as Coordinate)
-  } as ShapeState;
+  } as ShapeInput;
 }
 
 function shapeBoardStyle(type: ShapeType): StyleSpec {

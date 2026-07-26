@@ -88,7 +88,7 @@ export class ElementServiceImpl implements ElementService {
     try {
       const result = this.#store.transaction((transaction) => {
         const record = inspectCreateInput(input);
-        const geometry = requireGeometry(record.geometry);
+        const geometry = this.#geometry.materialize(requireGeometry(record.geometry));
         const layerId = hasOwn(record, 'layerId') ? requireString(record.layerId, 'Element layerId') : this.#layers.ensureDefault().id;
         const styleInput = hasOwn(record, 'style') ? record.style : defaultStyle(this.#binding.renderKind(geometry), geometry.type);
         const inspectedStyle = inspectStyleInput(styleInput as never);
@@ -146,8 +146,23 @@ export class ElementServiceImpl implements ElementService {
   /** 批量更新 Element，并在提交前确认 OpenLayers 渲染投影可用。 */
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Element<T>[] {
     const safePatch = snapshotElementWrite(patch);
+    if (!hasOwn(safePatch, 'geometry')) {
+      const result = this.#store.transaction((transaction) => {
+        const states = transaction.update(selector, safePatch);
+        for (const state of states) this.#binding.preflight(state);
+        return states;
+      });
+      return Object.freeze(result.value.map(({ id }) => this.#currentHandle<T>(id)));
+    }
+
     const result = this.#store.transaction((transaction) => {
-      const states = transaction.update(selector, safePatch);
+      // 复用 Store 的破坏性选择器门禁，再按每个 Element 的既有状态解析可省略的 View 相关字段。
+      transaction.update(selector, {});
+      const matches = transaction.query(selector);
+      const states = matches.flatMap((state) => {
+        const geometry = this.#geometry.materialize(safePatch.geometry as ShapeInput, state.geometry);
+        return transaction.update<T>({ id: state.id }, { ...safePatch, geometry });
+      });
       for (const state of states) this.#binding.preflight(state);
       return states;
     });
@@ -177,7 +192,16 @@ export class ElementServiceImpl implements ElementService {
   copy<T>(id: string, overrides?: ElementCopyOptions<T>): Element<T> {
     const safeOverrides = overrides === undefined ? undefined : snapshotElementWrite(overrides);
     const result = this.#store.transaction((transaction) => {
-      const state = transaction.copy(id, safeOverrides);
+      let resolvedOverrides = safeOverrides;
+      if (safeOverrides !== undefined && hasOwn(safeOverrides, 'geometry')) {
+        const source = transaction.get(id);
+        if (source === undefined) throw new InvalidArgumentError(`Element does not exist: ${id}`);
+        resolvedOverrides = {
+          ...safeOverrides,
+          geometry: this.#geometry.materialize(safeOverrides.geometry as ShapeInput, source.geometry)
+        };
+      }
+      const state = transaction.copy(id, resolvedOverrides);
       this.#binding.preflight(state);
       return state;
     });
@@ -313,26 +337,12 @@ function requireGeometry(value: unknown): ShapeInput {
   if (geometry === null || typeof geometry !== 'object' || typeof (geometry as { type?: unknown }).type !== 'string') {
     throw new InvalidArgumentError('Element geometry must be a ShapeInput');
   }
-  assertPersistableCalloutSize(geometry);
   return geometry as ShapeInput;
 }
 
-/** 先按数据描述符快照写入参数，再校验其中的 Callout geometry。 */
+/** 先按数据描述符快照写入参数，避免后续事务读取外部可变对象。 */
 function snapshotElementWrite<T extends object>(value: T): T {
-  const snapshot = cloneCoreState(value);
-  if (snapshot === null || typeof snapshot !== 'object') return snapshot;
-  const geometry = Object.getOwnPropertyDescriptor(snapshot, 'geometry');
-  if (geometry !== undefined && 'value' in geometry) assertPersistableCalloutSize(geometry.value);
-  return snapshot;
-}
-
-/** Callout 的零尺寸只属于尚未提交的 Draw 草稿，不能进入公共 Element 写入路径。 */
-function assertPersistableCalloutSize(value: unknown): void {
-  if (value === null || typeof value !== 'object' || (value as { type?: unknown }).type !== 'callout') return;
-  const size = (value as { size?: unknown }).size;
-  if (Array.isArray(size) && size.length === 2 && size[0] === 0 && size[1] === 0) {
-    throw new InvalidArgumentError('Callout size must be positive for Element writes');
-  }
+  return cloneCoreState(value);
 }
 
 /** 按渲染类型选择默认样式。 */

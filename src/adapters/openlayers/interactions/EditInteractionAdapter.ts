@@ -1292,7 +1292,8 @@ function presentationGeometry(state: RenderGeometryState, worldOffset: number): 
         : {
             label: Object.freeze({
               coordinate: shiftCoordinate(state.label.coordinate, worldOffset),
-              text: state.label.text
+              text: state.label.text,
+              ...(state.label.visualScale === undefined ? {} : { visualScale: state.label.visualScale })
             })
           })
     });
@@ -1407,7 +1408,8 @@ function snapshotRenderGeometry(state: RenderGeometryState): RenderGeometryState
         : {
             label: Object.freeze({
               coordinate: Object.freeze(copyCoordinate(state.label.coordinate)) as Coordinate,
-              text: state.label.text
+              text: state.label.text,
+              ...(state.label.visualScale === undefined ? {} : { visualScale: state.label.visualScale })
             })
           })
     });

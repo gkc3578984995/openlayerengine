@@ -56,7 +56,7 @@ import { InteractionCoordinator } from '../services/events/InteractionCoordinato
 import { MeasureService } from '../services/measure/MeasureService.js';
 import { OverlayService } from '../services/overlay/OverlayService.js';
 import { ElementProtectionService } from '../services/protection/ElementProtectionService.js';
-import { assertLineworkShapeCompatibility, assertStructuredStyleSpec, StyleService } from '../services/style/StyleService.js';
+import { assertCalloutShapeCompatibility, assertLineworkShapeCompatibility, assertStructuredStyleSpec, StyleService } from '../services/style/StyleService.js';
 import { TransformService } from '../services/transform/TransformService.js';
 import type { EngineContext } from './EngineContext.js';
 
@@ -99,6 +99,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
         if (isNativeStyleRef(state.style)) void nativeRefs.requireStyle(state.style);
         else assertStructuredStyleSpec(state.style);
         const definition = shapes.get(state.type);
+        assertCalloutShapeCompatibility(state.style, definition);
         assertLineworkShapeCompatibility(state.style, definition);
         definition.presentation?.validateStyle?.(state.style);
       }

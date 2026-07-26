@@ -7,6 +7,7 @@ import type { ShapeDefinition } from '../../core/shape/types.js';
 import {
   isNativeStyleRef,
   type ArrowDecorationSpec,
+  type CalloutStyleSpec,
   type CircleSymbolSpec,
   type ElementStyleState,
   type IconSymbolSpec,
@@ -30,7 +31,7 @@ import {
 import type { ElementChangeSet } from '../../core/transaction/types.js';
 
 /** 结构化样式允许的顶层字段。 */
-const styleFields = new Set(['symbol', 'strokes', 'fill', 'text', 'decorations', 'linework', 'zIndex']);
+const styleFields = new Set(['symbol', 'strokes', 'fill', 'text', 'decorations', 'linework', 'callout', 'zIndex']);
 /** 描边样式允许的字段。 */
 const strokeFields = new Set(['color', 'width', 'lineDash', 'lineDashOffset', 'lineCap', 'lineJoin', 'miterLimit', 'fitPatternOnce']);
 /** 路径轨道保持固定虚线间距，不接受顶层 Stroke 的整段拟合字段。 */
@@ -118,6 +119,8 @@ const inlinePathTextFields = new Set([
   'backgroundPadding',
   'gapPadding'
 ]);
+/** Callout 专属样式允许的字段。 */
+const calloutFields = new Set(['sizeMode']);
 /** 仅圆形符号补丁可使用的字段。 */
 const circleOnlyPatchFields = new Set(['radius', 'fill', 'stroke']);
 /** 仅图片符号补丁可使用的字段。 */
@@ -258,6 +261,7 @@ export function assertStructuredStyleSpec(value: unknown): asserts value is Styl
     }
     assertLinework(style.linework);
   }
+  if (hasDefined(style, 'callout')) assertCalloutStyle(style.callout, 'Style callout');
   if (hasDefined(style, 'zIndex')) finiteNumber(style.zIndex, 'Style zIndex');
 }
 
@@ -276,7 +280,15 @@ function assertStylePatch(value: unknown): asserts value is StylePatch {
     }
     assertLinework(patch.linework);
   }
+  if (hasDefined(patch, 'callout')) assertCalloutStyle(patch.callout, 'Style callout patch');
   if (hasDefined(patch, 'zIndex')) finiteNumber(patch.zIndex, 'Style patch zIndex');
+}
+
+/** 校验 Callout 专属呈现策略。 */
+function assertCalloutStyle(value: unknown, label: string): asserts value is CalloutStyleSpec {
+  const callout = record(value, label);
+  assertKnownFields(callout, calloutFields, label);
+  if (hasDefined(callout, 'sizeMode')) oneOf(callout.sizeMode, ['map', 'screen'], `${label} sizeMode`);
 }
 
 /** 确认路径线饰与 ShapeDefinition 声明的最终路径轮廓语义一致。 */
@@ -288,6 +300,12 @@ export function assertLineworkShapeCompatibility(style: ElementStyleState, defin
   if (contourKind !== pathContour) {
     throw new InvalidArgumentError(`${definition.type} linework requires a ${pathContour} contour policy`);
   }
+}
+
+/** Callout 专属样式不能静默附着到其他 Shape。 */
+export function assertCalloutShapeCompatibility(style: ElementStyleState, definition: ShapeDefinition): void {
+  if (isNativeStyleRef(style) || style.callout === undefined) return;
+  if (definition.type !== 'callout') throw new InvalidArgumentError(`Style callout requires shape type callout, received: ${definition.type}`);
 }
 
 /** 校验圆形或图片符号配置。 */

@@ -15,6 +15,7 @@ const anchors = [
   { id: 'overview', label: '怎样选择 Shape' },
   { id: 'example-shape-catalog', label: '全部内置 Shape（逐个放大）' },
   { id: 'shape-catalog', label: '类型与控制点规则' },
+  { id: 'callout-sizing', label: 'Callout 尺寸模式' },
   { id: 'coordinates', label: '输入、状态与单位' },
   { id: 'api-values', label: '运行时类型列表' },
   { id: 'api', label: '完整 API' }
@@ -45,6 +46,19 @@ const valueColumns = [
 
 const valueRows = [
   { anchor: 'api-value-shape-types', name: 'shapeTypes', type: 'readonly ShapeType[]', desc: '按稳定顺序列出全部内置图形名称，可用于表单选项与能力枚举' }
+];
+
+const calloutModeRows = [
+  {
+    mode: "省略 / 'map'",
+    behavior: '默认模式；框体、尾巴、文字、padding 与描边按地图分辨率同比缩放，地图空间尺度保持稳定',
+    state: '不改写 size 或 referenceResolution'
+  },
+  {
+    mode: "'screen'",
+    behavior: '框体、尾巴和文字保持固定 CSS 像素尺寸，不随地图层级改变视觉大小',
+    state: '只改变 Style，随时可无损切回 map'
+  }
 ];
 
 const apiTypes = ['ShapeType', 'ShapeInput', 'ShapeState'] as const;
@@ -86,9 +100,8 @@ const runtimeApi = ['shapeTypes'] as const;
               <ApiReference kind="property" to="/components/elements/overview#api-property-geometry-details">Element.geometryDetails</ApiReference>
               同时展示范围角点、最终轮廓点、规范控制点以及 Circle 的圆心和双单位半径，并实际调用
               <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">earth.view.toGeographicCoordinates()</ApiReference>
-              把一个 View Coordinate 转回经纬度。面箭头展示的是最终 polygon ring，不是绘制时的控制点；Callout 的静态详情只保存
-              <code>[anchor, center]</code> 骨架，屏幕框体与自动换行属于当前 View 的展示结果。连续缩放或旋转时，持久 Callout 的独立文字层会暂时隐藏；View
-              稳定后只按最终分辨率重排一次并在下一帧恢复，既守住文本边界，也避免所有业务 VectorLayer 持续重建。
+              把一个 View Coordinate 转回经纬度。面箭头展示的是最终 polygon ring，不是绘制时的控制点；Callout 的静态几何详情只返回
+              <code>[anchor, center]</code> 骨架，框体、尾巴和自动换行属于当前 View 的展示结果。
             </p>
           </template>
           <template #preview><ShapesDemo /></template>
@@ -101,6 +114,31 @@ const runtimeApi = ['shapeTypes'] as const;
         <ApiTable :columns="shapeColumns" :rows="shapeRows" />
       </section>
 
+      <section id="callout-sizing" class="doc-prose">
+        <h2 class="doc-h2">Callout 尺寸模式</h2>
+        <p>
+          Callout 的 <code>size</code> 表示 <code>referenceResolution</code> 下的逻辑 CSS 像素。写入
+          <ApiReference kind="type" to="/api/types#api-type-shape-input">ShapeInput</ApiReference>
+          时通常无需提供 <code>referenceResolution</code>：引擎会在 Store 前从当前 View 捕获一次；更新已有 Callout 时省略该字段则保留原基准值。规范化的
+          <ApiReference kind="type" to="/api/types#api-type-shape-state">ShapeState</ApiReference>
+          始终保存这个正有限值，因此复制、历史和模式切换不会累计尺寸误差。
+        </p>
+        <p>
+          通过
+          <ApiReference kind="property" to="/api/types#api-type-style-spec-property-callout">StyleSpec.callout</ApiReference>
+          的 <ApiReference kind="type" to="/api/types#api-type-callout-size-mode">CalloutSizeMode</ApiReference> 选择展示行为：
+        </p>
+        <el-table :data="calloutModeRows" border>
+          <el-table-column prop="mode" label="sizeMode" min-width="150" />
+          <el-table-column prop="behavior" label="展示行为" min-width="360" />
+          <el-table-column prop="state" label="状态边界" min-width="240" />
+        </el-table>
+        <el-alert type="info" :closable="false" show-icon title="缩放或旋转期间只门控 Callout 文字">
+          持久 Callout 在连续缩放或旋转开始时暂时隐藏独立文字层；View 稳定后仅按最终分辨率重排一次，并在下一帧恢复。框体与尾巴继续复用 OpenLayers 缓存，普通业务
+          VectorLayer 不会因此开启持续刷新；纯平移不会触发文字门控。
+        </el-alert>
+      </section>
+
       <section id="coordinates" class="doc-prose">
         <h2 class="doc-h2">输入、状态与单位</h2>
         <el-descriptions :column="1" border>
@@ -108,8 +146,9 @@ const runtimeApi = ['shapeTypes'] as const;
           <el-descriptions-item label="普通图形">使用 type + controlPoints；扁平数组严格按二维 XY 分组，三维坐标必须使用嵌套数组。</el-descriptions-item>
           <el-descriptions-item label="圆">使用 type + center + radius；radius 固定为米，不是 CSS 像素。</el-descriptions-item>
           <el-descriptions-item label="文本标注框">
-            使用 <code>type + anchor + center + size</code>；两个坐标使用当前 View 投影，<code>size</code> 是 <code>[width, height]</code> CSS
-            像素。直接创建时传正尺寸，Draw 会从文字自动计算初始尺寸。
+            使用 <code>type + anchor + center + size</code>；两个坐标使用当前 View 投影，<code>size</code> 是基准分辨率下的 <code>[width, height]</code> 逻辑
+            CSS 像素。直接创建时传正尺寸，Draw 会从文字自动计算初始尺寸；<code>referenceResolution</code>
+            通常省略并交由引擎物化。
           </el-descriptions-item>
           <el-descriptions-item label="闭合面">控制点无需重复首点；规范状态不会保存重复的闭合点。</el-descriptions-item>
           <el-descriptions-item label="完整性">elements.add() 只接受完整输入；交互式收集控制点、自动补点和结束规则归属 DrawService。</el-descriptions-item>

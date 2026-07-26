@@ -375,6 +375,15 @@ export interface LineworkSpec {
   contour?: PathContourPolicySpec;
 }
 
+/** Callout 框体尺寸相对地图或屏幕的缩放模式。 */
+export type CalloutSizeMode = 'map' | 'screen';
+
+/** Callout 专属的呈现策略。 */
+export interface CalloutStyleSpec {
+  /** 省略时跟随地图缩放；`screen` 保持固定 CSS 像素尺寸。 */
+  sizeMode?: CalloutSizeMode;
+}
+
 /** 可序列化、可复制的结构化样式。 */
 export interface StyleSpec {
   /** Point 使用的圆形或图片样式。 */
@@ -389,6 +398,8 @@ export interface StyleSpec {
   decorations?: ArrowDecorationSpec[];
   /** 沿开放路径或 Polygon 外环渲染的高级路径线饰。 */
   linework?: LineworkSpec;
+  /** Callout 框体的专属呈现策略。 */
+  callout?: CalloutStyleSpec;
   /** 控制同一图层中样式的绘制顺序。 */
   zIndex?: number;
 }
@@ -583,6 +594,8 @@ export type StylePatch = {
   decorations?: ArrowDecorationSpec[] | undefined;
   /** 整体替换或删除路径线饰，不执行深层局部合并。 */
   linework?: LineworkSpec | undefined;
+  /** 逐项更新或删除 Callout 呈现策略。 */
+  callout?: { [K in keyof CalloutStyleSpec]?: CalloutStyleSpec[K] | undefined } | undefined;
   /** 更新或删除样式的绘制层级。 */
   zIndex?: number | undefined;
 };

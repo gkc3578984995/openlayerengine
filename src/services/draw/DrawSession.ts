@@ -153,6 +153,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   /** 本会话解析后的绘制样式。 */
   #resolvedStyle: ElementStyleState | undefined;
   #resolvedStyleSet = false;
+  /** 当前草稿首次物化后的 View 基准；只在草稿重置时清空。 */
+  #draftMaterializationReference: ShapeState | undefined;
 
   /**
    * 创建语义绘制会话。
@@ -377,6 +379,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #addControlPoint(input: Coordinate): void {
     const coordinate = this.#placeCoordinate(input);
     const first = this.#controlPoints.length === 0;
+    if (first) this.#draftMaterializationReference = undefined;
     this.#controlPoints.push(coordinate);
     this.#pointer = undefined;
     this.#recordHistory();
@@ -494,8 +497,13 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#completionActive = true;
     try {
       let completed: ShapeState;
+      let style: ElementStyleState;
       try {
-        const completion = this.#definition.tryComplete(draft as never);
+        const materialized = this.#materializeDraft(draft);
+        style = this.#styleFor(materialized);
+        const presented = this.#shapePresentation.present(this.#definition, materialized, style);
+        this.#rememberMaterializedDraft(presented.state);
+        const completion = this.#definition.tryComplete(presented.state as never);
         if (completion.status === 'incomplete') return 'incomplete';
         completed = completion.state;
       } catch (error) {
@@ -505,9 +513,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       let state: Readonly<ElementState<T>>;
       let generation: ElementGeneration;
       try {
-        const style = this.#styleFor(completed);
-        const presented = this.#shapePresentation.present(this.#definition, completed, style);
-        const elementGeometry = this.#shapeProjection.toElementState(presented.state);
+        const elementGeometry = this.#shapeProjection.toElementState(completed);
         const id = requireId(this.#createId());
         const committed = this.#store.transaction((transaction) =>
           transaction.add<T>({
@@ -588,9 +594,10 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
 
   /** 通过交互 Port 原子发布草稿、样式和光标位置。 */
   #showPreview(draft: ShapeState, coordinate: Coordinate | undefined): void {
-    const geometry = this.#definition.clone(draft as never) as ShapeState;
+    const geometry = this.#materializeDraft(draft);
     const style = this.#styleFor(geometry);
     const presented = this.#shapePresentation.present(this.#definition, geometry, style);
+    this.#rememberMaterializedDraft(presented.state);
     this.#setPreview(Object.freeze({ geometry: deepFreeze(cloneCoreState(presented.geometry)), style }));
     if ((this.#listeners.get('change')?.size ?? 0) > 0) {
       this.#emit(
@@ -628,6 +635,19 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     return this.#resolvedStyle as ElementStyleState;
   }
 
+  /** 复用当前草稿已捕获的 View 基准，避免指针或 View revision 令其漂移。 */
+  #materializeDraft(input: unknown): ShapeState {
+    if (this.#definition.presentation?.materialize === undefined) {
+      return this.#definition.clone(input as never) as ShapeState;
+    }
+    return this.#shapePresentation.materialize(this.#definition, input, this.#draftMaterializationReference);
+  }
+
+  #rememberMaterializedDraft(state: ShapeState): void {
+    if (this.#definition.presentation?.materialize === undefined) return;
+    this.#draftMaterializationReference = this.#definition.clone(state as never) as ShapeState;
+  }
+
   /** 将控制点归一到连续的世界副本。 */
   #canonicalControlPoints(): readonly Coordinate[] {
     const world = this.#handle?.world;
@@ -660,6 +680,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#pointer = undefined;
     this.#freehandActive = false;
     this.#freehandAccumulator = undefined;
+    this.#draftMaterializationReference = undefined;
     this.#setPreview(undefined);
     this.#refreshTooltip();
   }

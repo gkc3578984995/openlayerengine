@@ -78,7 +78,7 @@ describe('website API query', () => {
 
     expect(shapeInput?.variants.map((variant) => variant.properties.map((property) => property.name))).toEqual([
       ['center', 'radius', 'type'],
-      ['anchor', 'center', 'size', 'type'],
+      ['anchor', 'center', 'referenceResolution', 'size', 'type'],
       ['controlPoints', 'type']
     ]);
     expect(shapeInput?.variants.map((variant) => variant.label)).toEqual([

@@ -4,7 +4,7 @@ import Polygon from 'ol/geom/Polygon.js';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
-import { testShapePresentation } from './helpers/shapePresentation.js';
+import { createTestShapePresentation, testShapePresentation } from './helpers/shapePresentation.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -18,6 +18,7 @@ import { LayerManager } from '../src/core/layer/LayerManager.js';
 import type { HitTestPort } from '../src/core/ports/HitTestPort.js';
 import type { ElementProtectionViewPort } from '../src/core/ports/ElementProtectionPort.js';
 import type { ShapeProjectionPort } from '../src/core/ports/ShapeProjectionPort.js';
+import type { ShapePresentationPort } from '../src/core/ports/ShapePresentationPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../src/core/style/types.js';
 import { Element } from '../src/facade/Element.js';
@@ -40,7 +41,11 @@ class FakeHitTest implements HitTestPort {
   }
 }
 
-function setup(createIds: string[] = [], shapeProjection: ShapeProjectionPort = identityShapeProjection) {
+function setup(
+  createIds: string[] = [],
+  shapeProjection: ShapeProjectionPort = identityShapeProjection,
+  shapePresentation: ShapePresentationPort = testShapePresentation
+) {
   const refs = new NativeRefRegistry();
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   let nextId = 0;
@@ -56,8 +61,8 @@ function setup(createIds: string[] = [], shapeProjection: ShapeProjectionPort = 
   const adapter = new LayerAdapter(createTestMap(), refs);
   const manager = new LayerManager(store, adapter);
   const layers = new LayerServiceImpl(manager, adapter, refs);
-  const geometry = new GeometryCodec(shapes, shapeProjection, testShapePresentation);
-  const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs), { shapePresentation: testShapePresentation });
+  const geometry = new GeometryCodec(shapes, shapeProjection, shapePresentation);
+  const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs), { shapePresentation });
   const hitTest = new FakeHitTest();
   const protectionView: ElementProtectionViewPort = { upsert: vi.fn(), remove: vi.fn(), destroy: vi.fn() };
   const protection = new ElementProtectionService(store, protectionView);
@@ -185,7 +190,7 @@ describe('ElementService', () => {
   });
 
   it('rejects zero-sized Callout geometry at every public Element write boundary', () => {
-    const { elements } = setup(['source']);
+    const { elements, store } = setup(['source']);
     const callout = {
       type: 'callout',
       anchor: [0, 0],
@@ -203,7 +208,60 @@ describe('ElementService', () => {
     expect(() => elements.add({ geometry: zeroSizedCallout })).toThrow(InvalidArgumentError);
     expect(() => elements.update({ id: source.id }, { geometry: zeroSizedCallout })).toThrow(InvalidArgumentError);
     expect(() => elements.copy(source.id, { geometry: zeroSizedCallout })).toThrow(InvalidArgumentError);
-    expect(source.state.geometry).toEqual(callout);
+    expect(() =>
+      store.add({
+        id: 'unmaterialized',
+        type: 'callout',
+        geometry: callout as never,
+        style: source.state.style,
+        layerId: source.state.layerId,
+        visible: true
+      })
+    ).toThrow(InvalidArgumentError);
+    expect(source.state.geometry).toEqual({ ...callout, referenceResolution: 1 });
+  });
+
+  it('materializes Callout resolution once and preserves each Element baseline across update and copy', () => {
+    let resolution = 4;
+    const presentation = createTestShapePresentation(() => resolution);
+    const { elements } = setup(['first', 'second', 'copy', 'explicit'], identityShapeProjection, presentation);
+    const first = elements.add({
+      geometry: { type: 'callout', anchor: [0, 0], center: [10, 10], size: [160, 60] }
+    });
+    resolution = 2;
+    const second = elements.add({
+      geometry: { type: 'callout', anchor: [20, 20], center: [30, 30], size: [120, 50] }
+    });
+
+    expect(first.state.geometry).toMatchObject({ referenceResolution: 4 });
+    expect(second.state.geometry).toMatchObject({ referenceResolution: 2 });
+
+    resolution = 1;
+    elements.update({ ids: [first.id, second.id] }, { geometry: { type: 'callout', anchor: [5, 5], center: [15, 15], size: [100, 40] } });
+    expect(first.state.geometry).toMatchObject({ anchor: [5, 5], referenceResolution: 4 });
+    expect(second.state.geometry).toMatchObject({ anchor: [5, 5], referenceResolution: 2 });
+
+    const copy = elements.copy(first.id, {
+      geometry: { type: 'callout', anchor: [8, 8], center: [18, 18], size: [90, 40] }
+    });
+    expect(copy.state.geometry).toMatchObject({ referenceResolution: 4 });
+
+    const explicit = elements.add({
+      geometry: { type: 'callout', anchor: [0, 0], center: [1, 1], size: [80, 40], referenceResolution: 8 }
+    });
+    expect(explicit.state.geometry).toMatchObject({ referenceResolution: 8 });
+  });
+
+  it('rejects an unresolved Callout atomically when the current View has no valid resolution', () => {
+    const presentation = createTestShapePresentation(() => Number.NaN);
+    const { elements, store } = setup([], identityShapeProjection, presentation);
+
+    expect(() =>
+      elements.add({
+        geometry: { type: 'callout', anchor: [0, 0], center: [10, 10], size: [160, 60] }
+      })
+    ).toThrow(InvalidArgumentError);
+    expect(store.query()).toEqual([]);
   });
 
   it('exposes a frozen full arrow geometry and derives it from Element state instead of the mutable OL Feature', () => {
@@ -390,7 +448,13 @@ describe('ElementService', () => {
     expect(() => elements.update({ id: source.id }, { geometry: proxyGeometry })).toThrow(InvalidArgumentError);
     expect(() => elements.copy(source.id, { geometry: proxyGeometry })).toThrow(InvalidArgumentError);
     expect(proxyGetCalls).toBe(0);
-    expect(source.state.geometry).toEqual({ type: 'callout', anchor: [0, 0], center: [10, 10], size: [160, 60] });
+    expect(source.state.geometry).toEqual({
+      type: 'callout',
+      anchor: [0, 0],
+      center: [10, 10],
+      size: [160, 60],
+      referenceResolution: 1
+    });
   });
 
   it('supports named vector layers and rejects explicit missing/non-vector targets', () => {

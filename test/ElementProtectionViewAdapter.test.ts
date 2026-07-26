@@ -144,6 +144,12 @@ class RevisionPresentation implements ShapePresentationPort {
   readonly listeners = new Set<() => void>();
   resolution = 1;
 
+  materialize: ShapePresentationPort['materialize'] = (definition, input, referenceState) => {
+    const materialize = definition.presentation?.materialize;
+    const state = materialize === undefined ? definition.normalize(input) : materialize(input, this.context(), referenceState as never);
+    return definition.normalize(state);
+  };
+
   present: ShapePresentationPort['present'] = (definition, state, style) => {
     if (definition.presentation === undefined) return testShapePresentation.present(definition, state, style);
     return definition.presentation.present(state as never, style, this.context());
@@ -176,7 +182,8 @@ class RevisionPresentation implements ShapePresentationPort {
           ? [pixel[0] * this.resolution, pixel[1] * this.resolution, template[2]]
           : [pixel[0] * this.resolution, pixel[1] * this.resolution],
       measureTextWidth: (_font, text) => Array.from(text).length * 10,
-      measureTextHeight: () => 20
+      measureTextHeight: () => 20,
+      getResolution: () => this.resolution
     });
   }
 }
@@ -366,11 +373,12 @@ describe('ElementProtectionViewAdapter', () => {
     const element = addElement(store, {
       id: 'protected-callout',
       type: 'callout',
-      geometry: { type: 'callout', anchor: [100, 100], center: [100, 100], size: [160, 60] },
+      geometry: { type: 'callout', anchor: [100, 100], center: [100, 100], size: [160, 60], referenceResolution: 1 },
       style: {
         fill: { type: 'solid', color: '#ffffff' },
         strokes: [{ color: '#2563eb', width: 2 }],
-        text: { text: '受保护的 Callout', padding: [8, 12, 8, 12] }
+        text: { text: '受保护的 Callout', padding: [8, 12, 8, 12] },
+        callout: { sizeMode: 'screen' }
       },
       layerId: 'layer-a',
       visible: true

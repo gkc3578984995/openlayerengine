@@ -196,7 +196,12 @@ describe('ShapePresentationAdapter', () => {
     const view = new View({ projection: 'EPSG:4326', center: [10, 20], resolution: 1 });
     const map = new FrameMapHarness(view, false);
     const adapter = new ShapePresentationAdapter(map as unknown as Map);
-    const state = Object.freeze({ type: 'callout' as const, anchor: [10, 20] as Coordinate, center: [10, 20] as Coordinate, size: [100, 40] as const });
+    const state = adapter.materialize(calloutDefinition, {
+      type: 'callout',
+      anchor: [10, 20] as Coordinate,
+      center: [10, 20] as Coordinate,
+      size: [100, 40] as const
+    });
 
     expect(frameWidth(adapter.present(calloutDefinition, state, calloutStyle).geometry)).toBeCloseTo(100);
 
@@ -204,11 +209,11 @@ describe('ShapePresentationAdapter', () => {
     view.setResolution(2);
     const pendingResolution = view.getResolution();
     if (pendingResolution === undefined) throw new Error('View resolution is required');
-    expect(frameWidth(adapter.present(calloutDefinition, state, calloutStyle).geometry)).toBeCloseTo(100 * pendingResolution);
+    expect(frameWidth(adapter.present(calloutDefinition, state, calloutStyle).geometry)).toBeCloseTo(100);
     expect(map.frameResolution).toBe(1);
 
     map.emitPrecompose();
-    expect(frameWidth(adapter.present(calloutDefinition, state, calloutStyle).geometry)).toBeCloseTo(100 * pendingResolution);
+    expect(frameWidth(adapter.present(calloutDefinition, state, calloutStyle).geometry)).toBeCloseTo(100);
     adapter.destroy();
   });
 });

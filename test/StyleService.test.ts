@@ -5,7 +5,7 @@ import type { ElementState } from '../src/core/element/types.js';
 import { InvalidArgumentError, InvalidSelectorError, UnsupportedOperationError } from '../src/core/errors.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { createNativeStyleRef, type StylePatch, type StyleSpec } from '../src/core/style/types.js';
-import { StyleService } from '../src/services/style/StyleService.js';
+import { assertCalloutShapeCompatibility, StyleService } from '../src/services/style/StyleService.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
 function element(id: string, style: ElementState['style'] = baseStyle(), module = 'roads'): ElementState {
@@ -89,6 +89,55 @@ describe('StyleService', () => {
     expect(() => service.patch({ id: 'a' }, { text: { maxWidth: 0 } })).toThrow(InvalidArgumentError);
     expect(() => service.patch({ id: 'a' }, { text: { maxWidth: Number.NaN } })).toThrow(InvalidArgumentError);
     expect((store.get('a')?.style as StyleSpec).text?.maxWidth).toBe(180);
+  });
+
+  it('rejects Callout-only presentation settings on other Shape types', () => {
+    const registry = new ShapeRegistry(basicShapeDefinitions);
+    const calloutStyle: StyleSpec = { callout: { sizeMode: 'screen' } };
+
+    expect(() => assertCalloutShapeCompatibility(calloutStyle, registry.get('callout'))).not.toThrow();
+    expect(() => assertCalloutShapeCompatibility(calloutStyle, registry.get('point'))).toThrow(InvalidArgumentError);
+    expect(() => assertCalloutShapeCompatibility({}, registry.get('point'))).not.toThrow();
+  });
+
+  it('clones, serializes, deeply patches, and deletes the Callout size mode', () => {
+    const { store, service } = createFixture();
+    store.add(element('a'));
+    const source: StyleSpec = {
+      ...baseStyle(),
+      callout: { sizeMode: 'screen' }
+    };
+    service.set({ id: 'a' }, source);
+    if (source.callout !== undefined) source.callout.sizeMode = 'map';
+
+    const snapshot = store.get('a')?.style as StyleSpec;
+    const cloned = service.clone(snapshot) as StyleSpec;
+    const serialized = service.serialize(snapshot);
+
+    expect(cloned.callout).toEqual({ sizeMode: 'screen' });
+    expect(serialized.callout).toEqual({ sizeMode: 'screen' });
+    expect(cloned.callout).not.toBe(snapshot.callout);
+    expect(serialized.callout).not.toBe(snapshot.callout);
+
+    service.patch({ id: 'a' }, { callout: { sizeMode: 'map' } });
+    expect((store.get('a')?.style as StyleSpec).callout).toEqual({ sizeMode: 'map' });
+
+    service.patch({ id: 'a' }, { callout: { sizeMode: undefined } });
+    expect((store.get('a')?.style as StyleSpec).callout).toEqual({});
+
+    service.patch({ id: 'a' }, { callout: undefined });
+    expect(store.get('a')?.style).not.toHaveProperty('callout');
+  });
+
+  it('strictly validates Callout style fields and size modes', () => {
+    const { store, service } = createFixture();
+    store.add(element('a'));
+    const before = store.get('a');
+
+    expect(() => service.patch({ id: 'a' }, { callout: { sizeMode: 'viewport' } } as never)).toThrow(InvalidArgumentError);
+    expect(store.get('a')).toEqual(before);
+    expect(() => service.set({ id: 'a' }, { callout: { unknown: true } } as never)).toThrow(InvalidArgumentError);
+    expect(store.get('a')).toEqual(before);
   });
 
   it('deeply patches objects, replaces arrays, deletes undefined fields, and evaluates the selector once', () => {

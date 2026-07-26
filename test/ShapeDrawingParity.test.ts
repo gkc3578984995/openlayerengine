@@ -190,12 +190,14 @@ describe('Shape drawing parity', () => {
     const definition = shapes.get(type);
     const draft = definition.createDraft(points);
     expect(draft).toBeDefined();
-    const completion = definition.tryComplete(draft as never);
+    if (draft === undefined) throw new Error(`${type} representative draft is unavailable`);
+    const materialized = testShapePresentation.materialize(definition, draft);
+    const presented = testShapePresentation.present(definition, materialized, style);
+    const completion = definition.tryComplete(presented.state as never);
     expect(completion.status).toBe('complete');
     if (completion.status !== 'complete') throw new Error(`${type} representative state is incomplete`);
-    const presented = testShapePresentation.present(definition, completion.state, style);
     expect(session.results).toHaveLength(1);
-    expect(session.results[0].geometry).toEqual(presented.state);
+    expect(session.results[0].geometry).toEqual(completion.state);
     expect(port.previews.some((preview) => preview !== undefined)).toBe(true);
     expect(store.query()).toHaveLength(1);
   });

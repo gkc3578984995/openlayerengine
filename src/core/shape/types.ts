@@ -55,6 +55,8 @@ export type ShapeInput<T extends ShapeType = ShapeType> = T extends 'circle'
         readonly center: readonly number[];
         /** 文本框宽高，单位为 CSS 像素；公共 Element 写入必须为正值，Draw 会根据文本自动计算初始值。 */
         readonly size: readonly [widthPx: number, heightPx: number];
+        /** 尺寸对应的 View resolution；省略时由当前 Earth 在写入前捕获。 */
+        readonly referenceResolution?: number;
       }
     : {
         /** 图形类型判别字段。 */
@@ -64,7 +66,7 @@ export type ShapeInput<T extends ShapeType = ShapeType> = T extends 'circle'
       };
 
 /**
- * 图形状态。圆使用圆心和半径，Callout 使用定位点、文本框中心和 CSS 像素尺寸，其余图形使用有序控制点。
+ * 图形状态。圆使用圆心和半径，Callout 使用定位点、文本框中心、逻辑 CSS 像素尺寸和基准分辨率，其余图形使用有序控制点。
  *
  * @typeParam T 状态对应的图形类型。
  */
@@ -87,6 +89,8 @@ export type ShapeState<T extends ShapeType = ShapeType> = T extends 'circle'
         readonly center: Coordinate;
         /** 文本框宽高，单位为 CSS 像素。 */
         readonly size: readonly [widthPx: number, heightPx: number];
+        /** `size` 对应的正有限 View resolution。 */
+        readonly referenceResolution: number;
       }
     : {
         /** 图形类型判别字段。 */
@@ -101,6 +105,8 @@ export interface RenderTextLabel {
   readonly coordinate: Coordinate;
   /** 已完成自动换行、但不会写回 StyleSpec 的展示文字。 */
   readonly text: string;
+  /** Callout 本帧统一应用于文字与框体长度量的倍率。 */
+  readonly visualScale?: number;
 }
 
 /** 已转换到当前 View 工作单位的渲染几何快照。 */
@@ -303,6 +309,8 @@ export interface ShapePresentationContext {
   readonly measureTextWidth: (font: string, text: string) => number;
   /** 使用最终 CSS font 测量单行文字高度。 */
   readonly measureTextHeight: (font: string) => number;
+  /** 读取当前 View 每 CSS 像素对应的正有限工作坐标单位。 */
+  readonly getResolution: () => number;
 }
 
 /** View-dependent presentation 原子返回的已布局状态与标准渲染几何。 @internal */
@@ -331,6 +339,12 @@ export interface ShapeContextualEditTopology<S extends ShapeState = ShapeState> 
 export interface ShapePresentationProfile<S extends ShapeState = ShapeState> {
   /** 标记 resolution 或 rotation 改变时必须重新投影真实 Feature。 */
   readonly viewDependent: boolean;
+  /**
+   * 在 Element Store 写入或 Draw 展示前，把依赖当前 View 的可选输入解析为完整 ShapeState。
+   *
+   * `referenceState` 只用于更新或连续草稿时保留已捕获的基准，不得成为第二份状态真源。
+   */
+  materialize?(input: unknown, context: ShapePresentationContext, referenceState?: Readonly<S>): S;
   /** 在状态提交前校验该 presentation 对 Style 的额外约束。 */
   readonly validateStyle?: (style: ElementStyleState) => void;
   /** 原子生成已布局状态和最终标准 RenderGeometry。 */

@@ -47,7 +47,8 @@ export class ShapePresentationAdapter implements ShapePresentationPort {
       toPixel: (coordinate: Coordinate) => this.#toPixel(coordinate),
       toCoordinate: (pixel: Pixel, template?: Coordinate) => this.#toCoordinate(pixel, template),
       measureTextWidth: measurePresentationTextWidth,
-      measureTextHeight: measurePresentationTextHeight
+      measureTextHeight: measurePresentationTextHeight,
+      getResolution: () => this.#resolution()
     });
     const handleResolution = (): void => this.#requestMotionFrame();
     const handleRotation = (): void => this.#requestMotionFrame();
@@ -75,6 +76,13 @@ export class ShapePresentationAdapter implements ShapePresentationPort {
     }
     this.#unsubscribeEvents = Object.freeze(unsubscribeEvents);
     this.#eventUnsubscribed = unsubscribeEvents.map(() => false);
+  }
+
+  materialize(definition: ShapeDefinition, input: unknown, referenceState?: ShapeState): ShapeState {
+    this.#assertActive();
+    const materialize = definition.presentation?.materialize;
+    const state = materialize === undefined ? definition.normalize(input) : (materialize(input, this.#context, referenceState as never) as ShapeState);
+    return definition.normalize(state);
   }
 
   present(definition: ShapeDefinition, state: ShapeState, style: ElementStyleState): ShapePresentationResult {
@@ -218,16 +226,24 @@ export class ShapePresentationAdapter implements ShapePresentationPort {
   }
 
   #viewTransform(): { readonly centerX: number; readonly centerY: number; readonly resolution: number; readonly cosine: number; readonly sine: number } {
-    const resolution = this.#view.getResolution();
+    const resolution = this.#resolution();
     const rotation = this.#view.getRotation();
     const center = this.#view.getCenter();
-    if (resolution === undefined || !Number.isFinite(resolution) || resolution <= 0 || !Number.isFinite(rotation)) {
+    if (!Number.isFinite(rotation)) {
       throw new CapabilityError('Current View cannot resolve Callout CSS pixels before rendering');
     }
     const centerX = center?.[0] ?? 0;
     const centerY = center?.[1] ?? 0;
     if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) throw new CapabilityError('Current View has no finite Callout center');
     return { centerX, centerY, resolution, cosine: Math.cos(rotation), sine: Math.sin(rotation) };
+  }
+
+  #resolution(): number {
+    const resolution = this.#view.getResolution();
+    if (resolution === undefined || !Number.isFinite(resolution) || resolution <= 0) {
+      throw new CapabilityError('Current View has no positive finite resolution');
+    }
+    return resolution;
   }
 
   #assertActive(): void {

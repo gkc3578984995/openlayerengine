@@ -976,7 +976,8 @@ function copyRenderGeometryState(state: RenderGeometryState, world?: HorizontalW
         : {
             label: Object.freeze({
               coordinate: copyFrozenCoordinate(state.label.coordinate, worldOffset),
-              text: state.label.text
+              text: state.label.text,
+              ...(state.label.visualScale === undefined ? {} : { visualScale: state.label.visualScale })
             })
           })
     });

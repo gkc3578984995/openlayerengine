@@ -4,6 +4,9 @@ import type { ElementStyleState } from '../style/types.js';
 
 /** 在 Shape 语义与当前 View presentation 之间建立统一入口。 @internal */
 export interface ShapePresentationPort {
+  /** 把允许省略 View 相关字段的输入解析为完整 ShapeState。 */
+  materialize(definition: ShapeDefinition, input: unknown, referenceState?: ShapeState): ShapeState;
+
   /** 生成当前帧可直接投影的几何，并返回已应用自动布局的工作状态。 */
   present(definition: ShapeDefinition, state: ShapeState, style: ElementStyleState): ShapePresentationResult;
 

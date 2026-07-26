@@ -39,8 +39,10 @@ export const calloutDefinition: ShapeDefinition<CalloutState> = Object.freeze({
   controlPointPolicy: Object.freeze({ previewMin: 2, completeMin: 2, completeMax: 2, autoFinish: 2 }),
   presentation: Object.freeze({
     viewDependent: true,
+    materialize: materializeCallout,
     validateStyle: (style: ElementStyleState) => {
       requireCalloutText(style);
+      requireCalloutSizeMode(style);
     },
     present: presentCallout,
     edit: Object.freeze({ describe: describeCallout, move: moveCalloutHandle })
@@ -50,20 +52,31 @@ export const calloutDefinition: ShapeDefinition<CalloutState> = Object.freeze({
     if (points.length < 2) return undefined;
     if (points.length > 2) throw new InvalidArgumentError('Callout accepts exactly two draw points');
     requireUniformDimension(points[0], points[1]);
-    return freezeCallout(points[0], points[1], 0, 0);
+    return freezeUnmaterializedCallout(points[0], points[1]);
   },
   normalize: normalizeCallout,
   clone: normalizeCallout,
   translate: (state: CalloutState, x: number, y: number) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InvalidArgumentError('Callout translation must use finite offsets');
     const normalized = normalizeCallout(state);
-    return freezeCallout(translateCoordinate(normalized.anchor, x, y), translateCoordinate(normalized.center, x, y), normalized.size[0], normalized.size[1]);
+    return freezeCallout(
+      translateCoordinate(normalized.anchor, x, y),
+      translateCoordinate(normalized.center, x, y),
+      normalized.size[0],
+      normalized.size[1],
+      normalized.referenceResolution
+    );
   },
   isComplete: (state: CalloutState) => {
-    normalizeCallout(state);
-    return true;
+    const normalized = normalizeCallout(state);
+    return normalized.size[0] > 0 && normalized.size[1] > 0;
   },
-  tryComplete: (state: CalloutState) => ({ status: 'complete' as const, state: normalizeCallout(state) }),
+  tryComplete: (state: CalloutState) => {
+    const normalized = normalizeCallout(state);
+    return normalized.size[0] > 0 && normalized.size[1] > 0
+      ? ({ status: 'complete' as const, state: normalized } as const)
+      : ({ status: 'incomplete' as const } as const);
+  },
   toRenderGeometry: (state: CalloutState) => {
     const normalized = normalizeCallout(state);
     return Object.freeze({
@@ -74,45 +87,70 @@ export const calloutDefinition: ShapeDefinition<CalloutState> = Object.freeze({
 });
 
 function normalizeCallout(input: unknown): CalloutState {
+  const parsed = parseCallout(input);
+  if (parsed.referenceResolution === undefined) throw new InvalidArgumentError('Callout referenceResolution must be a positive finite number');
+  return freezeCallout(parsed.anchor, parsed.center, parsed.width, parsed.height, parsed.referenceResolution);
+}
+
+interface ParsedCallout {
+  readonly anchor: Coordinate;
+  readonly center: Coordinate;
+  readonly width: number;
+  readonly height: number;
+  readonly referenceResolution?: number;
+}
+
+function parseCallout(input: unknown): ParsedCallout {
   const record = getPlainDataRecord(input, 'Callout state');
   if (getOwnDataValue(record, 'type', 'Callout type') !== 'callout') throw new InvalidArgumentError('Expected shape type callout');
-  const allowed = new Set(['type', 'anchor', 'center', 'size']);
+  const allowed = new Set(['type', 'anchor', 'center', 'size', 'referenceResolution']);
   for (const key of Reflect.ownKeys(record)) {
     if (typeof key !== 'string' || !allowed.has(key)) throw new InvalidArgumentError(`Unknown Callout field: ${String(key)}`);
   }
   const anchor = normalizeCoordinate(getOwnDataValue(record, 'anchor', 'Callout anchor'), 'Callout anchor');
   const center = normalizeCoordinate(getOwnDataValue(record, 'center', 'Callout center'), 'Callout center');
   requireUniformDimension(anchor, center);
-  const size = getOwnDataValue(record, 'size', 'Callout size');
-  if (!Array.isArray(size) || size.length !== 2 || !Object.prototype.hasOwnProperty.call(size, 0) || !Object.prototype.hasOwnProperty.call(size, 1)) {
-    throw new InvalidArgumentError('Callout size must contain width and height');
-  }
-  const width = size[0];
-  const height = size[1];
+  const [width, height] = readCalloutSize(getOwnDataValue(record, 'size', 'Callout size'));
   if (typeof width !== 'number' || typeof height !== 'number' || !Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0) {
     throw new InvalidArgumentError('Callout size must contain two non-negative finite CSS pixel values');
   }
   if ((width === 0) !== (height === 0)) {
     throw new InvalidArgumentError('Callout size must be either [0, 0] for automatic layout or two positive CSS pixel values');
   }
-  return freezeCallout(anchor, center, width, height);
+  const referenceResolution = Object.prototype.hasOwnProperty.call(record, 'referenceResolution')
+    ? requirePositiveResolution(getOwnDataValue(record, 'referenceResolution', 'Callout referenceResolution'), 'Callout referenceResolution')
+    : undefined;
+  return Object.freeze({ anchor, center, width, height, ...(referenceResolution === undefined ? {} : { referenceResolution }) });
+}
+
+function materializeCallout(input: unknown, context: ShapePresentationContext, referenceState?: Readonly<CalloutState>): CalloutState {
+  const parsed = parseCallout(input);
+  let referenceResolution = parsed.referenceResolution;
+  if (referenceResolution === undefined && referenceState !== undefined) {
+    const referenceRecord = getPlainDataRecord(referenceState, 'Callout reference state');
+    const referenceType = getOwnDataValue(referenceRecord, 'type', 'Callout reference state type');
+    if (referenceType === 'callout') referenceResolution = normalizeCallout(referenceState).referenceResolution;
+  }
+  referenceResolution ??= requirePositiveResolution(context.getResolution(), 'Current View resolution');
+  return freezeCallout(parsed.anchor, parsed.center, parsed.width, parsed.height, referenceResolution);
 }
 
 function presentCallout(input: CalloutState, style: ElementStyleState, context: ShapePresentationContext): ShapePresentationResult<CalloutState> {
   const state = normalizeCallout(input);
   const text = requireCalloutText(style);
   const layout = layoutText(state.size[0], state.size[1], style as StyleSpec, text, context);
-  const laidOut = freezeCallout(state.anchor, state.center, layout.width, layout.height);
+  const laidOut = freezeCallout(state.anchor, state.center, layout.width, layout.height, state.referenceResolution);
+  const visualScale = calloutVisualScale(laidOut, style, context);
   const centerPixel = context.toPixel(laidOut.center);
   const anchorPixel = context.toPixel(laidOut.anchor);
-  const bounds = frameBounds(centerPixel, layout.width, layout.height);
-  const ringPixels = calloutRing(bounds, anchorPixel);
+  const bounds = frameBounds(centerPixel, scaledLength(layout.width, visualScale), scaledLength(layout.height, visualScale));
+  const ringPixels = calloutRing(bounds, anchorPixel, visualScale);
   const ring = Object.freeze(ringPixels.map((pixel) => Object.freeze(context.toCoordinate(pixel, laidOut.center))));
   const selectionRing = Object.freeze(closePixels(rectanglePixels(bounds)).map((pixel) => Object.freeze(context.toCoordinate(pixel, laidOut.center))));
   const geometry: RenderGeometryState = Object.freeze({
     type: 'polygon',
     coordinates: Object.freeze([ring]),
-    label: Object.freeze({ coordinate: Object.freeze(cloneCoordinate(laidOut.center)), text: layout.wrappedText })
+    label: Object.freeze({ coordinate: Object.freeze(cloneCoordinate(laidOut.center)), text: layout.wrappedText, visualScale })
   });
   const selectionGeometry: RenderGeometryState = Object.freeze({
     type: 'polygon',
@@ -124,8 +162,9 @@ function presentCallout(input: CalloutState, style: ElementStyleState, context: 
 function describeCallout(input: CalloutState, style: ElementStyleState, context: ShapePresentationContext): ControlPointTopology {
   const presented = presentCallout(input, style, context);
   const state = presented.state;
+  const visualScale = calloutVisualScale(state, style, context);
   const center = context.toPixel(state.center);
-  const bounds = frameBounds(center, state.size[0], state.size[1]);
+  const bounds = frameBounds(center, scaledLength(state.size[0], visualScale), scaledLength(state.size[1], visualScale));
   const handles: ControlPointHandle[] = [
     handle(0, state.anchor, 'anchor'),
     handle(1, context.toCoordinate([bounds.left, bounds.top], state.center), 'resize-nw'),
@@ -135,7 +174,8 @@ function describeCallout(input: CalloutState, style: ElementStyleState, context:
     handle(5, context.toCoordinate([bounds.right, bounds.bottom], state.center), 'resize-se'),
     handle(6, context.toCoordinate([(bounds.left + bounds.right) / 2, bounds.bottom], state.center), 'resize-s'),
     handle(7, context.toCoordinate([bounds.left, bounds.bottom], state.center), 'resize-sw'),
-    handle(8, context.toCoordinate([bounds.left, (bounds.top + bounds.bottom) / 2], state.center), 'resize-w')
+    handle(8, context.toCoordinate([bounds.left, (bounds.top + bounds.bottom) / 2], state.center), 'resize-w'),
+    handle(9, state.center, 'center')
   ];
   return Object.freeze({ handles: Object.freeze(handles), insertions: Object.freeze([]) });
 }
@@ -147,15 +187,23 @@ function moveCalloutHandle(
   style: ElementStyleState,
   context: ShapePresentationContext
 ): CalloutState {
+  if (!Number.isSafeInteger(index) || index < 0 || index > 9) throw new InvalidArgumentError(`Callout control-point index is out of range: ${index}`);
   const pointer = normalizeCoordinate(coordinate, 'Callout edit coordinate');
-  const presented = presentCallout(input, style, context).state;
-  if (!Number.isSafeInteger(index) || index < 0 || index > 8) throw new InvalidArgumentError(`Callout control-point index is out of range: ${index}`);
-  const replacement = matchPointerDimension(pointer, index === 0 ? presented.anchor : presented.center);
-  if (index === 0) return freezeCallout(replacement, presented.center, presented.size[0], presented.size[1]);
+  const normalized = normalizeCallout(input);
+  const replacement = matchPointerDimension(pointer, index === 0 ? normalized.anchor : normalized.center);
+  if (index === 0) {
+    return freezeCallout(replacement, normalized.center, normalized.size[0], normalized.size[1], normalized.referenceResolution);
+  }
+  if (index === 9) {
+    return freezeCallout(normalized.anchor, replacement, normalized.size[0], normalized.size[1], normalized.referenceResolution);
+  }
+
+  const presented = presentCallout(normalized, style, context).state;
+  const visualScale = calloutVisualScale(presented, style, context);
 
   const centerPixel = context.toPixel(presented.center);
   const pointerPixel = context.toPixel(replacement);
-  const current = frameBounds(centerPixel, presented.size[0], presented.size[1]);
+  const current = frameBounds(centerPixel, scaledLength(presented.size[0], visualScale), scaledLength(presented.size[1], visualScale));
   const movesWest = index === 1 || index === 7 || index === 8;
   const movesEast = index === 3 || index === 4 || index === 5;
   const movesNorth = index === 1 || index === 2 || index === 3;
@@ -166,12 +214,12 @@ function moveCalloutHandle(
   let top = current.top;
   let bottom = current.bottom;
   const currentLayout = layoutText(presented.size[0], 0, style as StyleSpec, requireCalloutText(style), context);
-  const minimumWidth = currentLayout.minimumWidth;
+  const minimumWidth = scaledLength(currentLayout.minimumWidth, visualScale);
   if (movesWest) left = Math.min(pointerPixel[0], right - minimumWidth);
   if (movesEast) right = Math.max(pointerPixel[0], left + minimumWidth);
-  const width = right - left;
+  const width = (right - left) / visualScale;
   const required = layoutText(width, 0, style as StyleSpec, requireCalloutText(style), context);
-  const minimumHeight = required.height;
+  const minimumHeight = scaledLength(required.height, visualScale);
   if (!movesNorth && !movesSouth) {
     const middle = (top + bottom) / 2;
     top = middle - minimumHeight / 2;
@@ -180,7 +228,13 @@ function moveCalloutHandle(
   else bottom = Math.max(pointerPixel[1], top + minimumHeight);
 
   const nextCenterPixel: Pixel = [(left + right) / 2, (top + bottom) / 2];
-  const next = freezeCallout(presented.anchor, context.toCoordinate(nextCenterPixel, presented.center), right - left, bottom - top);
+  const next = freezeCallout(
+    presented.anchor,
+    context.toCoordinate(nextCenterPixel, presented.center),
+    (right - left) / visualScale,
+    (bottom - top) / visualScale,
+    presented.referenceResolution
+  );
   return presentCallout(next, style, context).state;
 }
 
@@ -244,7 +298,23 @@ function requireCalloutText(style: ElementStyleState): TextSpec {
   if (typeof style.text.fontSize === 'number' && (!Number.isFinite(style.text.fontSize) || style.text.fontSize <= 0)) {
     throw new InvalidArgumentError('Callout numeric text fontSize must be positive and finite');
   }
+  void normalizePadding(style.text.padding);
   return style.text;
+}
+
+function requireCalloutSizeMode(style: ElementStyleState): 'map' | 'screen' {
+  if (isNativeStyleRef(style)) throw new UnsupportedOperationError('Callout requires a structured style with text');
+  const mode = style.callout?.sizeMode ?? 'map';
+  if (mode !== 'map' && mode !== 'screen') throw new InvalidArgumentError(`Unknown Callout size mode: ${String(mode)}`);
+  return mode;
+}
+
+function calloutVisualScale(state: CalloutState, style: ElementStyleState, context: ShapePresentationContext): number {
+  if (requireCalloutSizeMode(style) === 'screen') return 1;
+  const currentResolution = requirePositiveResolution(context.getResolution(), 'Current View resolution');
+  const visualScale = state.referenceResolution / currentResolution;
+  if (!Number.isFinite(visualScale) || visualScale <= 0) throw new InvalidArgumentError('Callout visual scale must be positive and finite');
+  return visualScale;
 }
 
 function composeFont(text: TextSpec): string {
@@ -334,7 +404,7 @@ function frameBounds(center: Pixel, width: number, height: number): FrameBounds 
   return Object.freeze({ left: center[0] - width / 2, top: center[1] - height / 2, right: center[0] + width / 2, bottom: center[1] + height / 2 });
 }
 
-function calloutRing(bounds: FrameBounds, anchor: Pixel): Pixel[] {
+function calloutRing(bounds: FrameBounds, anchor: Pixel, visualScale: number): Pixel[] {
   const center: Pixel = [(bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2];
   const dx = anchor[0] - center[0];
   const dy = anchor[1] - center[1];
@@ -346,7 +416,7 @@ function calloutRing(bounds: FrameBounds, anchor: Pixel): Pixel[] {
   const side = xRatio < yRatio ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'bottom' : 'top';
   const ratio = Math.min(xRatio, yRatio);
   const intersection: Pixel = [center[0] + dx * ratio, center[1] + dy * ratio];
-  const base = Math.min(tailHalfBase, side === 'top' || side === 'bottom' ? halfWidth / 2 : halfHeight / 2);
+  const base = Math.min(scaledLength(tailHalfBase, visualScale), side === 'top' || side === 'bottom' ? halfWidth / 2 : halfHeight / 2);
   let ring: Pixel[];
   if (side === 'top') {
     const x = clamp(intersection[0], bounds.left + base, bounds.right - base);
@@ -413,14 +483,56 @@ function handle(index: number, coordinate: Coordinate, role: string): ControlPoi
   return Object.freeze({ index, coordinate: Object.freeze(cloneCoordinate(coordinate)), role, removable: false });
 }
 
-function freezeCallout(anchor: Coordinate, center: Coordinate, width: number, height: number): CalloutState {
+function freezeCallout(anchor: Coordinate, center: Coordinate, width: number, height: number, referenceResolution: number): CalloutState {
   const size = Object.freeze([width, height]) as readonly [number, number];
   return Object.freeze({
     type: 'callout',
     anchor: Object.freeze(cloneCoordinate(anchor)),
     center: Object.freeze(cloneCoordinate(center)),
-    size
+    size,
+    referenceResolution
   });
+}
+
+function freezeUnmaterializedCallout(anchor: Coordinate, center: Coordinate): CalloutState {
+  const draft = Object.freeze({
+    type: 'callout' as const,
+    anchor: Object.freeze(cloneCoordinate(anchor)),
+    center: Object.freeze(cloneCoordinate(center)),
+    size: Object.freeze([0, 0] as const)
+  });
+  return draft as unknown as CalloutState;
+}
+
+function readCalloutSize(input: unknown): readonly [unknown, unknown] {
+  if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype) {
+    throw new InvalidArgumentError('Callout size must contain width and height');
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(input);
+  const keys = Reflect.ownKeys(descriptors);
+  if (
+    input.length !== 2 ||
+    keys.length !== 3 ||
+    !keys.includes('0') ||
+    !keys.includes('1') ||
+    !keys.includes('length') ||
+    !('value' in descriptors['0']) ||
+    !('value' in descriptors['1'])
+  ) {
+    throw new InvalidArgumentError('Callout size must contain width and height');
+  }
+  return [descriptors['0'].value, descriptors['1'].value];
+}
+
+function requirePositiveResolution(input: unknown, label: string): number {
+  if (typeof input !== 'number' || !Number.isFinite(input) || input <= 0) throw new InvalidArgumentError(`${label} must be a positive finite number`);
+  return input;
+}
+
+function scaledLength(length: number, visualScale: number): number {
+  const scaled = length * visualScale;
+  if (!Number.isFinite(scaled) || scaled < 0) throw new InvalidArgumentError('Callout display size exceeds the finite numeric range');
+  return scaled;
 }
 
 function translateCoordinate(coordinate: Coordinate, x: number, y: number): Coordinate {

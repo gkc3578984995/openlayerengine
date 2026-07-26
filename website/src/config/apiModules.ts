@@ -126,6 +126,8 @@ export const apiModules: readonly ApiModuleDefinition[] = [
       'CircleSymbolSpec',
       'IconSymbolSpec',
       'TextSpec',
+      'CalloutStyleSpec',
+      'CalloutSizeMode',
       'ArrowDecorationSpec',
       'Color',
       'StylePresetName'

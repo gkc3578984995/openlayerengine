@@ -215,7 +215,7 @@ describe('Element 统一几何详情', () => {
   });
 
   it('Callout 详情固定返回 anchor-center 骨架，不暴露屏幕框体 presentation', () => {
-    const state: ShapeState<'callout'> = { type: 'callout', anchor: [1, 2], center: [5, 8], size: [160, 64] };
+    const state: ShapeState<'callout'> = { type: 'callout', anchor: [1, 2], center: [5, 8], size: [160, 64], referenceResolution: 1 };
     const details = createElementGeometryDetails(state, { type: 'polyline', coordinates: [state.anchor, state.center] });
 
     expect(details).toEqual({

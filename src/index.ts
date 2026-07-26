@@ -54,6 +54,8 @@ export type { ShapeInput, ShapeState, ShapeType } from './core/shape/types.js';
 export type { ElementGeometryDetails, ElementRenderGeometry, MapExtent } from './facade/elementGeometryTypes.js';
 export type {
   ArrowDecorationSpec,
+  CalloutSizeMode,
+  CalloutStyleSpec,
   CircleSymbolSpec,
   ElementStyleState,
   IconSymbolSpec,

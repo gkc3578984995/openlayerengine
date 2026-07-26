@@ -49,6 +49,12 @@ const styleFields = [
     desc: '面图形的纯色或纹理填充'
   },
   { anchor: 'api-style-text', name: 'text', type: 'TextSpec', desc: '文字内容与外观' },
+  {
+    anchor: 'api-style-callout',
+    name: 'callout',
+    type: 'CalloutStyleSpec',
+    desc: "Callout 专属尺寸模式；省略或 'map' 随地图缩放，'screen' 固定屏幕尺寸"
+  },
   { anchor: 'api-style-decorations', name: 'decorations', type: 'ArrowDecorationSpec[]', desc: '普通路径箭头；固定像素路径装饰使用 linework' },
   { anchor: 'api-style-linework', name: 'linework', type: 'LineworkSpec', desc: '由 lineStyles 生成的偏移轨道、衬色、端帽与固定像素装饰' },
   { anchor: 'api-style-z-index', name: 'zIndex', type: 'number', desc: '同一图层内的样式绘制顺序' }
@@ -104,6 +110,8 @@ const apiTypes = [
   'SolidFillSpec',
   'PatternFillSpec',
   'TextSpec',
+  'CalloutStyleSpec',
+  'CalloutSizeMode',
   'ArrowDecorationSpec',
   'Color',
   'NativeStyleRef'
@@ -142,13 +150,18 @@ const runtimeApi = ['stylePresets'] as const;
           <RouterLink class="doc-link" to="/components/elements/linework#factory-options">lineStyles 的 casing 选项</RouterLink>，无需复制 Geometry 或创建第二个
           Element。
         </p>
-        <el-alert type="info" :closable="false" show-icon title="Callout 使用结构化 fill / strokes / text">
+        <el-alert type="info" :closable="false" show-icon title="Callout 使用结构化 fill / strokes / text / callout">
           顶层 <ApiReference kind="property" to="#api-style-fill">fill</ApiReference> 与
           <ApiReference kind="property" to="#api-style-strokes">strokes</ApiReference> 同时绘制文本框和尾巴；
           <ApiReference kind="property" to="#api-style-text">text</ApiReference> 绘制框体中心文字。
+          <ApiReference kind="property" to="#api-style-callout">callout</ApiReference> 的 <code>sizeMode</code> 省略时默认为
+          <code>'map'</code>，使框体、尾巴、文字、padding 和描边按同一倍率随地图缩放；设为 <code>'screen'</code> 则固定屏幕尺寸。切换只更新 Style，不改写 Shape
+          的 <code>size</code> 或 <code>referenceResolution</code>。完整状态和运动门控语义见
+          <RouterLink class="doc-link" to="/components/elements/shapes#callout-sizing">Callout 尺寸模式</RouterLink>。
           <ApiReference kind="property" to="/api/types#api-type-text-spec-property-max-width">TextSpec.maxWidth</ApiReference>
-          是两点 Draw 自动计算初始内容宽度的 CSS px 上限，省略时使用 240px；缩放后会按当前框宽重新换行。 为保持文字居中、屏幕正向且不越界，Callout 不接受沿线
-          placement、文字 offset、旋转、随 View 旋转或文字背景；scale 只能省略或使用数值 <code>1</code>。背景与边框应继续使用顶层 <code>fill / strokes</code>。
+          是两点 Draw 自动计算初始内容宽度的 CSS px 上限，省略时使用 240px；编辑框体宽度后会按当前框宽重新换行。为保持文字居中、屏幕正向且不越界，Callout
+          不接受沿线 placement、文字 offset、旋转、随 View 旋转或文字背景；scale 只能省略或使用数值 <code>1</code>。背景与边框应继续使用顶层
+          <code>fill / strokes</code>。
         </el-alert>
       </section>
 
@@ -183,8 +196,10 @@ const runtimeApi = ['stylePresets'] as const;
               <ApiReference kind="method" to="#api-method-style-patch">styles.patch</ApiReference>
               修改局部颜色；线样式会提供完整 <code>strokes</code> 数组，保留多层描边、宽度与虚线配置。原生边界闭环会正向应用 OpenLayers
               Style，捕获原生状态上结构化 patch 的预期错误并验证 NativeStyleRef 不变，最后在同一 Element 上恢复所选结构化预设。 “Callout
-              自动换行”控件会运行同一组件中的 <code>fill + strokes + text</code> 示例，可调整
-              <ApiReference kind="property" to="/api/types#api-type-text-spec-property-max-width">text.maxWidth</ApiReference> 后重新创建预览。
+              自动换行”控件会运行同一组件中的 <code>fill + strokes + text + callout</code> 示例，可调整
+              <ApiReference kind="property" to="/api/types#api-type-text-spec-property-max-width">text.maxWidth</ApiReference> 后重新创建预览，并在默认
+              <code>'map'</code> 与固定屏幕尺寸的 <code>'screen'</code> 之间切换。模式切换通过
+              <ApiReference kind="method" to="#api-method-style-patch">styles.patch</ApiReference> 完成，便于缩放地图时直接比较两种行为。
             </p>
           </template>
           <template #preview><StylesDemo /></template>

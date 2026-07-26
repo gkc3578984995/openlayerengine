@@ -28,6 +28,14 @@ export class GeometryCodec {
     this.#presentation = presentation;
   }
 
+  /** 在 Store 写入前解析依赖当前 View 的 Shape 输入。 */
+  materialize(input: ShapeInput | ShapeState, referenceState?: ShapeState): ShapeState {
+    const definition = this.#shapes.get(input.type);
+    if (definition.presentation?.materialize === undefined) return definition.normalize(input);
+    if (this.#presentation === undefined) throw new CapabilityError(`Shape presentation adapter is unavailable: ${input.type}`);
+    return this.#presentation.materialize(definition, input, referenceState);
+  }
+
   /** 把规范状态投影到 Feature；几何类型未变时复用原对象。 */
   project(feature: Feature<Geometry>, state: ShapeState, style?: ElementStyleState): Geometry {
     const rendered = this.present(state, style);

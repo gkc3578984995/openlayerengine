@@ -1,7 +1,7 @@
 import type { StyleLike } from 'ol/style/Style.js';
 import { lineStyles } from '../../src/builtins/styles/lineStyles.js';
 import type { ElementSelector } from '../../src/core/element/types.js';
-import type { StylePatch, StyleSpec } from '../../src/core/style/types.js';
+import type { CalloutSizeMode, CalloutStyleSpec, StylePatch, StyleSpec } from '../../src/core/style/types.js';
 import type { StyleInput, StyleService } from '../../src/facade/styleTypes.js';
 
 const complete: StyleSpec = {
@@ -71,6 +71,7 @@ const complete: StyleSpec = {
     keepUpright: false
   },
   decorations: [{ type: 'arrow', placement: 'repeat', offset: 4, spacing: 20 }],
+  callout: { sizeMode: 'screen' },
   zIndex: 2
 };
 
@@ -94,6 +95,7 @@ const deepPatch: StylePatch = {
   },
   strokes: [{ color: '#f00' }],
   decorations: [],
+  callout: { sizeMode: 'map' },
   zIndex: undefined
 };
 
@@ -104,6 +106,7 @@ const deletingBranches: StylePatch = {
   text: undefined,
   decorations: undefined,
   linework: undefined,
+  callout: undefined,
   zIndex: undefined
 };
 
@@ -115,7 +118,8 @@ const deletingOptionalFields: StylePatch = {
     fill: undefined,
     backgroundStroke: undefined,
     padding: undefined
-  }
+  },
+  callout: { sizeMode: undefined }
 };
 
 const replaceDiscriminators: StylePatch = {
@@ -139,6 +143,8 @@ const polygonLineworkStyle = lineStyles.polygon({
 });
 const repeatedCenterGlyphStyle = lineStyles.polyline({ decoration: { type: 'center-dot-pair', repeatSpacingPx: 40 } });
 const replaceLinework: StylePatch = { linework: polygonLineworkStyle.linework };
+const calloutMode: CalloutSizeMode = 'map';
+const calloutStyle: CalloutStyleSpec = { sizeMode: 'screen' };
 
 declare const nativeStyle: StyleLike;
 const inputs: StyleInput[] = [complete, { nativeStyle }];
@@ -163,6 +169,8 @@ const invalidPatternReplacement: StylePatch = { fill: { type: 'pattern', dotRadi
 const invalidInput: StyleInput = nativeStyle;
 // @ts-expect-error a circle patch cannot mix icon-only fields
 const invalidMixedSymbolPatch: StylePatch = { symbol: { radius: 6, scale: 2 } };
+// @ts-expect-error Callout only supports map-relative or screen-relative sizing
+const invalidCalloutSizeMode: StylePatch = { callout: { sizeMode: 'viewport' } };
 // @ts-expect-error native input cannot also contain structured style fields
 const invalidMixedNativeInput: StyleInput = { nativeStyle, zIndex: 2 };
 // @ts-expect-error native input cannot also contain a structured symbol
@@ -195,11 +203,14 @@ void [
   invalidPatternReplacement,
   invalidInput,
   invalidMixedSymbolPatch,
+  invalidCalloutSizeMode,
   invalidMixedNativeInput,
   invalidNativeSymbolInput,
   lineworkStyle,
   polygonLineworkStyle,
   repeatedCenterGlyphStyle,
+  calloutMode,
+  calloutStyle,
   replaceLinework,
   runtimeRejectedDoubleTrackCaps,
   runtimeRejectedDecorationOnly,

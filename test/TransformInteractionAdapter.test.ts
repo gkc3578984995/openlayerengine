@@ -24,6 +24,7 @@ import {
   editInsertionAnchorHoverStyle
 } from '../src/adapters/openlayers/interactions/EditAnchorVisuals.js';
 import { TransformInteractionAdapter } from '../src/adapters/openlayers/interactions/TransformInteractionAdapter.js';
+import { PresentedPolygonGeometry } from '../src/adapters/openlayers/PresentedPolygonGeometry.js';
 import type { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import type { TransformHitTest } from '../src/adapters/openlayers/transform/HitTest.js';
 import type { LayerRenderPort } from '../src/core/ports/LayerRenderPort.js';
@@ -920,7 +921,8 @@ describe('TransformInteractionAdapter', () => {
           [22, 17],
           [2, 17]
         ]
-      ]
+      ],
+      label: { coordinate: [12, 22] as const, text: 'copy label', visualScale: 2 }
     };
 
     input.handleEvent(pointerGestureEvent('pointermove', explicit ? [5, 6] : [30, 40]));
@@ -932,6 +934,8 @@ describe('TransformInteractionAdapter', () => {
     if (copy === undefined) throw new Error('Transform copy preview was not created.');
 
     expect(geometryCenter(copy)).toEqual([30, 40]);
+    expect(copy.getGeometry()).toBeInstanceOf(PresentedPolygonGeometry);
+    expect((copy.getGeometry() as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [30, 40], text: 'copy label', visualScale: 2 });
     input.handleEvent(pointerGestureEvent('pointermove', [50, 25]));
     expect(geometryCenter(copy)).toEqual([50, 25]);
     input.handleEvent(pointerGestureEvent('pointerdown', [50, 25]));

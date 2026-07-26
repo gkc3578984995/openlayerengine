@@ -272,8 +272,9 @@ const apiMembers = {
               <ApiReference kind="property" to="#api-property-geometry-details">Element.geometryDetails</ApiReference>
               ，统一显示范围角点、最终轮廓点、规范控制点以及 Circle 圆心和双单位半径，并调用
               <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">earth.view.toGeographicCoordinates()</ApiReference>
-              转换一个坐标样本。面箭头的最终 polygon ring 与绘制控制点会分别展示；Callout 则展示 <code>anchor + center</code> 静态骨架，屏幕框体不写入
-              <code>geometryDetails</code>。详细输入规则见 <a href="/components/elements/shapes">图形类型（Shapes）</a>。
+              转换一个坐标样本。面箭头的最终 polygon ring 与绘制控制点会分别展示；Callout 则展示 <code>anchor + center</code> 静态骨架，当前 View
+              下的框体与尾巴不写入 <code>geometryDetails</code>。默认地图缩放、固定屏幕尺寸和基准分辨率规则见
+              <a href="/components/elements/shapes#callout-sizing">Callout 尺寸模式</a>。
             </p>
           </template>
           <template #preview><ShapesDemo ref="shapesDemoRef" /></template>
@@ -376,7 +377,8 @@ const apiMembers = {
           </li>
           <li>
             Callout 的 <code>renderGeometry</code> 固定为连接 <code>anchor</code> 与 <code>center</code> 的 polyline，<code>controlPoints</code>
-            返回这两个规范坐标。屏幕轴对齐框体、尾巴与换行文字依赖当前 View，不进入静态详情。
+            返回这两个规范坐标。ShapeState 仍保存逻辑 <code>size</code> 与
+            <code>referenceResolution</code>；屏幕轴对齐框体、尾巴、当前显示倍率与换行文字依赖当前 View，不进入静态详情。
           </li>
           <li>
             Circle 的便利字段 <code>center</code> 返回 View 投影圆心，<code>radius</code> 同时提供米制 <code>meters</code> 和 View 投影单位下的

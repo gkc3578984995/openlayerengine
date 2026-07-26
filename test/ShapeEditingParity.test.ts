@@ -156,7 +156,9 @@ function completeRepresentative(shapes: ShapeRegistry, type: ShapeType): ShapeSt
   const definition = shapes.get(type);
   const draft = definition.createDraft(representativePoints[type]);
   if (draft === undefined) throw new Error(`${type} representative draft is unavailable`);
-  const completion = definition.tryComplete(draft as never);
+  const materialized = testShapePresentation.materialize(definition, draft);
+  const presented = testShapePresentation.present(definition, materialized, style);
+  const completion = definition.tryComplete(presented.state as never);
   if (completion.status === 'incomplete') throw new Error(`${type} representative draft is incomplete`);
   return definition.clone(completion.state as never) as ShapeState;
 }

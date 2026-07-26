@@ -1,5 +1,13 @@
 import type { PathTrackStrokeSpec, StrokeSpec, StylePatch, StyleSpec } from '../../src/core/style/types.js';
-import type { LineCasingOptions, LineCasingType, LineDecorationOptions, LineTracksOptions, PathCasingSpec } from '../../src/index.js';
+import type {
+  CalloutSizeMode,
+  CalloutStyleSpec,
+  LineCasingOptions,
+  LineCasingType,
+  LineDecorationOptions,
+  LineTracksOptions,
+  PathCasingSpec
+} from '../../src/index.js';
 
 // @ts-expect-error a non-discriminating symbol patch cannot delete its discriminator
 const invalidSymbolTypeDeletion: StylePatch = { symbol: { type: undefined } };
@@ -31,6 +39,8 @@ const invalidPathCasingWidth: PathCasingSpec = { color: '#ffff00', type: 'center
 const invalidFactoryCasingWidth: LineCasingOptions = { color: '#ffff00', width: undefined };
 // @ts-expect-error decoration-only tracks cannot explicitly contain width
 const invalidDecorationOnlyTrackWidth: LineTracksOptions = { mode: 'none', width: undefined };
+const calloutSizeMode: CalloutSizeMode = 'screen';
+const calloutStyle: CalloutStyleSpec = { sizeMode: 'map' };
 
 void [
   invalidSymbolTypeDeletion,
@@ -48,5 +58,7 @@ void [
   invalidPathCasingType,
   invalidPathCasingWidth,
   invalidFactoryCasingWidth,
-  invalidDecorationOnlyTrackWidth
+  invalidDecorationOnlyTrackWidth,
+  calloutSizeMode,
+  calloutStyle
 ];

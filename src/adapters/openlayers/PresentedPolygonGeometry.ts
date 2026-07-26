@@ -75,15 +75,24 @@ export function copyPolygonCoordinates(coordinates: PolygonCoordinates, worldOff
 function copyLabel(label: RenderTextLabel | undefined, worldOffset: number): RenderTextLabel | undefined {
   if (label === undefined) return undefined;
   if (typeof label.text !== 'string') throw new InvalidArgumentError('Presented Polygon label text must be a string');
+  assertVisualScale(label.visualScale);
   const coordinate = copyCoordinate(label.coordinate, worldOffset);
-  return Object.freeze({ coordinate: Object.freeze(coordinate) as Coordinate, text: label.text });
+  return Object.freeze({
+    coordinate: Object.freeze(coordinate) as Coordinate,
+    text: label.text,
+    ...(label.visualScale === undefined ? {} : { visualScale: label.visualScale })
+  });
 }
 
 function translatedLabel(label: RenderTextLabel, deltaX: number, deltaY: number): RenderTextLabel {
   const coordinate = label.coordinate;
   const translated: Coordinate =
     coordinate.length === 3 ? [coordinate[0] + deltaX, coordinate[1] + deltaY, coordinate[2]] : [coordinate[0] + deltaX, coordinate[1] + deltaY];
-  return Object.freeze({ coordinate: Object.freeze(translated), text: label.text });
+  return Object.freeze({
+    coordinate: Object.freeze(translated),
+    text: label.text,
+    ...(label.visualScale === undefined ? {} : { visualScale: label.visualScale })
+  });
 }
 
 function copyCoordinate(coordinate: Coordinate, worldOffset: number): number[] {
@@ -102,9 +111,18 @@ function assertCoordinate(coordinate: Coordinate, worldOffset: number): void {
   }
 }
 
+function assertVisualScale(visualScale: number | undefined): void {
+  if (visualScale !== undefined && (!Number.isFinite(visualScale) || visualScale <= 0)) {
+    throw new InvalidArgumentError('Presented Polygon label visualScale must be a positive finite number');
+  }
+}
+
 function labelsEqual(left: RenderTextLabel | undefined, right: RenderTextLabel | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
   return (
-    left.text === right.text && left.coordinate.length === right.coordinate.length && left.coordinate.every((value, index) => value === right.coordinate[index])
+    left.text === right.text &&
+    left.visualScale === right.visualScale &&
+    left.coordinate.length === right.coordinate.length &&
+    left.coordinate.every((value, index) => value === right.coordinate[index])
   );
 }

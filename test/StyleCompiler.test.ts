@@ -405,6 +405,79 @@ describe('StyleCompiler', () => {
     expect(changed[2].getText()?.getText()).toBe('changed');
   });
 
+  it('applies a presentation label visualScale to the whole Callout while leaving ordinary styles unchanged', () => {
+    const { compiler } = compilerWithCanvas();
+    const spec: StyleSpec = {
+      strokes: [{ color: '#222222', width: 2, lineDash: [3, 5], lineDashOffset: 1 }],
+      text: {
+        text: 'raw',
+        fill: { type: 'solid', color: '#123456' },
+        stroke: { color: '#ffffff', width: 1 },
+        padding: [1, 2, 3, 4]
+      }
+    };
+    const coordinates = [
+      [
+        [0, 0],
+        [20, 0],
+        [20, 10],
+        [0, 0]
+      ]
+    ];
+    const geometry = new PresentedPolygonGeometry(coordinates, { coordinate: [10, 5], text: 'scaled', visualScale: 2 });
+    const feature = new Feature(geometry);
+
+    const scaled = render(compiler, spec, feature);
+    expect(scaled[0].getStroke()?.getWidth()).toBe(4);
+    expect(scaled[0].getStroke()?.getLineDash()).toEqual([6, 10]);
+    expect(scaled[0].getStroke()?.getLineDashOffset()).toBe(2);
+    expect(scaled[1].getText()?.getScale()).toBe(2);
+    expect(scaled[1].getText()?.getPadding()).toEqual([2, 4, 6, 8]);
+
+    geometry.setPresentationLabel({ coordinate: [10, 5], text: 'scaled', visualScale: 0.5 });
+    const reduced = render(compiler, spec, feature);
+    expect(reduced).not.toBe(scaled);
+    expect(reduced[0].getStroke()?.getWidth()).toBe(1);
+    expect(reduced[0].getStroke()?.getLineDash()).toEqual([1.5, 2.5]);
+    expect(reduced[0].getStroke()?.getLineDashOffset()).toBe(0.5);
+    expect(reduced[1].getText()?.getScale()).toBe(0.5);
+    expect(reduced[1].getText()?.getPadding()).toEqual([0.5, 1, 1.5, 2]);
+
+    const ordinary = render(compiler, spec, new Feature(new Polygon(coordinates)));
+    expect(ordinary[0].getStroke()?.getWidth()).toBe(2);
+    expect(ordinary[0].getStroke()?.getLineDash()).toEqual([3, 5]);
+    expect(ordinary[0].getStroke()?.getLineDashOffset()).toBe(1);
+    expect(ordinary[0].getText()?.getScale()).toBeUndefined();
+    expect(ordinary[0].getText()?.getPadding()).toEqual([1, 2, 3, 4]);
+
+    const defaultWidthParts = compiler.compilePresentationLabelParts({ strokes: [{}], text: { text: 'raw' } }, 3);
+    const defaultWidthResult = styleFunction(defaultWidthParts.base)(feature, 1);
+    const defaultWidth = defaultWidthResult === undefined ? [] : Array.isArray(defaultWidthResult) ? defaultWidthResult : [defaultWidthResult];
+    expect(defaultWidth[0].getStroke()?.getWidth()).toBe(3);
+  });
+
+  it('keeps fitPatternOnce fitted to the already scaled presentation geometry', () => {
+    const { compiler } = compilerWithCanvas();
+    const geometry = new PresentedPolygonGeometry(
+      [
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+          [0, 0]
+        ]
+      ],
+      { coordinate: [5, 5], text: 'scaled', visualScale: 2 }
+    );
+    const feature = new Feature(geometry);
+    const parts = compiler.compilePresentationLabelParts({ strokes: [{ lineDash: [2, 2], fitPatternOnce: true }], text: { text: 'raw' } }, 2);
+    const result = styleFunction(parts.base)(feature, 1);
+    const styles = result === undefined ? [] : Array.isArray(result) ? result : [result];
+
+    expect(styles[0].getStroke()?.getLineDash()).toEqual([20, 20]);
+  });
+
   it('splits an explicit presentation label from every non-text style branch', () => {
     let fontRevision = 0;
     const getFontRevision = vi.fn(() => fontRevision);
@@ -439,7 +512,7 @@ describe('StyleCompiler', () => {
       decorations: [{ type: 'arrow', placement: 'end' }],
       zIndex: 9
     };
-    const parts = compiler.compilePresentationLabelParts(spec);
+    const parts = compiler.compilePresentationLabelParts(spec, 2);
     const lineFeature = line([
       [0, 0],
       [40, 0]
@@ -468,6 +541,8 @@ describe('StyleCompiler', () => {
     expect(frameStyles.every((style) => style.getText() === null)).toBe(true);
     expect(frameStyles.some((style) => style.getFill()?.getColor() === '#ffffff')).toBe(true);
     expect(frameStyles.some((style) => style.getStroke()?.getColor() === '#135724')).toBe(true);
+    expect(frameStyles[0].getStroke()?.getWidth()).toBe(8);
+    expect(frameStyles[1].getStroke()?.getWidth()).toBe(2);
     expect(labelStyles).toHaveLength(1);
     expect(geometryCoordinate(labelStyles[0])).toEqual([10, 5]);
     expect(labelStyles[0].getFill()).toBeNull();
@@ -475,6 +550,7 @@ describe('StyleCompiler', () => {
     expect(labelStyles[0].getImage()).toBeNull();
     expect(labelStyles[0].getZIndex()).toBe(9);
     expect(labelStyles[0].getText()?.getText()).toBe('wrapped\nlabel');
+    expect(labelStyles[0].getText()?.getScale()).toBe(2);
     expect(labelStyles[0].getText()?.getOffsetX()).toBe(0);
     expect(labelStyles[0].getText()?.getRotation()).toBe(0);
     expect(canvases.at(-1)?.context.strokeStyle).toBe('#135724');
@@ -525,12 +601,13 @@ describe('StyleCompiler', () => {
     ];
     const canonical = new Feature(new Polygon(coordinates));
     const geometry = new PresentedPolygonGeometry(coordinates, { coordinate: [5, 3], text: '第一\n帧' });
+    geometry.setPresentationLabel({ ...geometry.getPresentationLabel()!, visualScale: 2 });
     const presentation = new Feature(geometry);
     const compiled = compiler.compilePresentation(
       {
         fill: { type: 'solid', color: '#ffffff' },
-        strokes: [{ color: '#222222', width: 2 }],
-        text: { text: 'raw', fill: { type: 'solid', color: '#123456' } }
+        strokes: [{ color: '#222222', width: 2, lineDash: [2, 4], lineDashOffset: 1 }],
+        text: { text: 'raw', fill: { type: 'solid', color: '#123456' }, padding: [1, 2, 3, 4] }
       },
       canonical
     );
@@ -543,6 +620,11 @@ describe('StyleCompiler', () => {
     expect((labelPoint as Point).getCoordinates()).toEqual([5, 3]);
     expect(labelStyle?.getText()?.getText()).toBe('第一\n帧');
     expect(compiled.revision).toBe(1);
+    expect(initialStyles[0].getStroke()?.getWidth()).toBe(4);
+    expect(initialStyles[0].getStroke()?.getLineDash()).toEqual([4, 8]);
+    expect(initialStyles[0].getStroke()?.getLineDashOffset()).toBe(2);
+    expect(labelStyle?.getText()?.getScale()).toBe(2);
+    expect(labelStyle?.getText()?.getPadding()).toEqual([2, 4, 6, 8]);
 
     geometry.translate(100, 20);
     const translated = compiled.resolve(presentation, 1);
@@ -552,12 +634,18 @@ describe('StyleCompiler', () => {
     expect((labelPoint as Point).getCoordinates()).toEqual([105, 23]);
 
     geometry.setPresentationLabel({ coordinate: [106, 24], text: '第二\n帧' });
+    geometry.setPresentationLabel({ ...geometry.getPresentationLabel()!, visualScale: 0.5 });
     const updated = compiled.resolve(presentation, 1);
     expect(updated).toBe(initial);
     expect(labelStyle?.getGeometry()).toBe(labelPoint);
     expect((labelPoint as Point).getCoordinates()).toEqual([106, 24]);
     expect(labelStyle?.getText()?.getText()).toBe('第二\n帧');
     expect(compiled.revision).toBe(1);
+    expect(initialStyles[0].getStroke()?.getWidth()).toBe(1);
+    expect(initialStyles[0].getStroke()?.getLineDash()).toEqual([1, 2]);
+    expect(initialStyles[0].getStroke()?.getLineDashOffset()).toBe(0.5);
+    expect(labelStyle?.getText()?.getScale()).toBe(0.5);
+    expect(labelStyle?.getText()?.getPadding()).toEqual([0.5, 1, 1.5, 2]);
 
     compiled.destroy();
   });

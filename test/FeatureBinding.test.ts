@@ -41,7 +41,7 @@ function callout(id: string, layerId = 'default'): ElementState<{ label: string 
   return {
     id,
     type: 'callout',
-    geometry: { type: 'callout', anchor: [0, 0], center: [40, 30], size: [120, 50] },
+    geometry: { type: 'callout', anchor: [0, 0], center: [40, 30], size: [120, 50], referenceResolution: 2 },
     style: {
       fill: { type: 'solid', color: '#ffffff' },
       strokes: [{ color: '#222222', width: 2 }],
@@ -73,11 +73,12 @@ function setup(seed: ElementState[] = [], shapePresentation?: ShapePresentationP
   const subscribe = vi.spyOn(store, 'subscribe');
   const codec = new GeometryCodec(shapes, identityShapeProjection, shapePresentation);
   const errorReporter = vi.fn();
-  const binding = new FeatureBinding(store, adapter, codec, new StyleCompiler(refs), {
+  const styles = new StyleCompiler(refs);
+  const binding = new FeatureBinding(store, adapter, codec, styles, {
     errorReporter,
     ...(shapePresentation === undefined ? {} : { shapePresentation })
   });
-  return { adapter, binding, codec, errorReporter, manager, refs, store, subscribe };
+  return { adapter, binding, codec, errorReporter, manager, refs, store, styles, subscribe };
 }
 
 function presentationHarness(): {
@@ -96,6 +97,7 @@ function presentationHarness(): {
   const unsubscribe = vi.fn();
   const unsubscribeMotion = vi.fn();
   const port: ShapePresentationPort = {
+    materialize: (definition, input, referenceState) => testShapePresentation.materialize(definition, input, referenceState),
     present(definition, state, style) {
       present(definition.type);
       const result = testShapePresentation.present(definition, state, style);
@@ -112,7 +114,8 @@ function presentationHarness(): {
             : {
                 label: Object.freeze({
                   coordinate: Object.freeze([result.geometry.label.coordinate[0] + offset, result.geometry.label.coordinate[1]] as const),
-                  text: result.geometry.label.text
+                  text: result.geometry.label.text,
+                  ...(result.geometry.label.visualScale === undefined ? {} : { visualScale: result.geometry.label.visualScale })
                 })
               })
         })
@@ -192,7 +195,7 @@ describe('FeatureBinding', () => {
 
   it('splits Callout labels, coalesces presentation revisions during motion, and unsubscribes on destroy', () => {
     const presentation = presentationHarness();
-    const { adapter, binding, codec } = setup([point('static'), callout('callout')], presentation.port);
+    const { adapter, binding, codec, styles } = setup([point('static'), callout('callout')], presentation.port);
     const staticFeature = binding.requireFeature('static');
     const staticGeometry = staticFeature.getGeometry();
     const calloutFeature = binding.requireFeature('callout');
@@ -205,6 +208,14 @@ describe('FeatureBinding', () => {
     expect((calloutGeometry as PresentedPolygonGeometry).getPresentationLabel()).toBeUndefined();
     expect(labelGeometry).toBeInstanceOf(PresentedPolygonGeometry);
     expect((labelGeometry as PresentedPolygonGeometry).getPresentationLabel()?.coordinate).toEqual([40, 30]);
+    expect((labelGeometry as PresentedPolygonGeometry).getPresentationLabel()?.visualScale).toBe(2);
+    expect((calloutFeature.getStyleFunction()?.(calloutFeature, 1) as Style[])[0]?.getStroke()?.getWidth()).toBe(4);
+    const labelText = (labelFeature.getStyleFunction()?.(labelFeature, 1) as Style[])[0]?.getText();
+    expect(labelText?.getScale()).toBe(2);
+    expect(labelText?.getPadding()).toEqual([16, 24, 16, 24]);
+    const compileParts = vi.spyOn(styles, 'compilePresentationLabelParts');
+    binding.preflight(callout('preflight'));
+    expect(compileParts).toHaveBeenLastCalledWith(expect.anything(), 2);
     expect(labelLayer.getVisible()).toBe(true);
 
     const project = vi.spyOn(codec, 'project');

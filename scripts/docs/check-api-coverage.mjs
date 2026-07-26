@@ -22,8 +22,8 @@ function findMethod(type, name) {
   return type.methods.find((method) => method.name === name);
 }
 
-const expectedCounts = { class: 11, interface: 95, typeAlias: 58 };
-assert(model.apiCatalog.length === 164, `公开类型目录数量应为 164，实际为 ${model.apiCatalog.length}`);
+const expectedCounts = { class: 11, interface: 96, typeAlias: 59 };
+assert(model.apiCatalog.length === 166, `公开类型目录数量应为 166，实际为 ${model.apiCatalog.length}`);
 for (const [kind, expected] of Object.entries(expectedCounts)) {
   const actual = model.apiCatalog.filter((entry) => entry.kind === kind).length;
   assert(actual === expected, `${kind} 数量应为 ${expected}，实际为 ${actual}`);
@@ -117,8 +117,10 @@ assert(
   'ShapeInput Circle 分支缺少 radius'
 );
 assert(
-  shapeInput.variants.some((variant) => ['anchor', 'center', 'size'].every((name) => variant.properties.some((property) => property.name === name))),
-  'ShapeInput Callout 分支缺少 anchor、center 或 size'
+  shapeInput.variants.some((variant) =>
+    ['anchor', 'center', 'size', 'referenceResolution'].every((name) => variant.properties.some((property) => property.name === name))
+  ),
+  'ShapeInput Callout 分支缺少 anchor、center、size 或 referenceResolution'
 );
 assert(
   shapeInput.variants.some((variant) => variant.properties.some((property) => property.name === 'controlPoints')),

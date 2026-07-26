@@ -109,6 +109,7 @@ function parseEditTopology<S extends ShapeState>(input: unknown): ShapeEditTopol
 function parsePresentationProfile<S extends ShapeState>(input: unknown): ShapePresentationProfile<S> {
   const record = ownDataSnapshot(input, 'Shape presentation profile');
   if (typeof record.viewDependent !== 'boolean') throw new InvalidArgumentError('Shape presentation profile viewDependent must be a boolean');
+  const materialize = optionalFunction(record, 'materialize');
   const validateStyle = optionalFunction(record, 'validateStyle');
   let edit: ShapePresentationProfile<S>['edit'];
   if (Object.prototype.hasOwnProperty.call(record, 'edit') && record.edit !== undefined) {
@@ -120,6 +121,7 @@ function parsePresentationProfile<S extends ShapeState>(input: unknown): ShapePr
   }
   return Object.freeze({
     viewDependent: record.viewDependent,
+    ...(materialize === undefined ? {} : { materialize }),
     ...(validateStyle === undefined ? {} : { validateStyle }),
     present: requiredFunction(record, 'present', 'Shape presentation profile'),
     ...(edit === undefined ? {} : { edit })
