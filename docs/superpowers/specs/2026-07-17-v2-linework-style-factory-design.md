@@ -14,6 +14,20 @@
 - 关联：2026-07-16-v2-interaction-visual-design.md
 - 关联：2026-07-17-v2-animation-effect-kernel-design.md
 
+## 2026-07-26 已批准修订
+
+用户于 2026-07-26 确认继续保留 `StyleSpec.linework`，但将两个公共工厂改为 `tracks / casing / caps / decoration` 四组正交输入，并开放前景轨道宽度与衬色。完整规范见 [2026-07-26-v2-linework-factory-casing-design.md](./2026-07-26-v2-linework-factory-casing-design.md)。本文后续所有涉及旧顶层 `lines / text / textStyle / repeatSpacingPx`、固定 2px 轨道宽度、工厂判别联合、工厂调用示例、验证矩阵与用户文档要求的内容仅作为历史基线保留，不再是现行契约；实现和审查必须以 2026-07-26 补充设计为准。
+
+- `tracks` 省略时为 2px 单轨实线；`single` 使用 `pattern`，`double` 使用二元 `patterns`，两者均可通过正有限的 `width` 设置每条前景轨道宽度；`none` 只允许 `slash`。
+- 双轨按 `±(width / 2 + 2)` 保留 4 CSS px 净间隙；宽轨下普通 decoration 与内置端帽随包络扩张，中心 glyph/文字切口补偿 Stroke 圆端。端帽锚点仍是几何端点，foreground 与 casing 的可见 paint 都停止在端帽内缘。完整公式以 2026-07-26 补充设计为准。
+- `decoration` 的普通形式继续使用字符串；三种中心 glyph 与 `inline-text` 使用对象携带 `repeatSpacingPx`，路径文字同时在对象内携带 `text` 与 `style`。
+- `casing` 包含必填 `color`、默认 `center` 的 `type: 'inner' | 'outer' | 'center'` 与默认 2 CSS px 的正有限 `width`。该 width 表示每个指定方向实际露出的厚度，不是最终 Stroke 总宽度。
+- 低层 `LineworkSpec` 增加独立、完整且可序列化的 `PathCasingSpec`；casing 不写入 `tracks`，也不计入 caps 使用的逻辑轨道数量。
+- 设前景轨道包络为 `minimumEdge = min(offset - width / 2)`、`maximumEdge = max(offset + width / 2)`。居中衬色的派生 Stroke 使用包络中心和 `maximumEdge - minimumEdge + 2 * casing.width`；单侧衬色贴住相应包络边缘，派生 Stroke 宽度等于 `casing.width`。
+- 开放路径沿 controlPoints 方向以右法线为 `inner`、左法线为 `outer`，反转坐标会交换两侧；Polygon 的 `inner` 与 `outer` 始终表示拓扑内部和外部，并继续由 Adapter 处理规范 outer ring 的 offset 符号转换。
+- casing 固定为纯色实线，先于前景轨道绘制，并参与相同的文字/glyph 切口、命中、视觉外扩、world wrap、grow、fade、blink、highlight 与 alert；dash-flow 只推进真实虚线 tracks。
+- 本修订直接替换尚未发布的 2.0 工厂输入，不保留旧参数兼容分支；TypeScript 负责局部输入完整性，跨维度非法组合继续由工厂同步严格校验。
+
 本文只补充路径线饰的数据契约、两个公共样式工厂、路径布局和 OpenLayers 编译方式。未被本文明确补充的总纲条款继续有效。若本文与既有已批准规格存在未明确说明的冲突，以既有规格为准并返回设计评审，不得由实现自行选择解释。
 
 本文采用以下已确认需求：
@@ -85,15 +99,7 @@ export type LinePattern = 'solid' | 'dashed';
 export type LineCapType = 'none' | 'bar' | 'arrow';
 
 export type TrackedLineDecorationType =
-  | 'none'
-  | 'tick'
-  | 'alternating-tick'
-  | 'double-tick'
-  | 'square'
-  | 'circle'
-  | 'center-cross'
-  | 'center-dot'
-  | 'center-dot-pair';
+  'none' | 'tick' | 'alternating-tick' | 'double-tick' | 'square' | 'circle' | 'center-cross' | 'center-dot' | 'center-dot-pair';
 
 export type DecorationOnlyLineType = 'slash';
 
@@ -187,10 +193,7 @@ type DecorationOnlyPolylineOptions = CommonLineStyleOptions & {
   textStyle?: never;
 };
 
-export type PolylineLineStyleOptions =
-  | SingleTrackPolylineOptions
-  | DoubleTrackPolylineOptions
-  | DecorationOnlyPolylineOptions;
+export type PolylineLineStyleOptions = SingleTrackPolylineOptions | DoubleTrackPolylineOptions | DecorationOnlyPolylineOptions;
 ```
 
 判别规则：
@@ -235,7 +238,12 @@ const boundary = lineStyles.polygon({
 earth.elements.add({
   geometry: {
     type: 'polygon',
-    controlPoints: [[0, 0], [2_000, 0], [1_800, 1_200], [200, 1_000]]
+    controlPoints: [
+      [0, 0],
+      [2_000, 0],
+      [1_800, 1_200],
+      [200, 1_000]
+    ]
   },
   style: {
     ...boundary,
@@ -290,7 +298,11 @@ earth.elements.add({
   id: 'warning-line',
   geometry: {
     type: 'polyline',
-    controlPoints: [[0, 0], [1_000, 600], [2_200, 100]]
+    controlPoints: [
+      [0, 0],
+      [1_000, 600],
+      [2_200, 100]
+    ]
   },
   style: lineStyles.polyline({
     color: '#ff0000',
@@ -308,7 +320,12 @@ earth.elements.add({
 earth.elements.add({
   geometry: {
     type: 'curve-polyline',
-    controlPoints: [[0, 0], [800, 900], [1_700, 200], [2_600, 1_000]]
+    controlPoints: [
+      [0, 0],
+      [800, 900],
+      [1_700, 200],
+      [2_600, 1_000]
+    ]
   },
   style: lineStyles.polyline({
     color: '#1677ff',
@@ -324,7 +341,12 @@ earth.elements.add({
 earth.elements.add({
   geometry: {
     type: 'polyline',
-    controlPoints: [[0, 0], [1_000, 500], [2_000, 200], [3_000, 700]]
+    controlPoints: [
+      [0, 0],
+      [1_000, 500],
+      [2_000, 200],
+      [3_000, 700]
+    ]
   },
   style: lineStyles.polyline({
     color: '#2563eb',
@@ -368,7 +390,11 @@ const repeatedText = lineStyles.polygon({
 earth.elements.add({
   geometry: {
     type: 'polyline',
-    controlPoints: [[0, 0], [1_500, 400], [2_800, 0]]
+    controlPoints: [
+      [0, 0],
+      [1_500, 400],
+      [2_800, 0]
+    ]
   },
   style: lineStyles.polyline({
     lines: 'none',

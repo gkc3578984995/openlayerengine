@@ -48,8 +48,24 @@ describe('styleVisualOutsetPx linework', () => {
       }
     };
 
-    expect(styleVisualOutsetPx(style)).toBeCloseTo(Math.hypot(12, 6) + 1);
-    expect(styleVisualOutsetPx(style, { strokeWidth: 6 })).toBeCloseTo(Math.hypot(12, 6) + 3);
+    expect(styleVisualOutsetPx(style)).toBeCloseTo(3 + Math.hypot(12, 6) + 1);
+    expect(styleVisualOutsetPx(style, { strokeWidth: 6 })).toBeCloseTo(3 + Math.hypot(12, 6) + 3);
+  });
+
+  it.each([-5, 5])('includes a sole track offset of %s in the endpoint glyph outset', (offset) => {
+    const style: StyleSpec = {
+      linework: {
+        tracks: [{ offset, stroke: { color: '#f00', width: 2, lineJoin: 'round' } }],
+        caps: {
+          end: {
+            glyph: { primitives: [{ type: 'circle', center: [0, 0], radius: 4, fill: { type: 'solid', color: '#f00' } }] }
+          }
+        },
+        contour: { kind: 'open' }
+      }
+    };
+
+    expect(styleVisualOutsetPx(style)).toBe(9);
   });
 
   it('uses the largest independent double-track offset', () => {
@@ -64,6 +80,36 @@ describe('styleVisualOutsetPx linework', () => {
     };
 
     expect(styleVisualOutsetPx(style)).toBe(7);
+  });
+
+  it.each(['inner', 'outer', 'center'] as const)('includes open double-track %s casing in the conservative outset', (type) => {
+    const style: StyleSpec = {
+      linework: {
+        tracks: [
+          { offset: -3, stroke: { color: '#000', width: 2, lineJoin: 'round' } },
+          { offset: 3, stroke: { color: '#000', width: 2, lineJoin: 'round' } }
+        ],
+        casing: { color: '#ff0', type, width: 2 },
+        contour: { kind: 'open' }
+      }
+    };
+
+    expect(styleVisualOutsetPx(style)).toBe(6);
+  });
+
+  it('uses the asymmetric center casing envelope instead of summing track widths', () => {
+    const style: StyleSpec = {
+      linework: {
+        tracks: [
+          { offset: -3, stroke: { color: '#000', width: 2, lineJoin: 'round' } },
+          { offset: 5, stroke: { color: '#000', width: 4, lineJoin: 'round' } }
+        ],
+        casing: { color: '#ff0', type: 'center', width: 2 },
+        contour: { kind: 'open' }
+      }
+    };
+
+    expect(styleVisualOutsetPx(style)).toBe(9);
   });
 
   it('disables conservative culling when inline text requires runtime font metrics', () => {

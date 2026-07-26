@@ -40,7 +40,7 @@ const fieldColumns = [
 
 const styleFields = [
   { anchor: 'api-style-symbol', name: 'symbol', type: 'CircleSymbolSpec | IconSymbolSpec', desc: 'Point 的圆点或图标' },
-  { anchor: 'api-style-strokes', name: 'strokes', type: 'StrokeSpec[]', desc: '一层或多层描边，按数组顺序叠加' },
+  { anchor: 'api-style-strokes', name: 'strokes', type: 'StrokeSpec[]', desc: '同一 Geometry 上的一层或多层普通描边，按数组顺序叠加' },
   {
     anchor: 'api-style-fill',
     name: 'fill',
@@ -48,8 +48,8 @@ const styleFields = [
     desc: '面图形的纯色或纹理填充'
   },
   { anchor: 'api-style-text', name: 'text', type: 'TextSpec', desc: '文字内容与外观' },
-  { anchor: 'api-style-decorations', name: 'decorations', type: 'ArrowDecorationSpec[]', desc: '普通路径箭头；固定线饰使用 linework' },
-  { anchor: 'api-style-linework', name: 'linework', type: 'LineworkSpec', desc: '由 lineStyles 生成的路径线饰' },
+  { anchor: 'api-style-decorations', name: 'decorations', type: 'ArrowDecorationSpec[]', desc: '普通路径箭头；固定像素路径装饰使用 linework' },
+  { anchor: 'api-style-linework', name: 'linework', type: 'LineworkSpec', desc: '由 lineStyles 生成的偏移轨道、衬色、端帽与固定像素装饰' },
   { anchor: 'api-style-z-index', name: 'zIndex', type: 'number', desc: '同一图层内的样式绘制顺序' }
 ];
 
@@ -134,6 +134,13 @@ const runtimeApi = ['stylePresets'] as const;
       <section id="style-fields" class="doc-prose">
         <h2 class="doc-h2">StyleSpec 字段</h2>
         <ApiTable :columns="fieldColumns" :rows="styleFields" />
+        <p>
+          <ApiReference kind="property" to="#api-style-strokes">strokes</ApiReference> 适合在同一 Geometry 上按数组顺序叠加普通描边；
+          <ApiReference kind="property" to="#api-style-linework">linework</ApiReference>
+          还持有法向偏移轨道、共享切口、端帽与固定像素装饰。两套描边内核不能同时出现在一个 StyleSpec 中；需要为 Linework 增加底衬时，使用
+          <RouterLink class="doc-link" to="/components/elements/linework#factory-options">lineStyles 的 casing 选项</RouterLink>，无需复制 Geometry 或创建第二个
+          Element。
+        </p>
       </section>
 
       <section id="presets" class="doc-prose">

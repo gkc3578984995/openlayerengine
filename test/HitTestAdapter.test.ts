@@ -324,7 +324,7 @@ describe('HitTestAdapter', () => {
     });
     vi.spyOn(map, 'getPixelFromCoordinate').mockImplementation(((coordinate: number[]) => [coordinate[0], coordinate[1]]) as never);
 
-    expect(hitTest.getScreenExtent(element.id)).toEqual([-13, -13, 23, 13]);
+    expect(hitTest.getScreenExtent(element.id)).toEqual([-19, -19, 29, 19]);
   });
 
   it('falls back to compiled inline-text metrics and derived geometry when core outset is unknown', () => {

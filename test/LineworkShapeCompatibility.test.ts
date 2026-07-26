@@ -73,7 +73,7 @@ describe('linework ShapeDefinition compatibility', () => {
             [20, 10]
           ]
         },
-        style: lineStyles.polygon({ lines: ['solid', 'dashed'], decoration: 'square' }),
+        style: lineStyles.polygon({ tracks: { mode: 'double', patterns: ['solid', 'dashed'] }, decoration: 'square' }),
         layerId: 'default',
         visible: true
       })

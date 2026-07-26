@@ -224,9 +224,10 @@ describe('website Element documentation', () => {
     expect(queryDemo).toContain('class="element-query-demo__screen-extent"');
   });
 
-  it('guards cleared colors and keeps ordinary Linework changes from repeatedly flying the view', async () => {
-    const [stylesDemo, lineworkDemo, lineworkView] = await Promise.all([
+  it('documents configurable Linework tracks and casing without duplicating the preview Element', async () => {
+    const [stylesDemo, stylesView, lineworkDemo, lineworkView] = await Promise.all([
       read('website/src/examples/elements/StylesDemo.vue'),
+      read('website/src/views/elements/StylesView.vue'),
       read('website/src/examples/elements/LineworkDemo.vue'),
       read('website/src/views/elements/LineworkView.vue')
     ]);
@@ -235,25 +236,58 @@ describe('website Element documentation', () => {
     expect(stylesDemo).toMatch(/accentColor\.value \?\? ['"]#[\da-f]+['"]/iu);
     expect(lineworkDemo).toMatch(/const color = ref<string \| null>\(/u);
     expect(lineworkDemo).toMatch(/computed\(\(\) => color\.value \?\? ['"]#[\da-f]+['"]\)/iu);
+    expect(lineworkDemo).toContain("const casingColor = ref<string | null>('#facc15');");
+    expect(lineworkDemo).toContain("const activeCasingColor = computed(() => casingColor.value ?? '#facc15');");
 
     const factorySnippet = extractRegion(lineworkDemo, 'linework-factory');
+    const applySnippet = extractRegion(lineworkDemo, 'linework-apply');
     expect(factorySnippet).toContain('lineStyles.polyline({');
     expect(factorySnippet).toContain('lineStyles.polygon({');
+    expect(factorySnippet).toContain("{ mode: 'double', patterns: ['solid', 'dashed'], width: trackWidth.value }");
+    expect(factorySnippet.match(/tracks: trackOptions/gu)).toHaveLength(2);
+    expect(factorySnippet).toContain('const casing = createCasingOptions()');
+    expect(factorySnippet).toContain('{ casing }');
     expect(factorySnippet).toContain('repeatSpacingPx: repeatSpacingPx.value');
     expect(lineworkView).toContain("extractExampleSnippet(lineworkSource, 'linework-factory')");
     expect(lineworkView).toContain("extractExampleSnippet(lineworkSource, 'linework-apply')");
-    expect(lineworkView).toContain("name: 'repeatSpacingPx'");
+    expect(lineworkView).toContain("name: 'tracks'");
+    expect(lineworkView).toContain("name: 'casing'");
+    expect(lineworkView).toContain("name: 'decoration'");
+    expect(lineworkView).not.toContain("name: 'lines'");
+    expect(lineworkView).not.toContain("name: 'repeatSpacingPx'");
+    expect(lineworkView).toContain("'LineTracksOptions'");
+    expect(lineworkView).toContain("'LineCasingOptions'");
+    expect(lineworkView).toContain("'PathCasingSpec'");
     expect(lineworkView).toContain("'InlinePathTextPlacementSpec'");
     expect(lineworkView).toContain('间距按相邻副本的锚点计算');
+    expect(lineworkView).toContain('沿 controlPoints 声明方向位于右法线一侧');
+    expect(lineworkView).toContain('始终位于 Polygon 外环的拓扑内部');
+    expect(lineworkView).toContain('双轨会随宽度调整 offset，始终保留 4px');
+    expect(lineworkView).toContain('前景轨道和衬色分别停止在端帽朝路径内部的边缘');
+    expect(lineworkView).toContain('会按前景轨道包络放大');
+    expect(lineworkDemo).toContain('双轨 offset 会同步变化并保持 4px 净间隙');
+    expect(lineworkDemo).toContain('切口会补偿宽 Stroke 圆端');
     expect(lineworkDemo).toContain('v-model="repeatEnabled"');
     expect(lineworkDemo).toContain('v-model="repeatSpacingPx"');
+    expect(lineworkDemo).toContain('v-model="trackWidth"');
+    expect(lineworkDemo).toContain('v-model="casingEnabled"');
+    expect(lineworkDemo).toContain('v-model="casingType"');
+    expect(lineworkDemo).toContain('v-model="casingWidth"');
+    expect(lineworkDemo).toContain('v-model="casingColor"');
     expect(lineworkDemo).toContain("'累计长度中点一次'");
     expect(lineworkDemo).toContain('const applyLinework = (focus = false) =>');
+    expect(lineworkDemo).not.toContain('GUIDE_ID');
+    expect(applySnippet.match(/earth\.elements\.add\(/gu)).toHaveLength(1);
+    expect(applySnippet).not.toContain('strokes:');
     expect(lineworkDemo).toMatch(/watch\(kind,\s*\(\) => applyLinework\(true\)/u);
-    expect(lineworkDemo).toMatch(
-      /watch\(\[tracks, decoration, startCap, endCap, color, inlineText, repeatEnabled, repeatSpacingPx\],\s*\(\) => applyLinework\(\)/u
-    );
+    const reactiveWatcher = lineworkDemo.match(/watch\(\s*\[([\s\S]*?)\],\s*\(\) => applyLinework\(\)/u)?.[1];
+    expect(reactiveWatcher).toBeDefined();
+    for (const dependency of ['tracks', 'trackWidth', 'casingEnabled', 'casingType', 'casingWidth', 'casingColor', 'decoration', 'repeatSpacingPx']) {
+      expect(reactiveWatcher).toMatch(new RegExp(`\\b${dependency}\\b`, 'u'));
+    }
     expect(lineworkDemo).toContain('if (focus) earth.view.animateFlyTo');
+    expect(stylesView).toContain('两套描边内核不能同时出现在一个 StyleSpec 中');
+    expect(stylesView).toContain('lineStyles 的 casing 选项');
   });
 
   it('demonstrates the nativeStyle success, atomic failure and structured recovery loop', async () => {

@@ -1,4 +1,5 @@
 import type { IconSymbolSpec, PathGlyphPrimitiveSpec, PathGlyphSpec, StrokeSpec, StyleSpec } from './types.js';
+import { deriveLineworkPaintTracks, lineworkCapTrackOffset } from './lineworkCasing.js';
 
 /** 当前帧通过公开样式 setter 覆盖的视觉尺寸。 */
 export interface StyleVisualOutsetOverrides {
@@ -39,17 +40,18 @@ export function styleVisualOutsetPx(style: StyleSpec, overrides?: StyleVisualOut
     }
   }
   if (style.linework !== undefined) {
-    for (const track of style.linework.tracks) {
+    for (const track of deriveLineworkPaintTracks(style.linework)) {
       if (!Number.isFinite(track.offset)) return undefined;
       const outset = strokeVisualOutsetPx(track.stroke, overrides?.strokeWidth);
       if (outset === undefined) return undefined;
       result = Math.max(result, Math.abs(track.offset) + outset);
     }
+    const capTrackOffset = lineworkCapTrackOffset(style.linework);
     for (const cap of [style.linework.caps?.start, style.linework.caps?.end]) {
       if (cap === undefined) continue;
       const outset = glyphVisualOutsetPx(cap.glyph, overrides?.strokeWidth);
       if (outset === undefined) return undefined;
-      result = Math.max(result, outset);
+      result = Math.max(result, Math.abs(capTrackOffset) + outset);
     }
     for (const decoration of style.linework.decorations ?? []) {
       const glyphs = decoration.placement.kind === 'repeat' ? decoration.sequence : decoration.glyph === undefined ? undefined : [decoration.glyph];

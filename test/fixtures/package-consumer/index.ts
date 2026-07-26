@@ -8,6 +8,7 @@ import type {
   ElementRenderGeometry,
   ElementService,
   LayerService,
+  PolygonLineStyleOptions,
   MapExtent,
   MeasureService,
   OverlayService,
@@ -19,7 +20,12 @@ import type {
 const options: EarthOptions = { target: 'map', view: { center: [0, 0], zoom: 4 } };
 const getOrCreate: typeof useEarth = useEarth;
 const throttled = throttle((coordinate: Coordinate) => coordinate, 16);
-const lineStyle = lineStyles.polygon({ lines: ['solid', 'dashed'] as const, decoration: 'circle' });
+const polygonLineOptions: PolygonLineStyleOptions = {
+  tracks: { mode: 'double', patterns: ['solid', 'dashed'] as const, width: 3 },
+  casing: { color: '#ffffff', type: 'outer', width: 2 },
+  decoration: 'circle'
+};
+const lineStyle = lineStyles.polygon(polygonLineOptions);
 
 declare const earth: Earth;
 declare const element: Element;
@@ -47,6 +53,7 @@ void [
   options,
   getOrCreate,
   throttled,
+  polygonLineOptions,
   lineStyle,
   elements,
   geometryDetails,

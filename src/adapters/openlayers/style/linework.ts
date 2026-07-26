@@ -4,6 +4,7 @@ import MultiPoint from 'ol/geom/MultiPoint.js';
 import MultiPolygon from 'ol/geom/MultiPolygon.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
+import { asArray as colorAsArray } from 'ol/color.js';
 import CircleStyle from 'ol/style/Circle.js';
 import Fill from 'ol/style/Fill.js';
 import Stroke from 'ol/style/Stroke.js';
@@ -11,6 +12,7 @@ import Style from 'ol/style/Style.js';
 import Text from 'ol/style/Text.js';
 import type { Color } from '../../../core/common/types.js';
 import type { LayerRenderPathReveal } from '../../../core/ports/LayerRenderPort.js';
+import { deriveLineworkCasingTrack, deriveLineworkPaintTracks, lineworkCapTrackOffset } from '../../../core/style/lineworkCasing.js';
 import type {
   InlinePathTextSpec,
   LineworkSpec,
@@ -18,6 +20,7 @@ import type {
   PathGlyphPrimitiveSpec,
   PathGlyphSpec,
   PathGlyphStrokeSpec,
+  PathTrackSpec,
   StrokeSpec
 } from '../../../core/style/types.js';
 import {
@@ -47,7 +50,7 @@ export interface LineworkCompilationContext {
   readonly viewRotation: number;
   readonly zIndex: number | undefined;
   readonly measureText: LineworkTextMeasurer;
-  readonly viewport?: PathViewport;
+  readonly viewport?: PathViewport | undefined;
 }
 
 /** 动画展示替身持有的稳定 linework Style/Geometry 池。 */
@@ -175,16 +178,22 @@ export function compileLineworkStyles(spec: LineworkSpec, context: LineworkCompi
   if (measured.length === 0) return [];
 
   const styles: Style[] = [];
-  const cutouts = measured.map((path) => lineworkCutouts(spec, path, context));
-  styles.push(...compileTracks(spec, measured, cutouts, context));
+  const paintTracks = deriveLineworkPaintTracks(spec);
+  const casingTrack = deriveLineworkCasingTrack(spec);
+  const trackCutouts = measured.map((path) => lineworkPaintCutouts(spec, spec.tracks, path, context));
+  if (casingTrack !== undefined) {
+    const casingCutouts = measured.map((path) => lineworkPaintCutouts(spec, [casingTrack], path, context));
+    styles.push(...compileTracks(spec, [casingTrack], measured, casingCutouts, context));
+  }
+  styles.push(...compileTracks(spec, spec.tracks, measured, trackCutouts, context));
 
   const glyphPlacements: GlyphPlacement[] = [];
-  if (!expectedClosed) collectCaps(spec, measured, glyphPlacements);
+  if (!expectedClosed) collectCaps(spec, measured, context.resolution, glyphPlacements);
   collectDecorations(spec, measured, context.resolution, context.viewport, glyphPlacements);
   styles.push(...compileGlyphPlacements(glyphPlacements, context));
 
   if (spec.inlineText !== undefined) styles.push(...compileInlineText(spec, measured, context));
-  styles.push(compileHitCorridor(spec, measured, context));
+  styles.push(compileHitCorridor(paintTracks, measured, context));
   return styles;
 }
 
@@ -202,17 +211,64 @@ export function createLineworkPresentationPool(
   const extractedMaximumPaths = measuredPaths(spec, maximumGeometry);
   const maximumPaths = extractedMaximumPaths.length > 0 ? extractedMaximumPaths : initialPaths;
   const maximumPathCount = Math.max(maximumPaths.length, initialPaths.length);
+  const casingTrack = deriveLineworkCasingTrack(spec);
+  const casingTracks = casingTrack === undefined ? [] : [casingTrack];
   const safeInitialResolution = Number.isFinite(context.resolution) && context.resolution > 0 ? context.resolution : 1;
-  const maximumCutouts = maximumPaths.map((path) =>
+  const maximumSharedCutouts = maximumPaths.map((path) =>
     lineworkCutouts(spec, path, { measureText: context.measureText, resolution: safeInitialResolution, viewport: context.viewport })
   );
-  const initialCutouts = initialPaths.map((path) =>
+  const initialSharedCutouts = initialPaths.map((path) =>
     lineworkCutouts(spec, path, { measureText: context.measureText, resolution: safeInitialResolution, viewport: context.viewport })
   );
-  const cutoutSegmentCapacities = Array.from({ length: maximumPathCount }, (_, index) =>
-    Math.max(1, (maximumCutouts[index]?.length ?? 0) + 1, (initialCutouts[index]?.length ?? 0) + 1)
+  const maximumTrackCutouts = maximumPaths.map((path) =>
+    lineworkPaintCutouts(spec, spec.tracks, path, { measureText: context.measureText, resolution: safeInitialResolution, viewport: context.viewport })
   );
-  const trackSlots = createStableTrackSlots(spec, maximumPathCount, cutoutSegmentCapacities, context.zIndex);
+  const initialTrackCutouts = initialPaths.map((path) =>
+    lineworkPaintCutouts(spec, spec.tracks, path, { measureText: context.measureText, resolution: safeInitialResolution, viewport: context.viewport })
+  );
+  const maximumCasingCutouts =
+    casingTrack === undefined
+      ? []
+      : maximumPaths.map((path) =>
+          lineworkPaintCutouts(spec, [casingTrack], path, {
+            measureText: context.measureText,
+            resolution: safeInitialResolution,
+            viewport: context.viewport
+          })
+        );
+  const initialCasingCutouts =
+    casingTrack === undefined
+      ? []
+      : initialPaths.map((path) =>
+          lineworkPaintCutouts(spec, [casingTrack], path, {
+            measureText: context.measureText,
+            resolution: safeInitialResolution,
+            viewport: context.viewport
+          })
+        );
+  const visibleCapCutoutCount = countVisibleCaps(spec);
+  const trackCutoutSegmentCapacities = Array.from({ length: maximumPathCount }, (_, index) =>
+    Math.max(
+      1,
+      (maximumTrackCutouts[index]?.length ?? 0) + 1,
+      (initialTrackCutouts[index]?.length ?? 0) + 1,
+      (maximumSharedCutouts[index]?.length ?? 0) + visibleCapCutoutCount + 1,
+      (initialSharedCutouts[index]?.length ?? 0) + visibleCapCutoutCount + 1
+    )
+  );
+  const casingCutoutSegmentCapacities = Array.from({ length: maximumPathCount }, (_, index) =>
+    Math.max(
+      1,
+      (maximumCasingCutouts[index]?.length ?? 0) + 1,
+      (initialCasingCutouts[index]?.length ?? 0) + 1,
+      (maximumSharedCutouts[index]?.length ?? 0) + visibleCapCutoutCount + 1,
+      (initialSharedCutouts[index]?.length ?? 0) + visibleCapCutoutCount + 1
+    )
+  );
+  const sharedTrackCutouts = hasTrackCutout(spec);
+  const paintTrackCutouts = sharedTrackCutouts || hasVisibleCaps(spec);
+  const casingTrackSlots = createStableTrackSlots(spec, casingTracks, maximumPathCount, casingCutoutSegmentCapacities, paintTrackCutouts, context.zIndex);
+  const trackSlots = createStableTrackSlots(spec, spec.tracks, maximumPathCount, trackCutoutSegmentCapacities, paintTrackCutouts, context.zIndex);
   const glyphSlots = createStableGlyphSlots(spec, context);
   const maximumTextPlacements: TextPlacement[] = [];
   const initialTextPlacements: TextPlacement[] = [];
@@ -233,12 +289,20 @@ export function createLineworkPresentationPool(
     const safeResolution = Number.isFinite(resolution) && resolution > 0 ? resolution : 1;
     const currentPaths = measuredPaths(spec, geometry);
     const windows = revealWindows(maximumPaths, currentPaths, viewport?.worldWidth, pathReveal);
-    const cutouts = windows.map((window) =>
-      lineworkCutouts(spec, window.maximum, { measureText: context.measureText, resolution: safeResolution, viewport }, window)
+    const trackCutouts = windows.map((window) =>
+      lineworkPaintCutouts(spec, spec.tracks, window.maximum, { measureText: context.measureText, resolution: safeResolution, viewport }, window)
     );
+    const casingCutouts =
+      casingTrack === undefined
+        ? []
+        : windows.map((window) =>
+            lineworkPaintCutouts(spec, [casingTrack], window.maximum, { measureText: context.measureText, resolution: safeResolution, viewport }, window)
+          );
     activeStyles.length = 0;
-    ensureStableTrackSlotCapacity(spec, trackSlots, cutouts, context.zIndex);
-    updateStableTrackSlots(spec, trackSlots, windows, cutouts, safeResolution, activeStyles);
+    ensureStableTrackSlotCapacity(casingTracks, casingTrackSlots, casingCutouts, paintTrackCutouts, context.zIndex);
+    updateStableTrackSlots(spec, casingTracks, casingTrackSlots, windows, casingCutouts, safeResolution, activeStyles);
+    ensureStableTrackSlotCapacity(spec.tracks, trackSlots, trackCutouts, paintTrackCutouts, context.zIndex);
+    updateStableTrackSlots(spec, spec.tracks, trackSlots, windows, trackCutouts, safeResolution, activeStyles);
 
     const placements: GlyphPlacement[] = [];
     collectPresentationPlacements(spec, windows, safeResolution, viewport, placements);
@@ -258,9 +322,11 @@ export function createLineworkPresentationPool(
       if (destroyed) return;
       destroyed = true;
       activeStyles.length = 0;
+      for (const slot of casingTrackSlots) slot.geometry.setCoordinates([]);
       for (const slot of trackSlots) slot.geometry.setCoordinates([]);
       for (const slot of glyphSlots) slot.geometry.setCoordinates([]);
       for (const slot of textSlots) slot.geometry.setCoordinates([0, 0]);
+      casingTrackSlots.length = 0;
       trackSlots.length = 0;
       glyphSlots.length = 0;
       textSlots.length = 0;
@@ -571,8 +637,13 @@ function collectPresentationPlacements(
     if (spec.contour?.kind !== 'closed') {
       const start = samplePath(window.current, 0);
       const end = samplePath(path, path.length);
-      if (spec.caps?.start !== undefined && start !== undefined) output.push({ glyph: spec.caps.start.glyph, sample: reverseSample(start) });
-      if (window.full && spec.caps?.end !== undefined && end !== undefined) output.push({ glyph: spec.caps.end.glyph, sample: end });
+      const trackOffset = lineworkCapTrackOffset(spec);
+      if (spec.caps?.start !== undefined && start !== undefined) {
+        output.push({ glyph: spec.caps.start.glyph, sample: reverseSample(offsetPathSample(start, trackOffset, resolution)) });
+      }
+      if (window.full && spec.caps?.end !== undefined && end !== undefined) {
+        output.push({ glyph: spec.caps.end.glyph, sample: offsetPathSample(end, trackOffset, resolution) });
+      }
     }
     for (const decoration of spec.decorations ?? []) {
       if (decoration.placement.kind === 'center') {
@@ -641,12 +712,20 @@ function inlineTextAnchors(
   resolution: number,
   viewport: PathViewport | undefined,
   measureText: LineworkTextMeasurer,
-  exclusion: RepeatPathAnchorExclusion | undefined
+  exclusion: RepeatPathAnchorExclusion | undefined,
+  additionalOutsetPx = 0
 ): RepeatedPathAnchor[] {
   const text = spec.inlineText;
   const placement = text?.placement;
   if (placement === undefined || placement.kind === 'center') return [{ index: 0, distance: path.length / 2 }];
-  return repeatPlacementAnchors(path, placement, resolution, viewport, exclusion, text === undefined ? 0 : inlineTextViewportOutset(text, measureText));
+  return repeatPlacementAnchors(
+    path,
+    placement,
+    resolution,
+    viewport,
+    exclusion,
+    (text === undefined ? 0 : inlineTextViewportOutset(text, measureText)) + additionalOutsetPx
+  );
 }
 
 function repeatPlacementAnchors(
@@ -670,10 +749,18 @@ function repeatDecorationAnchors(
   path: MeasuredPath,
   resolution: number,
   viewport: PathViewport | undefined,
-  exclusion: RepeatPathAnchorExclusion | undefined
+  exclusion: RepeatPathAnchorExclusion | undefined,
+  additionalOutsetPx = 0
 ): RepeatedPathAnchor[] {
   const glyphOutset = decoration.sequence.reduce((maximum, glyph) => Math.max(maximum, glyphViewportOutset(glyph)), 0);
-  return repeatPlacementAnchors(path, decoration.placement, resolution, viewport, exclusion, glyphOutset + (decoration.cutoutPadding ?? 0));
+  return repeatPlacementAnchors(
+    path,
+    decoration.placement,
+    resolution,
+    viewport,
+    exclusion,
+    glyphOutset + (decoration.cutoutPadding ?? 0) + additionalOutsetPx
+  );
 }
 
 function windowReveals(window: RevealedPathWindow, distance: number): boolean {
@@ -683,15 +770,17 @@ function windowReveals(window: RevealedPathWindow, distance: number): boolean {
 
 function createStableTrackSlots(
   spec: LineworkSpec,
+  tracks: readonly PathTrackSpec[],
   maximumPathCount: number,
   cutoutSegmentCapacities: readonly number[],
+  cutout: boolean,
   zIndex: number | undefined
 ): StableTrackSlot[] {
   const slots: StableTrackSlot[] = [];
-  const cutout = hasTrackCutout(spec);
   const closed = spec.contour?.kind === 'closed';
-  for (let trackIndex = 0; trackIndex < spec.tracks.length; trackIndex += 1) {
-    const track = spec.tracks[trackIndex];
+  for (let trackIndex = 0; trackIndex < tracks.length; trackIndex += 1) {
+    const track = tracks[trackIndex];
+    if (track === undefined) continue;
     if (!cutout) {
       for (let contourIndex = 0; contourIndex < maximumPathCount; contourIndex += 1) {
         const geometry = new LineString([]);
@@ -733,7 +822,7 @@ function createStableTrackSlots(
 }
 
 function createStableCutoutTrackSlot(
-  track: LineworkSpec['tracks'][number],
+  track: PathTrackSpec,
   trackIndex: number,
   contourIndex: number,
   segmentIndex: number,
@@ -750,12 +839,7 @@ function createStableCutoutTrackSlot(
   };
 }
 
-function createStableClosedTrackSlot(
-  track: LineworkSpec['tracks'][number],
-  trackIndex: number,
-  contourIndex: number,
-  zIndex: number | undefined
-): StableClosedTrackSlot {
+function createStableClosedTrackSlot(track: PathTrackSpec, trackIndex: number, contourIndex: number, zIndex: number | undefined): StableClosedTrackSlot {
   const geometry = new Polygon([]);
   return {
     style: new Style({
@@ -771,14 +855,15 @@ function createStableClosedTrackSlot(
 }
 
 function ensureStableTrackSlotCapacity(
-  spec: LineworkSpec,
+  tracks: readonly PathTrackSpec[],
   slots: StableTrackSlot[],
   cutouts: readonly (readonly PathCutout[])[],
+  cutout: boolean,
   zIndex: number | undefined
 ): void {
-  if (!hasTrackCutout(spec)) return;
-  for (let trackIndex = 0; trackIndex < spec.tracks.length; trackIndex += 1) {
-    const track = spec.tracks[trackIndex];
+  if (!cutout) return;
+  for (let trackIndex = 0; trackIndex < tracks.length; trackIndex += 1) {
+    const track = tracks[trackIndex];
     if (track === undefined) continue;
     for (let contourIndex = 0; contourIndex < cutouts.length; contourIndex += 1) {
       const required = (cutouts[contourIndex]?.length ?? 0) + 1;
@@ -803,6 +888,7 @@ function ensureStableTrackSlotCapacity(
 
 function updateStableTrackSlots(
   spec: LineworkSpec,
+  tracks: readonly PathTrackSpec[],
   slots: readonly StableTrackSlot[],
   windows: readonly RevealedPathWindow[],
   cutouts: readonly (readonly PathCutout[])[],
@@ -812,7 +898,7 @@ function updateStableTrackSlots(
   const mappedCutouts = windows.map((window, index) => mapMaximumCutoutsToCurrent(cutouts[index] ?? [], window));
   const segments = windows.map((window, index) => (window.current === undefined ? [] : trackSegments(window.current, mappedCutouts[index] ?? [])));
   for (const slot of slots) {
-    const track = spec.tracks[slot.trackIndex];
+    const track = tracks[slot.trackIndex];
     if (track === undefined) continue;
     const stroke = slot.style.getStroke();
     const window = windows[slot.contourIndex ?? -1];
@@ -1001,15 +1087,28 @@ function hasTrackCutout(spec: LineworkSpec): boolean {
   );
 }
 
+function hasVisibleCaps(spec: Pick<LineworkSpec, 'caps' | 'contour'>): boolean {
+  return countVisibleCaps(spec) > 0;
+}
+
+function countVisibleCaps(spec: Pick<LineworkSpec, 'caps' | 'contour'>): number {
+  if (spec.contour?.kind === 'closed') return 0;
+  let count = 0;
+  if (spec.caps?.start !== undefined && glyphHasVisiblePaint(spec.caps.start.glyph)) count += 1;
+  if (spec.caps?.end !== undefined && glyphHasVisiblePaint(spec.caps.end.glyph)) count += 1;
+  return count;
+}
+
 function compileTracks(
   spec: LineworkSpec,
+  tracks: readonly PathTrackSpec[],
   paths: readonly MeasuredPath[],
   cutouts: readonly (readonly PathCutout[])[],
   context: LineworkCompilationContext
 ): Style[] {
   const styles: Style[] = [];
   const closed = spec.contour?.kind === 'closed';
-  for (const track of spec.tracks) {
+  for (const track of tracks) {
     if (cutouts.every((pathCutouts) => pathCutouts.length === 0)) {
       const coordinates = paths.map(renderPathCoordinates);
       styles.push(
@@ -1070,12 +1169,17 @@ function closedTrackOffset(offset: number): number {
   return offset === 0 ? 0 : -offset;
 }
 
-function collectCaps(spec: LineworkSpec, paths: readonly MeasuredPath[], output: GlyphPlacement[]): void {
+function collectCaps(spec: LineworkSpec, paths: readonly MeasuredPath[], resolution: number, output: GlyphPlacement[]): void {
+  const trackOffset = lineworkCapTrackOffset(spec);
   for (const path of paths) {
     const start = samplePath(path, 0);
     const end = samplePath(path, path.length);
-    if (spec.caps?.start !== undefined && start !== undefined) output.push({ glyph: spec.caps.start.glyph, sample: reverseSample(start) });
-    if (spec.caps?.end !== undefined && end !== undefined) output.push({ glyph: spec.caps.end.glyph, sample: end });
+    if (spec.caps?.start !== undefined && start !== undefined) {
+      output.push({ glyph: spec.caps.start.glyph, sample: reverseSample(offsetPathSample(start, trackOffset, resolution)) });
+    }
+    if (spec.caps?.end !== undefined && end !== undefined) {
+      output.push({ glyph: spec.caps.end.glyph, sample: offsetPathSample(end, trackOffset, resolution) });
+    }
   }
 }
 
@@ -1229,9 +1333,9 @@ function compileInlineText(spec: LineworkSpec, paths: readonly MeasuredPath[], c
   });
 }
 
-function compileHitCorridor(spec: LineworkSpec, paths: readonly MeasuredPath[], context: LineworkCompilationContext): Style {
+function compileHitCorridor(tracks: readonly PathTrackSpec[], paths: readonly MeasuredPath[], context: LineworkCompilationContext): Style {
   const coordinates = paths.map(renderPathCoordinates);
-  const maximumTrackWidth = spec.tracks.reduce((maximum, track) => Math.max(maximum, (track.stroke.width ?? 1) + Math.abs(track.offset) * 2), 0);
+  const maximumTrackWidth = tracks.reduce((maximum, track) => Math.max(maximum, (track.stroke.width ?? 1) + Math.abs(track.offset) * 2), 0);
   return new Style({
     geometry: new MultiLineString(coordinates as [number, number][][]),
     stroke: new Stroke({ color: [0, 0, 0, 0], width: Math.max(6, maximumTrackWidth) }),
@@ -1243,7 +1347,8 @@ function lineworkCutouts(
   spec: LineworkSpec,
   path: MeasuredPath,
   context: Pick<LineworkCompilationContext, 'measureText' | 'resolution' | 'viewport'>,
-  window?: RevealedPathWindow
+  window?: RevealedPathWindow,
+  axialPaddingPx = 0
 ): PathCutout[] {
   if (window !== undefined && window.current === undefined) return [];
   const intervals: PathCutout[] = [];
@@ -1251,27 +1356,70 @@ function lineworkCutouts(
   for (const decoration of spec.decorations ?? []) {
     if (decoration.placement.kind === 'center') {
       if (decoration.glyph === undefined || (window !== undefined && !windowReveals(window, path.length / 2))) continue;
-      appendGlyphCutout(intervals, path, path.length / 2, decoration.glyph, decoration.cutoutPadding ?? 0, context.resolution);
+      appendGlyphCutout(intervals, path, path.length / 2, decoration.glyph, (decoration.cutoutPadding ?? 0) + axialPaddingPx, context.resolution);
       continue;
     }
     if (decoration.cutoutPadding === undefined || decoration.sequence === undefined || decoration.sequence.length === 0) continue;
-    const anchors = repeatDecorationAnchors(decoration, path, context.resolution, context.viewport, exclusion);
+    const anchors = repeatDecorationAnchors(decoration, path, context.resolution, context.viewport, exclusion, axialPaddingPx);
     for (const anchor of anchors) {
       if (window !== undefined && !windowReveals(window, anchor.distance)) continue;
       const glyph = decoration.sequence[anchor.index % decoration.sequence.length];
-      if (glyph !== undefined) appendGlyphCutout(intervals, path, anchor.distance, glyph, decoration.cutoutPadding, context.resolution);
+      if (glyph !== undefined) appendGlyphCutout(intervals, path, anchor.distance, glyph, decoration.cutoutPadding + axialPaddingPx, context.resolution);
     }
   }
   if (spec.inlineText !== undefined) {
     const text = spec.inlineText;
-    const halfWidth = inlineTextHalfWidth(text, context.measureText);
-    const anchors = inlineTextAnchors(spec, path, context.resolution, context.viewport, context.measureText, exclusion);
+    const halfWidth = inlineTextHalfWidth(text, context.measureText) + axialPaddingPx;
+    const anchors = inlineTextAnchors(spec, path, context.resolution, context.viewport, context.measureText, exclusion, axialPaddingPx);
     for (const anchor of anchors) {
       if (window !== undefined && !windowReveals(window, anchor.distance)) continue;
       appendPathCutout(intervals, path, anchor.distance, -halfWidth, halfWidth, context.resolution);
     }
   }
   return mergePathCutouts(intervals, path.length);
+}
+
+/** 每份可见 paint 分别补偿宽 Stroke 圆端，并在端帽朝路径内部的 footprint 前停止。 */
+function lineworkPaintCutouts(
+  spec: LineworkSpec,
+  paintTracks: readonly PathTrackSpec[],
+  path: MeasuredPath,
+  context: Pick<LineworkCompilationContext, 'measureText' | 'resolution' | 'viewport'>,
+  window?: RevealedPathWindow
+): PathCutout[] {
+  const axialReach = paintTracks.reduce((maximum, track) => Math.max(maximum, trackAxialReach(track)), 0);
+  const intervals = lineworkCutouts(spec, path, context, window, Math.max(0, axialReach - 1));
+  if (path.contour.closed || (window !== undefined && window.current === undefined)) return intervals;
+
+  const startCap = spec.caps?.start;
+  if (startCap !== undefined && glyphHasVisiblePaint(startCap.glyph)) {
+    appendCapCutout(intervals, path, window?.startDistance ?? 0, startCap.glyph, axialReach, context.resolution, true);
+  }
+
+  const endCap = spec.caps?.end;
+  if ((window === undefined || window.full) && endCap !== undefined && glyphHasVisiblePaint(endCap.glyph)) {
+    appendCapCutout(intervals, path, path.length, endCap.glyph, axialReach, context.resolution, false);
+  }
+  return mergePathCutouts(intervals, path.length);
+}
+
+function trackAxialReach(track: PathTrackSpec): number {
+  return track.stroke.lineCap === 'butt' ? 0 : (track.stroke.width ?? 1) / 2;
+}
+
+function appendCapCutout(
+  output: PathCutout[],
+  path: MeasuredPath,
+  anchorDistance: number,
+  glyph: PathGlyphSpec,
+  axialPaddingPx: number,
+  resolution: number,
+  reversed: boolean
+): void {
+  const extent = glyphExtent(glyph);
+  const minimumU = reversed ? -extent.maximumU : extent.minimumU;
+  const maximumU = reversed ? -extent.minimumU : extent.maximumU;
+  appendPathCutout(output, path, anchorDistance, minimumU - axialPaddingPx, maximumU + axialPaddingPx, resolution);
 }
 
 function inlineTextHalfWidth(spec: InlinePathTextSpec, measureText: LineworkTextMeasurer): number {
@@ -1394,6 +1542,15 @@ function renderPathCoordinates(path: MeasuredPath): PathCoordinate[] {
   return coordinates;
 }
 
+function offsetPathSample(sample: PathSample, offsetPx: number, resolution: number): PathSample {
+  if (offsetPx === 0) return sample;
+  const distance = offsetPx * resolution;
+  return {
+    ...sample,
+    coordinate: [sample.coordinate[0] + sample.normal[0] * distance, sample.coordinate[1] + sample.normal[1] * distance]
+  };
+}
+
 function reverseSample(sample: PathSample): PathSample {
   const tangent: PathCoordinate = [-sample.tangent[0], -sample.tangent[1]];
   return {
@@ -1444,8 +1601,15 @@ function strokeHasVisiblePaint(stroke: PathGlyphStrokeSpec | undefined): boolean
 
 function isTransparentColor(color: Color | undefined): boolean {
   if (color === undefined) return false;
-  if (typeof color === 'string') return color.trim().toLowerCase() === 'transparent';
-  return color.length === 4 && color[3] <= 0;
+  if (typeof color !== 'string') return color.length === 4 && color[3] <= 0;
+  const normalized = color.trim().toLowerCase();
+  if (normalized === 'transparent') return true;
+  try {
+    const parsed = colorAsArray(normalized);
+    return parsed.length === 4 && (parsed[3] ?? 1) <= 0;
+  } catch {
+    return false;
+  }
 }
 
 function paintKey(fill: { readonly color: Color } | undefined, stroke: PathGlyphStrokeSpec | undefined): string {

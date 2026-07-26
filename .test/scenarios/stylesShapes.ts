@@ -84,14 +84,36 @@ const presetLabels: Record<StylePresetName, string> = {
 const lineShapeTypes = new Set<ShapeType>(['polyline', 'lune-polyline', 'curve-polyline']);
 
 const lineworkBoardSamples: readonly LineworkBoardSample[] = [
-  { id: 'solid', label: '单轨实线', geometry: 'straight', style: lineStyles.polyline() },
+  {
+    id: 'solid',
+    label: '单轨 4px / 居中衬色',
+    geometry: 'straight',
+    style: lineStyles.polyline({
+      color: '#1d4ed8',
+      tracks: { mode: 'single', pattern: 'solid', width: 4 },
+      casing: { color: '#facc15', type: 'center', width: 3 }
+    })
+  },
   {
     id: 'double-track',
-    label: '双轨：实线 / 虚线',
+    label: '双轨 3px / 居中衬色',
     geometry: 'straight',
-    style: lineStyles.polyline({ color: '#0f766e', lines: ['solid', 'dashed'] })
+    style: lineStyles.polyline({
+      color: '#0f766e',
+      tracks: { mode: 'double', patterns: ['solid', 'dashed'], width: 3 },
+      casing: { color: '#fef3c7', type: 'center', width: 2 }
+    })
   },
-  { id: 'dashed', label: '单轨虚线', geometry: 'straight', style: lineStyles.polyline({ color: '#1677ff', lines: 'dashed' }) },
+  {
+    id: 'dashed',
+    label: '单轨虚线 / 外侧衬色',
+    geometry: 'straight',
+    style: lineStyles.polyline({
+      color: '#1677ff',
+      tracks: { mode: 'single', pattern: 'dashed', width: 3 },
+      casing: { color: '#fb923c', type: 'outer', width: 3 }
+    })
+  },
   { id: 'tick', label: '贯穿刻度', geometry: 'straight', style: lineStyles.polyline({ decoration: 'tick' }) },
   { id: 'alternating-tick', label: '交替短刻度', geometry: 'straight', style: lineStyles.polyline({ decoration: 'alternating-tick' }) },
   { id: 'double-tick', label: '双刻度', geometry: 'straight', style: lineStyles.polyline({ decoration: 'double-tick' }) },
@@ -105,17 +127,19 @@ const lineworkBoardSamples: readonly LineworkBoardSample[] = [
     label: '累计长度中点文本',
     geometry: 'straight',
     style: lineStyles.polyline({
-      lines: 'dashed',
-      decoration: 'inline-text',
-      text: '供水管线',
-      textStyle: { fontSize: 14, fontWeight: 'bold', color: '#111827', outline: {}, background: { color: '#ffffff' } }
+      tracks: { mode: 'single', pattern: 'dashed' },
+      decoration: {
+        type: 'inline-text',
+        text: '供水管线',
+        style: { fontSize: 14, fontWeight: 'bold', color: '#111827', outline: {}, background: { color: '#ffffff' } }
+      }
     })
   },
   {
     id: 'bar-caps',
     label: '两端竖线端帽',
     geometry: 'straight',
-    style: lineStyles.polyline({ lines: 'dashed', caps: { start: 'bar', end: 'bar' } })
+    style: lineStyles.polyline({ tracks: { mode: 'single', pattern: 'dashed' }, caps: { start: 'bar', end: 'bar' } })
   },
   {
     id: 'arrow-cap',
@@ -123,47 +147,71 @@ const lineworkBoardSamples: readonly LineworkBoardSample[] = [
     geometry: 'straight',
     style: lineStyles.polyline({ color: '#7c3aed', caps: { start: 'bar', end: 'arrow' }, decoration: 'alternating-tick' })
   },
-  { id: 'slash', label: '纯红斜线（无轨道）', geometry: 'folded', style: lineStyles.polyline({ lines: 'none', decoration: 'slash' }) },
+  { id: 'slash', label: '纯红斜线（无轨道）', geometry: 'folded', style: lineStyles.polyline({ tracks: { mode: 'none' }, decoration: 'slash' }) },
   {
     id: 'folded',
-    label: '折线路径上的固定像素圆点',
+    label: '折线内侧衬色与圆点',
     geometry: 'folded',
-    style: lineStyles.polyline({ color: '#ea580c', lines: 'dashed', decoration: 'circle' })
+    style: lineStyles.polyline({
+      color: '#ea580c',
+      tracks: { mode: 'single', pattern: 'dashed', width: 3 },
+      casing: { color: '#fde68a', type: 'inner', width: 3 },
+      decoration: 'circle'
+    })
   },
   {
     id: 'curve',
-    label: '曲线路径上的双轨刻度',
+    label: '曲线双轨外侧衬色',
     geometry: 'curve',
-    style: lineStyles.polyline({ color: '#2563eb', lines: ['dashed', 'solid'], decoration: 'tick' })
+    style: lineStyles.polyline({
+      color: '#2563eb',
+      tracks: { mode: 'double', patterns: ['dashed', 'solid'], width: 2.5 },
+      casing: { color: '#bfdbfe', type: 'outer', width: 3 },
+      decoration: 'tick'
+    })
   },
   {
     id: 'polygon',
-    label: 'Polygon 外环双轨方块',
+    label: 'Polygon 双轨内侧衬色',
     geometry: 'polygon',
     style: {
-      ...lineStyles.polygon({ color: '#e11d48', lines: ['solid', 'dashed'], decoration: 'square' }),
+      ...lineStyles.polygon({
+        color: '#e11d48',
+        tracks: { mode: 'double', patterns: ['solid', 'dashed'], width: 3 },
+        casing: { color: '#fbbf24', type: 'inner', width: 3 },
+        decoration: 'square'
+      }),
       fill: { type: 'solid', color: 'rgba(225, 29, 72, 0.12)' }
     }
   },
   {
     id: 'closed-curve',
-    label: '闭合曲面外环虚线圆点',
+    label: 'Polygon 外侧衬色',
     geometry: 'closed-curve',
     style: {
-      ...lineStyles.polygon({ color: '#0891b2', lines: 'dashed', decoration: 'circle' }),
+      ...lineStyles.polygon({
+        color: '#0891b2',
+        tracks: { mode: 'single', pattern: 'dashed', width: 3 },
+        casing: { color: '#67e8f9', type: 'outer', width: 4 },
+        decoration: 'circle'
+      }),
       fill: { type: 'solid', color: 'rgba(8, 145, 178, 0.1)' }
     }
   },
   {
     id: 'polygon-text',
-    label: 'Polygon 外环中点文本',
+    label: 'Polygon 居中衬色与文字',
     geometry: 'polygon',
     style: {
       ...lineStyles.polygon({
         color: '#16a34a',
-        decoration: 'inline-text',
-        text: '防护边界',
-        textStyle: { fontSize: 13, color: '#14532d', background: { color: '#f0fdf4' } }
+        tracks: { mode: 'single', width: 4 },
+        casing: { color: '#bbf7d0', type: 'center', width: 3 },
+        decoration: {
+          type: 'inline-text',
+          text: '防护边界',
+          style: { fontSize: 13, color: '#14532d', background: { color: '#f0fdf4' } }
+        }
       }),
       fill: { type: 'solid', color: 'rgba(22, 163, 74, 0.1)' }
     }
@@ -177,7 +225,7 @@ export const stylesShapesScenario: ScenarioDefinition = {
   summary: '分六个可视面板验收丰富路径线型、全部 ShapeType、八种 stylePresets、五种纹理、完整结构化样式及三种原生 StyleLike 分支。',
   steps: [
     '默认检查“丰富路径线型”，再切换“20 种图形”“内置样式”“纹理填充”“完整样式”“三种 nativeStyle”面板逐项确认可视结果。',
-    '在线型面板检查单/双轨实虚线、端帽、固定像素装饰、中点文本、直线/折线/曲线及闭合面外环。',
+    '在线型面板检查 14px 单轨装饰、10px 双轨净间隙、Polyline 内外与居中衬色、Polygon 内外与居中衬色、端帽连接、中点文本及曲线。',
     '在 ShapeType 下拉框选择图形，分别应用结构化 StyleSpec、StylePatch、内置 preset、Style、Style[] 和 StyleFunction。',
     '在完整样式面板检查图片偏移/锚点、文本字体/背景、多描边，以及四种箭头 placement。',
     '确认状态区列出 20 种 shapeTypes 和 8 种 stylePresets，自动检查全部通过。'
@@ -383,7 +431,8 @@ earth.elements.add({
   },
   style: lineStyles.polyline({
     color: '#1677ff',
-    lines: ['dashed', 'solid'],
+    tracks: { mode: 'double', patterns: ['dashed', 'solid'], width: 3 },
+    casing: { color: '#facc15', type: 'center', width: 2 },
     decoration: 'tick'
   })
 });
@@ -396,10 +445,13 @@ earth.elements.add({
   style: {
     ...lineStyles.polygon({
       color: '#e11d48',
-      lines: ['solid', 'dashed'],
-      decoration: 'inline-text',
-      text: '防护边界',
-      textStyle: { fontSize: 14, color: '#111827' }
+      tracks: { mode: 'double', patterns: ['solid', 'dashed'], width: 3 },
+      casing: { color: '#facc15', type: 'inner', width: 2 },
+      decoration: {
+        type: 'inline-text',
+        text: '防护边界',
+        style: { fontSize: 14, color: '#111827' }
+      }
     }),
     fill: { type: 'solid', color: 'rgba(225, 29, 72, 0.12)' }
   }

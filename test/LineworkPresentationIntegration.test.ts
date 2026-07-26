@@ -15,6 +15,151 @@ import { lineStyles } from '../src/builtins/styles/lineStyles.js';
 import type { StyleSpec } from '../src/core/style/types.js';
 
 describe('linework animation presentation integration', () => {
+  it('按 revision 派生 casing，并在 grow 中原位复用其 Style 与 Geometry', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const canonical = line(100);
+    const current = line(40);
+    const compiled = compiler.compilePresentation(
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#000000', width: 2, lineDash: [8, 6] } }],
+          casing: { color: '#ffff00', type: 'center', width: 2 }
+        }
+      },
+      canonical
+    );
+
+    const complete = compiled.resolve(canonical, 1);
+    const casing = complete.find((style) => style.getStroke()?.getColor() === '#ffff00');
+    const casingGeometry = casing?.getGeometry();
+    const track = complete.find((style) => style.getStroke()?.getColor() === '#000000');
+    expect(complete.indexOf(casing as Style)).toBeLessThan(complete.indexOf(track as Style));
+    expect(casing?.getStroke()?.getWidth()).toBe(6);
+    expect(casing?.getStroke()?.getLineDash()).toBeNull();
+
+    const revealed = compiled.resolve(current, 1, { progress: 0.4, direction: 'forward' });
+    expect(revealed).toContain(casing);
+    expect(casing?.getGeometry()).toBe(casingGeometry);
+    expect((casingGeometry as LineString).getCoordinates()).toEqual([
+      [0, 0],
+      [40, 0]
+    ]);
+
+    const next = compiled.resolve(line(60), 1, { progress: 0.6, direction: 'forward' });
+    expect(next).toContain(casing);
+    expect(casing?.getGeometry()).toBe(casingGeometry);
+    expect((casingGeometry as LineString).getCoordinates()).toEqual([
+      [0, 0],
+      [60, 0]
+    ]);
+    compiled.destroy();
+  });
+
+  it('让 foreground 与 casing 随 start cap 避让 reveal 起点，并只在 end cap 出现时避让终点', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const canonical = line(100);
+    const compiled = compiler.compilePresentation(
+      lineStyles.polyline({
+        color: '#ff0000',
+        tracks: { mode: 'single', width: 2 },
+        casing: { color: '#00ffff', type: 'center', width: 2 },
+        caps: { start: 'bar', end: 'arrow' }
+      }),
+      canonical
+    );
+
+    const complete = compiled.resolve(canonical, 1);
+    const casing = complete.find((style) => style.getStroke()?.getColor() === '#00ffff');
+    const foreground = complete.find((style) => style.getStroke()?.getColor() === '#ff0000' && style.getGeometry() instanceof LineString);
+    const casingGeometry = casing?.getGeometry();
+    const foregroundGeometry = foreground?.getGeometry();
+    expect(casingGeometry).toBeInstanceOf(LineString);
+    expect(foregroundGeometry).toBeInstanceOf(LineString);
+    expect((casingGeometry as LineString).getCoordinates()).toEqual([
+      [4, 0],
+      [86, 0]
+    ]);
+    expect((foregroundGeometry as LineString).getCoordinates()).toEqual([
+      [2, 0],
+      [88, 0]
+    ]);
+
+    const forward = compiled.resolve(line(40), 1, { progress: 0.4, direction: 'forward' });
+    expect(forward).toContain(casing);
+    expect(casing?.getGeometry()).toBe(casingGeometry);
+    expect((casingGeometry as LineString).getCoordinates()).toEqual([
+      [4, 0],
+      [40, 0]
+    ]);
+    expect((foregroundGeometry as LineString).getCoordinates()).toEqual([
+      [2, 0],
+      [40, 0]
+    ]);
+
+    const suffix = new Feature(
+      new LineString([
+        [60, 0],
+        [100, 0]
+      ])
+    );
+    const reverse = compiled.resolve(suffix, 1, { progress: 0.4, direction: 'reverse' });
+    expect(reverse).toContain(casing);
+    expect((casingGeometry as LineString).getCoordinates()).toEqual([
+      [64, 0],
+      [100, 0]
+    ]);
+    expect((foregroundGeometry as LineString).getCoordinates()).toEqual([
+      [62, 0],
+      [100, 0]
+    ]);
+
+    const restored = compiled.resolve(canonical, 1, { progress: 1, direction: 'forward' });
+    expect(restored).toContain(casing);
+    expect((casingGeometry as LineString).getCoordinates()).toEqual([
+      [4, 0],
+      [86, 0]
+    ]);
+    expect((foregroundGeometry as LineString).getCoordinates()).toEqual([
+      [2, 0],
+      [88, 0]
+    ]);
+    compiled.destroy();
+  });
+
+  it.each(['rgba(255, 0, 0, 0)', '#ff000000'])('透明字符串端帽 %s 不裁断 presentation 轨道', (color) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const canonical = line(100);
+    const compiled = compiler.compilePresentation(
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          caps: {
+            end: {
+              glyph: { primitives: [{ type: 'circle', center: [0, 0], radius: 8, fill: { type: 'solid', color } }] }
+            }
+          }
+        }
+      },
+      canonical
+    );
+
+    const complete = compiled.resolve(canonical, 1);
+    const foreground = complete.find((style) => style.getStroke()?.getColor() === '#ff0000');
+    expect((foreground?.getGeometry() as LineString).getCoordinates()).toEqual([
+      [0, 0],
+      [100, 0]
+    ]);
+
+    compiled.resolve(line(40), 1, { progress: 0.4, direction: 'forward' });
+    expect((foreground?.getGeometry() as LineString).getCoordinates()).toEqual([
+      [0, 0],
+      [40, 0]
+    ]);
+    compiled.destroy();
+  });
+
   it('materializes repeat markers only inside the explicitly supplied viewport', () => {
     let viewportExtent: [number, number, number, number] = [490, -10, 510, 10];
     const compiler = new StyleCompiler(new NativeRefRegistry(), {
@@ -786,7 +931,7 @@ describe('linework animation presentation integration', () => {
     (decoration) => {
       const compiler = new StyleCompiler(new NativeRefRegistry());
       const canonical = square(0, 100);
-      const compiled = compiler.compilePresentation(lineStyles.polygon({ lines: ['solid', 'dashed'], decoration }), canonical);
+      const compiled = compiler.compilePresentation(lineStyles.polygon({ tracks: { mode: 'double', patterns: ['solid', 'dashed'] }, decoration }), canonical);
 
       const completeTracks = compiled.resolve(canonical, 1).filter((style) => style.getStroke()?.getWidth() === 2);
       expect(completeTracks).toHaveLength(2);
@@ -808,6 +953,39 @@ describe('linework animation presentation integration', () => {
       compiled.destroy();
     }
   );
+
+  it('让 Polygon inner casing 在完整帧与 grow reveal 间保持一致的逻辑侧向', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const canonical = square(0, 100);
+    const compiled = compiler.compilePresentation(
+      {
+        linework: {
+          contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' },
+          tracks: [
+            { offset: -3, stroke: { color: '#000000', width: 2 } },
+            { offset: 3, stroke: { color: '#000000', width: 2 } }
+          ],
+          casing: { color: '#ffff00', type: 'inner', width: 2 }
+        }
+      },
+      canonical
+    );
+
+    const complete = compiled.resolve(canonical, 1);
+    const closedCasing = complete.find((style) => style.getGeometry() instanceof Polygon && style.getStroke()?.getColor() === '#ffff00');
+    expect(closedCasing?.getStroke()?.getOffset()).toBe(5);
+    expect(closedCasing?.getStroke()?.getWidth()).toBe(2);
+
+    const revealed = compiled.resolve(canonical, 1, { progress: 0.5, direction: 'forward' });
+    const revealCasing = revealed.find((style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#ffff00');
+    expect(revealCasing?.getStroke()?.getOffset()).toBe(-5);
+    expect(revealCasing?.getStroke()?.getWidth()).toBe(2);
+    expect((revealCasing?.getGeometry() as LineString).getCoordinates()[0]).not.toEqual((revealCasing?.getGeometry() as LineString).getCoordinates().at(-1));
+
+    const restored = compiled.resolve(canonical, 1, { progress: 1, direction: 'forward' });
+    expect(restored).toContain(closedCasing);
+    compiled.destroy();
+  });
 
   it('requests worldWidth for grow linework without repeat decorations', () => {
     const worldWidth = 1_000;

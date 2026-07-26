@@ -149,7 +149,7 @@ describe('内置动画定义', () => {
     );
   });
 
-  it('dash-flow 为每条 linework 虚线轨道建立独立 slot，并保留各自基础相位', () => {
+  it('dash-flow 为每条 linework 虚线轨道建立独立 slot、保留各自基础相位且不复制 casing', () => {
     const state = polylineElement('linework-dash');
     const geometry = polylineGeometry();
     const style: StyleSpec = {
@@ -159,6 +159,7 @@ describe('内置动画定义', () => {
           { offset: 3, stroke: { color: '#222222', width: 2 } },
           { offset: 7, stroke: { color: '#333333', width: 1, lineDash: [3, 4], lineDashOffset: 9 } }
         ],
+        casing: { color: '#ffff00', type: 'center', width: 2 },
         decorations: [
           {
             placement: { kind: 'repeat', spacing: 24 },
@@ -182,6 +183,7 @@ describe('内置动画定义', () => {
     for (const slot of runtime.slots) {
       expect(slot.style.linework?.tracks).toHaveLength(1);
       expect(slot.style.linework?.tracks[0].stroke).toEqual(expect.objectContaining({ color: '#abcdef', lineDash: [5, 5] }));
+      expect(slot.style.linework?.casing).toBeUndefined();
       expect(slot.style.linework?.decorations).toBeUndefined();
       expect(slot.style.linework?.caps).toBeUndefined();
       expect(slot.style.linework?.inlineText).toBeUndefined();

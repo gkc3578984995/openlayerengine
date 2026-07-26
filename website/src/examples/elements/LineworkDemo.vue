@@ -1,13 +1,24 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { lineStyles, useEarth } from '@vrsim/earth-engine-ol';
-import type { Coordinate, Earth, LineCapType, LinePattern, ShapeInput, StyleSpec, TrackedLineDecorationType } from '@vrsim/earth-engine-ol';
+import type {
+  Coordinate,
+  Earth,
+  LineCapType,
+  LineCasingOptions,
+  LineCasingType,
+  LineDecorationOptions,
+  LinePattern,
+  LineTracksOptions,
+  ShapeInput,
+  StyleSpec,
+  TrackedLineDecorationType
+} from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 import { createConfiguredLayer } from '../../config/mapSources';
 
 const EARTH_ID = 'docs-elements-linework';
 const PREVIEW_ID = 'linework-preview';
-const GUIDE_ID = 'linework-preview-guide';
 const PREVIEW_LAYER_ID = 'linework-preview-elements';
 
 type PreviewKind = 'polyline' | 'polygon';
@@ -50,11 +61,22 @@ const trackLabels: Record<TrackMode, string> = {
   none: '无轨道，仅斜杠'
 };
 
+const casingTypeLabels: Record<LineCasingType, string> = {
+  inner: '内侧',
+  center: '居中',
+  outer: '外侧'
+};
+
 const mapTarget = ref<HTMLDivElement | null>(null);
 const earthRef = shallowRef<Earth | null>(null);
 const previewCenter = shallowRef<Coordinate | null>(null);
 const kind = ref<PreviewKind>('polyline');
 const tracks = ref<TrackMode>('solid');
+const trackWidth = ref(4);
+const casingEnabled = ref(true);
+const casingType = ref<LineCasingType>('center');
+const casingWidth = ref(3);
+const casingColor = ref<string | null>('#facc15');
 const decoration = ref<DecorationMode>('center-dot');
 const startCap = ref<LineCapType>('bar');
 const endCap = ref<LineCapType>('arrow');
@@ -64,8 +86,10 @@ const repeatEnabled = ref(true);
 const repeatSpacingPx = ref(96);
 
 const capsEnabled = computed(() => kind.value === 'polyline' && tracks.value !== 'double' && tracks.value !== 'none');
+const casingAvailable = computed(() => tracks.value !== 'none');
 const decorationLabel = computed(() => (tracks.value === 'none' ? '斜杠' : decorationLabels[decoration.value]));
 const activeColor = computed(() => color.value ?? '#f56c6c');
+const activeCasingColor = computed(() => casingColor.value ?? '#facc15');
 const isCenterDecoration = (value: DecorationMode): value is CenterDecorationMode => centerDecorationOptions.includes(value as CenterDecorationMode);
 const repeatableContentEnabled = computed(() => (tracks.value === 'none' ? false : decoration.value === 'inline-text' || isCenterDecoration(decoration.value)));
 
@@ -76,116 +100,54 @@ const colorWithAlpha = (value: string, alpha: number): string => {
 };
 
 // #region linework-factory
-const createDefaultLineworkStyle = (): StyleSpec =>
-  lineStyles.polyline({
-    color: activeColor.value,
-    lines: 'solid',
-    caps: { start: 'bar', end: 'arrow' },
-    decoration: 'tick'
-  });
+const createTracksOptions = (): LineTracksOptions => {
+  const trackMode = tracks.value;
+  if (trackMode === 'none') return { mode: 'none' };
+  if (trackMode === 'double') return { mode: 'double', patterns: ['solid', 'dashed'], width: trackWidth.value };
+  return { mode: 'single', pattern: trackMode, width: trackWidth.value };
+};
 
-const createDefaultPolygonLineworkStyle = (): StyleSpec =>
-  lineStyles.polygon({
-    color: activeColor.value,
-    lines: 'solid',
-    decoration: 'tick'
-  });
+const createDecorationOptions = (): LineDecorationOptions => {
+  const decorationMode = decoration.value;
+  if (tracks.value === 'none') return 'slash';
+  if (decorationMode === 'inline-text') {
+    return {
+      type: 'inline-text',
+      text: inlineText.value.trim() || '路径文字',
+      style: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' },
+      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
+    };
+  }
+  if (isCenterDecoration(decorationMode) && repeatEnabled.value) {
+    return { type: decorationMode, repeatSpacingPx: repeatSpacingPx.value };
+  }
+  return decorationMode;
+};
 
-const createRepeatedCenterLineworkStyle = (): StyleSpec =>
-  lineStyles.polyline({
+const createCasingOptions = (): LineCasingOptions | undefined =>
+  casingAvailable.value && casingEnabled.value ? { color: activeCasingColor.value, type: casingType.value, width: casingWidth.value } : undefined;
+
+const createLineworkStyle = (): StyleSpec => {
+  const trackOptions = createTracksOptions();
+  const decorationOptions = createDecorationOptions();
+  const casing = createCasingOptions();
+  if (kind.value === 'polygon') {
+    return lineStyles.polygon({
+      color: activeColor.value,
+      tracks: trackOptions,
+      ...(casing === undefined ? {} : { casing }),
+      decoration: decorationOptions
+    });
+  }
+  return lineStyles.polyline({
     color: activeColor.value,
-    lines: 'solid',
-    caps: { start: 'bar', end: 'arrow' },
-    decoration: 'center-dot',
-    repeatSpacingPx: repeatSpacingPx.value
+    tracks: trackOptions,
+    ...(casing === undefined ? {} : { casing }),
+    decoration: decorationOptions,
+    ...(capsEnabled.value ? { caps: { start: startCap.value, end: endCap.value } } : {})
   });
+};
 // #endregion linework-factory
-
-const createPolylineStyle = (): StyleSpec => {
-  const trackMode = tracks.value;
-  const decorationMode = decoration.value;
-  if (trackMode === 'solid' && decorationMode === 'tick' && startCap.value === 'bar' && endCap.value === 'arrow') return createDefaultLineworkStyle();
-  if (trackMode === 'solid' && decorationMode === 'center-dot' && startCap.value === 'bar' && endCap.value === 'arrow' && repeatEnabled.value) {
-    return createRepeatedCenterLineworkStyle();
-  }
-  if (trackMode === 'none') return lineStyles.polyline({ color: activeColor.value, lines: 'none', decoration: 'slash' });
-
-  if (trackMode === 'double') {
-    const lines = ['solid', 'dashed'] as const;
-    if (decorationMode === 'inline-text') {
-      return lineStyles.polyline({
-        color: activeColor.value,
-        lines,
-        decoration: 'inline-text',
-        text: inlineText.value.trim() || '路径文字',
-        textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' },
-        ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
-      });
-    }
-    if (isCenterDecoration(decorationMode)) {
-      return lineStyles.polyline({
-        color: activeColor.value,
-        lines,
-        decoration: decorationMode,
-        ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
-      });
-    }
-    return lineStyles.polyline({ color: activeColor.value, lines, decoration: decorationMode });
-  }
-
-  const caps = { start: startCap.value, end: endCap.value };
-  if (decorationMode === 'inline-text') {
-    return lineStyles.polyline({
-      color: activeColor.value,
-      lines: trackMode,
-      caps,
-      decoration: 'inline-text',
-      text: inlineText.value.trim() || '路径文字',
-      textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' },
-      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
-    });
-  }
-  if (isCenterDecoration(decorationMode)) {
-    return lineStyles.polyline({
-      color: activeColor.value,
-      lines: trackMode,
-      caps,
-      decoration: decorationMode,
-      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
-    });
-  }
-  return lineStyles.polyline({ color: activeColor.value, lines: trackMode, caps, decoration: decorationMode });
-};
-
-const createPolygonStyle = (): StyleSpec => {
-  const trackMode = tracks.value;
-  const decorationMode = decoration.value;
-  if (trackMode === 'solid' && decorationMode === 'tick') return createDefaultPolygonLineworkStyle();
-  if (trackMode === 'none') return lineStyles.polygon({ color: activeColor.value, lines: 'none', decoration: 'slash' });
-
-  const lines: LinePattern | readonly [LinePattern, LinePattern] = trackMode === 'double' ? ['solid', 'dashed'] : trackMode;
-  if (decorationMode === 'inline-text') {
-    return lineStyles.polygon({
-      color: activeColor.value,
-      lines,
-      decoration: 'inline-text',
-      text: inlineText.value.trim() || '路径文字',
-      textStyle: { background: { color: '#ffffff', paddingPx: 4 }, outline: { color: '#ffffff', width: 3 }, fontWeight: 'bold' },
-      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
-    });
-  }
-  if (isCenterDecoration(decorationMode)) {
-    return lineStyles.polygon({
-      color: activeColor.value,
-      lines,
-      decoration: decorationMode,
-      ...(repeatEnabled.value ? { repeatSpacingPx: repeatSpacingPx.value } : {})
-    });
-  }
-  return lineStyles.polygon({ color: activeColor.value, lines, decoration: decorationMode });
-};
-
-const createLineworkStyle = (): StyleSpec => (kind.value === 'polyline' ? createPolylineStyle() : createPolygonStyle());
 
 const createGeometry = (center: Coordinate): ShapeInput => {
   if (kind.value === 'polyline') {
@@ -219,17 +181,6 @@ const applyLinework = (focus = false) => {
   const geometry = createGeometry(center);
   const style = createLineworkStyle();
   earth.elements.remove({ module: 'linework-preview' });
-
-  if (tracks.value !== 'none') {
-    earth.elements.add({
-      id: GUIDE_ID,
-      module: 'linework-preview',
-      layerId: PREVIEW_LAYER_ID,
-      geometry,
-      style: { strokes: [{ color: 'rgba(255, 255, 255, 0.96)', width: 9, lineCap: 'round', lineJoin: 'round' }], zIndex: 1 }
-    });
-  }
-
   earth.elements.add({
     id: PREVIEW_ID,
     module: 'linework-preview',
@@ -243,7 +194,11 @@ const applyLinework = (focus = false) => {
 // #endregion linework-apply
 
 watch(kind, () => applyLinework(true), { flush: 'post' });
-watch([tracks, decoration, startCap, endCap, color, inlineText, repeatEnabled, repeatSpacingPx], () => applyLinework(), { flush: 'post' });
+watch(
+  [tracks, trackWidth, casingEnabled, casingType, casingWidth, casingColor, decoration, startCap, endCap, color, inlineText, repeatEnabled, repeatSpacingPx],
+  () => applyLinework(),
+  { flush: 'post' }
+);
 
 onMounted(() => {
   if (mapTarget.value === null) return;
@@ -282,6 +237,23 @@ onBeforeUnmount(() => {
             <el-option v-for="(label, value) in trackLabels" :key="value" :label="label" :value="value" />
           </el-select>
         </el-form-item>
+        <el-form-item label="前景轨道宽度（CSS px）">
+          <el-input-number v-model="trackWidth" :disabled="tracks === 'none'" :min="0.5" :max="24" :step="0.5" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="启用衬色">
+          <el-switch v-model="casingEnabled" :disabled="!casingAvailable" aria-label="切换同一 Linework 的轨道衬色" />
+        </el-form-item>
+        <el-form-item label="衬色方向">
+          <el-select v-model="casingType" :disabled="!casingAvailable || !casingEnabled">
+            <el-option v-for="(label, value) in casingTypeLabels" :key="value" :label="`${label} · ${value}`" :value="value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="衬色单侧宽度（CSS px）">
+          <el-input-number v-model="casingWidth" :disabled="!casingAvailable || !casingEnabled" :min="0.5" :max="16" :step="0.5" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="衬色颜色">
+          <el-color-picker v-model="casingColor" :disabled="!casingAvailable || !casingEnabled" aria-label="轨道衬色颜色" />
+        </el-form-item>
         <el-form-item label="沿线装饰">
           <el-select v-model="decoration" :disabled="tracks === 'none'">
             <el-option v-for="item in decorationOptions" :key="item" :label="`${decorationLabels[item]} · ${item}`" :value="item" />
@@ -313,14 +285,15 @@ onBeforeUnmount(() => {
             controls-position="right"
           />
         </el-form-item>
-        <el-form-item label="统一颜色">
-          <el-color-picker v-model="color" aria-label="线饰颜色" />
+        <el-form-item label="前景统一颜色">
+          <el-color-picker v-model="color" aria-label="前景轨道与装饰颜色" />
         </el-form-item>
       </el-form>
 
       <div class="example-demo__feedback linework-demo__status" aria-live="polite">
         <el-tag type="primary" effect="dark">{{ kind === 'polyline' ? '开放路径' : '闭合外环' }}</el-tag>
-        <el-tag effect="plain">轨道：{{ trackLabels[tracks] }}</el-tag>
+        <el-tag effect="plain">轨道：{{ trackLabels[tracks] }}{{ tracks === 'none' ? '' : ` · ${trackWidth} px` }}</el-tag>
+        <el-tag v-if="casingAvailable && casingEnabled" type="danger" effect="plain"> 衬色：{{ casingTypeLabels[casingType] }} · {{ casingWidth }} px </el-tag>
         <el-tag type="success" effect="plain">装饰：{{ decorationLabel }}</el-tag>
         <el-tag v-if="capsEnabled" type="warning" effect="plain">端帽：{{ startCap }} → {{ endCap }}</el-tag>
         <el-tag v-if="repeatableContentEnabled" type="info" effect="plain">
@@ -336,10 +309,15 @@ onBeforeUnmount(() => {
     </div>
 
     <el-descriptions class="linework-demo__rules" :column="2" border size="small">
-      <el-descriptions-item label="开放单轨">可同时使用起点、终点端帽和沿线装饰。</el-descriptions-item>
-      <el-descriptions-item label="双轨 / 闭合环">端帽会禁用，避免产生没有明确定义的组合。</el-descriptions-item>
+      <el-descriptions-item label="轨道宽度">tracks.width 是每条前景轨道的实际宽度；双轨 offset 会同步变化并保持 4px 净间隙。</el-descriptions-item>
+      <el-descriptions-item label="衬色宽度">casing.width 是指定方向露出的厚度，不是派生 Stroke 的总宽度。</el-descriptions-item>
+      <el-descriptions-item label="开放路径方向">沿 controlPoints 声明方向，inner 位于右法线一侧，outer 位于左法线一侧。</el-descriptions-item>
+      <el-descriptions-item label="Polygon 方向">inner 始终位于面内部，outer 始终位于面外部，center 在完整轨道包络两侧露出。</el-descriptions-item>
+      <el-descriptions-item label="端帽">开放单轨可使用端帽；箭头尖端或竖线中心落在真实端点，轨道在端帽内缘停止。</el-descriptions-item>
       <el-descriptions-item label="中心内容">三种中心 glyph 与路径文字可保持中点一次，也可按锚点间距铺满整个路径。</el-descriptions-item>
-      <el-descriptions-item label="文字间距">间距不会随文字宽度自动增大；文字重叠时，对应轨道切口仍会合并。</el-descriptions-item>
+      <el-descriptions-item label="宽度联动">普通 glyph 按轨道包络放大；中心 glyph 与文字的切口会补偿宽 Stroke 圆端。</el-descriptions-item>
+      <el-descriptions-item label="切口">中心 glyph 与路径文字会同时切断前景轨道和衬色，虚线跨过切口后延续原相位。</el-descriptions-item>
+      <el-descriptions-item label="文字间距">间距不会随文字宽度自动增大；文字重叠时，对应轨道与衬色切口仍会合并。</el-descriptions-item>
     </el-descriptions>
   </div>
 </template>

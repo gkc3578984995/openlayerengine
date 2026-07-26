@@ -69,6 +69,120 @@ describe('StyleCompiler linework', () => {
     expect(styles[2].getStroke()?.getWidth()).toBe(8);
   });
 
+  it.each([
+    ['inner', 5, 2],
+    ['outer', -5, 2],
+    ['center', 0, 12]
+  ] as const)('按完整双轨包络先绘制开放路径 %s casing', (type, expectedOffset, expectedWidth) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [
+            { offset: -3, stroke: { color: '#000000', width: 2 } },
+            { offset: 3, stroke: { color: '#000000', width: 2 } }
+          ],
+          casing: { color: '#ffff00', type, width: 2 }
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    expect(styles[0].getStroke()?.getColor()).toBe('#ffff00');
+    expect(styles[0].getStroke()?.getOffset()).toBe(expectedOffset);
+    expect(styles[0].getStroke()?.getWidth()).toBe(expectedWidth);
+    expect(styles.slice(1, 3).map((style) => style.getStroke()?.getColor())).toEqual(['#000000', '#000000']);
+    expect(styles.at(-1)?.getStroke()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(styles.at(-1)?.getStroke()?.getWidth()).toBe(12);
+  });
+
+  it.each([
+    ['bar', 'arrow', 2.5, 87, 3.5, 86],
+    ['arrow', 'bar', 13, 97.5, 14, 96.5]
+  ] as const)('让前景轨道与 casing 分别停止在 %s → %s 端帽的内缘', (start, end, foregroundStart, foregroundEnd, casingStart, casingEnd) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      lineStyles.polyline({
+        color: '#ff0000',
+        tracks: { mode: 'single', width: 3 },
+        casing: { color: '#00ffff', type: 'outer', width: 5 },
+        caps: { start, end }
+      }),
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    const casingXs = lineGeometryXs(styles, '#00ffff', 5);
+    const foregroundXs = lineGeometryXs(styles, '#ff0000', 3);
+    expect(casingXs.length).toBeGreaterThan(0);
+    expect(Math.min(...casingXs)).toBeCloseTo(casingStart);
+    expect(Math.max(...casingXs)).toBeCloseTo(casingEnd);
+    expect(Math.min(...foregroundXs)).toBeCloseTo(foregroundStart);
+    expect(Math.max(...foregroundXs)).toBeCloseTo(foregroundEnd);
+  });
+
+  it.each(['rgba(255, 0, 0, 0)', '#f000', '#ff000000', 'rgb(255 0 0 / 0%)'])('透明字符串端帽 %s 不裁断静态轨道', (color) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 2 } }],
+          caps: {
+            end: {
+              glyph: { primitives: [{ type: 'circle', center: [0, 0], radius: 8, fill: { type: 'solid', color } }] }
+            }
+          }
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    expect(lineGeometryXs(styles, '#ff0000', 2)).toEqual([0, 100]);
+  });
+
+  it('按宽度派生双轨 offset、居中 casing 与透明命中走廊', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      lineStyles.polyline({
+        tracks: { mode: 'double', patterns: ['solid', 'dashed'], width: 10 },
+        casing: { color: '#ffff00', type: 'center', width: 2 }
+      }),
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    expect(styles[0].getStroke()?.getColor()).toBe('#ffff00');
+    expect(styles[0].getStroke()?.getOffset()).toBe(0);
+    expect(styles[0].getStroke()?.getWidth()).toBe(28);
+    expect(styles.slice(1, 3).map((style) => style.getStroke()?.getOffset())).toEqual([-7, 7]);
+    expect(styles.at(-1)?.getStroke()?.getColor()).toEqual([0, 0, 0, 0]);
+    expect(styles.at(-1)?.getStroke()?.getWidth()).toBe(28);
+  });
+
   it('按 contour 生成起终端帽，并把重复 circle 与 polygon 原语批量编译', () => {
     const compiler = new StyleCompiler(new NativeRefRegistry());
     const feature = new Feature(
@@ -129,6 +243,34 @@ describe('StyleCompiler linework', () => {
     expect((circles?.getGeometry() as MultiPoint).getCoordinates()).toEqual([[50, 0]]);
   });
 
+  it('让低层非零 offset 单轨的端帽对齐实际轨道端点', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 5, stroke: { color: '#ff0000', width: 2 } }],
+          caps: { start: { glyph: redSegment([0, -6], [0, 6]) } }
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    const cap = styles.find(
+      (style) => style.getGeometry() instanceof MultiLineString && style.getStroke()?.getColor() === '#ff0000' && style.getStroke()?.getOffset() === undefined
+    );
+    expect((cap?.getGeometry() as MultiLineString).getCoordinates()).toContainEqual([
+      [0, -11],
+      [0, 1]
+    ]);
+  });
+
   it.each([
     ['none', undefined, [10, 50, 90]],
     ['start', { start: { glyph: redSegment([0, -6], [0, 6]) } }, [50, 90]],
@@ -178,7 +320,7 @@ describe('StyleCompiler linework', () => {
     const compiler = new StyleCompiler(new NativeRefRegistry());
     const styles = render(
       compiler,
-      lineStyles.polyline({ lines: 'dashed', caps: { start: 'bar', end: 'arrow' }, decoration: 'tick' }),
+      lineStyles.polyline({ tracks: { mode: 'single', pattern: 'dashed' }, caps: { start: 'bar', end: 'arrow' }, decoration: 'tick' }),
       new Feature(
         new LineString([
           [0, 0],
@@ -369,6 +511,79 @@ describe('StyleCompiler linework', () => {
     expect(textStyle?.getText()?.getRotateWithView()).toBe(false);
     expect(textStyle?.getText()?.getRotation()).toBeCloseTo(-Math.PI / 2);
     expect(measureTextWidth).toHaveBeenCalledWith('normal normal 12px sans-serif', 'AB');
+  });
+
+  it('让 casing 与前景轨道共享 inline text 切口且保持纯色实线', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry(), { measureTextWidth: () => 8 });
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'open' },
+          tracks: [{ offset: 0, stroke: { color: '#000000', width: 2, lineDash: [8, 6], lineDashOffset: 1 } }],
+          casing: { color: '#ffff00', type: 'center', width: 2 },
+          inlineText: {
+            text: 'AB',
+            fontFamily: 'sans-serif',
+            fontSize: 12,
+            fontWeight: 'normal',
+            fontStyle: 'normal',
+            fill: { type: 'solid', color: '#000000' },
+            gapPadding: 2
+          }
+        }
+      },
+      new Feature(
+        new LineString([
+          [0, 0],
+          [40, 0]
+        ])
+      )
+    );
+
+    const casing = styles.filter((style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#ffff00');
+    const tracks = styles.filter((style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#000000');
+    expect(casing).toHaveLength(2);
+    expect(casing.map((style) => (style.getGeometry() as LineString).getCoordinates())).toEqual([
+      [
+        [0, 0],
+        [12, 0]
+      ],
+      [
+        [28, 0],
+        [40, 0]
+      ]
+    ]);
+    expect(casing.every((style) => style.getStroke()?.getWidth() === 6 && style.getStroke()?.getLineDash() === null)).toBe(true);
+    expect(tracks).toHaveLength(2);
+  });
+
+  it('让 14px 单轨的中心装饰切口补偿圆端回伸', () => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      lineStyles.polyline({ tracks: { width: 14 }, decoration: 'center-cross' }),
+      new Feature(
+        new LineString([
+          [0, 0],
+          [100, 0]
+        ])
+      )
+    );
+
+    const trackCoordinates = styles
+      .filter((style) => style.getGeometry() instanceof LineString && style.getStroke()?.getColor() === '#ff0000')
+      .map((style) => (style.getGeometry() as LineString).getCoordinates());
+    expect(trackCoordinates).toEqual([
+      [
+        [0, 0],
+        [35.25, 0]
+      ],
+      [
+        [64.75, 0],
+        [100, 0]
+      ]
+    ]);
   });
 
   it('文本切口覆盖短路径时只隐藏轨道，不隐藏文本和逻辑命中路径', () => {
@@ -672,6 +887,60 @@ describe('StyleCompiler linework', () => {
     expect(tracks[1].getStroke()?.getOffset()).toBe(-3);
   });
 
+  it.each([
+    ['inner', 5, 2],
+    ['outer', -5, 2],
+    ['center', 0, 12]
+  ] as const)('把 Polygon %s casing 映射到规范 outer ring 的正确一侧', (type, expectedOffset, expectedWidth) => {
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const styles = render(
+      compiler,
+      {
+        linework: {
+          contour: { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' },
+          tracks: [
+            { offset: -3, stroke: { color: '#000000', width: 2 } },
+            { offset: 3, stroke: { color: '#000000', width: 2 } }
+          ],
+          casing: { color: '#ffff00', type, width: 2 }
+        }
+      },
+      new Feature(
+        new Polygon([
+          [
+            [0, 0],
+            [0, 20],
+            [20, 20],
+            [20, 0],
+            [0, 0]
+          ],
+          [
+            [5, 5],
+            [15, 5],
+            [15, 15],
+            [5, 15],
+            [5, 5]
+          ]
+        ])
+      )
+    );
+
+    const casing = styles.find((style) => style.getGeometry() instanceof MultiPolygon && style.getStroke()?.getColor() === '#ffff00');
+    expect(casing?.getStroke()?.getOffset()).toBe(expectedOffset);
+    expect(casing?.getStroke()?.getWidth()).toBe(expectedWidth);
+    expect((casing?.getGeometry() as MultiPolygon).getCoordinates()).toEqual([
+      [
+        [
+          [0, 0],
+          [20, 0],
+          [20, 20],
+          [0, 20],
+          [0, 0]
+        ]
+      ]
+    ]);
+  });
+
   it.each(['tick', 'alternating-tick', 'double-tick', 'square', 'circle'] as const)('Polygon 双轨与 %s 重复装饰始终编译为完整闭环', (decoration) => {
     const compiler = new StyleCompiler(new NativeRefRegistry());
     const polygon = new Polygon([
@@ -683,7 +952,7 @@ describe('StyleCompiler linework', () => {
         [0, 0]
       ]
     ]);
-    const styles = render(compiler, lineStyles.polygon({ lines: ['solid', 'dashed'], decoration }), new Feature(polygon));
+    const styles = render(compiler, lineStyles.polygon({ tracks: { mode: 'double', patterns: ['solid', 'dashed'] }, decoration }), new Feature(polygon));
     const tracks = styles.filter((style) => style.getGeometry() instanceof MultiPolygon && style.getStroke()?.getWidth() === 2);
 
     expect(tracks).toHaveLength(2);
@@ -855,6 +1124,17 @@ describe('StyleCompiler linework', () => {
     expect((updatedBefore?.getGeometry() as LineString).getLastCoordinate()).toEqual([38, 0]);
   });
 });
+
+function lineGeometryXs(styles: readonly Style[], color: string, width: number): number[] {
+  return styles.flatMap((style) => {
+    const stroke = style.getStroke();
+    const geometry = style.getGeometry();
+    if (stroke?.getColor() !== color || stroke.getWidth() !== width) return [];
+    if (geometry instanceof LineString) return geometry.getCoordinates().map(([x]) => x);
+    if (geometry instanceof MultiLineString) return geometry.getCoordinates().flatMap((line) => line.map(([x]) => x));
+    return [];
+  });
+}
 
 function inlineText(placement?: InlinePathTextSpec['placement']): InlinePathTextSpec {
   return {

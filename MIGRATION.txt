@@ -1483,7 +1483,7 @@ import {
 } from '@vrsim/earth-engine-ol';
 ```
 
-V2 还提供 `lineStyles.polyline()` 与 `lineStyles.polygon()`，用于生成受支持的结构化线样式；它们替代业务对旧 Layer 专用线型参数和内部 Canvas 样式构造的依赖。
+V2 还提供 `lineStyles.polyline()` 与 `lineStyles.polygon()`，用于生成受支持的结构化线样式；`tracks.width` 设置每条前景轨道宽度，双轨会自动保持 4px 净间隙，内置装饰、端帽连接与中心切口会同步适配宽轨，`casing` 可在同一个 Element 上增加内侧、外侧或居中衬色。它们替代业务对旧 Layer 专用线型参数、额外底衬 Feature 和内部 Canvas 样式构造的依赖。
 
 ## 13. 最终迁移检查清单
 
@@ -1505,7 +1505,7 @@ V2 还提供 `lineStyles.polyline()` 与 `lineStyles.polygon()`，用于生成�
 - [ ] 经纬度写入 Element 前调用 `earth.view.toProjectedCoordinates()`，读取后调用 `earth.view.toGeographicCoordinates()`。
 - [ ] 将几何圆的 `radius` 统一改为米，不要持久化 `element.olFeature` 中使用投影单位的半径。
 - [ ] 将旧图层样式参数迁移为 `StyleSpec` 和 `earth.styles`。
-- [ ] 将可复用的线型参数迁移到 `lineStyles.polyline()` 或 `lineStyles.polygon()`。
+- [ ] 将可复用的线型参数迁移到 `lineStyles.polyline()` 或 `lineStyles.polygon()`；使用 `tracks`、`casing`、`caps` 与 `decoration` 组合，不再创建重复 Geometry 充当底衬。
 - [ ] 将 DynamicDraw、PlotDraw、PlotEdit 迁移到 `earth.draw` 会话。
 - [ ] 将 Measure 迁移到 `earth.measure` 会话。
 - [ ] 将 Transform 类迁移到 `earth.transform` 会话。

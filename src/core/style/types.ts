@@ -342,10 +342,22 @@ export interface PathTrackSpec {
   stroke: PathTrackStrokeSpec;
 }
 
+/** 位于完整轨道视觉包络内侧、外侧或两侧的纯色衬色。 */
+export interface PathCasingSpec {
+  /** 衬色颜色。 */
+  color: Color;
+  /** 衬色相对完整轨道视觉包络的位置。 */
+  type: 'inner' | 'outer' | 'center';
+  /** 单个指定方向露出的厚度，单位为 CSS 像素。 */
+  width: number;
+}
+
 /** 可组合的轨道、端帽、装饰与路径文本线饰。 */
 export interface LineworkSpec {
   /** 零条或多条独立轨道；纯装饰路径使用空数组。 */
   tracks: PathTrackSpec[];
+  /** 根据完整轨道视觉包络派生的纯色实线衬色。 */
+  casing?: PathCasingSpec;
   /** 开放单轨路径可以分别配置起点和终点端帽。 */
   caps?: {
     /** 起点端帽。 */

@@ -125,16 +125,19 @@ const replaceDiscriminators: StylePatch = {
 
 const lineworkStyle = lineStyles.polyline({
   color: '#1677ff',
-  lines: ['dashed', 'solid'] as const,
+  tracks: { mode: 'double', patterns: ['dashed', 'solid'], width: 3 },
+  casing: { color: '#ffffff', type: 'center', width: 2 },
   decoration: 'tick'
 });
 const polygonLineworkStyle = lineStyles.polygon({
-  decoration: 'inline-text',
-  text: '边界',
-  textStyle: { fontSize: 14, color: '#111827' },
-  repeatSpacingPx: 80
+  decoration: {
+    type: 'inline-text',
+    text: '边界',
+    style: { fontSize: 14, color: '#111827' },
+    repeatSpacingPx: 80
+  }
 });
-const repeatedCenterGlyphStyle = lineStyles.polyline({ decoration: 'center-dot-pair', repeatSpacingPx: 40 });
+const repeatedCenterGlyphStyle = lineStyles.polyline({ decoration: { type: 'center-dot-pair', repeatSpacingPx: 40 } });
 const replaceLinework: StylePatch = { linework: polygonLineworkStyle.linework };
 
 declare const nativeStyle: StyleLike;
@@ -164,24 +167,26 @@ const invalidMixedSymbolPatch: StylePatch = { symbol: { radius: 6, scale: 2 } };
 const invalidMixedNativeInput: StyleInput = { nativeStyle, zIndex: 2 };
 // @ts-expect-error native input cannot also contain a structured symbol
 const invalidNativeSymbolInput: StyleInput = { nativeStyle, symbol: { type: 'circle', radius: 4 } };
-// @ts-expect-error double-track polyline styles cannot contain caps
-const invalidDoubleTrackCaps = lineStyles.polyline({ lines: ['solid', 'dashed'] as const, caps: { end: 'arrow' } });
+// 跨维度组合由运行时严格校验，避免在顶层重新形成类型笛卡尔积。
+const runtimeRejectedDoubleTrackCaps = lineStyles.polyline({ tracks: { mode: 'double' }, caps: { end: 'arrow' } });
+const runtimeRejectedDecorationOnly = lineStyles.polyline({ tracks: { mode: 'none' }, decoration: 'circle' });
+const runtimeRejectedTrackedSlash = lineStyles.polyline({ tracks: { mode: 'single' }, decoration: 'slash' });
 // @ts-expect-error Polygon line styles cannot contain caps
 const invalidPolygonCaps = lineStyles.polygon({ caps: { start: 'bar' } });
-// @ts-expect-error decoration-only styles require slash
-const invalidDecorationOnly = lineStyles.polyline({ lines: 'none', decoration: 'circle' });
-// @ts-expect-error tracked styles cannot use slash
-const invalidTrackedSlash = lineStyles.polyline({ lines: 'solid', decoration: 'slash' });
-// @ts-expect-error non-text decorations cannot contain text
-const invalidOrdinaryText = lineStyles.polyline({ decoration: 'circle', text: '非法' });
+// @ts-expect-error double tracks cannot contain the single-track pattern field
+const invalidDoublePattern = lineStyles.polyline({ tracks: { mode: 'double', pattern: 'solid' } });
+// @ts-expect-error decoration-only tracks cannot contain width
+const invalidNoneWidth = lineStyles.polyline({ tracks: { mode: 'none', width: 2 }, decoration: 'slash' });
+// @ts-expect-error casing requires color
+const invalidCasing = lineStyles.polyline({ casing: { type: 'center' } });
 // @ts-expect-error inline-text requires text
-const invalidMissingInlineText = lineStyles.polyline({ decoration: 'inline-text' });
+const invalidMissingInlineText = lineStyles.polyline({ decoration: { type: 'inline-text' } });
 // @ts-expect-error ordinary repeated decorations use their built-in spacing
-const invalidOrdinaryRepeatSpacing = lineStyles.polyline({ decoration: 'tick', repeatSpacingPx: 24 });
-// @ts-expect-error repeat spacing only applies to center glyphs or inline text
+const invalidOrdinaryRepeatSpacing = lineStyles.polyline({ decoration: { type: 'tick', repeatSpacingPx: 24 } });
+// @ts-expect-error old top-level repeatSpacingPx was removed
 const invalidDefaultRepeatSpacing = lineStyles.polyline({ repeatSpacingPx: 24 });
-// @ts-expect-error decoration-only slash cannot use center/text repeat spacing
-const invalidSlashRepeatSpacing = lineStyles.polygon({ lines: 'none', decoration: 'slash', repeatSpacingPx: 24 });
+// @ts-expect-error old lines input was removed
+const invalidLegacyLines = lineStyles.polygon({ lines: 'none', decoration: 'slash' });
 
 void [
   missingIconSource,
@@ -196,13 +201,15 @@ void [
   polygonLineworkStyle,
   repeatedCenterGlyphStyle,
   replaceLinework,
-  invalidDoubleTrackCaps,
+  runtimeRejectedDoubleTrackCaps,
+  runtimeRejectedDecorationOnly,
+  runtimeRejectedTrackedSlash,
   invalidPolygonCaps,
-  invalidDecorationOnly,
-  invalidTrackedSlash,
-  invalidOrdinaryText,
+  invalidDoublePattern,
+  invalidNoneWidth,
+  invalidCasing,
   invalidMissingInlineText,
   invalidOrdinaryRepeatSpacing,
   invalidDefaultRepeatSpacing,
-  invalidSlashRepeatSpacing
+  invalidLegacyLines
 ];

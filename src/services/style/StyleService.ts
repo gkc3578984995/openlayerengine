@@ -14,6 +14,7 @@ import {
   type InlinePathTextSpec,
   type LineworkSpec,
   type PathCapSpec,
+  type PathCasingSpec,
   type PathDecorationSpec,
   type PathGlyphPrimitiveSpec,
   type PathGlyphSpec,
@@ -89,9 +90,11 @@ const textFields = new Set([
 /** 箭头装饰允许的字段。 */
 const arrowFields = new Set(['type', 'placement', 'symbol', 'offset', 'spacing']);
 /** 路径线饰允许的字段。 */
-const lineworkFields = new Set(['tracks', 'caps', 'decorations', 'inlineText', 'contour']);
+const lineworkFields = new Set(['tracks', 'casing', 'caps', 'decorations', 'inlineText', 'contour']);
 /** 路径轨道允许的字段。 */
 const pathTrackFields = new Set(['offset', 'stroke']);
+/** 路径衬色允许的字段。 */
+const pathCasingFields = new Set(['color', 'type', 'width']);
 /** 路径端帽集合允许的字段。 */
 const pathCapsFields = new Set(['start', 'end']);
 /** 单个路径端帽允许的字段。 */
@@ -451,6 +454,11 @@ function assertLinework(value: unknown): asserts value is LineworkSpec {
   let closed = false;
   if (hasDefined(linework, 'contour')) closed = assertPathContour(linework.contour);
 
+  if (hasDefined(linework, 'casing')) {
+    if (tracks.length === 0) throw new InvalidArgumentError('Style linework casing requires at least one track');
+    assertPathCasing(linework.casing);
+  }
+
   if (hasDefined(linework, 'caps')) {
     if (tracks.length !== 1) throw new InvalidArgumentError('Style linework caps require exactly one track');
     if (closed) throw new InvalidArgumentError('Closed style linework cannot contain caps');
@@ -490,6 +498,18 @@ function assertPathTracks(value: unknown): asserts value is PathTrackSpec[] {
     const stroke = track.stroke as Record<string, unknown>;
     if (hasDefined(stroke, 'color')) assertPathColor(stroke.color, 'Path track stroke color');
   }
+}
+
+/** 校验完整轨道视觉包络使用的规范衬色。 */
+function assertPathCasing(value: unknown): asserts value is PathCasingSpec {
+  const casing = record(value, 'Path casing');
+  assertKnownFields(casing, pathCasingFields, 'Path casing');
+  if (!hasDefined(casing, 'color')) throw new InvalidArgumentError('Path casing requires color');
+  if (!hasDefined(casing, 'type')) throw new InvalidArgumentError('Path casing requires type');
+  if (!hasDefined(casing, 'width')) throw new InvalidArgumentError('Path casing requires width');
+  assertPathColor(casing.color, 'Path casing color');
+  oneOf(casing.type, ['inner', 'outer', 'center'], 'Path casing type');
+  positiveFiniteNumber(casing.width, 'Path casing width');
 }
 
 /** 校验路径端帽集合。 */

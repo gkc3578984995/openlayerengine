@@ -20,6 +20,8 @@ import type {
   ElementRenderGeometry,
   ElementService,
   LayerService,
+  LineCasingOptions,
+  LineTracksOptions,
   MapExtent,
   MeasureService,
   OverlayService,
@@ -37,7 +39,13 @@ const flatCoordinates = toFlatCoordinates([
   [110, 0]
 ]);
 const shapeInput: ShapeInput<'polyline'> = { type: 'polyline', controlPoints: flatCoordinates };
-const lineStyle = lineStyles.polyline({ lines: ['dashed', 'solid'] as const, decoration: 'tick' });
+const lineTracks: LineTracksOptions = { mode: 'double', patterns: ['dashed', 'solid'], width: 3 };
+const lineCasing: LineCasingOptions = { color: '#ffffff', type: 'center', width: 2 };
+const lineStyle = lineStyles.polyline({
+  tracks: lineTracks,
+  casing: lineCasing,
+  decoration: 'tick'
+});
 
 declare const earth: Earth;
 const elementService: ElementService = earth.elements;
@@ -66,6 +74,8 @@ void [
   throttled,
   flatCoordinates,
   shapeInput,
+  lineTracks,
+  lineCasing,
   lineStyle,
   elementService,
   layerService,

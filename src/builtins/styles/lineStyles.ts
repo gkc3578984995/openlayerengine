@@ -5,6 +5,7 @@ import type {
   InlinePathTextSpec,
   LineworkSpec,
   PathCapSpec,
+  PathCasingSpec,
   PathDecorationSpec,
   PathGlyphPrimitiveSpec,
   PathGlyphSpec,
@@ -29,34 +30,69 @@ export type DecorationOnlyLineType = 'slash';
 /** 选择默认位于路径中点的内嵌文本。 */
 export type InlineTextLineDecorationType = 'inline-text';
 
-type TrackedDecorationOptions =
+/** 单轨、双轨或纯装饰路径的前景轨道配置。 */
+export type LineTracksOptions =
   | {
-      /** 普通固定装饰，默认不绘制。 */
-      decoration?: Exclude<TrackedLineDecorationType, 'center-cross' | 'center-dot' | 'center-dot-pair'>;
-      /** 非中心装饰不允许配置重复间距。 */
-      repeatSpacingPx?: never;
-      /** 普通装饰不能传入文本。 */
-      text?: never;
-      /** 普通装饰不能传入文本样式。 */
-      textStyle?: never;
+      /** 省略时为单轨。 */
+      mode?: 'single';
+      /** 单轨使用的实线或虚线，默认实线。 */
+      pattern?: LinePattern;
+      /** 单轨不能配置双轨 pattern。 */
+      patterns?: never;
+      /** 前景轨道宽度，单位为 CSS 像素，默认 2。 */
+      width?: number;
     }
   | {
+      /** 选择两条随宽度保持固定 4px 净间隙的前景轨道。 */
+      mode: 'double';
+      /** 双轨不能配置单个 pattern。 */
+      pattern?: never;
+      /** 两条轨道分别使用的 pattern，默认均为实线。 */
+      patterns?: readonly [LinePattern, LinePattern];
+      /** 每条前景轨道的宽度，单位为 CSS 像素，默认 2。 */
+      width?: number;
+    }
+  | {
+      /** 不绘制前景轨道，只允许纯 slash 装饰。 */
+      mode: 'none';
+      /** 无轨道模式不能配置单轨 pattern。 */
+      pattern?: never;
+      /** 无轨道模式不能配置双轨 patterns。 */
+      patterns?: never;
+      /** 无轨道模式没有可配置的前景轨道宽度。 */
+      width?: never;
+    };
+
+/** 衬色相对完整轨道视觉包络的位置。 */
+export type LineCasingType = 'inner' | 'outer' | 'center';
+
+/** 根据完整轨道视觉包络生成的纯色衬色配置。 */
+export interface LineCasingOptions {
+  /** 衬色颜色。 */
+  color: Color;
+  /** 衬色位置，默认 `center`。 */
+  type?: LineCasingType;
+  /** 单个指定方向露出的厚度，单位为 CSS 像素，默认 2。 */
+  width?: number;
+}
+
+/** 路径装饰短写，或带重复间距、文本参数的完整配置。 */
+export type LineDecorationOptions =
+  | TrackedLineDecorationType
+  | DecorationOnlyLineType
+  | {
       /** 位于路径中心或按固定像素间距重复的单 glyph 装饰。 */
-      decoration: Extract<TrackedLineDecorationType, 'center-cross' | 'center-dot' | 'center-dot-pair'>;
+      type: Extract<TrackedLineDecorationType, 'center-cross' | 'center-dot' | 'center-dot-pair'>;
       /** 省略时仅在路径中心放置一次；传入时按该 CSS 像素间距重复。 */
       repeatSpacingPx?: number;
-      /** 中心 glyph 装饰不能传入文本。 */
-      text?: never;
-      /** 中心 glyph 装饰不能传入文本样式。 */
-      textStyle?: never;
     }
   | {
       /** 选择路径文本占位。 */
-      decoration: InlineTextLineDecorationType;
+      type: InlineTextLineDecorationType;
       /** 放在路径上的非空文本。 */
       text: string;
       /** 文本外观；旋转和轨道切口由引擎固定。 */
-      textStyle?: InlineLineTextStyleOptions;
+      style?: InlineLineTextStyleOptions;
       /** 省略时仅在路径中心放置一次；传入时按该 CSS 像素间距重复。 */
       repeatSpacingPx?: number;
     };
@@ -97,84 +133,45 @@ export interface InlineLineTextStyleOptions {
   };
 }
 
-/** `lineStyles.polyline()` 接受的严格判别参数。 */
-export type PolylineLineStyleOptions =
-  | ((
-      | {
-          /** 线段、端帽和装饰物共用的颜色，默认红色。 */
-          color?: Color;
-          /** 省略时绘制单轨实线。 */
-          lines?: LinePattern;
-          /** 单轨路径可以分别设置两端端帽。 */
-          caps?: LineCapsOptions;
-        }
-      | {
-          /** 线段和装饰物共用的颜色，默认红色。 */
-          color?: Color;
-          /** 两条轨道分别选择实线或虚线。 */
-          lines: readonly [LinePattern, LinePattern];
-          /** 双轨路径不允许端帽。 */
-          caps?: never;
-        }
-    ) &
-      TrackedDecorationOptions)
-  | {
-      /** 纯装饰路径使用的颜色，默认红色。 */
-      color?: Color;
-      /** 固定为不绘制轨道。 */
-      lines: 'none';
-      /** 纯装饰路径不允许端帽。 */
-      caps?: never;
-      /** 纯装饰路径不允许配置文本或中心 glyph 重复间距。 */
-      repeatSpacingPx?: never;
-      /** 第一版纯装饰路径固定为斜杠。 */
-      decoration: DecorationOnlyLineType;
-      /** 纯装饰路径不能传入文本。 */
-      text?: never;
-      /** 纯装饰路径不能传入文本样式。 */
-      textStyle?: never;
-    };
+/** `lineStyles.polyline()` 接受的正交参数。 */
+export interface PolylineLineStyleOptions {
+  /** 前景轨道、端帽和装饰物共用的颜色，默认红色。 */
+  color?: Color;
+  /** 单轨、双轨或纯装饰路径配置。 */
+  tracks?: LineTracksOptions;
+  /** 可选的内侧、外侧或居中衬色。 */
+  casing?: LineCasingOptions;
+  /** 开放单轨路径可以分别设置两端端帽。 */
+  caps?: LineCapsOptions;
+  /** 沿路径放置的装饰或路径文字。 */
+  decoration?: LineDecorationOptions;
+}
 
-/** `lineStyles.polygon()` 接受的严格判别参数。 */
-export type PolygonLineStyleOptions =
-  | ({
-      /** 边界轨道和装饰物共用的颜色，默认红色。 */
-      color?: Color;
-      /** 省略时绘制单轨实线，也可以分别设置两条轨道。 */
-      lines?: LinePattern | readonly [LinePattern, LinePattern];
-      /** Polygon 闭合边界不允许端帽。 */
-      caps?: never;
-    } & TrackedDecorationOptions)
-  | {
-      /** 纯装饰边界使用的颜色，默认红色。 */
-      color?: Color;
-      /** 固定为不绘制边界轨道。 */
-      lines: 'none';
-      /** 第一版纯装饰边界固定为斜杠。 */
-      decoration: DecorationOnlyLineType;
-      /** Polygon 闭合边界不允许端帽。 */
-      caps?: never;
-      /** 纯装饰边界不允许配置文本或中心 glyph 重复间距。 */
-      repeatSpacingPx?: never;
-      /** 纯装饰边界不能传入文本。 */
-      text?: never;
-      /** 纯装饰边界不能传入文本样式。 */
-      textStyle?: never;
-    };
+/** `lineStyles.polygon()` 接受的正交参数。 */
+export interface PolygonLineStyleOptions {
+  /** 前景轨道和装饰物共用的颜色，默认红色。 */
+  color?: Color;
+  /** 单轨、双轨或纯装饰路径配置。 */
+  tracks?: LineTracksOptions;
+  /** 可选的几何内侧、外侧或居中衬色。 */
+  casing?: LineCasingOptions;
+  /** 沿 Polygon 外环放置的装饰或路径文字。 */
+  decoration?: LineDecorationOptions;
+}
 
 /** 创建开放路径和 Polygon 闭合边界线饰的公共工厂。 */
 export interface LineStyleFactories {
   /**
    * 创建直线、折线或曲线使用的开放路径线饰。
    *
-   * @param options - 选择轨道、统一颜色、端帽、装饰或路径文本。
+   * @param options - 选择轨道及宽度、衬色、统一颜色、端帽、装饰或路径文本。
    * @returns 可直接传给 `elements.add()` 或 Draw 的独立 `StyleSpec`。
    * @example
    * ```ts
    * const style = lineStyles.polyline({
-   *   lines: 'dashed',
-   *   caps: { start: 'bar', end: 'arrow' },
-   *   decoration: 'circle'
+   *   tracks: { mode: 'double', patterns: ['solid', 'dashed'], width: 3 },
+   *   casing: { color: '#ffff00', type: 'center', width: 2 },
+   *   decoration: 'tick'
    * });
    * ```
    */
@@ -183,12 +180,16 @@ export interface LineStyleFactories {
   /**
    * 创建只作用于 Polygon 外环的闭合边界线饰。
    *
-   * @param options - 选择边界轨道、统一颜色、装饰或路径文本。
+   * @param options - 选择边界轨道及宽度、衬色、统一颜色、装饰或路径文本。
    * @returns 可与现有 `fill` 组合的独立 `StyleSpec`。
    * @example
    * ```ts
    * const style = {
-   *   ...lineStyles.polygon({ lines: ['solid', 'dashed'], decoration: 'tick' }),
+   *   ...lineStyles.polygon({
+   *     tracks: { mode: 'double', patterns: ['solid', 'dashed'], width: 3 },
+   *     casing: { color: '#ffff00', type: 'outer', width: 2 },
+   *     decoration: 'tick'
+   *   }),
    *   fill: { type: 'solid', color: [255, 0, 0, 0.1] }
    * };
    * ```
@@ -202,8 +203,21 @@ type NormalizedLines = [] | [LinePattern] | [LinePattern, LinePattern];
 interface NormalizedLineOptions {
   readonly color: Color;
   readonly lines: NormalizedLines;
+  readonly trackWidth: number;
+  readonly casing?: PathCasingSpec;
   readonly caps?: LineCapsOptions;
   readonly decoration: TrackedLineDecorationType | DecorationOnlyLineType | InlineTextLineDecorationType;
+  readonly repeatSpacingPx?: number;
+  readonly inlineText?: InlinePathTextSpec;
+}
+
+interface NormalizedTrackOptions {
+  readonly lines: NormalizedLines;
+  readonly width: number;
+}
+
+interface NormalizedDecorationOptions {
+  readonly decoration: NormalizedLineOptions['decoration'];
   readonly repeatSpacingPx?: number;
   readonly inlineText?: InlinePathTextSpec;
 }
@@ -212,13 +226,19 @@ const defaultLineColor = '#ff0000';
 const defaultTextColor = '#000000';
 const defaultOutlineColor = '#ffffff';
 const dashedPattern = [8, 6] as const;
-const optionFields = new Set(['color', 'lines', 'caps', 'decoration', 'text', 'textStyle', 'repeatSpacingPx']);
+const defaultTrackWidth = 2;
+const doubleTrackGap = 4;
+const optionFields = new Set(['color', 'tracks', 'casing', 'caps', 'decoration']);
+const trackFields = new Set(['mode', 'pattern', 'patterns', 'width']);
+const casingFields = new Set(['color', 'type', 'width']);
+const decorationFields = new Set(['type', 'text', 'style', 'repeatSpacingPx']);
 const capFields = new Set(['start', 'end']);
 const textStyleFields = new Set(['fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'color', 'outline', 'background']);
 const outlineFields = new Set(['color', 'width']);
 const backgroundFields = new Set(['color', 'paddingPx']);
 const linePatterns: readonly LinePattern[] = ['solid', 'dashed'];
 const capTypes: readonly LineCapType[] = ['none', 'bar', 'arrow'];
+const casingTypes: readonly LineCasingType[] = ['inner', 'outer', 'center'];
 const trackedDecorationTypes: readonly TrackedLineDecorationType[] = [
   'none',
   'tick',
@@ -247,11 +267,12 @@ function createLineStyle(kind: LineFactoryKind, options: PolylineLineStyleOption
   const normalized = normalizeOptions(kind, options);
   const contour: LineworkSpec['contour'] = kind === 'polyline' ? { kind: 'open' } : { kind: 'closed', rings: 'outer', seam: 'preserve-spacing' };
   const linework: LineworkSpec = {
-    tracks: createTracks(normalized.lines, normalized.color),
-    ...(normalized.caps === undefined ? {} : { caps: createCaps(normalized.caps, normalized.color) }),
+    tracks: createTracks(normalized.lines, normalized.color, normalized.trackWidth),
+    ...(normalized.casing === undefined ? {} : { casing: normalized.casing }),
+    ...(normalized.caps === undefined ? {} : { caps: createCaps(normalized.caps, normalized.color, normalized.trackWidth) }),
     ...(normalized.decoration === 'none' || normalized.decoration === 'inline-text'
       ? {}
-      : { decorations: [createDecoration(normalized.decoration, normalized.color, normalized.repeatSpacingPx)] }),
+      : { decorations: [createDecoration(normalized.decoration, normalized.color, normalized.repeatSpacingPx, normalized.lines, normalized.trackWidth)] }),
     ...(normalized.inlineText === undefined ? {} : { inlineText: normalized.inlineText }),
     contour
   };
@@ -266,83 +287,149 @@ function normalizeOptions(kind: LineFactoryKind, options: PolylineLineStyleOptio
   const record = plainRecord(input, `${kind} line style options`);
   assertKnownFields(record, optionFields, `${kind} line style options`);
 
-  const lines = normalizeLines(record.lines);
+  const tracks = normalizeTracks(record.tracks);
   const hasCaps = hasOwn(record, 'caps');
   if (kind === 'polygon' && hasCaps) throw new InvalidArgumentError('Polygon line styles cannot contain caps');
-  if (lines.length !== 1 && hasCaps) throw new InvalidArgumentError('Only single-track polyline styles can contain caps');
+  if (tracks.lines.length !== 1 && hasCaps) throw new InvalidArgumentError('Only single-track polyline styles can contain caps');
 
-  const decoration = normalizeDecoration(record.decoration, lines);
-  const repeatSpacingPx = normalizeRepeatSpacing(record, decoration);
-  const hasText = hasOwn(record, 'text');
-  const hasTextStyle = hasOwn(record, 'textStyle');
-  let inlineText: InlinePathTextSpec | undefined;
-  if (decoration === 'inline-text') {
-    if (!hasText || typeof record.text !== 'string' || record.text.trim().length === 0) {
-      throw new InvalidArgumentError('Inline-text line styles require non-blank text');
-    }
-    inlineText = normalizeInlineText(record.text, record.textStyle, repeatSpacingPx);
-  } else if (hasText || hasTextStyle) {
-    throw new InvalidArgumentError('Only inline-text line styles can contain text or textStyle');
-  }
-
-  if (lines.length === 0) {
-    if (decoration !== 'slash') throw new InvalidArgumentError('Decoration-only line styles require slash');
-    if (hasCaps || hasText || hasTextStyle) throw new InvalidArgumentError('Decoration-only line styles cannot contain caps or text');
-  }
+  const decoration = normalizeDecoration(record.decoration, tracks.lines);
+  const casing = normalizeCasing(record.casing, tracks.lines);
 
   const color = normalizeColor(record.color === undefined ? defaultLineColor : record.color, 'Line style color');
-  const caps = lines.length === 1 && record.caps !== undefined ? normalizeCaps(record.caps) : undefined;
+  const caps = tracks.lines.length === 1 && record.caps !== undefined ? normalizeCaps(record.caps) : undefined;
   return {
     color,
-    lines,
-    decoration,
+    lines: tracks.lines,
+    trackWidth: tracks.width,
+    decoration: decoration.decoration,
+    ...(casing === undefined ? {} : { casing }),
     ...(caps === undefined ? {} : { caps }),
-    ...(repeatSpacingPx === undefined ? {} : { repeatSpacingPx }),
-    ...(inlineText === undefined ? {} : { inlineText })
+    ...(decoration.repeatSpacingPx === undefined ? {} : { repeatSpacingPx: decoration.repeatSpacingPx }),
+    ...(decoration.inlineText === undefined ? {} : { inlineText: decoration.inlineText })
   };
 }
 
-/** 把单轨、双轨和纯装饰判别值转换成稳定元组。 */
-function normalizeLines(value: unknown): NormalizedLines {
-  if (value === undefined || value === 'solid') return ['solid'];
-  if (value === 'dashed') return ['dashed'];
-  if (value === 'none') return [];
+/** 把正交轨道输入转换成固定数量的 pattern 与统一宽度。 */
+function normalizeTracks(value: unknown): NormalizedTrackOptions {
+  const tracks = value === undefined ? {} : plainRecord(value, 'Line tracks options');
+  assertKnownFields(tracks, trackFields, 'Line tracks options');
+  const mode = tracks.mode === undefined ? 'single' : tracks.mode;
+
+  if (mode === 'single') {
+    if (hasOwn(tracks, 'patterns')) throw new InvalidArgumentError('Single-track line styles cannot contain patterns');
+    return {
+      lines: [normalizeLinePattern(tracks.pattern, 'Single-track pattern')],
+      width: normalizePositiveFinite(tracks.width, defaultTrackWidth, 'Line track width')
+    };
+  }
+  if (mode === 'double') {
+    if (hasOwn(tracks, 'pattern')) throw new InvalidArgumentError('Double-track line styles cannot contain pattern');
+    const patterns = normalizeDoublePatterns(tracks.patterns);
+    return { lines: patterns, width: normalizePositiveFinite(tracks.width, defaultTrackWidth, 'Line track width') };
+  }
+  if (mode === 'none') {
+    if (hasOwn(tracks, 'pattern') || hasOwn(tracks, 'patterns') || hasOwn(tracks, 'width')) {
+      throw new InvalidArgumentError('Decoration-only line styles cannot configure track patterns or width');
+    }
+    return { lines: [], width: defaultTrackWidth };
+  }
+  throw new InvalidArgumentError('Line tracks mode must be single, double, or none');
+}
+
+/** 校验单条轨道的 pattern。 */
+function normalizeLinePattern(value: unknown, label: string): LinePattern {
+  if (value === undefined) return 'solid';
+  if (typeof value === 'string' && linePatterns.includes(value as LinePattern)) return value as LinePattern;
+  throw new InvalidArgumentError(`${label} must be solid or dashed`);
+}
+
+/** 校验双轨恰好包含两个 pattern。 */
+function normalizeDoublePatterns(value: unknown): [LinePattern, LinePattern] {
+  if (value === undefined) return ['solid', 'solid'];
   if (
     Array.isArray(value) &&
     value.length === 2 &&
+    hasOwn(value, '0') &&
+    hasOwn(value, '1') &&
     value.every((entry): entry is LinePattern => typeof entry === 'string' && linePatterns.includes(entry as LinePattern))
   ) {
     return [value[0], value[1]];
   }
-  throw new InvalidArgumentError('Line style lines must be solid, dashed, none, or a two-pattern tuple');
+  throw new InvalidArgumentError('Double-track patterns must contain exactly two line patterns');
 }
 
-/** 校验装饰类型与轨道分支的组合。 */
-function normalizeDecoration(value: unknown, lines: NormalizedLines): NormalizedLineOptions['decoration'] {
-  const decoration = value === undefined ? 'none' : value;
-  if (lines.length === 0) {
-    if (decoration !== 'slash') throw new InvalidArgumentError('Decoration-only line styles require slash');
-    return 'slash';
+/** 校验装饰的局部参数及其与轨道模式的组合。 */
+function normalizeDecoration(value: unknown, lines: NormalizedLines): NormalizedDecorationOptions {
+  if (value === undefined || typeof value === 'string') {
+    const decoration = value === undefined ? 'none' : value;
+    if (decoration === 'inline-text') throw new InvalidArgumentError('Inline-text line decoration must use an object with text');
+    if (decoration !== 'slash' && !trackedDecorationTypes.includes(decoration as TrackedLineDecorationType)) {
+      throw new InvalidArgumentError('Line style decoration is invalid');
+    }
+    assertDecorationTrackCompatibility(decoration as TrackedLineDecorationType | DecorationOnlyLineType, lines);
+    return { decoration: decoration as TrackedLineDecorationType | DecorationOnlyLineType };
   }
-  if (decoration === 'slash') throw new InvalidArgumentError('Tracked line styles cannot use slash');
-  if (decoration === 'inline-text') return decoration;
-  if (typeof decoration === 'string' && trackedDecorationTypes.includes(decoration as TrackedLineDecorationType)) {
-    return decoration as TrackedLineDecorationType;
+
+  const decoration = plainRecord(value, 'Line decoration options');
+  assertKnownFields(decoration, decorationFields, 'Line decoration options');
+  if (!hasOwn(decoration, 'type')) throw new InvalidArgumentError('Line decoration options require type');
+  const type = decoration.type;
+  if (typeof type !== 'string') throw new InvalidArgumentError('Line decoration type is invalid');
+
+  if (centeredDecorationTypes.includes(type as (typeof centeredDecorationTypes)[number])) {
+    if (hasOwn(decoration, 'text') || hasOwn(decoration, 'style')) {
+      throw new InvalidArgumentError('Center line decorations cannot contain text or style');
+    }
+    const repeatSpacingPx = normalizeRepeatSpacing(decoration.repeatSpacingPx);
+    assertDecorationTrackCompatibility(type as (typeof centeredDecorationTypes)[number], lines);
+    return {
+      decoration: type as (typeof centeredDecorationTypes)[number],
+      ...(repeatSpacingPx === undefined ? {} : { repeatSpacingPx })
+    };
   }
-  throw new InvalidArgumentError('Line style decoration is invalid');
+
+  if (type === 'inline-text') {
+    if (!hasOwn(decoration, 'text') || typeof decoration.text !== 'string' || decoration.text.trim().length === 0) {
+      throw new InvalidArgumentError('Inline-text line styles require non-blank text');
+    }
+    const repeatSpacingPx = normalizeRepeatSpacing(decoration.repeatSpacingPx);
+    assertDecorationTrackCompatibility(type, lines);
+    return {
+      decoration: type,
+      ...(repeatSpacingPx === undefined ? {} : { repeatSpacingPx }),
+      inlineText: normalizeInlineText(decoration.text, decoration.style, repeatSpacingPx)
+    };
+  }
+
+  throw new InvalidArgumentError('Line decoration objects require a center decoration or inline-text');
 }
 
-/** 只让单个中心占位切换为固定像素间距重复。 */
-function normalizeRepeatSpacing(record: Record<string, unknown>, decoration: NormalizedLineOptions['decoration']): number | undefined {
-  if (!hasOwn(record, 'repeatSpacingPx') || record.repeatSpacingPx === undefined) return undefined;
-  if (decoration !== 'inline-text' && !centeredDecorationTypes.includes(decoration as (typeof centeredDecorationTypes)[number])) {
-    throw new InvalidArgumentError('Line style repeatSpacingPx requires a center decoration or inline-text');
-  }
-  const spacing = record.repeatSpacingPx;
-  if (typeof spacing !== 'number' || !Number.isFinite(spacing) || spacing <= 0) {
-    throw new InvalidArgumentError('Line style repeatSpacingPx must be a positive finite CSS pixel distance');
-  }
-  return spacing;
+/** 拒绝纯装饰与前景轨道的交叉非法组合。 */
+function assertDecorationTrackCompatibility(decoration: NormalizedLineOptions['decoration'], lines: NormalizedLines): void {
+  if (lines.length === 0 && decoration !== 'slash') throw new InvalidArgumentError('Decoration-only line styles require slash');
+  if (lines.length > 0 && decoration === 'slash') throw new InvalidArgumentError('Tracked line styles cannot use slash');
+}
+
+/** 只让中心 glyph 与路径文字配置固定像素重复间距。 */
+function normalizeRepeatSpacing(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  return normalizePositiveFinite(value, undefined, 'Line style repeatSpacingPx');
+}
+
+/** 校验并展开完整轨道视觉包络使用的衬色。 */
+function normalizeCasing(value: unknown, lines: NormalizedLines): PathCasingSpec | undefined {
+  if (value === undefined) return undefined;
+  if (lines.length === 0) throw new InvalidArgumentError('Decoration-only line styles cannot contain casing');
+  const casing = plainRecord(value, 'Line casing options');
+  assertKnownFields(casing, casingFields, 'Line casing options');
+  if (!hasOwn(casing, 'color') || casing.color === undefined) throw new InvalidArgumentError('Line casing options require color');
+  const type = casing.type === undefined ? 'center' : casing.type;
+  if (typeof type !== 'string' || !casingTypes.includes(type as LineCasingType)) throw new InvalidArgumentError('Line casing type is invalid');
+  return {
+    color: copyColor(normalizeColor(casing.color, 'Line casing color')),
+    type: type as LineCasingType,
+    width: normalizePositiveFinite(casing.width, 2, 'Line casing width')
+  };
 }
 
 /** 校验并展开单轨端帽默认值。 */
@@ -406,39 +493,46 @@ function normalizeInlineText(text: string, value: unknown, repeatSpacingPx: numb
   return normalized;
 }
 
-/** 按冻结的宽度、偏移和虚线节奏创建轨道。 */
-function createTracks(lines: NormalizedLines, color: Color): PathTrackSpec[] {
+/** 按统一宽度、固定双轨净间隙和虚线节奏创建前景轨道。 */
+function createTracks(lines: NormalizedLines, color: Color, width: number): PathTrackSpec[] {
   if (lines.length === 0) return [];
-  const offsets = lines.length === 1 ? [0] : [-3, 3];
+  const doubleOffset = (width + doubleTrackGap) / 2;
+  const offsets = lines.length === 1 ? [0] : [-doubleOffset, doubleOffset];
   return lines.map((pattern, index) => ({
     offset: offsets[index] ?? 0,
     stroke: {
       color: copyColor(color),
-      width: 2,
+      width,
       ...(pattern === 'dashed' ? { lineDash: [...dashedPattern], lineDashOffset: 0 } : {})
     }
   }));
 }
 
-/** 把端帽枚举展开成局部矢量 glyph。 */
-function createCaps(options: LineCapsOptions, color: Color): NonNullable<LineworkSpec['caps']> {
-  const start = options.start === undefined ? undefined : createCap(options.start, color);
-  const end = options.end === undefined ? undefined : createCap(options.end, color);
+/** 把端帽枚举展开成随单轨宽度保持清晰肩部的局部矢量 glyph。 */
+function createCaps(options: LineCapsOptions, color: Color, trackWidth: number): NonNullable<LineworkSpec['caps']> {
+  const start = options.start === undefined ? undefined : createCap(options.start, color, trackWidth);
+  const end = options.end === undefined ? undefined : createCap(options.end, color, trackWidth);
   return { ...(start === undefined ? {} : { start }), ...(end === undefined ? {} : { end }) };
 }
 
 /** 创建一个端帽；none 不产生派生渲染资源。 */
-function createCap(type: LineCapType, color: Color): PathCapSpec | undefined {
+function createCap(type: LineCapType, color: Color, trackWidth: number): PathCapSpec | undefined {
   if (type === 'none') return undefined;
-  if (type === 'bar') return { glyph: glyph([segment([0, -7], [0, 7], color, 2)]) };
+  const growth = Math.max(0, trackWidth / 2 - defaultTrackWidth / 2);
+  if (type === 'bar') {
+    const halfLength = 7 + growth;
+    return { glyph: glyph([segment([0, -halfLength], [0, halfLength], color, 2)]) };
+  }
+  const depth = 11 + growth;
+  const baseHalfWidth = 6 + growth;
   return {
     glyph: glyph([
       {
         type: 'polygon',
         points: [
           [0, 0],
-          [-11, -6],
-          [-11, 6]
+          [-depth, -baseHalfWidth],
+          [-depth, baseHalfWidth]
         ],
         fill: { type: 'solid', color: copyColor(color) }
       }
@@ -446,44 +540,53 @@ function createCap(type: LineCapType, color: Color): PathCapSpec | undefined {
   };
 }
 
-/** 把装饰枚举展开成固定尺寸和固定间距的矢量定义。 */
+/** 把装饰枚举展开成固定间距、并按前景轨道包络派生尺寸的矢量定义。 */
 function createDecoration(
   type: Exclude<NormalizedLineOptions['decoration'], 'none' | 'inline-text'>,
   color: Color,
-  repeatSpacingPx: number | undefined
+  repeatSpacingPx: number | undefined,
+  lines: NormalizedLines,
+  trackWidth: number
 ): PathDecorationSpec {
   if (type === 'slash') return repeatDecoration(12, [glyph([segment([-3, 6], [3, -6], color, 2)])]);
-  if (type === 'tick') return repeatDecoration(32, [glyph([segment([0, -7], [0, 7], color, 1.5)])]);
+  const envelopeGrowth = decorationEnvelopeGrowth(lines, trackWidth);
+  const tickRadius = 7 + envelopeGrowth;
+  const tickScale = tickRadius / 7;
+  if (type === 'tick') return repeatDecoration(32, [glyph([segment([0, -tickRadius], [0, tickRadius], color, 1.5)])]);
   if (type === 'alternating-tick') {
-    return repeatDecoration(22, [glyph([segment([0, 0], [0, -7], color, 1.5)]), glyph([segment([0, 0], [0, 7], color, 1.5)])]);
+    return repeatDecoration(22, [glyph([segment([0, 0], [0, -tickRadius], color, 1.5)]), glyph([segment([0, 0], [0, tickRadius], color, 1.5)])]);
   }
   if (type === 'double-tick') {
     return repeatDecoration(32, [
       glyph([
         {
           type: 'group',
-          primitives: [segment([-2, -7], [-2, 0], color, 1.5), segment([2, -7], [2, 0], color, 1.5)]
+          primitives: [
+            segment([-2 * tickScale, -tickRadius], [-2 * tickScale, 0], color, 1.5),
+            segment([2 * tickScale, -tickRadius], [2 * tickScale, 0], color, 1.5)
+          ]
         }
       ])
     ]);
   }
   if (type === 'square') {
+    const halfSize = 4 + envelopeGrowth;
     return repeatDecoration(32, [
       glyph([
         {
           type: 'polygon',
           points: [
-            [-4, -4],
-            [4, -4],
-            [4, 4],
-            [-4, 4]
+            [-halfSize, -halfSize],
+            [halfSize, -halfSize],
+            [halfSize, halfSize],
+            [-halfSize, halfSize]
           ],
           fill: { type: 'solid', color: copyColor(color) }
         }
       ])
     ]);
   }
-  if (type === 'circle') return repeatDecoration(32, [glyph([circle([0, 0], 4, color)])]);
+  if (type === 'circle') return repeatDecoration(32, [glyph([circle([0, 0], 4 + envelopeGrowth, color)])]);
   const centered =
     type === 'center-cross'
       ? { glyph: glyph([segment([-4, -4], [4, 4], color, 1.5), segment([-4, 4], [4, -4], color, 1.5)]), cutoutPadding: 4 }
@@ -493,6 +596,14 @@ function createDecoration(
   return repeatSpacingPx === undefined
     ? centerDecoration(centered.glyph, centered.cutoutPadding)
     : repeatDecoration(repeatSpacingPx, [centered.glyph], centered.cutoutPadding);
+}
+
+/** 保留默认 2px 轨道下的装饰外露量，窄轨不反向缩小内置 glyph。 */
+function decorationEnvelopeGrowth(lines: NormalizedLines, trackWidth: number): number {
+  if (lines.length === 0) return 0;
+  const baseline = lines.length === 1 ? defaultTrackWidth / 2 : defaultTrackWidth + doubleTrackGap / 2;
+  const actual = lines.length === 1 ? trackWidth / 2 : trackWidth + doubleTrackGap / 2;
+  return Math.max(0, actual - baseline);
 }
 
 /** 创建重复装饰结构。 */
@@ -536,6 +647,15 @@ function normalizeColor(value: unknown, label: string): Color {
     return [...value] as Color;
   }
   throw new InvalidArgumentError(`${label} must be a color string or numeric tuple`);
+}
+
+/** 读取带可选默认值的正有限 CSS 像素数。 */
+function normalizePositiveFinite(value: unknown, fallback: number | undefined, label: string): number {
+  const resolved = value === undefined ? fallback : value;
+  if (typeof resolved !== 'number' || !Number.isFinite(resolved) || resolved <= 0) {
+    throw new InvalidArgumentError(`${label} must be a positive finite CSS pixel distance`);
+  }
+  return resolved;
 }
 
 /** 收窄严格普通对象。 */

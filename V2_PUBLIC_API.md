@@ -401,11 +401,14 @@ const trackedLine = earth.elements.add({
   },
   style: lineStyles.polyline({
     color: '#1677ff',
-    lines: ['solid', 'dashed'],
+    tracks: { mode: 'double', patterns: ['solid', 'dashed'], width: 3 },
+    casing: { color: '#ffffff', type: 'center', width: 2 },
     decoration: 'tick'
   })
 });
 ```
+
+`tracks.width` 表示每条前景轨道的宽度。双轨会按 `±(width / 2 + 2)` 自动调整 offset，始终保留 4 CSS px 净间隙；内置普通装饰与端帽会适配宽轨。开放单轨的 arrow 尖端或 bar 中心仍位于真实端点，前景轨道与衬色只在渲染时停止于端帽内缘，逻辑 Geometry 和命中路径不变。
 
 ### 内置图形
 

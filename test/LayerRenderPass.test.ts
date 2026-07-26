@@ -565,7 +565,7 @@ describe('LayerRenderPass', () => {
     pass.destroy();
   });
 
-  it('dash-flow 分别更新 linework 的虚线轨道并保留轨道偏移与基础相位', () => {
+  it('dash-flow 分别更新 linework 的虚线轨道、保留基础相位且不重复绘制 casing', () => {
     const state = polylineElement('route', {
       style: {
         linework: {
@@ -574,6 +574,7 @@ describe('LayerRenderPass', () => {
             { offset: 0, stroke: { color: '#222222', width: 2 } },
             { offset: 7, stroke: { color: '#333333', width: 1, lineDash: [3, 4], lineDashOffset: 9 } }
           ],
+          casing: { color: '#ffff00', type: 'center', width: 2 },
           contour: { kind: 'open' }
         }
       }
@@ -602,6 +603,52 @@ describe('LayerRenderPass', () => {
 
     expect(strokes.map((stroke) => stroke.getLineDashOffset())).toEqual([-13, -6]);
     expect(strokes.map((stroke) => stroke.getOffset())).toEqual([-3, 7]);
+    expect(strokes.every((stroke) => stroke.getColor() !== '#ffff00')).toBe(true);
+    manager.destroy();
+    pass.destroy();
+  });
+
+  it('fade 对 presentation 中的 casing 与前景轨道统一应用目标透明度', () => {
+    const state = polylineElement('route', {
+      style: {
+        linework: {
+          tracks: [{ offset: 0, stroke: { color: '#ff0000', width: 3 } }],
+          casing: { color: '#ffff00', type: 'center', width: 2 },
+          contour: { kind: 'open' }
+        }
+      }
+    });
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    store.add(state);
+    const harness = createPassHarness([state]);
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, compiler);
+    const manager = new AnimationManagerImpl({
+      store,
+      shapes,
+      render: pass,
+      shapeProjection: identityShapeProjection,
+      registry: createBuiltinAnimationRegistry(),
+      clock: animationTiming,
+      wake: animationTiming
+    });
+    manager.play({ id: 'route' }, { type: 'fade', direction: 'out', durationMs: 1_000, easing: 'linear' });
+    const context = canvasContext(0.8);
+
+    dispatchFrame(harness.layer, 0, 0, 1, context);
+    renderSpies.drawFeature.mockClear();
+    const colors: unknown[] = [];
+    const alphas: number[] = [];
+    renderSpies.drawFeature.mockImplementation((_feature: Feature<Geometry>, style: Style) => {
+      colors.push(style.getStroke()?.getColor());
+      alphas.push(context.globalAlpha);
+    });
+    dispatchFrame(harness.layer, 500, 0, 1, context);
+
+    expect(colors).toEqual(['#ffff00', '#ff0000']);
+    expect(alphas).toEqual([0.4, 0.4]);
+    expect(context.globalAlpha).toBe(0.8);
     manager.destroy();
     pass.destroy();
   });
