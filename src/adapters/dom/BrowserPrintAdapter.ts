@@ -68,7 +68,8 @@ export class BrowserPrintAdapter {
       frameDocument.write(createPrintDocument(request, url));
       frameDocument.close();
       const image = frameDocument.querySelector('img');
-      if (!(image instanceof HTMLImageElement)) throw new PrintError('print-window-blocked', '无法创建浏览器打印页面。');
+      // iframe 拥有独立的 JavaScript realm，不能用父页面的 HTMLImageElement 做 instanceof 判断。
+      if (image === null) throw new PrintError('print-window-blocked', '无法创建浏览器打印页面。');
       await decodeImage(image, operationController.signal, normalizeTimeout(request.timeoutMs));
       if (request.signal.aborted || operationController.signal.aborted) throw cancelledError();
       const afterPrint = (): void => cleanup();

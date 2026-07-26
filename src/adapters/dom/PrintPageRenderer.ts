@@ -49,6 +49,8 @@ export interface PrintPageTokens {
     pageInsetMm: number;
     titleGapMm: number;
     metadataGapMm: number;
+    dateSlotWidthMm: number;
+    issuerSlotWidthMm: number;
   }>;
   readonly legend: Readonly<{
     mapInsetMm: number;
@@ -164,6 +166,7 @@ interface LegendSection {
 }
 
 interface ResolvedLegendLayout {
+  readonly position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   readonly columns: number;
   readonly direction: 'row' | 'column';
   readonly maxWidthMm: number;
@@ -487,33 +490,41 @@ function drawHeaderAndTitles(
   const contentWidth = pageWidth - leftInset - rightInset;
   const mapTop = yPixels(plan.mapFrameMm.y, metrics);
   const metadataY = yPixels(Math.max(printPageTokens.header.pageInsetMm, pageInsets.top) + printPageTokens.fonts.headerSizeMm, metrics);
-  const subtitleY = mapTop - mm(printPageTokens.header.titleGapMm, metrics);
+  const subtitleY = mapTop - mm(printPageTokens.layout.frameReserveMm + printPageTokens.layout.titleGapMm, metrics);
   const titleY = subtitleY - mm(printPageTokens.fonts.subtitleSizeMm + printPageTokens.header.titleGapMm, metrics);
 
   context.save();
   context.fillStyle = printPageTokens.colors.ink;
   context.textBaseline = 'alphabetic';
   context.font = font(printPageTokens.fonts.headerSizeMm, false, metrics);
-  const metadataSlotWidth = (contentWidth - mm(printPageTokens.header.metadataGapMm, metrics)) / 2;
-  if (metadataSlotWidth <= 0) throw new InvalidArgumentError('layout-text-overflow: page margins leave no room for header metadata');
+  const metadataGap = mm(printPageTokens.header.metadataGapMm, metrics);
+  const pageRight = pageWidth - rightInset;
+  const dateSlotWidth = mm(printPageTokens.header.dateSlotWidthMm, metrics);
+  const issuerSlotWidth = mm(printPageTokens.header.issuerSlotWidthMm, metrics);
+  const issuerLeft = pageRight - issuerSlotWidth;
+  const dateRight = issuerLeft - metadataGap;
+  const dateLeft = dateRight - dateSlotWidth;
+  const classificationWidth = dateLeft - metadataGap - leftInset;
+  if (dateSlotWidth <= 0 || issuerSlotWidth <= 0) throw new InvalidArgumentError('layout-text-overflow: header metadata slots must be positive');
   if (layout.classification !== undefined) {
-    assertTextFits(context, layout.classification, metadataSlotWidth, 'classification');
+    if (classificationWidth <= 0) throw new InvalidArgumentError('layout-text-overflow: page margins leave no room for classification');
+    assertTextFits(context, layout.classification, classificationWidth, 'classification');
     context.textAlign = 'left';
     context.fillText(layout.classification, leftInset, metadataY);
   }
-  const rightMetadataGap = mm(printPageTokens.header.metadataGapMm, metrics);
-  const rightMetadataSlotWidth = (metadataSlotWidth - rightMetadataGap) / 2;
-  if (rightMetadataSlotWidth <= 0) throw new InvalidArgumentError('layout-text-overflow: page margins leave no room for date and issuer');
   const date = headerDate(layout);
   const issuer = headerIssuer(layout);
-  context.textAlign = 'right';
   if (date.length > 0) {
-    assertTextFits(context, date, rightMetadataSlotWidth, 'date');
-    context.fillText(date, leftInset + metadataSlotWidth + rightMetadataGap + rightMetadataSlotWidth, metadataY);
+    if (dateLeft < leftInset) throw new InvalidArgumentError('layout-text-overflow: page margins leave no room for date');
+    assertTextFits(context, date, dateSlotWidth, 'date');
+    context.textAlign = 'right';
+    context.fillText(date, dateRight, metadataY);
   }
   if (issuer.length > 0) {
-    assertTextFits(context, issuer, rightMetadataSlotWidth, 'issuer');
-    context.fillText(issuer, pageWidth - rightInset, metadataY);
+    if (issuerLeft < leftInset) throw new InvalidArgumentError('layout-text-overflow: page margins leave no room for issuer');
+    assertTextFits(context, issuer, issuerSlotWidth, 'issuer');
+    context.textAlign = 'left';
+    context.fillText(issuer, issuerLeft, metadataY);
   }
 
   context.textAlign = 'center';
@@ -573,12 +584,22 @@ function drawLegend(
   if (heightMm > maxHeightMm + 1e-9) {
     throw new InvalidArgumentError(`legend-overflow: legend requires ${trimDecimal(heightMm)}mm height but only ${trimDecimal(maxHeightMm)}mm is available`);
   }
+  const anchorRight = layout.position === 'top-right' || layout.position === 'bottom-right';
+  const anchorBottom = layout.position === 'bottom-left' || layout.position === 'bottom-right';
   const box: PrintPageRect = {
-    x: mapFrame.x + printPageTokens.legend.mapInsetMm,
-    y: mapFrame.y + mapFrame.height - printPageTokens.legend.mapInsetMm - heightMm,
+    x: anchorRight ? mapFrame.x + mapFrame.width - printPageTokens.legend.mapInsetMm - widthMm : mapFrame.x + printPageTokens.legend.mapInsetMm,
+    y: anchorBottom ? mapFrame.y + mapFrame.height - printPageTokens.legend.mapInsetMm - heightMm : mapFrame.y + printPageTokens.legend.mapInsetMm,
     width: widthMm,
     height: heightMm
   };
+  if (
+    box.x < mapFrame.x + printPageTokens.legend.mapInsetMm - 1e-9 ||
+    box.y < mapFrame.y + printPageTokens.legend.mapInsetMm - 1e-9 ||
+    box.x + box.width > mapFrame.x + mapFrame.width - printPageTokens.legend.mapInsetMm + 1e-9 ||
+    box.y + box.height > mapFrame.y + mapFrame.height - printPageTokens.legend.mapInsetMm + 1e-9
+  ) {
+    throw new InvalidArgumentError(`legend-overflow: legend at ${layout.position} exceeds the map frame`);
+  }
   const boxPixels = rectPixels(box, metrics);
 
   context.save();
@@ -953,6 +974,7 @@ function legendSections(legend: PrintLegendResult): readonly LegendSection[] {
 
 function resolveLegendLayout(input: Readonly<PrintLegendLayoutSpec> | undefined, mapFrame: PrintPageRect, metrics: DrawingMetrics): ResolvedLegendLayout {
   const tokens = metrics.tokens;
+  const position = input?.position ?? 'bottom-left';
   const columns = input?.columns ?? 1;
   const direction = input?.direction ?? 'row';
   const maxAvailableWidth = mapFrame.width - tokens.legend.mapInsetMm * 2;
@@ -961,6 +983,9 @@ function resolveLegendLayout(input: Readonly<PrintLegendLayoutSpec> | undefined,
   const background = input?.background ?? tokens.colors.legendBackground;
   const groupGapMm = input?.groupGapMm ?? tokens.legend.groupGapMm;
   const itemGapMm = input?.itemGapMm ?? tokens.legend.rowGapMm;
+  if (position !== 'top-left' && position !== 'top-right' && position !== 'bottom-left' && position !== 'bottom-right') {
+    throw new InvalidArgumentError('Print legend position must be top-left, top-right, bottom-left, or bottom-right');
+  }
   if (!Number.isSafeInteger(columns) || columns <= 0) throw new InvalidArgumentError('Print legend columns must be a positive safe integer');
   if ((direction !== 'row' && direction !== 'column') || !Number.isFinite(maxWidthMm) || maxWidthMm <= 0) {
     throw new InvalidArgumentError('Print legend layout must have a row/column direction and positive maxWidthMm');
@@ -968,7 +993,7 @@ function resolveLegendLayout(input: Readonly<PrintLegendLayoutSpec> | undefined,
   if (background.trim().length === 0 || ![padding.top, padding.right, padding.bottom, padding.left, groupGapMm, itemGapMm].every(isNonNegativeFinite)) {
     throw new InvalidArgumentError('Print legend padding, background, and gaps must be valid finite values');
   }
-  return { columns, direction, maxWidthMm, padding, background, groupGapMm, itemGapMm };
+  return { position, columns, direction, maxWidthMm, padding, background, groupGapMm, itemGapMm };
 }
 
 function resolveInsets(value: PrintLegendLayoutSpec['paddingMm'], fallback: number): Readonly<PrintPageInsets> {

@@ -25,15 +25,17 @@ export const printPageTokens = Object.freeze({
   layout: Object.freeze({
     headerBandHeightMm: 8,
     titleBandHeightMm: 16,
-    titleGapMm: 2,
+    titleGapMm: 4,
     frameReserveMm: 2,
-    mapFooterGapMm: 2,
+    mapFooterGapMm: 5,
     footerBandHeightMm: 14
   }),
   header: Object.freeze({
     pageInsetMm: 4,
     titleGapMm: 2,
-    metadataGapMm: 2
+    metadataGapMm: 2,
+    dateSlotWidthMm: 40,
+    issuerSlotWidthMm: 40
   }),
   legend: Object.freeze({
     mapInsetMm: 3,

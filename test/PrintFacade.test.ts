@@ -181,7 +181,12 @@ describe('PrintFacade', () => {
     session.update(spec);
 
     expect(session.validation.warnings).toContainEqual(
-      expect.objectContaining({ code: 'printer-scaling-not-guaranteed', subject: 'browser-print', requiresAcknowledgement: true })
+      expect.objectContaining({
+        code: 'printer-scaling-not-guaranteed',
+        message: '实际输出比例取决于打印机和浏览器是否设置为实际大小（100%）。',
+        subject: 'browser-print',
+        requiresAcknowledgement: true
+      })
     );
     expect(validationChanges).toContainEqual(expect.arrayContaining(['printer-scaling-not-guaranteed']));
     const output = await session.export({ format: 'png' });
@@ -551,7 +556,7 @@ describe('PrintFacade', () => {
     expect(session.status).toBe('draft');
     expect(session.plan).toBeUndefined();
     expect(session.validation.issues).toContainEqual(
-      expect.objectContaining({ code: 'range-unresolved', message: expect.stringContaining('different View projection') })
+      expect.objectContaining({ code: 'range-unresolved', message: expect.stringContaining('另一个 View 投影') })
     );
     facade.destroy();
   });
@@ -589,7 +594,7 @@ describe('PrintFacade', () => {
     expect(session.status).toBe('draft');
     expect(session.plan).toBeUndefined();
     expect(session.validation.issues).toContainEqual(
-      expect.objectContaining({ code: 'range-unresolved', message: expect.stringContaining('different View projection') })
+      expect.objectContaining({ code: 'range-unresolved', message: expect.stringContaining('另一个 View 投影') })
     );
 
     session.update({ ...extentSpec, layout: { ...extentSpec.layout, title: 'layout-only update' } });
@@ -666,7 +671,7 @@ describe('PrintFacade', () => {
     facade.destroy();
   });
 
-  it('preserves fit box selections for DPI and equal map-frame aspect changes, but invalidates a changed aspect', async () => {
+  it('preserves the freely drawn fit source box when DPI, paper, or map-frame aspect changes', async () => {
     const selected = {
       sourceExtent: [100, 100, 300, 200] as const,
       footprint: [
@@ -702,8 +707,68 @@ describe('PrintFacade', () => {
     expect(session.plan?.range.sourceExtent).toEqual([100, 100, 300, 200]);
 
     session.update({ ...boxSpec, paper: { size: 'A3', orientation: 'portrait', marginMm: 10, dpi: 192 } });
-    expect(session.plan).toBeUndefined();
-    expect(session.validation.issues.map((issue) => issue.code)).toContain('range-unresolved');
+    expect(session.plan?.range.sourceExtent).toEqual([100, 100, 300, 200]);
+    expect(session.validation.issues.map((issue) => issue.code)).not.toContain('range-unresolved');
+    facade.destroy();
+  });
+
+  it('cancels a stale pointer draft and publishes a fresh draft for the committed box result', async () => {
+    const selected = {
+      sourceExtent: [100, 100, 300, 200] as const,
+      footprint: [
+        [100, 200],
+        [300, 200],
+        [300, 100],
+        [100, 100]
+      ] as const,
+      center: [200, 150] as const,
+      rotation: 0
+    };
+    let firstSignal: AbortSignal | undefined;
+    const render = vi
+      .fn()
+      .mockImplementationOnce(
+        (_plan: object, options: { readonly signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            firstSignal = options.signal;
+            options.signal.addEventListener('abort', () => reject(new PrintError('cancelled', '旧草稿已取消。')), { once: true });
+          })
+      )
+      .mockResolvedValue({ canvas: {} as HTMLCanvasElement, widthPx: 100, heightPx: 100, destroy: vi.fn() });
+    const box = {
+      select: vi.fn(async (request: { readonly onChange?: (result: typeof selected) => void }) => {
+        request.onChange?.(selected);
+        return selected;
+      }),
+      cancel: vi.fn(),
+      destroy: vi.fn()
+    };
+    const facade = new PrintFacadeImpl({
+      target: {} as HTMLElement,
+      view: fakeView() as PrintViewAdapter,
+      boxSelection: box as unknown as PrintBoxSelectionAdapter,
+      mapRenderer: { render, destroy: vi.fn() } as unknown as PrintMapRenderer,
+      pageRenderer: {
+        render: vi.fn(() => ({
+          width: 1123,
+          height: 794,
+          toBlob: (callback: BlobCallback) => callback(new Blob(['png'], { type: 'image/png' }))
+        }))
+      } as unknown as PrintPageRenderer,
+      browserPrint: { available: false, print: vi.fn(), destroy: vi.fn() } as never,
+      legendBuilder: { generate: vi.fn(() => emptyLegend()) } as unknown as PrintLegendBuilder
+    });
+    const session = facade.create({ initialSpec: { ...spec, range: { source: { mode: 'box' }, scale: { mode: 'fit' } } } });
+    const previewRevisions: number[] = [];
+    session.on('previewchange', ({ result }) => previewRevisions.push(result.revision));
+
+    await session.selectArea();
+    await vi.waitFor(() => expect(session.previewResult?.revision).toBe(session.plan?.revision));
+
+    expect(firstSignal?.aborted).toBe(true);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(previewRevisions).toEqual([session.plan?.revision]);
+    expect(session.previewQuality).toBe('draft');
     facade.destroy();
   });
 

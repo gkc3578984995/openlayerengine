@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- 状态：已批准（用户于 2026-07-23 确认按设计执行）
+- 状态：已批准（用户于 2026-07-23 确认初版；2026-07-27 确认五屏交互与成品版式修订）
 - 日期：2026-07-23
 - 目标版本：@vrsim/earth-engine-ol 2.0.0
 - 性质：公共打印契约、内部渲染架构与内置五屏 UI 补充
@@ -22,12 +22,12 @@
 本设计的目标是：
 
 1. 在 Earth 上提供唯一公共 `PrintFacade`，支持内置五屏 UI 和独立 headless 调用。
-2. 支持当前视图 `view`、地图框选 `box` 和显式范围 `extent` 三种来源，以及固定比例尺 `fixed` 和适配范围 `fit` 两种尺寸语义。
+2. headless API 支持当前视图 `view`、地图框选 `box` 和显式范围 `extent` 三种来源；内置 UI 只提供 `view` 与 `box`，两者均支持固定比例尺 `fixed` 和适配范围 `fit`。
 3. 支持 A4、A3 和自定义纸张、横竖向、边距、DPI、密级、主副标题、日期和签发人。
-4. 固定输出整饰：地图外粗内细双线框；页头左侧密级、右侧日期和签发人；居中主标题和副标题；图例位于地图内左下；页脚左侧图形比例尺及 `1∶N`，右侧指北针。
+4. 固定输出整饰：地图外粗内细双线框；页头左侧密级、右侧紧凑排列日期和签发人；居中主标题和副标题；图例可锚定地图内四角；页脚左侧图形比例尺及 `1∶N`，右侧指北针；标题带与页脚整饰均与地图框保持明确物理间距。
 5. 自动图例只统计最终范围和最终比例尺下实际可见的目标，按图层分组、合并同一语义符号并显示命中数量；无法静态解析的动态样式必须显式告警。
 6. 手动图例支持改名、分组、排序、显隐、自定义点线面符号、图标和版式；自动来源变化后保留用户覆盖并提示差异。
-7. 五屏中的纸张预览与最终 PNG、可选 PDF 和浏览器打印使用同一份 `PrintPlan`，不得维护两套范围、版式或图例算法。
+7. 五屏中的纸张预览与最终 PNG、浏览器打印以及 headless 可选 PDF 使用同一份 `PrintPlan`，不得维护两套范围、版式或图例算法；内置 UI 不展示 PDF 输出按钮。
 8. 不修改 ElementState、活动 View、业务 Layer、Source、Feature 或动画运行状态；所有预览、选框、隐藏 Map、Canvas、iframe 和监听都有明确所有者和幂等清理路径。
 9. 保持发布包零普通运行依赖，不为 PDF、DOM 截图或打印引入强制第三方依赖。
 
@@ -181,7 +181,7 @@ export interface PrintSession {
 - `selectArea()` 统一解析 view、extent 和 box。view/extent 直接生成冻结范围；box 创建 InteractionCoordinator 管理的子会话。box 取消时 Promise 以 `PrintError` 的 `cancelled` code 拒绝，但不销毁父 PrintSession。
 - `generateLegend()` 基于当前 resolved range 和展示快照生成或重放图例。范围尚未解析时产生 `range-unresolved`，不得偷用活动 viewport 代替。
 - `preview()` 可以重复调用。相同 spec revision、展示 snapshot revision、动画时间和 preview quality 命中缓存；任一输入变化后必须生成新结果。
-- `export()` 统一处理 PNG、可选 PDF 和 browser-print，不隐式销毁 Session。最终屏允许执行多个输出；调用方完成全部操作后显式 `destroy()`。
+- `export()` 统一处理 PNG、可选 PDF 和 browser-print，不隐式销毁 Session。内置最终屏允许重复执行 PNG 与 browser-print；headless 调用方还可在 encoder 可用时执行 PDF。调用方完成全部操作后显式 `destroy()`。
 - 同一 Session 同时只运行一个 preview/export/print 操作。后发操作先取消旧操作；陈旧 Promise 拒绝为 `cancelled`，不得覆盖较新 previewResult 或 validation。
 - `cancel()` 和 `destroy()` 均幂等。`cancel()` 发出 cancel 事件并释放资源；`destroy()` 无条件释放。终态之后除 status、validation、幂等 cancel/destroy 和注销函数外，其他方法抛出 `ObjectDisposedError`。
 - `on()` 返回幂等 disposer。监听器异常必须隔离并通过 Earth 错误通道上报，不能破坏 Session 状态或其他监听器。
@@ -356,7 +356,8 @@ export interface PrintResolvedRange {
 - 完整来源足迹必须进入净地图框，不裁剪、不拉伸。
 - 来源宽高比与净地图框不一致时，沿短边方向对称扩展实际地图范围，显示额外地图内容，不生成空白 letterbox。
 - 最终 denominator 从扩展后的 resolution、输出中心局部投影比例和 96 CSS px/in 物理基准推导。
-- `view` 与 `extent` 允许因宽高比发生对称扩展；`box` 的交互选框已经锁定净地图框宽高比，正常情况下无需二次扩展。
+- `view` 与 `extent` 允许因宽高比发生对称扩展。
+- `box` 的来源矩形由用户自由拖拽；PrintPlanner 与其他来源一样按净地图框宽高比对称扩展为实际范围。活动地图必须同时区分原始框选范围与扩展后的实际打印框，不能让纸张比例限制主拖拽框跟随指针。
 
 ### 4.3 fixed
 
@@ -364,7 +365,7 @@ export interface PrintResolvedRange {
 
 - `view` 使用当前 View 中心作为打印中心。
 - `extent` 使用显式 extent 中心作为打印中心；来源 extent 只用于检查是否会被裁剪，不覆盖 denominator。
-- `box` 的选框物理大小由 denominator 和净地图框反算，用户拖拽只确定中心；拖拽过程中始终显示该固定大小、固定宽高比的选框，不把任意拖拽尺寸解释成第二个比例尺。
+- `box` 的选框物理大小由 denominator 和净地图框反算；活动地图显示一个随指针移动的固定尺寸打印框，用户单击或完成主指针操作只确定中心，不把任意拖拽尺寸解释成第二个比例尺。
 - `view` 或 `extent` 来源不能被实际范围完全包含时，validation 增加阻断 issue `fixed-scale-crops-source`。内置 UI 必须让用户返回调整比例尺、纸张或中心；headless 输出不得静默裁剪，除非未来以新的显式公共字段补充该契约。
 
 denominator 必须是有限正数。固定比例尺只保证输出中心处的局部比例；对点分辨率随位置变化的投影，validation 增加说明 warning `scale-valid-at-center`，不能宣称整张纸每一点都保持相同比例。
@@ -387,13 +388,15 @@ denominator 必须是有限正数。固定比例尺只保证输出中心处的�
 
 `box` 没有合法完成结果前，preview/export/print 均产生阻断 issue `range-unresolved`。选框规则固定为：
 
-- 左侧活动地图只显示一条蓝色边线和选框外遮罩，不显示 Transform 手柄、双线框或临时 Element。
-- 边线使用内置交互主题的单一蓝色强调线，选框外使用半透明中性遮罩；其 CSS 视觉尺寸由统一 print interaction token 管理，DPR 只改变 backing 像素。
-- `fit` 下从 pointerdown 起按当前净地图框宽高比锁定；用户拖拽决定中心和覆盖大小。
-- `fixed` 下选框尺寸由比例尺确定，指针决定中心；纸张、方向、边距、布局或 denominator 改变时围绕现有中心重算。
-- `fit` 的已完成 box 在净地图框宽高比变化后失效，UI 必须回到第 2 屏要求重新框选，不能静默拉伸或裁剪旧框。
+- 左侧活动地图的主选择范围显示一条蓝色边线和选框外遮罩，不显示 Transform 手柄、双线框或临时 Element；`fit` 需要扩展时，以次要虚线显示实际打印框，不能用次要框替代跟随指针的主选择框。
+- 主选择框边线使用内置交互主题的单一蓝色强调线，扩展实际框使用同色次要虚线，选框外使用半透明中性遮罩；其 CSS 视觉尺寸由统一 print interaction token 管理，DPR 只改变 backing 像素。
+- `fit` 下 pointerdown 到 pointerup 的主选择框保持任意宽高比并逐帧跟随指针；拖拽完成后 Planner 以该来源矩形为真源，对称扩展实际打印框，不裁剪、不拉伸来源范围。
+- `fixed` 下选框尺寸由比例尺确定并随指针移动，单击或 pointerup 确认中心；靠近视口边缘时仍保持指针为中心，允许固定框的非交互部分超出当前可见视口；纸张、方向、边距、布局或 denominator 改变时围绕现有中心重算。
+- `fixed` 框本身宽或高超过当前活动地图视口时阻断本次框选，并提示调整比例尺、纸张或地图缩放；这一上限不改变靠近边缘时保持指针中心的规则。
+- `fit` 的已完成 box 在净地图框宽高比变化后保留原始来源矩形并重新规划扩展实际范围，不要求仅因纸张比例变化重新框选；fixed 仍按新物理参数围绕原中心重算。
 - 屏幕矩形转换成四角 footprint 后保持当前 View rotation；不先取轴对齐 extent 再反推矩形。
 - 一帧最多发布一次 pointermove 预览；pointerup 前冲刷最后一个待处理位置。
+- pointerup 或 fixed 中心确认后，Session 必须立即发布最终范围 revision、取消旧预览并启动右侧 draft 预览刷新；迟到的旧预览不得覆盖新范围。
 
 ### 4.7 物理比例计算
 
@@ -432,9 +435,9 @@ PrintPlanner 使用物理毫米建立单页页面网格，顺序固定为：
 1. 纸张边距。
 2. 页头元数据带。
 3. 标题带，其中主标题和副标题各占稳定行，副标题为空时仍保留该行，避免范围因文字有无漂移。
-4. 标题与地图间距。
+4. 标题与地图间距；该间距必须扣除双线框外扩后仍留下可辨认空白。
 5. 净地图框及其双线框。
-6. 地图与页脚间距。
+6. 地图与页脚间距；该间距必须扣除双线框外扩后仍留下可辨认空白。
 7. 页脚带。
 
 边距以内剩余高度扣除上述固定带后全部分配给净地图框；净地图框宽度使用边距以内完整宽度。版式行高、最小地图框、字体、间距和双线框使用 builtin 的物理单位 token，并通过 `PrintCapabilities` 与视觉基线约束；它们不由 DPI、DPR、DOM 字体测量结果或内容长度临时改变。本文冻结区域关系和物理确定性，不把具体毫米数扩大为公共可配置字段。
@@ -443,11 +446,11 @@ PrintPlanner 使用物理毫米建立单页页面网格，顺序固定为：
 
 成品位置和层级固定为：
 
-- 页头左侧显示 classification；右侧同一行以固定“日期：”和“签发人：”标签显示 date 与 issuer。二者使用独立固定槽位和稳定间距，任何一项为空时都不改变另一项位置。
+- 页头左侧显示 classification；右侧同一行以固定“日期：”和“签发人：”标签显示 date 与 issuer。二者使用紧凑的相邻固定槽位，日期右对齐、签发人左对齐，字段之间只保留稳定的小间距；任何一项为空时都不改变另一项位置。
 - 主标题和副标题在标题带水平居中。文本只允许单行；溢出形成阻断 issue `layout-text-overflow`，不自动缩小到不可读字号、不换行改变地图框，也不裁切。
 - 地图外框使用外粗内细双线，线宽和间距由固定 builtin 物理 token 给出。内细线内缘严格等于 mapFrame 边界，外粗线位于其外；双线框都绘制在净地图框边界外侧预留区，不覆盖地图内容。
-- 图例固定锚定在地图内左下角。手动版式可调整图例列数、条目方向、宽度、内边距、背景和组间距，但不能把图例移动到地图外或更改锚点。
-- 页脚左侧显示图形比例尺和 `1∶N`；右侧显示指北针。两者不得压入地图框或占用标题带。
+- 图例默认锚定在地图内左下角，手动版式可选择左上、右上、左下或右下；还可调整列数、条目方向、宽度、内边距、背景和组间距，但不能把图例移动到地图外。
+- 页脚左侧显示图形比例尺和 `1∶N`；右侧显示指北针。两者与地图双线框之间必须保留稳定的物理空白，不得压入地图框或占用标题带。
 - 页面背景固定为不透明白色。地图透明区域以白色合成，PNG 不输出依赖查看器背景的透明纸张。
 
 标题、元数据、图例和页脚使用内置可回退字体栈。最终渲染必须等待已声明字体就绪；超时按资源错误处理。DOM UI 只用 `textContent` 展示用户文字，不允许 innerHTML。PDF encoder 只接收已经完成版式合成的 PNG，因此不得重新排版这些内容。
@@ -487,6 +490,17 @@ export interface PrintManualLegendSpec {
   readonly groups: readonly PrintLegendGroup[];
   readonly items: readonly PrintLegendItem[];
   readonly layout?: PrintLegendLayoutSpec;
+}
+
+export interface PrintLegendLayoutSpec {
+  readonly position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  readonly columns?: number;
+  readonly direction?: 'row' | 'column';
+  readonly maxWidthMm?: number;
+  readonly paddingMm?: number | PrintPageInsets;
+  readonly background?: string;
+  readonly groupGapMm?: number;
+  readonly itemGapMm?: number;
 }
 
 export interface PrintLegendGroup {
@@ -543,7 +557,7 @@ export type PrintLegendSymbolSpec = PrintPointLegendSymbol | PrintLineLegendSymb
 - 新建、删除、重组和排序。
 - 组或条目显隐。
 - 替换为自定义点、线、面或图标符号。
-- 调整列数、条目排列方向、最大宽度、内边距、背景、组间距和条目间距。
+- 调整左上、右上、左下或右下位置，以及列数、条目排列方向、最大宽度、内边距、背景、组间距和条目间距。
 - 新增没有自动来源的纯手动条目。
 
 当范围、比例尺、图层、Element 或 Style revision 改变时，自动来源重新生成，然后按来源键重放覆盖：
@@ -556,15 +570,17 @@ export type PrintLegendSymbolSpec = PrintPointLegendSymbol | PrintLineLegendSymb
 
 所有提示携带 sourceKey 和当前 session revision。用户确认只对该 revision 有效；来源再次变化后必须重新提示。headless `PrintArtifact.warnings` 保留同样信息。
 
-图例固定在地图左下，不能超出净地图框。单页放不下时产生阻断 issue `legend-overflow`；本版不自动缩放文字、不分页、不移动到地图外。用户必须隐藏、重排、减少内容或增大纸张。
+图例默认位于地图左下，并可按手动版式锚定到地图内任一角，不能超出净地图框。单页放不下或所选锚点的最终边界越界时产生阻断 issue `legend-overflow`；本版不自动缩放文字、不分页、不移动到地图外。用户必须隐藏、重排、减少内容、调整位置或增大纸张。
 
 ## 7. 内置五屏 UI 与实时预览
 
 ### 7.1 共同规则
 
-五屏由 DOM UI Adapter 提供，默认挂载到 Earth 的 UI root，也允许传入外部 target。左侧为当前步骤，右侧为完整纸张预览；第 2 屏左侧切换为活动地图框选区域，右侧仍保留完整实时纸张预览。前进、后退不销毁 PrintSession，已有草稿、box 和手动图例覆盖保持到其依赖失效。
+五屏由 DOM UI Adapter 提供，默认挂载到 Earth 的 UI root，也允许传入外部 target。左侧为当前步骤，右侧为完整纸张预览，默认宽度比例为 40% / 60%；桌面宽度下两区之间提供可拖拽、可键盘操作且带无障碍名称的分隔条。拖拽和键盘调整必须在输入区 `420px`、预览区 `360px` 的固定最小宽度处停止，不能继续压缩导致控件裁切；整个工作台宽度不超过 `800px` 时改为上下布局并停用横向拖拽，恢复桌面宽度时继续使用进入窄屏前的桌面分栏比例。适合窗口模式的纸张不使用固定最大宽度，必须在分栏、工作台或页面尺寸变化时依据预览区剩余宽高等比缩放；最终页 `100%` 模式仍保持真实输出像素与滚动查看语义。第 2 屏左侧切换为活动地图框选区域：顶部控制面板和底部操作区都横向铺满输入区，沿用其他步骤的平面表面，不使用悬浮卡片、阴影或额外圆角；顶部主体限制高度并独立滚动，底部操作区固定在分栏底边，两者之间的透明区域透传地图指针。右侧在桌面宽度下仍保留完整实时纸张预览。窄屏框选时隐藏纸张预览且不提供展开/收起操作，把顶部控制面板与底部操作区之间的剩余区域完整留给地图交互。前进、后退不销毁 PrintSession，已有草稿、box 和手动图例覆盖保持到其依赖失效。
 
-UI 只编辑公共草稿、调用 PrintSession 并展示 validation，不读取内部 Store、OL Map、Layer、Canvas renderer 或 AnimationRuntime。所有文字输入用 textContent 展示，表单有可见 label、键盘焦点和错误说明；不能只靠颜色表达 warning、当前步骤或选中状态。
+UI 只编辑公共草稿、调用 PrintSession 并展示 validation，不读取内部 Store、OL Map、Layer、Canvas renderer 或 AnimationRuntime。所有文字输入用 textContent 展示，表单有可见 label、键盘焦点和错误说明；不能只靠颜色表达 warning、当前步骤或选中状态。五个页面的操作区固定在左侧面板底部，只有主体内容独立滚动；表单、提示、列表和按钮之间使用统一间距，不得互相挤压。手动图例在同一步内因文本、数值、下拉项、颜色或折叠操作重绘时，必须保持主体滚动位置，不能把用户送回列表顶部；切换到另一屏时则从该屏默认顶部开始。面向用户的标题、状态、warning 与 issue 主文案必须为中文，稳定英文 code 只可作为次要开发信息展示。
+
+内置 UI 不允许选择 `extent`。以 `extent` initialSpec 打开界面，或通过公开的 dialog.session 在界面存续期间外部提交 `extent` 时，DOM UI Adapter 必须立即把该 Session 原子规范为 `view` 并给出中文提示，不能让界面显示当前视图而预览或输出仍使用 extent；需要保留显式坐标的调用方使用独立 headless Session。
 
 ### 7.2 第 1 屏：版式设置
 
@@ -573,17 +589,18 @@ UI 只编辑公共草稿、调用 PrintSession 并展示 validation，不读取�
 - 密级（常用预设建议 + 自由手填）、主标题、副标题、日期和签发人。
 - A4、A3、自定义纸张；横向、竖向。
 - 统一或四边独立边距、DPI。
-- `view`、`box`、`extent` 范围来源。
+- `view`、`box` 范围来源；`extent` 仅保留给 headless API，内置 UI 不提供该选项或输入框。
 - `fit` 或 `fixed`；fixed 时输入 `1∶N` 的 N。
 
-页面实时显示净地图框毫米尺寸、预计输出像素、预计文件/内存级别和 validation。自定义纸张或 DPI 超出预算时不能进入下一屏。extent 模式必须输入合法 View 投影 extent；UI 不把经纬度文本自动当成 View 坐标。
+页面实时显示净地图框毫米尺寸、预计输出像素、预计文件/内存级别和 validation。自定义纸张或 DPI 超出预算时不能进入下一屏。
 
 ### 7.3 第 2 屏：范围选择
 
-- box 模式激活第 4.6 节选框，左侧地图显示单蓝线选框和外遮罩，宽高比始终等于当前净地图框。
+- box-fit 模式激活第 4.6 节自由矩形选择，主框逐帧跟随指针，并在需要时以次要虚线显示扩展后的实际打印框；box-fixed 模式显示随指针移动的固定尺寸框并确认中心。
 - view 模式显示当前 View 足迹及 fit/fixed 后实际足迹的只读对比，不创建可拖拽 Transform 手柄。
-- extent 模式显示显式范围与实际足迹的只读对比。
 - 右侧完整纸张预览同时显示页头、标题、双线框、地图、图例占位和页脚，不只显示裁剪后的地图 Canvas。
+- 左侧不显示“最终足迹”坐标串、窄屏成品预览或展开/收起成品预览操作；这些信息由右侧完整纸张预览和简明状态承担。
+- 框选完成或 fixed 中心确认后立即显示“正在更新预览”状态，并以最终范围 revision 刷新右侧预览，不要求用户切换步骤或手动刷新。
 - fixed 造成来源裁剪、投影比例只在中心准确或真北不可用时，预览和步骤导航同时展示对应 issue/warning。
 
 ### 7.4 第 3 屏：自动图例
@@ -598,7 +615,7 @@ UI 只编辑公共草稿、调用 PrintSession 并展示 validation，不读取�
 
 ### 7.5 第 4 屏：手动图例
 
-必须提供改名、分组、排序、显隐、自定义点线面符号、图标和图例版式编辑。自动来源变化后，界面分别显示新增、消失和改变来源；已保存覆盖按第 6.3 节重放，不能因为 count 或范围变化全部丢失。
+必须提供改名、分组、排序、显隐、自定义点线面符号、图标和图例版式编辑。图例版式包含左上、右上、左下、右下位置下拉项；图例列表按分组折叠并保留组显隐语义；所有颜色字段同时提供颜色选择器和可编辑文本值，文本值继续承载 alpha 等原生颜色能力。自动来源变化后，界面分别显示新增、消失和改变来源；已保存覆盖按第 6.3 节重放，不能因为 count 或范围变化全部丢失。
 
 图标编辑必须在选择时检查 URL/Blob 可加载性和 crossOrigin；预览成功不代表最终 Canvas 一定可读，最终导出仍执行 CORS readback 验证。
 
@@ -606,10 +623,10 @@ UI 只编辑公共草稿、调用 PrintSession 并展示 validation，不读取�
 
 最终屏固定包含：
 
-- validation 检查清单：范围、比例尺、页面溢出、图例来源提示、资源就绪、CORS、像素预算、动画快照、PDF capability 和浏览器打印限制。
+- validation 检查清单：范围、比例尺、页面溢出、图例来源提示、资源就绪、CORS、像素预算、动画快照和浏览器打印限制。PDF capability 属于 headless API，不进入内置 UI 清单。
 - 完整输出像素预览。缩放 100% 明确定义为一个输出 bitmap 像素对应一个 CSS 像素，超出容器时使用滚动和平移；“适合窗口”是另一个显示模式，不把二者混淆。
 - PNG 导出。
-- 仅在 encoder 可用时启用 PDF；不可用时显示原因，不展示可点击后失败的假按钮。
+- 内置 UI 不显示 PDF 按钮或 PDF 注入说明；外部系统仍可在 headless Session 注入 encoder 后调用 PDF 输出。
 - 浏览器打印入口，以及“实际大小/100%、关闭浏览器页眉页脚、打印机可能不支持自定义纸张”的可见提示。
 
 存在 blocking issue 时所有最终输出按钮禁用。非阻断 warning 必须在清单中确认；确认只作用于当前 revision。
@@ -663,7 +680,7 @@ DOM Overlay、Descriptor 的 DOM 部分、ContextMenu、Tooltip、Controls、选
 
 Descriptor 的连接线若是普通可见 Element，则按 Element 规则打印；其 DOM 卡片不打印。Measure 的持久或临时线面 Element 只有在 snapshot 中属于可见 Element 时打印，DOM 标签不打印。首版 `domOverlays` 和 `controls` 只接受 `'exclude'`；未来若需要结构化可打印 Overlay，必须设计纯数据 OverlayPrintSpec，不能从 HTMLElement 反向截图。
 
-box 的单蓝线和外遮罩只属于第 2 屏交互，不进入右侧成品预览或最终输出。
+box 的主选择线、扩展实际框和外遮罩只属于第 2 屏交互，不进入右侧成品预览或最终输出。
 
 ### 8.4 资源就绪与 CORS
 
@@ -739,7 +756,7 @@ Services 不查询 OL DOM，不创建 OL Interaction，不从 OL Style/Feature �
 OpenLayers Adapter 只负责：
 
 - 当前 View 四角、投影 point resolution、真北方向、world 信息和像素/坐标转换。
-- box 指针输入、屏幕矩形到 View footprint 转换、单蓝线与外遮罩展示。
+- box 指针输入、屏幕矩形到 View footprint 转换、主选择线、扩展实际框与外遮罩展示。
 - 为打印 snapshot 建立、更新和销毁隐藏 Map 与 printable Layer 投影。
 - 使用 OL 公开 API 等待图层渲染、生成地图 bitmap，并按冻结动画展示快照绘制 presentation/overlay。
 - 保持图层顺序、opacity、resolution 可见性、rotation、wrap 和 Canvas pixel ratio。
@@ -769,7 +786,7 @@ box 使用 `crosshair` 表示范围框选，不改变 Draw 规格中 `pointer` �
 
 box 子会话状态至少为 `ready`、`active`、`ending`：
 
-- pointerdown 进入 active；pointermove 按 RAF 合并并更新单一选框和遮罩；pointerup 冲刷最终采样并完成。
+- pointerdown 进入 active；pointermove 按 RAF 合并并更新主选择框、可选扩展实际框和遮罩；pointerup 冲刷最终采样并完成。
 - Esc 取消当前 box，移除范围但保留父 PrintSession；父 Session 回到 draft，并产生 `range-unresolved`。
 - 另一个交互替换 box、View target 失效、父 Session cancel/destroy、Earth.destroy 或打开失败时都走同一 ending 清理。
 - 临时选框、遮罩、Tooltip 和输入监听不进入 ElementStore、业务 Source、Snapshot 或打印成品。
@@ -943,12 +960,12 @@ export class PrintError extends Error {
 1. PrintSpec 严格对象、默认值、未知字段、非法原型、输入不变性和稳定错误。
 2. A4、A3、自定义纸张、横竖向、统一/四边边距、固定页面带、双线框、最小地图框和像素预算。
 3. 96 CSS px/in、不同 DPI 的 backing 尺寸、固定比例尺公式、fit 反算、中心 point resolution 和 DPI 不改变地理范围。
-4. view 四角 footprint、rotation、extent 宽高比扩展、box fit 锁定、box fixed 尺寸、纸张变化失效和 fixed 裁剪阻断。
+4. view 四角 footprint、rotation、extent 宽高比扩展、box-fit 任意来源矩形与实际范围扩展、box-fixed 随指针定位、纸张变化重规划和 fixed 裁剪阻断。
 5. EPSG:3857 赤道/高纬度、自定义投影、真北、跨世界和无 point resolution/真北能力的错误。
 6. 自动图例仅命中最终范围和比例尺可见目标，按 Layer 分组、同符号合并、count、稳定顺序和动画不产生条目。
 7. nativeStyle、StyleFunction 和未知动态样式占位/warning；不从 OL Style 反向恢复业务字段。
 8. 手动改名、分组、排序、显隐、点线面/图标、版式、来源新增/消失/改变、dormant 恢复和 revision 确认失效。
-9. 标题、图例溢出、固定位置、比例尺、`1∶N`、指北针和完整页面像素 golden。
+9. 标题与地图间距、四角图例位置及溢出、紧凑页头元数据、地图与页脚间距、比例尺、`1∶N`、指北针和完整页面像素 golden。
 10. PrintSession update 原子性、状态、事件、重复 generateLegend/preview/export、revision 取消、replace/reject、listener 异常隔离和幂等 destroy。
 11. PrintBoxSelectionSession 与 Draw/Edit/Transform/Measure 的 replace/reject，光标恢复、最后采样冲刷、Esc、外部替换、打开失败和临时视觉不入 Store。
 12. 隐藏 Map 不修改活动 Map/View/Layer/Source，图层顺序、opacity、resolution 可见性、rotation、world wrap 和 printable native Layer 能力。
@@ -958,12 +975,12 @@ export class PrintError extends Error {
 16. PNG MIME、毫米/DPI 像素尺寸、不透明背景和 artifact metadata。
 17. PDF capability、encoder 输入毫米、AbortSignal、非 PDF Blob、异常包装和零 engine 运行依赖。
 18. browser print @page、图片 decode、用户手势/弹窗阻止、afterprint/timeout 和 iframe 清理。
-19. 五屏流程、左右预览、检查清单、100%/适合窗口区别、blocking 禁用、warning 确认、浅色/深色/窄屏和无障碍名称。
+19. 五屏流程、默认 40% / 60% 可拖拽分栏、五屏固定底部操作区、中文提示、简化范围页、分组折叠与颜色选择器、检查清单、100%/适合窗口区别、blocking 禁用、warning 确认、浅色/深色/窄屏和无障碍名称。
 20. 多 Earth 的 Session、projection、hidden Map、DOM root、animation snapshot、resource tracker 和 destroy 隔离。
 21. 连续 50 次创建/预览/取消及 Earth.destroy 后无 Map、Layer、Canvas、object URL、iframe、listener、timer、Interaction 或注册表泄漏。
 22. 根导出、公共 API 快照、strict consumer、npm pack、零普通依赖和预置 OL 后的真实浏览器消费。
 
-浏览器视觉基线至少覆盖 A4 横向 view-fit、A3 纵向 box-fixed、自定义纸张 extent-fit、自动图例动态样式告警、手动多组图例和最终 100% 页面。像素差异测试必须锁定 Chromium、字体、DPR、地图源 fixture 和动画时间，不依赖公网瓦片。
+浏览器视觉基线至少覆盖 A4 横向 view-fit、A3 纵向 box-fixed、box 范围页全宽平面控制区与底部操作区、内置 UI 自定义纸张 view-fit、自动图例动态样式告警、手动多组图例和最终 100% 页面。像素差异测试必须锁定 Chromium、字体、DPR、地图源 fixture 和动画时间，不依赖公网瓦片。
 
 ## 17. website 文档与可运行示例
 
@@ -978,8 +995,8 @@ PrintFacade 只有一个规范归属页，记录 Earth 入口、PrintFacade、Pr
 至少提供以下同源可运行示例：
 
 - `earth.print.open()` 完成 view-fit 五屏流程。
-- box-fixed，展示单蓝线、外遮罩、宽高比锁定和取消清理。
-- `earth.print.create()` 完成 headless extent-fit + 自定义纸张 + PNG。
+- box-fit 展示自由主选择框、扩展实际框、外遮罩、完成即更新预览和取消清理；box-fixed 展示随指针移动的固定尺寸框。
+- `earth.print.create()` 的可运行流程覆盖 headless view/box 与 PNG；另提供 headless extent-fit + 自定义纸张的集成代码，明确 extent 不进入内置 UI。
 - 自动图例切换手动覆盖，并演示来源变化保留覆盖。
 - 可选 PDF encoder capability 和浏览器打印限制；示例不得在页面加载时自动打开打印对话框。
 
@@ -1002,7 +1019,7 @@ PrintFacade 只有一个规范归属页，记录 Earth 入口、PrintFacade、Pr
 
 - Earth 根门面提供唯一 PrintFacade，内置五屏 UI 与 headless API 使用同一 PrintSession 和 PrintPlan。
 - view、box、extent 与 fixed、fit 的范围、比例尺、rotation、投影和 DPI 契约全部落地。
-- A4、A3、自定义纸张和固定整饰版式与本文一致，双线框、页头、标题、地图内左下图例、页脚比例尺和指北针无第二套实现。
+- A4、A3、自定义纸张和固定整饰版式与本文一致，双线框、页头、标题、地图内四角图例、页脚比例尺和指北针无第二套实现。
 - 自动图例按最终范围和比例尺过滤、按 Layer 分组、合并、计数并告警动态样式；手动覆盖在来源变化后可追踪地保留。
 - 实时预览、final preview、PNG、可选 PDF 和浏览器打印共享一个冻结 snapshot revision；最终输出不混合业务 revision 或动画时刻。
 - 打印不写 ElementState、不改变活动 View/Layer/Source/Feature、不修改动画 elapsed 或 Handle，不依赖 OL 私有 API。

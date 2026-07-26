@@ -32,12 +32,13 @@ describe('PrintPlanner', () => {
       mode: 'manual',
       groups,
       items,
-      layout: { columns: 2, paddingMm: { top: 1, right: 1, bottom: 1, left: 1 } }
+      layout: { position: 'bottom-left', columns: 2, paddingMm: { top: 1, right: 1, bottom: 1, left: 1 } }
     });
     expect(Object.isFrozen(normalized)).toBe(true);
     expect(Object.isFrozen(normalized.paper.marginMm)).toBe(true);
     expect(Object.isFrozen((normalized.legend as { readonly groups: readonly unknown[] }).groups)).toBe(true);
     expect(Object.isFrozen((normalized.legend as { readonly items: readonly { readonly symbol: object }[] }).items[0]?.symbol)).toBe(true);
+    expect(Object.isFrozen((normalized.legend as { readonly layout: object }).layout)).toBe(true);
 
     margin.left = 99;
     groups[0]!.title = '已修改';
@@ -60,15 +61,15 @@ describe('PrintPlanner', () => {
     expect(result.plan).toMatchObject({
       revision: 7,
       pageSizeMm: [297, 210],
-      mapFrameMm: { x: 12, y: 38, width: 273, height: 144 },
+      mapFrameMm: { x: 12, y: 40, width: 273, height: 139 },
       outputSizePx: [3508, 2480],
       dpi: 300
     });
     expect(result.plan?.range.sourceExtent).toEqual([-500, -250, 500, 250]);
     expect(result.plan?.range.actualExtent[0]).toBeCloseTo(-500, 10);
     expect(result.plan?.range.actualExtent[2]).toBeCloseTo(500, 10);
-    expect(result.plan?.range.actualExtent[1]).toBeCloseTo((-500 * 144) / 273, 10);
-    expect(result.plan?.range.actualExtent[3]).toBeCloseTo((500 * 144) / 273, 10);
+    expect(result.plan?.range.actualExtent[1]).toBeCloseTo((-500 * 139) / 273, 10);
+    expect(result.plan?.range.actualExtent[3]).toBeCloseTo((500 * 139) / 273, 10);
     expect(result.plan?.range.denominator).toBeCloseTo(1_000_000 / 273, 10);
     expect(result.plan?.range.resolution).toBeCloseTo(1000 / ((273 / 25.4) * PRINT_CSS_DPI), 12);
   });
@@ -84,10 +85,10 @@ describe('PrintPlanner', () => {
     expect(result.plan?.range.denominator).toBe(10_000);
     expect(result.plan?.range.resolution).toBeCloseTo((10_000 * 0.0254) / 96, 12);
     const expectedFootprint = [
-      [-1365, 720],
-      [1365, 720],
-      [1365, -720],
-      [-1365, -720]
+      [-1365, 695],
+      [1365, 695],
+      [1365, -695],
+      [-1365, -695]
     ] as const;
     for (let index = 0; index < expectedFootprint.length; index += 1) {
       expect(result.plan?.range.footprint[index]?.[0]).toBeCloseTo(expectedFootprint[index][0], 10);
@@ -105,11 +106,11 @@ describe('PrintPlanner', () => {
     );
 
     expect(result.plan?.range.rotation).toBe(Math.PI / 2);
-    expect(result.plan?.range.footprint[0]?.[0]).toBeCloseTo(-720, 10);
+    expect(result.plan?.range.footprint[0]?.[0]).toBeCloseTo(-695, 10);
     expect(result.plan?.range.footprint[0]?.[1]).toBeCloseTo(-1365, 10);
-    expect(result.plan?.range.footprint[2]?.[0]).toBeCloseTo(720, 10);
+    expect(result.plan?.range.footprint[2]?.[0]).toBeCloseTo(695, 10);
     expect(result.plan?.range.footprint[2]?.[1]).toBeCloseTo(1365, 10);
-    expect(result.plan?.range.actualExtent[0]).toBeCloseTo(-720, 10);
+    expect(result.plan?.range.actualExtent[0]).toBeCloseTo(-695, 10);
     expect(result.plan?.range.actualExtent[3]).toBeCloseTo(1365, 10);
   });
 
@@ -121,11 +122,11 @@ describe('PrintPlanner', () => {
     );
 
     expect(result.plan?.range.footprint[0]?.[0]).toBeCloseTo(-100, 10);
-    expect(result.plan?.range.footprint[0]?.[1]).toBeCloseTo((-100 * 273) / 144, 10);
+    expect(result.plan?.range.footprint[0]?.[1]).toBeCloseTo((-100 * 273) / 139, 10);
     expect(result.plan?.range.actualExtent[0]).toBeCloseTo(-100, 10);
-    expect(result.plan?.range.actualExtent[1]).toBeCloseTo((-100 * 273) / 144, 10);
+    expect(result.plan?.range.actualExtent[1]).toBeCloseTo((-100 * 273) / 139, 10);
     expect(result.plan?.range.actualExtent[2]).toBeCloseTo(100, 10);
-    expect(result.plan?.range.actualExtent[3]).toBeCloseTo((100 * 273) / 144, 10);
+    expect(result.plan?.range.actualExtent[3]).toBeCloseTo((100 * 273) / 139, 10);
   });
 
   it('box 尚未完成时不偷用 View 范围，并返回 range-unresolved', () => {
@@ -134,7 +135,7 @@ describe('PrintPlanner', () => {
     expect(result.plan).toBeUndefined();
     expect(result.validation).toEqual({
       revision: 7,
-      issues: [{ code: 'range-unresolved', message: 'Box print range has not been selected', subject: 'range.source' }],
+      issues: [{ code: 'range-unresolved', message: '尚未完成地图框选', subject: 'range.source' }],
       warnings: [],
       canPreview: false,
       canExport: false
@@ -157,6 +158,8 @@ describe('PrintPlanner', () => {
 
     expect(fit.plan?.range.center).toEqual([300, 400]);
     expect(fit.plan?.range.sourceExtent).toEqual([200, 350, 400, 450]);
+    expect(fit.plan?.range.actualExtent[1]).toBeLessThan(350);
+    expect(fit.plan?.range.actualExtent[3]).toBeGreaterThan(450);
     expect(fixed.plan?.range.center).toEqual([300, 400]);
     expect(fixed.validation.issues).toEqual([]);
   });
@@ -186,7 +189,7 @@ describe('PrintPlanner', () => {
     expect(localScale.validation.warnings).toEqual([
       {
         code: 'scale-valid-at-center',
-        message: 'The fixed scale is locally valid at the print center because projection scale varies by position',
+        message: '当前投影的比例随位置变化，固定比例尺仅在打印中心准确',
         subject: 'range.scale',
         requiresAcknowledgement: true
       }
@@ -201,7 +204,7 @@ describe('PrintPlanner', () => {
     expect(result.validation.warnings).toEqual([
       {
         code: 'animations-excluded',
-        message: 'The print snapshot excludes animation presentation and uses base Element state',
+        message: '打印快照已排除动画效果，将使用 Element 基础状态',
         subject: 'content.animations',
         requiresAcknowledgement: true
       }
@@ -221,7 +224,7 @@ describe('PrintPlanner', () => {
 
     expect(first.plan?.pageSizeMm).toEqual([200, 100]);
     expect(first.plan?.outputSizePx).toEqual([2000, 1000]);
-    expect(first.plan?.mapFrameMm).toEqual({ x: 7, y: 33, width: 186, height: 44 });
+    expect(first.plan?.mapFrameMm).toEqual({ x: 7, y: 35, width: 186, height: 39 });
     expect(highDpi.plan?.range).toEqual(first.plan?.range);
     expect(highDpi.plan?.outputSizePx).toEqual([4000, 2000]);
   });
@@ -242,7 +245,7 @@ describe('PrintPlanner', () => {
       expect(result.validation.issues[0]?.message).toContain('A4');
       expect(result.validation.issues[0]?.message).toContain('300 DPI');
       expect(result.validation.issues[0]?.message).toContain('3508×2480px');
-      expect(result.validation.issues[0]?.message).toContain('limits');
+      expect(result.validation.issues[0]?.message).toContain('当前限制');
     }
   });
 
@@ -268,7 +271,7 @@ describe('PrintPlanner', () => {
   it('拒绝不能形成净地图框的边距和纸张', () => {
     expect(() =>
       createPrintPlan(spec({ paper: { size: { widthMm: 50, heightMm: 50 }, orientation: 'portrait', marginMm: 5, dpi: 300 } }), view(), context())
-    ).toThrowError(/map frame of at least 20mm/);
+    ).toThrowError(/至少保留 20mm × 20mm 的地图框/);
     expect(() => normalizePrintSpec(spec({ paper: { size: 'A4', orientation: 'portrait', marginMm: 110, dpi: 300 } }))).toThrowError(
       /margins must leave a positive page frame/
     );
@@ -285,6 +288,12 @@ describe('PrintPlanner', () => {
       () => normalizePrintSpec(spec({ paper: { size: 'a4' as never, orientation: 'landscape', marginMm: 10, dpi: 300 } })),
       () => normalizePrintSpec(spec({ range: { source: { mode: 'extent', extent: [1, 0, 0, 1] }, scale: { mode: 'fit' } } })),
       () => normalizePrintSpec(spec({ range: { source: { mode: 'view' }, scale: { mode: 'fixed', denominator: 0 } } })),
+      () =>
+        normalizePrintSpec(
+          spec({
+            legend: { mode: 'manual', groups: [], items: [], layout: { position: 'center' as never } }
+          })
+        ),
       () =>
         normalizePrintSpec(
           spec({

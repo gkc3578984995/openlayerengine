@@ -210,8 +210,10 @@ export interface PrintLegendItem {
   readonly sourceKey?: string;
 }
 
-/** 图例固定锚点内允许调整的排版参数。 */
+/** 图例在地图内锚定和排版的可调整参数。 */
 export interface PrintLegendLayoutSpec {
+  /** 图例锚定位置，省略时为左下角。 */
+  readonly position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   /** 图例内容使用的列数。 */
   readonly columns?: number;
   /** 图例条目按行或按列填充。 */

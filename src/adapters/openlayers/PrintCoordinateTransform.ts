@@ -31,7 +31,7 @@ export function readPrintViewTransform(map: Map): Readonly<PrintViewTransform> {
     size[0] <= 0 ||
     size[1] <= 0
   ) {
-    throw new CapabilityError('Current map View does not have a printable size, center, or resolution');
+    throw new CapabilityError('当前地图 View 缺少可打印的尺寸、中心点或分辨率。');
   }
   return Object.freeze({
     center: Object.freeze([center[0], center[1]]) as Coordinate,

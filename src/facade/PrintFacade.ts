@@ -96,7 +96,7 @@ export class PrintFacadeImpl implements PrintFacade {
     this.#assertActive();
     assertCreateOptions(options);
     if (this.#active !== undefined) {
-      if ((options.sessionConflictPolicy ?? 'replace') === 'reject') throw new InteractionConflictError('A print session is already active');
+      if ((options.sessionConflictPolicy ?? 'replace') === 'reject') throw new InteractionConflictError('已有活动的打印会话。');
       const active = this.#active;
       for (const dialog of [...this.#dialogs]) dialog.destroy();
       active.cancel();
@@ -135,9 +135,9 @@ export class PrintFacadeImpl implements PrintFacade {
 
   open(options: PrintDialogOptions = {}): PrintDialogHandle {
     this.#assertActive();
-    if (typeof document === 'undefined') throw new CapabilityError('The built-in print UI requires a browser document');
+    if (typeof document === 'undefined') throw new CapabilityError('内置打印界面需要浏览器 document。');
     const target = options.target ?? this.#dependencies.target;
-    if (!(target instanceof HTMLElement)) throw new InvalidArgumentError('Print dialog target must be an HTMLElement');
+    if (!(target instanceof HTMLElement)) throw new InvalidArgumentError('打印对话框挂载目标必须是 HTMLElement。');
     const session = this.create(options);
     let dialog: PrintDialogAdapter | undefined;
     try {
@@ -177,7 +177,7 @@ export class PrintFacadeImpl implements PrintFacade {
   }
 
   #assertActive(): void {
-    if (this.#disposed) throw new ObjectDisposedError('PrintFacade has been destroyed');
+    if (this.#disposed) throw new ObjectDisposedError('PrintFacade 已销毁。');
   }
 }
 
@@ -298,12 +298,7 @@ class PrintSessionImpl implements PrintSession {
           nextBox = Object.freeze({ center: previousBox.center, footprint: candidate.plan.range.footprint, rotation: previousBox.rotation });
           planning = this.#planFor(normalized, revision, nextBox);
         }
-      } else if (
-        previousSpec.range.scale.mode === 'fit' &&
-        this.#plan !== undefined &&
-        candidate.plan !== undefined &&
-        sameFrameAspectRatio(this.#plan.mapFrameMm, candidate.plan.mapFrameMm)
-      ) {
+      } else if (previousSpec.range.scale.mode === 'fit' && candidate.plan !== undefined) {
         nextBox = previousBox;
         planning = candidate;
       }
@@ -318,7 +313,7 @@ class PrintSessionImpl implements PrintSession {
       if ((this.#extentProjectionInvalidated || projectionChanged) && !explicitlyRebound) {
         planning = Object.freeze({
           plan: undefined,
-          validation: unresolvedValidation(revision, 'The explicit print extent belongs to a different View projection; submit the extent again'),
+          validation: unresolvedValidation(revision, '指定打印范围属于另一个 View 投影，请重新提交该范围。'),
           northDirection: undefined,
           projectionCode: planning.projectionCode
         });
@@ -371,13 +366,13 @@ class PrintSessionImpl implements PrintSession {
       const revision = this.#revision;
       this.#replan();
       if (!this.#isCurrentRevision(revision)) throw cancelledError();
-      if (this.#plan === undefined) throw new CapabilityError('The print range cannot be resolved');
+      if (this.#plan === undefined) throw new CapabilityError('无法解析打印范围。');
       return this.#plan.range;
     }
 
     const previewPlanning = this.#planFor(spec, this.#revision, temporaryBoxRange(this.#dependencies.view.snapshot()));
     const frame = previewPlanning.plan?.mapFrameMm;
-    if (frame === undefined) throw new CapabilityError('The print page does not have a selectable map frame');
+    if (frame === undefined) throw new CapabilityError('当前打印页面没有可框选的地图区域。');
     const viewSnapshot = this.#dependencies.view.snapshot();
     const fixedSizeCssPixels =
       spec.range.scale.mode === 'fixed' && previewPlanning.plan !== undefined
@@ -424,7 +419,7 @@ class PrintSessionImpl implements PrintSession {
       const nextBox = Object.freeze({ center: result.center, footprint: result.footprint, rotation: result.rotation });
       const nextRevision = this.#revision + 1;
       const planning = this.#planFor(spec, nextRevision, nextBox);
-      if (planning.plan === undefined) throw new CapabilityError('The selected print range cannot be planned');
+      if (planning.plan === undefined) throw new CapabilityError('无法根据所选范围生成打印方案。');
       const nextLegend = this.#legend === undefined ? undefined : this.#dependencies.legendBuilder.generate(planning.plan, spec.legend);
       this.#abortOperation();
       this.#revision = nextRevision;
@@ -445,6 +440,7 @@ class PrintSessionImpl implements PrintSession {
       if (!this.#isCurrentRevision(nextRevision)) throw cancelledError();
       this.#emit('rangechange', { type: 'rangechange', range: planning.plan.range, revision: this.#revision });
       if (!this.#isCurrentRevision(nextRevision)) throw cancelledError();
+      this.#queueCommittedSelectionPreview(nextRevision);
       return planning.plan.range;
     } catch (error) {
       if (
@@ -480,12 +476,12 @@ class PrintSessionImpl implements PrintSession {
     const revision = this.#revision;
     if (!this.#isCurrentExternalRevision(revision)) throw cancelledError();
     if (spec.range.source.mode === 'extent' && this.#extentProjectionInvalidated) {
-      throw new CapabilityError('The explicit print extent must be submitted again for the current View projection');
+      throw new CapabilityError('必须在当前 View 投影下重新提交指定打印范围。');
     }
     try {
       const planning = this.#planFor(spec, this.#revision, this.#boxRange);
       if (!this.#isCurrentExternalRevision(revision)) throw cancelledError();
-      if (planning.plan === undefined) throw new CapabilityError('Resolve the print range before generating a legend');
+      if (planning.plan === undefined) throw new CapabilityError('请先确定打印范围，再生成图例。');
       const result = this.#dependencies.legendBuilder.generate(planning.plan, spec.legend);
       if (!this.#isCurrentExternalRevision(revision)) throw cancelledError();
       const validation = mergeValidation(planning.validation, result.warnings);
@@ -538,7 +534,7 @@ class PrintSessionImpl implements PrintSession {
     this.#assertNoActiveSelection();
     assertExportOptions(options);
     const exportValidation = mergeValidation(this.#baseValidation, this.#legend?.warnings ?? []);
-    if (exportValidation.issues.length > 0) throw new CapabilityError('Resolve all blocking print validation issues before exporting');
+    if (exportValidation.issues.length > 0) throw new CapabilityError('请先处理所有阻止打印的问题，再执行导出。');
     const startedRevision = this.#revision;
     const operation = this.#beginOperation(options.format === 'browser-print' ? 'printing' : 'exporting');
     try {
@@ -551,7 +547,7 @@ class PrintSessionImpl implements PrintSession {
         result = artifact('png', preview.blob, preview, this.#validation.warnings);
       } else if (options.format === 'pdf') {
         const encoder = options.encoder ?? this.#dependencies.pdfEncoder;
-        if (encoder === undefined) throw new CapabilityError('PDF export requires a PrintPdfEncoder');
+        if (encoder === undefined) throw new CapabilityError('导出 PDF 需要提供 PrintPdfEncoder。');
         let pdf: Blob;
         try {
           pdf = await abortAware(
@@ -630,7 +626,7 @@ class PrintSessionImpl implements PrintSession {
 
   on<T extends PrintSessionEventType>(type: T, listener: PrintSessionEventListener<T>): () => void {
     this.#assertUsable();
-    if (!isEventType(type) || typeof listener !== 'function') throw new InvalidArgumentError('Unknown print event type or listener');
+    if (!isEventType(type) || typeof listener !== 'function') throw new InvalidArgumentError('打印事件类型未知或监听器无效。');
     let listeners = this.#listeners.get(type);
     if (listeners === undefined) {
       listeners = new Set();
@@ -653,10 +649,10 @@ class PrintSessionImpl implements PrintSession {
   ): Promise<PrintPreviewResult> {
     const plan = context?.plan ?? this.#plan;
     const spec = context?.spec ?? this.#spec;
-    if (plan === undefined || spec === undefined) throw new CapabilityError('Resolve the print range before previewing');
+    if (plan === undefined || spec === undefined) throw new CapabilityError('请先确定打印范围，再生成预览。');
     const baseValidation = context?.validation ?? this.#baseValidation;
     const eligibility = mergeValidation(baseValidation, context?.transient === true ? [] : (this.#legend?.warnings ?? []));
-    if (!eligibility.canPreview) throw new CapabilityError('Resolve all blocking print validation issues before previewing');
+    if (!eligibility.canPreview) throw new CapabilityError('请先处理所有阻止打印的问题，再生成预览。');
     const timeoutMs = spec.resources?.timeoutMs ?? this.#dependencies.limits.defaultResourceTimeoutMs;
     const deadline = createResourceDeadline(timeoutMs, operation.controller.signal);
     let frozen: Readonly<PrintFrozenSnapshot<PrintMapSnapshot>> | undefined;
@@ -837,7 +833,7 @@ class PrintSessionImpl implements PrintSession {
         ? [
             Object.freeze({
               code: 'printer-scaling-not-guaranteed',
-              message: 'Physical output scale depends on the printer and browser being configured for actual size (100%)',
+              message: '实际输出比例取决于打印机和浏览器是否设置为实际大小（100%）。',
               subject: 'browser-print',
               requiresAcknowledgement: true
             })
@@ -919,7 +915,7 @@ class PrintSessionImpl implements PrintSession {
       try {
         const viewSnapshot = this.#dependencies.view.snapshot();
         if (this.#spec.range.source.mode === 'box' && this.#boxRange !== undefined && viewSnapshot.projectionCode !== this.#boxProjectionCode) {
-          const error = new CapabilityError('The completed print box belongs to a different View projection; select the print area again');
+          const error = new CapabilityError('已完成的打印框属于另一个 View 投影，请重新框选打印范围。');
           this.#boxRange = undefined;
           this.#boxProjectionCode = undefined;
           this.#commitInvalidExternalState(error);
@@ -930,7 +926,7 @@ class PrintSessionImpl implements PrintSession {
           this.#spec.range.source.mode === 'extent' &&
           (this.#extentProjectionInvalidated || this.#extentProjectionCode === undefined || viewSnapshot.projectionCode !== this.#extentProjectionCode)
         ) {
-          const error = new CapabilityError('The explicit print extent belongs to a different View projection; submit the extent again');
+          const error = new CapabilityError('指定打印范围属于另一个 View 投影，请重新提交该范围。');
           this.#extentProjectionCode = undefined;
           this.#extentProjectionInvalidated = true;
           this.#commitInvalidExternalState(error);
@@ -993,6 +989,24 @@ class PrintSessionImpl implements PrintSession {
     );
   }
 
+  #queueCommittedSelectionPreview(revision: number): void {
+    queueMicrotask(() => {
+      if (!this.#isCurrentRevision(revision) || this.#plan === undefined || this.#spec === undefined) return;
+      let operation: Readonly<{ generation: number; controller: AbortController }>;
+      try {
+        operation = this.#beginOperation('ready');
+      } catch {
+        return;
+      }
+      void this.#producePreview('draft', operation, true).then(
+        () => this.#completeOperation(operation),
+        () => {
+          this.#settleFailedOperation(operation);
+        }
+      );
+    });
+  }
+
   #cachedFinalPreview(): Readonly<PrintPreviewResult> | undefined {
     const cached = this.#finalPreview;
     if (cached === undefined || cached.revision !== this.#revision) return undefined;
@@ -1003,7 +1017,7 @@ class PrintSessionImpl implements PrintSession {
 
   #assertNoActiveSelection(): void {
     if (this.#selectionController?.signal.aborted === false) {
-      throw new InteractionConflictError('Print preview and export are unavailable while box selection is active');
+      throw new InteractionConflictError('正在框选打印范围，暂时不能预览或导出。');
     }
   }
 
@@ -1055,7 +1069,7 @@ class PrintSessionImpl implements PrintSession {
     this.#finalPreview = undefined;
     this.#finalPresentationRevision = undefined;
     this.#northDirection = undefined;
-    this.#baseValidation = unresolvedValidation(this.#revision, 'Print box selection was cancelled before a range was committed');
+    this.#baseValidation = unresolvedValidation(this.#revision, '打印框选已取消，尚未提交有效范围。');
     this.#validation = this.#baseValidation;
     const revision = this.#revision;
     this.#setStatus('draft');
@@ -1185,12 +1199,12 @@ class PrintSessionImpl implements PrintSession {
 
   #requireSpec(): Readonly<NormalizedPrintSpec> {
     this.#assertUsable();
-    if (this.#spec === undefined) throw new InvalidArgumentError('PrintSession requires a complete PrintSpec');
+    if (this.#spec === undefined) throw new InvalidArgumentError('PrintSession 需要完整的 PrintSpec。');
     return this.#spec;
   }
 
   #assertUsable(): void {
-    if (this.#destroyed || this.#status === 'destroyed' || this.#status === 'cancelled') throw new ObjectDisposedError('PrintSession is no longer active');
+    if (this.#destroyed || this.#status === 'destroyed' || this.#status === 'cancelled') throw new ObjectDisposedError('PrintSession 已不再活动。');
   }
 }
 
@@ -1260,12 +1274,12 @@ function validationIssueFromRenderError(error: unknown): Readonly<PrintValidatio
     const subject = /:\s*([^:]+)$/u.exec(error.message)?.[1];
     return Object.freeze({
       code: 'animation-snapshot-unavailable',
-      message: 'Current animation frame cannot be frozen while its target has an active interaction preview',
+      message: '目标存在活动的交互预览，无法冻结当前动画帧。',
       ...(subject === undefined ? {} : { subject })
     });
   }
   if (error instanceof CapabilityError && error.message.startsWith('Map text fonts cannot be audited')) {
-    return Object.freeze({ code: 'layer-not-printable', message: error.message, subject: 'map-text-fonts' });
+    return Object.freeze({ code: 'layer-not-printable', message: '无法审计地图文字使用的字体。', subject: 'map-text-fonts' });
   }
   if (!(error instanceof InvalidArgumentError)) return undefined;
   const match = /^(layout-text-overflow|legend-overflow):\s*(.*)$/u.exec(error.message);
@@ -1317,7 +1331,7 @@ async function waitForDocumentFonts(fontSamples: readonly Readonly<PrintFontSamp
     Promise.resolve(fonts.ready),
     ...uniqueSamples.map(({ font, text }) => (typeof fontSet.load === 'function' ? fontSet.load(font, text) : Promise.resolve([])))
   ]).catch((cause: unknown) => {
-    throw new PrintError('resource-load-failed', 'Print fonts failed to load', { cause });
+    throw new PrintError('resource-load-failed', '打印字体加载失败。', { cause });
   });
   await new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -1330,7 +1344,7 @@ async function waitForDocumentFonts(fontSamples: readonly Readonly<PrintFontSamp
     };
     const onAbort = (): void => finish(() => reject(cancelledError()));
     const timeout = globalThis.setTimeout(
-      () => finish(() => reject(new PrintError('resource-timeout', 'Waiting for print fonts timed out', { details: { timeoutMs } }))),
+      () => finish(() => reject(new PrintError('resource-timeout', '等待打印字体就绪超时。', { details: { timeoutMs } }))),
       timeoutMs
     );
     signal.addEventListener('abort', onAbort, { once: true });
@@ -1346,9 +1360,9 @@ async function waitForDocumentFonts(fontSamples: readonly Readonly<PrintFontSamp
       try {
         ready = fontSet.check(font, text);
       } catch (cause) {
-        throw new PrintError('resource-load-failed', 'Print font readiness could not be verified', { cause });
+        throw new PrintError('resource-load-failed', '无法确认打印字体是否就绪。', { cause });
       }
-      if (!ready) throw new PrintError('resource-load-failed', `Print font is not ready: ${font}`);
+      if (!ready) throw new PrintError('resource-load-failed', `打印字体尚未就绪：${font}`);
     }
   }
 }
@@ -1367,7 +1381,7 @@ function createResourceDeadline(timeoutMs: number, parentSignal: AbortSignal): R
   let timedOut = false;
   let destroyed = false;
   const timeoutError = (cause?: unknown): PrintError =>
-    new PrintError('resource-timeout', 'Waiting for print resources timed out', {
+    new PrintError('resource-timeout', '等待打印资源就绪超时。', {
       ...(cause === undefined ? {} : { cause }),
       details: { timeoutMs }
     });
@@ -1439,11 +1453,6 @@ function temporaryBoxRange(view: Readonly<OpenLayersPrintViewSnapshot>): Readonl
   return Object.freeze({ center: view.center, footprint: view.footprint, rotation: view.rotation });
 }
 
-function sameFrameAspectRatio(left: Readonly<{ width: number; height: number }>, right: Readonly<{ width: number; height: number }>): boolean {
-  const crossDifference = Math.abs(left.width * right.height - right.width * left.height);
-  return crossDifference <= Number.EPSILON * Math.max(1, left.width * right.height, right.width * left.height) * 16;
-}
-
 function artifact(format: 'png' | 'pdf', blob: Blob, preview: Readonly<PrintPreviewResult>, warnings: readonly PrintWarning[]): PrintArtifact {
   return Object.freeze({
     format,
@@ -1463,7 +1472,7 @@ async function canvasToPng(canvas: PrintCanvasLike, signal: AbortSignal, resourc
     convertToBlob?: (options?: ImageEncodeOptions) => Promise<Blob>;
   };
   if (typeof target.toBlob !== 'function' && typeof target.convertToBlob !== 'function') {
-    throw new CapabilityError('Canvas PNG encoding is unavailable');
+    throw new CapabilityError('当前环境不支持 Canvas PNG 编码。');
   }
   if (typeof target.toBlob !== 'function') {
     try {
@@ -1473,7 +1482,7 @@ async function canvasToPng(canvas: PrintCanvasLike, signal: AbortSignal, resourc
     } catch (cause) {
       if (cause instanceof PrintError) throw cause;
       if (isCanvasSecurityError(cause)) throw createCorsTaintedCanvasError(cause, resourceDescriptors);
-      throw new PrintError('png-encode-failed', 'Canvas PNG encoding failed', { cause });
+      throw new PrintError('png-encode-failed', 'Canvas PNG 编码失败。', { cause });
     }
   }
   return await new Promise<Blob>((resolve, reject) => {
@@ -1508,7 +1517,7 @@ async function canvasToPng(canvas: PrintCanvasLike, signal: AbortSignal, resourc
       reject(
         isCanvasSecurityError(cause)
           ? createCorsTaintedCanvasError(cause, resourceDescriptors)
-          : new PrintError('png-encode-failed', 'Canvas PNG encoding failed', { cause })
+          : new PrintError('png-encode-failed', 'Canvas PNG 编码失败。', { cause })
       );
     }
     if (signal.aborted) onAbort();
@@ -1524,7 +1533,7 @@ function isCanvasSecurityError(cause: unknown): boolean {
 
 function requirePngBlob(blob: unknown): Blob {
   if (!(blob instanceof Blob) || blob.size === 0 || blob.type.toLowerCase() !== 'image/png') {
-    throw new PrintError('png-encode-failed', 'Canvas must return a non-empty image/png Blob');
+    throw new PrintError('png-encode-failed', 'Canvas 必须返回非空的 image/png Blob。');
   }
   return blob;
 }
@@ -1549,27 +1558,26 @@ function abortAware<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 function assertCreateOptions(options: PrintCreateOptions): void {
-  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw new InvalidArgumentError('Print create options must be a plain object');
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw new InvalidArgumentError('打印创建选项必须是普通对象。');
   if (options.sessionConflictPolicy !== undefined && options.sessionConflictPolicy !== 'replace' && options.sessionConflictPolicy !== 'reject') {
-    throw new InvalidArgumentError('Unknown print session conflict policy');
+    throw new InvalidArgumentError('未知的打印会话冲突策略。');
   }
   if (options.interactionConflictPolicy !== undefined && options.interactionConflictPolicy !== 'replace' && options.interactionConflictPolicy !== 'reject') {
-    throw new InvalidArgumentError('Unknown print interaction conflict policy');
+    throw new InvalidArgumentError('未知的打印交互冲突策略。');
   }
   if (options.printableLayerFactory !== undefined && typeof options.printableLayerFactory !== 'function') {
-    throw new InvalidArgumentError('Print printableLayerFactory must be a function');
+    throw new InvalidArgumentError('打印 printableLayerFactory 必须是函数。');
   }
 }
 
 function assertPreviewOptions(options: PrintPreviewOptions): void {
-  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw new InvalidArgumentError('Print preview options must be a plain object');
-  if (options.quality !== undefined && options.quality !== 'draft' && options.quality !== 'final')
-    throw new InvalidArgumentError('Unknown print preview quality');
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw new InvalidArgumentError('打印预览选项必须是普通对象。');
+  if (options.quality !== undefined && options.quality !== 'draft' && options.quality !== 'final') throw new InvalidArgumentError('未知的打印预览质量。');
 }
 
 function assertExportOptions(options: PrintExportOptions): void {
-  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw new InvalidArgumentError('Print export options must be a plain object');
-  if (options.format !== 'png' && options.format !== 'pdf' && options.format !== 'browser-print') throw new InvalidArgumentError('Unknown print export format');
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) throw new InvalidArgumentError('打印导出选项必须是普通对象。');
+  if (options.format !== 'png' && options.format !== 'pdf' && options.format !== 'browser-print') throw new InvalidArgumentError('未知的打印导出格式。');
 }
 
 function isEventType(value: unknown): value is PrintSessionEventType {

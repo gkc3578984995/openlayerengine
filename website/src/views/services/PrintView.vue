@@ -11,6 +11,36 @@ import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const printSnippet = extractExampleSnippet(printSource, 'print-workflows');
 
+const headlessExtentCode = `const session = earth.print.create({
+  initialSpec: {
+    range: {
+      source: { mode: 'extent', extent: [12_900_410.66, 4_792_506.17, 12_995_943.91, 4_911_660.28] },
+      scale: { mode: 'fit' }
+    },
+    paper: {
+      size: { widthMm: 320, heightMm: 180 },
+      orientation: 'landscape',
+      marginMm: 12,
+      dpi: 300
+    },
+    layout: {
+      classification: '内部资料',
+      title: '指定范围专题图',
+      subtitle: 'headless extent 集成示例',
+      date: '2026-07-27',
+      issuer: '城市运行中心'
+    }
+  }
+});
+
+try {
+  await session.selectArea();
+  const png = await session.export({ format: 'png' });
+  // png.blob 归调用方所有；如创建 object URL，也由调用方回收。
+} finally {
+  session.destroy();
+}`;
+
 const printableLayerFactoryCode = `import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import CircleStyle from 'ol/style/Circle.js';
@@ -68,7 +98,7 @@ const anchors = [
   { id: 'five-screens', label: '内置五屏流程' },
   { id: 'range-and-scale', label: '范围与比例尺' },
   { id: 'page-layout', label: '纸张、版式与图例' },
-  { id: 'output-boundaries', label: 'PNG、PDF 与浏览器打印' },
+  { id: 'output-boundaries', label: 'PNG、可选 PDF 与浏览器打印' },
   { id: 'native-layer-printing', label: '原生 Layer 打印工厂' },
   { id: 'lifecycle', label: 'Validation 与生命周期' },
   { id: 'method-reference', label: '门面与会话方法' },
@@ -87,8 +117,16 @@ const rangeRows = [
     fit: '完整容纳当前 View 足迹，按纸面宽高比对称扩展',
     fixed: '以当前 View 中心和 denominator 反算范围；不能完整容纳来源时阻断输出'
   },
-  { source: 'box（框选）', fit: '从按净地图框宽高比锁定的框选范围生成计划', fixed: '比例尺决定选框大小，指针只决定中心；纸张或比例尺改变后围绕中心重算' },
-  { source: 'extent（指定范围）', fit: '完整容纳显式 extent，必要时对称扩展', fixed: '以 extent 中心为中心；来源只用于检查是否裁剪，不覆盖 denominator' }
+  {
+    source: 'box（框选）',
+    fit: '主框完全跟随指针自由框选；实际打印框按纸面比例对称扩展，不裁切主框内容',
+    fixed: '比例尺决定固定框大小；框随指针移动，单击或拖放确定中心，纸张或比例尺改变后围绕中心重算'
+  },
+  {
+    source: 'extent（仅 headless）',
+    fit: '公共 API 仍可完整容纳显式 extent 并按需对称扩展；内置五屏不提供该选项',
+    fixed: '公共 API 以 extent 中心为中心；来源只用于检查是否裁剪，不覆盖 denominator'
+  }
 ];
 
 const outputColumns = [
@@ -99,7 +137,11 @@ const outputColumns = [
 
 const outputRows = [
   { format: 'PNG', capability: 'capabilities.png 恒为 true', boundary: '库内置生成不透明白底的整页位图；Blob 归调用方所有，Session 不替调用方回收' },
-  { format: 'PDF', capability: '需要 PrintPdfEncoder', boundary: '库只把已经排版完成的 PNG 交给 encoder；能力不可用时明确禁用，绝不伪装成功或退化为 PNG' },
+  {
+    format: 'PDF（仅 headless）',
+    capability: '调用方显式注入 PrintPdfEncoder',
+    boundary: '公共 API 保留可选编码能力，但内置五屏和文档操作台不显示导出 PDF 按钮；库绝不伪装成功或退化为 PNG'
+  },
   {
     format: 'browser-print',
     capability: '需要 DOM print port 与用户手势',
@@ -340,8 +382,9 @@ const relatedTypes = [
         <ExampleBlock title="五屏 UI、框选固定比例尺与 headless 输出" :source="printSource" :snippet="printSnippet" source-lang="vue" snippet-lang="typescript">
           <template #description>
             <p>
-              示例不会在挂载时自动打开对话框或导出文件。点击后会真实调用 earth.print.open/create、Session 的范围、图例、预览和 export API；当前环境没有 PDF
-              encoder 或浏览器打印 port 时，按钮保持禁用并直接说明原因，不模拟成功结果。
+              示例不会在挂载时自动打开对话框或导出文件。点击后会真实调用 earth.print.open/create、Session 的范围、图例、预览和 export
+              API。内置五屏与示例操作台只提供 PNG 和浏览器打印；PDF 仅保留为调用方可注入的 headless API 能力。浏览器打印 port
+              不可用时会明确说明原因，不模拟成功结果。
             </p>
             <p>
               示例地图使用 Earth 管理的 VectorLayer，因此不需要额外工厂；外部系统接入无法自动投影的 native Layer 时，应按下文配置
@@ -357,30 +400,46 @@ const relatedTypes = [
         <el-steps direction="vertical" :active="5" finish-status="success">
           <el-step
             title="1. 版式设置"
-            description="从常用建议选择或自由手填密级，再填写日期、签发人、主副标题，选择纸张、方向、边距、DPI、范围来源和 fit/fixed。"
+            description="从常用建议选择或自由手填密级，再填写日期、签发人、主副标题，选择纸张、方向、边距、DPI、当前视图/地图框选和 fit/fixed。"
           />
-          <el-step title="2. 范围选择" description="box 模式在活动地图上框选；view/extent 显示只读范围对照。右侧始终保留完整纸张预览。" />
+          <el-step
+            title="2. 范围选择"
+            description="fit 使用跟随指针的自由主框并显示纸面比例扩展结果；fixed 使用随指针移动的定尺寸框。完成后立即刷新右侧完整纸张预览。"
+          />
           <el-step title="3. 自动图例" description="按最终 PrintPlan 汇总可见 Element，展示分组、计数及动态样式无法自动解析的 warning。" />
-          <el-step title="4. 手动图例" description="保留自动结果后改名、分组、排序、显隐和符号；来源变化以 added/missing/changed warning 明示。" />
+          <el-step
+            title="4. 手动图例"
+            description="按组折叠编辑，支持改名、排序、显隐、颜色选择器和四角位置；来源变化以 added/missing/changed warning 明示。"
+          />
           <el-step
             title="5. 最终预览与导出"
-            description="集中展示阻断项与 warning，在适应窗口和 100% 查看之间切换，并按 capabilities 启用 PNG、PDF 和浏览器打印。"
+            description="集中展示阻断项与 warning，在适应窗口和 100% 查看之间切换，并提供 PNG 与浏览器打印。PDF 不进入内置界面。"
           />
         </el-steps>
+        <p>
+          五个页面的操作区都固定在左侧面板底部，表单内容单独滚动；手动图例修改任意值时会保持当前滚动位置。左侧输入区与右侧预览区默认按 40% / 60%
+          分配，可用鼠标拖动或键盘调节分隔条，并分别在 420px 与 360px
+          的最小宽度处停止；窄屏自动改为上下布局，恢复桌面宽度后沿用此前比例。适合窗口模式的纸张会随预览区宽高等比缩放，100%
+          模式则保持真实输出像素。框选步骤采用全宽平面控制区与底部操作区，中间区域透传地图指针；窄屏会隐藏纸张预览且不提供展开开关，把可用空间留给活动地图。
+        </p>
       </section>
 
       <section id="range-and-scale" class="doc-prose">
         <h2 class="doc-h2">范围与比例尺</h2>
         <ApiTable :columns="rangeColumns" :rows="rangeRows" />
         <el-alert class="doc-prose__alert" type="warning" :closable="false" show-icon title="固定比例尺是中心局部比例">
-          extent 和框选坐标使用当前 View 投影。固定比例尺只保证输出中心附近的局部比例；DPI
+          headless extent 和框选坐标使用当前 View 投影。固定比例尺只保证输出中心附近的局部比例；DPI
           只改变位图采样密度，不改变地理范围。无法获得有效局部比例或真北方向时会阻断，而不是假定“一投影单位等于一米”。
         </el-alert>
         <el-alert class="doc-prose__alert" type="info" :closable="false" show-icon title="显式 extent 绑定 projection code">
-          extent 在完整 spec 提交并确认范围时绑定当前 View projection。同一 projection code 下的 View 变化可以重新规划；projection code
-          改变后，旧范围、图例、预览和输出全部以 <code>range-unresolved</code> 阻断失效，调用方必须在新投影下重新提交或明确确认并再次调用
+          显式 extent 只属于 headless PrintSpec；它在完整 spec 提交并确认范围时绑定当前 View projection。同一 projection code 下的 View
+          变化可以重新规划；projection code 改变后，旧范围、图例、预览和输出全部以
+          <code>range-unresolved</code> 阻断失效，调用方必须在新投影下重新提交或明确确认并再次调用
           <code>selectArea()</code>。引擎不会把同一组数值静默重解释到新投影。
         </el-alert>
+        <h3 class="doc-h3">headless extent 与自定义纸张</h3>
+        <p>内置五屏不显示“指定范围”，需要显式坐标的外部系统应在 headless Session 中提交完整 PrintSpec，并自行管理产物与会话生命周期。</p>
+        <CodeBlock :code="headlessExtentCode" lang="ts" />
       </section>
 
       <section id="page-layout" class="doc-prose">
@@ -388,27 +447,33 @@ const relatedTypes = [
         <el-descriptions :column="1" border>
           <el-descriptions-item label="纸张">内置 A4、A3，也接受 widthMm × heightMm 自定义纸张；方向、四边边距和 DPI 都写入 PrintSpec。</el-descriptions-item>
           <el-descriptions-item label="页眉"
-            >左侧 classification 支持常用密级建议与自由手填；右侧固定“日期：”与“签发人：”两个槽位，任一空值都不改变另一项位置。</el-descriptions-item
+            >左侧 classification
+            支持常用密级建议与自由手填；右侧固定“日期：”与“签发人：”两个紧凑槽位并整体右对齐，任一空值都不改变另一项位置。</el-descriptions-item
           >
-          <el-descriptions-item label="标题">主标题与副标题居中、各占固定单行；溢出是阻断问题，不偷偷缩小、换行或裁切。</el-descriptions-item>
+          <el-descriptions-item label="标题"
+            >主标题与副标题居中、各占固定单行，并与地图双线框保留独立物理间距；溢出是阻断问题，不偷偷缩小、换行或裁切。</el-descriptions-item
+          >
           <el-descriptions-item label="地图框"
             >页面为不透明白底，地图采用固定外粗内细双线框：内细线的内缘严格等于 mapFrame
             边界，外粗线位于其外，因此两条线都不覆盖地图内容；临时交互、控件、Tooltip、ContextMenu 和 DOM Overlay 默认排除。</el-descriptions-item
           >
           <el-descriptions-item label="图例"
-            >图例固定在地图内左下。自动图例只转换最终范围内可无损表达的结构化 StyleSpec；纹理、雪碧裁剪、染色或纯文字等无法归一化的样式按 Layer
-            聚合为占位项并要求确认，不会伪造近似符号。手动图例可改分组、顺序、显隐和符号，但不改变固定锚点。</el-descriptions-item
+            >图例始终位于地图内部，可在左上、右上、左下、右下四个位置中选择，默认左下。自动图例只转换最终范围内可无损表达的结构化
+            StyleSpec；纹理、雪碧裁剪、染色或纯文字等无法归一化的样式按 Layer
+            聚合为占位项并要求确认，不会伪造近似符号。手动列表支持按组折叠，颜色字段同时提供颜色选择器和文本输入，以保留透明色等完整表达。</el-descriptions-item
           >
-          <el-descriptions-item label="页脚">左侧图形比例尺与 1∶N，右侧指北针；两者使用同一冻结 plan，不侵入地图框。</el-descriptions-item>
+          <el-descriptions-item label="页脚"
+            >左侧图形比例尺与 1∶N，右侧指北针；两者使用同一冻结 plan，并通过地图与页脚间距与双线框分开，不紧贴或侵入地图框。</el-descriptions-item
+          >
         </el-descriptions>
       </section>
 
       <section id="output-boundaries" class="doc-prose">
-        <h2 class="doc-h2">PNG、PDF 与浏览器打印</h2>
+        <h2 class="doc-h2">PNG、可选 PDF 与浏览器打印</h2>
         <ApiTable :columns="outputColumns" :rows="outputRows" />
         <el-alert class="doc-prose__alert" type="warning" :closable="false" show-icon title="浏览器打印不是制图输出承诺">
-          浏览器和打印机驱动仍可能缩放页面。内置 UI 会提醒用户选择“实际大小 / 100%”并关闭浏览器页眉页脚；需要可审计的物理尺寸时，优先输出 PNG 或由受控 encoder
-          生成 PDF。
+          浏览器和打印机驱动仍可能缩放页面。内置 UI 会提醒用户选择“实际大小 / 100%”并关闭浏览器页眉页脚；需要可审计的物理尺寸时，优先输出 PNG。外部系统确有 PDF
+          归档需求时，可通过 headless Session 注入受控 encoder，内置界面不承担该入口。
         </el-alert>
       </section>
 

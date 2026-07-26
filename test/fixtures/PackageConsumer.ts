@@ -25,6 +25,7 @@ import type {
   MeasureService,
   OverlayService,
   PrintFacade,
+  PrintLegendLayoutSpec,
   PrintSession,
   PrintSpec,
   ShapeInput,
@@ -54,6 +55,7 @@ const transform: TransformService = earth.transform;
 const overlays: OverlayService = earth.overlays;
 const view: ViewService = earth.view;
 const print: PrintFacade = earth.print;
+const printLegendLayout: PrintLegendLayoutSpec = { position: 'bottom-right', columns: 2 };
 const printSpec: PrintSpec = {
   range: { source: { mode: 'view' }, scale: { mode: 'fixed', denominator: 50_000 } },
   paper: { size: { widthMm: 260, heightMm: 180 }, orientation: 'landscape', marginMm: 10, dpi: 150 },
@@ -90,6 +92,7 @@ void [
   overlays,
   view,
   print,
+  printLegendLayout,
   printSpec,
   printSession,
   PrintError,

@@ -41,9 +41,9 @@ const METERS_PER_MILLIMETER = 0.001;
 // 具体毫米值属于内置成品版式，不进入 PrintSpec 公共配置。
 const HEADER_BAND_HEIGHT_MM = 8;
 const TITLE_BAND_HEIGHT_MM = 16;
-const TITLE_MAP_GAP_MM = 2;
+const TITLE_MAP_GAP_MM = 4;
 const MAP_FRAME_RESERVE_MM = 2;
-const MAP_FOOTER_GAP_MM = 2;
+const MAP_FOOTER_GAP_MM = 5;
 const FOOTER_BAND_HEIGHT_MM = 14;
 const MIN_MAP_FRAME_MM = 20;
 
@@ -59,7 +59,7 @@ const autoLegendFields = new Set(['mode', 'showCounts']);
 const manualLegendFields = new Set(['mode', 'groups', 'items', 'layout']);
 const legendGroupFields = new Set(['id', 'title', 'visible', 'order']);
 const legendItemFields = new Set(['id', 'groupId', 'label', 'symbol', 'visible', 'order', 'count', 'sourceKey']);
-const legendLayoutFields = new Set(['columns', 'direction', 'maxWidthMm', 'paddingMm', 'background', 'groupGapMm', 'itemGapMm']);
+const legendLayoutFields = new Set(['position', 'columns', 'direction', 'maxWidthMm', 'paddingMm', 'background', 'groupGapMm', 'itemGapMm']);
 const strokeFields = new Set(['color', 'widthMm', 'dashMm']);
 const fillFields = new Set(['color']);
 const viewFields = new Set(['center', 'footprint', 'rotation', 'metersPerViewUnitAtCenter', 'scaleVariesByPosition']);
@@ -122,7 +122,7 @@ export function createPrintPlan(spec: PrintSpec, view: PrintViewSnapshot, contex
   const budgetIssue = createPixelBudgetIssue(normalizedSpec.paper, outputSizePx, normalizedContext.limits);
 
   if (normalizedSpec.range.source.mode === 'box' && normalizedContext.boxRange === undefined) {
-    const issue = freezeIssue('range-unresolved', 'Box print range has not been selected', 'range.source');
+    const issue = freezeIssue('range-unresolved', '尚未完成地图框选', 'range.source');
     return Object.freeze({
       plan: undefined,
       validation: createValidation(normalizedContext.revision, budgetIssue === undefined ? [issue] : [issue, budgetIssue], [])
@@ -139,29 +139,20 @@ export function createPrintPlan(spec: PrintSpec, view: PrintViewSnapshot, contex
   const warnings: PrintWarning[] = [];
 
   if (normalizedContext.northDirection === undefined) {
-    issues.push(freezeIssue('north-direction-unavailable', 'True north direction is unavailable at the print center', 'layout.northArrow'));
+    issues.push(freezeIssue('north-direction-unavailable', '无法计算打印中心的真北方向', 'layout.northArrow'));
   }
   if (
     normalizedSpec.range.scale.mode === 'fixed' &&
     source.mode !== 'box' &&
     !footprintContains(range.footprint, source.footprint, range.center, range.rotation)
   ) {
-    issues.push(freezeIssue('fixed-scale-crops-source', 'The fixed scale map frame does not contain the complete source range', 'range.scale'));
+    issues.push(freezeIssue('fixed-scale-crops-source', '固定比例尺下的地图框无法完整容纳来源范围', 'range.scale'));
   }
   if (normalizedSpec.range.scale.mode === 'fixed' && snapshot.scaleVariesByPosition) {
-    warnings.push(
-      freezeWarning(
-        'scale-valid-at-center',
-        'The fixed scale is locally valid at the print center because projection scale varies by position',
-        true,
-        'range.scale'
-      )
-    );
+    warnings.push(freezeWarning('scale-valid-at-center', '当前投影的比例随位置变化，固定比例尺仅在打印中心准确', true, 'range.scale'));
   }
   if (normalizedSpec.content.animations === 'base') {
-    warnings.push(
-      freezeWarning('animations-excluded', 'The print snapshot excludes animation presentation and uses base Element state', true, 'content.animations')
-    );
+    warnings.push(freezeWarning('animations-excluded', '打印快照已排除动画效果，将使用 Element 基础状态', true, 'content.animations'));
   }
 
   const plan = Object.freeze({
@@ -332,12 +323,17 @@ function normalizeLegendItems(input: unknown, groupIds: ReadonlySet<string>): re
 function normalizeLegendLayout(input: unknown): Readonly<PrintLegendLayoutSpec> {
   const record = inspectRecord(input, 'Print legend layout');
   assertFields(record, legendLayoutFields, 'Print legend layout');
+  const position = record.position ?? 'bottom-left';
+  if (position !== 'top-left' && position !== 'top-right' && position !== 'bottom-left' && position !== 'bottom-right') {
+    throw new InvalidArgumentError('Print legend position must be top-left, top-right, bottom-left, or bottom-right');
+  }
   let direction: 'row' | 'column' | undefined;
   if (record.direction !== undefined) {
     if (record.direction !== 'row' && record.direction !== 'column') throw new InvalidArgumentError('Print legend direction must be row or column');
     direction = record.direction;
   }
   return Object.freeze({
+    position,
     ...optionalPositiveInteger(record, 'columns', 'Print legend columns'),
     ...(direction === undefined ? {} : { direction }),
     ...optionalPositive(record, 'maxWidthMm', 'Print legend maxWidthMm'),
@@ -488,7 +484,7 @@ function createMapFrameMm(page: readonly [number, number], margins: PrintPageIns
   const height =
     innerHeight - HEADER_BAND_HEIGHT_MM - TITLE_BAND_HEIGHT_MM - TITLE_MAP_GAP_MM - MAP_FRAME_RESERVE_MM * 2 - MAP_FOOTER_GAP_MM - FOOTER_BAND_HEIGHT_MM;
   if (![x, y, width, height].every(Number.isFinite) || width < MIN_MAP_FRAME_MM || height < MIN_MAP_FRAME_MM) {
-    throw new InvalidArgumentError(`Print paper and margins must leave a map frame of at least ${MIN_MAP_FRAME_MM}mm × ${MIN_MAP_FRAME_MM}mm`);
+    throw new InvalidArgumentError(`纸张和边距必须至少保留 ${MIN_MAP_FRAME_MM}mm × ${MIN_MAP_FRAME_MM}mm 的地图框`);
   }
   return Object.freeze({ x, y, width, height });
 }
@@ -497,10 +493,10 @@ function resolveOutputSizePx(paper: NormalizedPrintPaperSpec, page: readonly [nu
   const width = Math.round(millimetersToPixels(page[0], paper.dpi));
   const height = Math.round(millimetersToPixels(page[1], paper.dpi));
   const pixels = width * height;
-  const label = typeof paper.size === 'string' ? paper.size : `${paper.size.widthMm}mm×${paper.size.heightMm}mm custom paper`;
-  const limitSummary = `DPI ${limits.minDpi}-${limits.maxDpi}, dimension ${limits.maxCanvasDimension}px, pixels ${limits.maxCanvasPixels}`;
+  const label = typeof paper.size === 'string' ? paper.size : `${paper.size.widthMm}mm×${paper.size.heightMm}mm 自定义纸张`;
+  const limitSummary = `DPI ${limits.minDpi}-${limits.maxDpi}，单边 ${limits.maxCanvasDimension}px，总像素 ${limits.maxCanvasPixels}`;
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || !Number.isSafeInteger(pixels)) {
-    throw new InvalidArgumentError(`${label} at ${paper.dpi} DPI produces invalid pixel dimensions ${width}×${height}; limits: ${limitSummary}`);
+    throw new InvalidArgumentError(`${label} 在 ${paper.dpi} DPI 下产生无效像素尺寸 ${width}×${height}；当前限制：${limitSummary}`);
   }
   return Object.freeze([width, height]);
 }
@@ -521,10 +517,10 @@ function createPixelBudgetIssue(
   ) {
     return undefined;
   }
-  const label = typeof paper.size === 'string' ? paper.size : `${paper.size.widthMm}mm×${paper.size.heightMm}mm custom paper`;
+  const label = typeof paper.size === 'string' ? paper.size : `${paper.size.widthMm}mm×${paper.size.heightMm}mm 自定义纸张`;
   return freezeIssue(
     'pixel-budget-exceeded',
-    `${label} at ${paper.dpi} DPI produces ${width}×${height}px (${pixels} pixels); limits: DPI ${limits.minDpi}-${limits.maxDpi}, dimension ${limits.maxCanvasDimension}px, pixels ${limits.maxCanvasPixels}`,
+    `${label} 在 ${paper.dpi} DPI 下将生成 ${width}×${height}px（共 ${pixels} 像素）；当前限制：DPI ${limits.minDpi}-${limits.maxDpi}，单边 ${limits.maxCanvasDimension}px，总像素 ${limits.maxCanvasPixels}`,
     'paper.dpi'
   );
 }

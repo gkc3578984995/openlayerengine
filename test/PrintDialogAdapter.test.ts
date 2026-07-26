@@ -78,6 +78,10 @@ class FakeElement {
   download = '';
   clickCalls = 0;
   isConnected = true;
+  clientWidth = 1200;
+  clientHeight = 800;
+  scrollTop = 0;
+  scrollLeft = 0;
 
   constructor(tagName: string) {
     this.tagName = tagName.toUpperCase();
@@ -136,10 +140,12 @@ class FakeElement {
     this.listeners.set(type, listeners);
   }
 
-  dispatch(type: string, init: Partial<Pick<FakeEvent, 'key' | 'shiftKey'>> = {}): FakeEvent {
+  dispatch(type: string, init: Partial<Pick<FakeEvent, 'key' | 'shiftKey' | 'clientX' | 'pointerId'>> = {}): FakeEvent {
     const event: FakeEvent = {
       key: init.key ?? '',
       shiftKey: init.shiftKey ?? false,
+      clientX: init.clientX ?? 0,
+      pointerId: init.pointerId ?? 1,
       defaultPrevented: false,
       preventDefault() {
         this.defaultPrevented = true;
@@ -147,6 +153,10 @@ class FakeElement {
     };
     for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);
     return event;
+  }
+
+  getBoundingClientRect(): { left: number; width: number } {
+    return { left: 0, width: this.clientWidth };
   }
 
   click(): void {
@@ -180,6 +190,8 @@ class FakeElement {
 interface FakeEvent {
   key: string;
   shiftKey: boolean;
+  clientX: number;
+  pointerId: number;
   defaultPrevented: boolean;
   preventDefault(): void;
 }
@@ -189,6 +201,30 @@ const fakeDocument = {
   createElement: (tagName: string) => new FakeElement(tagName),
   createTextNode: (text: string) => new FakeText(text)
 };
+
+class FakeResizeObserver {
+  static readonly instances: FakeResizeObserver[] = [];
+  readonly #callback: ResizeObserverCallback;
+  observed: FakeElement | undefined;
+  disconnected = false;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.#callback = callback;
+    FakeResizeObserver.instances.push(this);
+  }
+
+  observe(target: Element): void {
+    this.observed = target as unknown as FakeElement;
+  }
+
+  disconnect(): void {
+    this.disconnected = true;
+  }
+
+  trigger(): void {
+    this.#callback([], this as unknown as ResizeObserver);
+  }
+}
 
 class FakeImage {
   static readonly instances: FakeImage[] = [];
@@ -292,19 +328,23 @@ class FailingSubscribeSession extends FakeSession {
 
 const originalDocument = globalThis.document;
 const originalImage = globalThis.Image;
+const originalResizeObserver = globalThis.ResizeObserver;
 
 beforeEach(() => {
   vi.useFakeTimers();
   FakeImage.instances.length = 0;
+  FakeResizeObserver.instances.length = 0;
   fakeDocument.activeElement = null;
   Object.defineProperty(globalThis, 'document', { configurable: true, value: fakeDocument });
   Object.defineProperty(globalThis, 'Image', { configurable: true, value: FakeImage });
+  Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: FakeResizeObserver });
 });
 
 afterEach(() => {
   vi.useRealTimers();
   Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
   Object.defineProperty(globalThis, 'Image', { configurable: true, value: originalImage });
+  Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver });
 });
 
 describe('PrintDialogAdapter', () => {
@@ -385,6 +425,7 @@ describe('PrintDialogAdapter', () => {
     const updates: Array<readonly [string, string]> = [
       ['列数', '2'],
       ['排列方向', 'row'],
+      ['图例位置', 'top-right'],
       ['最大宽度（mm）', '96'],
       ['内边距（mm）', '4'],
       ['背景', '#abcdef'],
@@ -400,6 +441,7 @@ describe('PrintDialogAdapter', () => {
     expect(manualSpec(session).layout).toEqual({
       columns: 2,
       direction: 'row',
+      position: 'top-right',
       maxWidthMm: 96,
       paddingMm: 4,
       background: '#abcdef',
@@ -408,6 +450,116 @@ describe('PrintDialogAdapter', () => {
     });
     expect(manualSpec(session).items.find((item) => item.id === 'point')).toMatchObject({ label: '重点目标', groupId: 'g2', visible: false, order: 0 });
     expect(manualSpec(session).items.find((item) => item.id === 'dormant')).toMatchObject({ sourceKey: 'source:dormant', label: '暂时消失来源' });
+    adapter.destroy();
+  });
+
+  it('switches all four legend positions and reflects the selected anchor in the live paper', async () => {
+    const { adapter, session, target } = setup();
+    clickText(target, '4 手动图例');
+    const position = fieldControl(target, '图例位置');
+    expect(position.value).toBe('bottom-left');
+    expect(byClass(target, 'ol-print-paper__legend').classList.contains('ol-print-paper__legend--bottom-left')).toBe(true);
+
+    for (const value of ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const) {
+      const control = fieldControl(target, '图例位置');
+      control.value = value;
+      control.dispatch('change');
+      await flush();
+      expect((manualSpec(session).layout as { readonly position?: string } | undefined)?.position).toBe(value);
+      expect(byClass(target, 'ol-print-paper__legend').classList.contains(`ol-print-paper__legend--${value}`)).toBe(true);
+    }
+    adapter.destroy();
+  });
+
+  it('collapses legend entries by group without changing their output configuration', async () => {
+    const { adapter, session, target } = setup();
+    clickText(target, '4 手动图例');
+    const before = manualSpec(session).items;
+    const collapse = byAria(target, '折叠图例分组 第一组');
+    collapse.focus();
+    collapse.click();
+    expect(byAria(target, '展开图例分组 第一组').getAttribute('aria-expanded')).toBe('false');
+    expect(fakeDocument.activeElement).toBe(byAria(target, '展开图例分组 第一组'));
+    expect(allByAria(target, '图例名称').map((input) => input.value)).toEqual(['区域']);
+    expect(manualSpec(session).items).toEqual(before);
+    clickAria(target, '展开图例分组 第一组');
+    expect(allByAria(target, '图例名称').map((input) => input.value)).toEqual(['目标点', '道路', '区域']);
+    adapter.destroy();
+  });
+
+  it('preserves the manual legend scroll position across value updates and same-step rerenders', async () => {
+    const { adapter, target } = setup();
+    clickText(target, '4 手动图例');
+
+    let scroll = byClass(target, 'ol-print-dialog__scroll');
+    scroll.scrollTop = 420;
+    scroll.scrollLeft = 11;
+    const position = fieldControl(target, '图例位置');
+    position.value = 'top-right';
+    position.dispatch('change');
+
+    scroll = byClass(target, 'ol-print-dialog__scroll');
+    expect(scroll.scrollTop).toBe(420);
+    expect(scroll.scrollLeft).toBe(11);
+    await flush();
+    scroll = byClass(target, 'ol-print-dialog__scroll');
+    expect(scroll.scrollTop).toBe(420);
+    expect(scroll.scrollLeft).toBe(11);
+
+    scroll.scrollTop = 275;
+    clickAria(target, '折叠图例分组 第一组');
+    expect(byClass(target, 'ol-print-dialog__scroll').scrollTop).toBe(275);
+
+    clickText(target, '5 预览导出');
+    expect(byClass(target, 'ol-print-dialog__scroll').scrollTop).toBe(0);
+    adapter.destroy();
+  });
+
+  it('pairs every editable legend color with a picker while preserving text and alpha input', async () => {
+    const session = new FakeSession();
+    const legend = session.spec?.legend;
+    if (legend?.mode !== 'manual') throw new Error('Expected manual legend');
+    session.spec = { ...session.spec!, legend: { ...legend, layout: { background: 'rgba(34, 68, 102, 0.5)' } } };
+    const { adapter, target } = setup(session);
+    clickText(target, '4 手动图例');
+    for (const label of ['背景', '点填充颜色', '点描边颜色', '线颜色', '面填充颜色', '轮廓颜色']) {
+      expect(byAria(target, `选择${label}`).type).toBe('color');
+    }
+    expect(byAria(target, '选择背景').value).toBe('#224466');
+    let background = fieldControl(target, '背景');
+    background.value = 'red';
+    background.dispatch('change');
+    await flush();
+    expect(byAria(target, '选择背景').value).toBe('#ff0000');
+    background = fieldControl(target, '背景');
+    background.value = 'transparent';
+    background.dispatch('change');
+    await flush();
+    expect(byAria(target, '选择背景').value).toBe('#000000');
+    background = fieldControl(target, '背景');
+    background.value = 'red; background:black';
+    background.dispatch('change');
+    expect(background.getAttribute('aria-invalid')).toBe('true');
+    clickAria(target, '折叠图例分组 第一组');
+    const persistedBackground = fieldControl(target, '背景');
+    expect(persistedBackground.value).toBe('red; background:black');
+    expect(persistedBackground.getAttribute('aria-invalid')).toBe('true');
+    persistedBackground.value = '#ffffff80';
+    persistedBackground.dispatch('change');
+    await flush();
+    expect(manualSpec(session).layout?.background).toBe('#ffffff80');
+    clickAria(target, '展开图例分组 第一组');
+    const picker = byAria(target, '选择点填充颜色');
+    picker.value = '#224466';
+    picker.dispatch('change');
+    await flush();
+    expect(manualSpec(session).items.find((item) => item.id === 'point')?.symbol).toMatchObject({ fill: { color: '#224466' } });
+
+    const text = symbolFieldControl(target, '目标点', '点填充颜色');
+    text.value = '#22446680';
+    text.dispatch('change');
+    await flush();
+    expect(manualSpec(session).items.find((item) => item.id === 'point')?.symbol).toMatchObject({ fill: { color: '#22446680' } });
     adapter.destroy();
   });
 
@@ -501,10 +653,10 @@ describe('PrintDialogAdapter', () => {
     kind = byAria(target, '设置 目标点 的符号类型');
     kind.value = 'icon';
     kind.dispatch('change');
-    const crossOrigin = fieldControl(target, 'crossOrigin');
+    const crossOrigin = fieldControl(target, '跨域模式');
     crossOrigin.value = 'anonymous';
     crossOrigin.dispatch('change');
-    const url = fieldControl(target, '图标 URL');
+    const url = fieldControl(target, '图标地址');
     url.value = 'https://example.test/icon.png';
     url.dispatch('change');
     await flush(4);
@@ -537,7 +689,7 @@ describe('PrintDialogAdapter', () => {
     });
 
     const updateCount = session.update.mock.calls.length;
-    const failedUrl = fieldControl(target, '图标 URL');
+    const failedUrl = fieldControl(target, '图标地址');
     failedUrl.value = 'https://example.test/fail.png';
     failedUrl.dispatch('change');
     await flush(3);
@@ -578,7 +730,7 @@ describe('PrintDialogAdapter', () => {
     const kind = byAria(target, '设置 目标点 的符号类型');
     kind.value = 'icon';
     kind.dispatch('change');
-    const url = symbolFieldControl(target, '目标点', '图标 URL');
+    const url = symbolFieldControl(target, '目标点', '图标地址');
 
     for (let index = 0; index < 50; index += 1) {
       url.value = `https://example.test/pending-${index}.png`;
@@ -610,13 +762,21 @@ describe('PrintDialogAdapter', () => {
   it('binds warning acknowledgement to validation revision and exposes fit/100% preview modes', async () => {
     const session = new FakeSession();
     session.validation = validationFixture(7, {
-      warnings: [{ code: 'scale-valid-at-center', message: '比例尺仅在中心准确', requiresAcknowledgement: true }],
+      warnings: [
+        {
+          code: 'scale-valid-at-center',
+          message: 'The fixed scale is locally valid at the print center because projection scale varies by position',
+          requiresAcknowledgement: true
+        }
+      ],
       canExport: false
     });
     const { adapter, target } = setup(session, true);
     clickText(target, '5 预览导出');
     expect(buttonText(target, '导出 PNG').disabled).toBe(true);
-    expect(allText(target)).toContain('printer-scaling-not-guaranteed');
+    expect(allText(target)).toContain('比例尺适用范围提示：受投影影响，固定比例尺仅在打印中心准确。');
+    expect(allText(target)).not.toContain('scale-valid-at-center');
+    expect(allText(target)).not.toContain('Physical output scale');
 
     const acknowledgement = byAria(target, '确认当前版本的打印警告');
     acknowledgement.checked = true;
@@ -645,6 +805,25 @@ describe('PrintDialogAdapter', () => {
     session.emit('validationchange');
     expect(buttonText(target, '导出 PNG').disabled).toBe(true);
     expect(buttonText(target, '刷新最终预览').disabled).toBe(true);
+    adapter.destroy();
+  });
+
+  it('presents warning and error messages in Chinese while retaining machine codes only as data', () => {
+    const session = new FakeSession();
+    session.validation = validationFixture(4, {
+      issues: [{ code: 'resource-timeout', message: 'Timed out while loading map tiles' }],
+      warnings: [{ code: 'unknown-dynamic-style', message: 'Dynamic style target could not be parsed', requiresAcknowledgement: false }],
+      canPreview: false,
+      canExport: false
+    });
+    const { adapter, target } = setup(session);
+    const text = allText(target);
+    expect(text).toContain('资源加载超时：打印所需资源加载超时，请检查网络后重试。');
+    expect(text).toContain('动态样式需确认：图层存在无法自动解析的动态样式，请在手动图例中确认。');
+    expect(text).not.toContain('resource-timeout');
+    expect(text).not.toContain('Timed out');
+    expect(text).not.toContain('unknown-dynamic-style');
+    expect(descendants(target).some((element) => element.dataset.printValidationCode === 'resource-timeout')).toBe(true);
     adapter.destroy();
   });
 
@@ -763,7 +942,8 @@ describe('PrintDialogAdapter', () => {
       expect(setupResult.session.export).toHaveBeenCalledWith({ format: 'png' });
       expect(createObjectUrl).toHaveBeenCalledTimes(2);
       expect(revokeObjectUrl).toHaveBeenCalledWith('blob:download');
-      expect(allText(setupResult.target)).toContain('anchor unavailable');
+      expect(allText(setupResult.target)).toContain('操作未完成，请检查当前配置后重试。');
+      expect(allText(setupResult.target)).not.toContain('anchor unavailable');
     } finally {
       adapter?.destroy();
       fakeDocument.createElement = createElement;
@@ -849,20 +1029,23 @@ describe('PrintDialogAdapter', () => {
     adapter.destroy();
   });
 
-  it('shows source/actual ranges, legend basis and the complete export checklist', () => {
+  it('shows concise source/actual ranges, legend basis and the complete export checklist', () => {
     const { adapter, target } = setup();
     clickText(target, '2 范围选择');
     expect(allText(target)).toContain('来源范围0, 0, 100, 100');
     expect(allText(target)).toContain('实际范围0, 0, 100, 100');
-    expect(allText(target)).toContain('最终足迹(0, 100)');
+    expect(allText(target)).not.toContain('最终足迹');
+    expect(allText(target)).not.toContain('窄屏预览');
     clickText(target, '3 自动图例');
     expect(allText(target)).toContain('合并条目3 项');
     expect(allText(target)).toContain('最终比例尺1∶10,000');
     expect(allText(target)).toContain('最终打印足迹、最终比例尺');
     clickText(target, '5 预览导出');
-    for (const label of ['范围', '比例尺', '页面与图例溢出', '来源警告', '资源与 CORS', '像素预算', '动画快照', 'PDF', '浏览器打印限制']) {
+    for (const label of ['范围', '比例尺', '页面与图例溢出', '来源警告', '资源与 CORS', '像素预算', '动画快照', '浏览器打印限制']) {
       expect(allText(target)).toContain(label);
     }
+    expect(allText(target)).not.toContain('PDF');
+    expect(descendants(target).some((element) => element.tagName === 'BUTTON' && allText(element) === '导出 PDF')).toBe(false);
     adapter.destroy();
   });
 
@@ -876,7 +1059,8 @@ describe('PrintDialogAdapter', () => {
       canExport: false
     });
     const { adapter, target } = setup(session);
-    expect(allText(target)).toContain('pixel-budget-exceeded：A3 600 DPI 超出像素预算');
+    expect(allText(target)).toContain('输出像素超限：A3 600 DPI 超出像素预算');
+    expect(allText(target)).not.toContain('pixel-budget-exceeded');
     expect(allText(target)).toContain('MiB（高）');
     expect(buttonText(target, '下一步：选择范围').disabled).toBe(true);
     adapter.destroy();
@@ -954,6 +1138,27 @@ describe('PrintDialogAdapter', () => {
     adapter.destroy();
   });
 
+  it('normalizes an external extent update back to the view source without a UI and session mismatch', () => {
+    const session = new FakeSession();
+    const { adapter, target } = setup(session);
+    const external = {
+      ...session.spec!,
+      range: { source: { mode: 'extent' as const, extent: [10, 20, 30, 40] as const }, scale: { mode: 'fit' as const } }
+    };
+    session.spec = external;
+    session.validation = validationFixture(2);
+    session.emit('specchange', { type: 'specchange', spec: external, revision: 2 });
+
+    expect(fieldControl(target, '范围来源').value).toBe('view');
+    expect(session.spec?.range.source.mode).toBe('view');
+    expect(allText(target)).toContain('内置界面不编辑外部坐标范围，已切换为当前视图。');
+    const title = fieldControl(target, '主标题');
+    title.value = '范围真源一致';
+    title.dispatch('change');
+    expect(session.spec?.range.source.mode).toBe('view');
+    adapter.destroy();
+  });
+
   it('keeps the next editor focused when a previous live field settles on blur', async () => {
     const { adapter, session, target } = setup();
     const classification = fieldControl(target, '密级');
@@ -1009,6 +1214,23 @@ describe('PrintDialogAdapter', () => {
     expect(root.dispatch('keydown', { key: 'Tab' }).defaultPrevented).toBe(true);
     expect(descendants(root)).toContain(fakeDocument.activeElement);
     expect(fieldControl(target, '纸宽（mm）')).toBeDefined();
+    adapter.destroy();
+  });
+
+  it('omits the specified-extent source and coordinate editor from the built-in UI', () => {
+    const session = new FakeSession();
+    session.spec = { ...session.spec!, range: { source: { mode: 'extent', extent: [10, 20, 30, 40] }, scale: { mode: 'fit' } } };
+    const { adapter, target } = setup(session);
+    const source = fieldControl(target, '范围来源');
+    expect(source.value).toBe('view');
+    expect(session.spec?.range.source.mode).toBe('view');
+    expect(allText(target)).toContain('内置界面不编辑外部坐标范围，已切换为当前视图。');
+    const values = descendants(source)
+      .filter((element) => element.tagName === 'OPTION')
+      .map((option) => option.value);
+    expect(values).toEqual(['view', 'box']);
+    expect(allText(target)).not.toContain('指定范围');
+    expect(allText(target)).not.toContain('范围坐标');
     adapter.destroy();
   });
 
@@ -1142,15 +1364,18 @@ describe('PrintDialogAdapter', () => {
     expect(allText(byClass(target, 'ol-print-paper__header-issuer'))).toBe('');
     const css = readFileSync('src/assets/style/print.scss', 'utf8');
     expect(css).toMatch(/\.ol-print-paper__legend\s*\{[^}]*max-height:[^;]+;[^}]*overflow:\s*auto;/s);
-    expect(css).toMatch(/\.ol-print-paper__header-metadata\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s);
+    expect(css).toMatch(/\.ol-print-paper__header-metadata\s*\{[^}]*display:\s*flex;[^}]*justify-content:\s*flex-end;[^}]*white-space:\s*nowrap;/s);
+    expect(css).toMatch(/\.ol-print-paper__titles\s*\{[^}]*margin-bottom:\s*var\(--ol-print-paper-title-gap\)/s);
+    expect(css).toMatch(/\.ol-print-paper__map\s*\{[^}]*margin-bottom:\s*var\(--ol-print-paper-footer-gap\)/s);
     adapter.destroy();
   });
 
   it('marks caller targets as embedded and ships relative sizing plus explicit preview-mode CSS', () => {
-    const { adapter, target } = setup(undefined, true);
+    const { adapter, session, target } = setup(undefined, true);
     const dialog = byClass(target, 'ol-print-dialog');
     expect(dialog.classList.contains('ol-print-dialog--embedded')).toBe(true);
     expect(dialog.getAttribute('aria-modal')).toBe('false');
+    expect(byClass(target, 'ol-print-dialog__preview-stage')).toBeDefined();
     const css = readFileSync('src/assets/style/print.scss', 'utf8');
     expect(css).toMatch(/\.ol-print-dialog--embedded\s*\{[^}]*position:\s*relative;[^}]*height:[^;]+;[^}]*min-height:/s);
     expect(css).toMatch(/\.ol-print-dialog__preview--actual/);
@@ -1158,10 +1383,102 @@ describe('PrintDialogAdapter', () => {
     expect(css).toMatch(/\.dark \.ol-print-dialog/);
     expect(css).toMatch(/@media \(prefers-color-scheme: dark\)/);
     expect(css).toMatch(/\.ol-print-paper\s*\{[^}]*color:\s*#111;[^}]*background:\s*#fff;/s);
+
+    let stage = byClass(target, 'ol-print-dialog__preview-stage');
+    stage.clientWidth = 600;
+    stage.clientHeight = 200;
+    FakeResizeObserver.instances.at(-1)?.trigger();
+    let paper = byClass(target, 'ol-print-paper--fit');
+    expect(Number.parseFloat(paper.style.width) / Number.parseFloat(paper.style.height)).toBeCloseTo(297 / 210, 6);
+    expect(Number.parseFloat(paper.style.height)).toBeLessThanOrEqual(200);
+
+    session.plan = undefined;
+    const direction = fieldControl(target, '方向');
+    direction.value = 'portrait';
+    direction.dispatch('change');
+    stage = byClass(target, 'ol-print-dialog__preview-stage');
+    stage.clientWidth = 200;
+    stage.clientHeight = 600;
+    FakeResizeObserver.instances.at(-1)?.trigger();
+    paper = byClass(target, 'ol-print-paper--fit');
+    expect(Number.parseFloat(paper.style.width) / Number.parseFloat(paper.style.height)).toBeCloseTo(210 / 297, 6);
+    expect(Number.parseFloat(paper.style.width)).toBeLessThanOrEqual(200);
     adapter.destroy();
   });
 
-  it('keeps the box-selection map visible behind transparent workspace and compact floating panels', async () => {
+  it('starts at a 40/60 split and resizes the two panes with pointer or keyboard within minimum widths', () => {
+    const { adapter, target } = setup();
+    const dialog = byClass(target, 'ol-print-dialog');
+    const splitter = byClass(target, 'ol-print-dialog__splitter');
+    expect(splitter.getAttribute('role')).toBe('separator');
+    expect(splitter.getAttribute('aria-valuenow')).toBe('40');
+    expect(splitter.getAttribute('aria-valuemin')).toBe('35');
+    expect(splitter.getAttribute('aria-valuemax')).toBe('69.2');
+    expect(splitter.dispatch('pointerdown', { clientX: 720, pointerId: 7 }).defaultPrevented).toBe(true);
+    splitter.dispatch('pointerup', { clientX: 720, pointerId: 7 });
+    expect(dialog.style['--ol-print-input-ratio']).toBe('60%');
+    expect(splitter.getAttribute('aria-valuenow')).toBe('60');
+    expect(splitter.dispatch('keydown', { key: 'ArrowLeft' }).defaultPrevented).toBe(true);
+    expect(dialog.style['--ol-print-input-ratio']).toBe('58%');
+    splitter.dispatch('keydown', { key: 'Home' });
+    expect(Number(splitter.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(35);
+
+    splitter.dispatch('keydown', { key: 'End' });
+    const workspace = byClass(target, 'ol-print-dialog__workspace');
+    workspace.clientWidth = 820;
+    FakeResizeObserver.instances.at(-1)?.trigger();
+    splitter.dispatch('keydown', { key: 'Home' });
+    expect(dialog.style['--ol-print-input-ratio']).toBe('51.2%');
+    expect(splitter.getAttribute('aria-valuemin')).toBe('51.2');
+    expect(splitter.getAttribute('aria-valuenow')).toBe('51.2');
+
+    workspace.clientWidth = 700;
+    FakeResizeObserver.instances.at(-1)?.trigger();
+    expect(Number(splitter.getAttribute('aria-valuenow'))).toBe(50);
+    expect(Number(splitter.getAttribute('aria-valuemax'))).toBe(50);
+    expect(dialog.style['--ol-print-input-ratio']).toBe('51.2%');
+
+    workspace.clientWidth = 1200;
+    FakeResizeObserver.instances.at(-1)?.trigger();
+    expect(dialog.style['--ol-print-input-ratio']).toBe('51.2%');
+    expect(splitter.getAttribute('aria-valuenow')).toBe('51.2');
+
+    const css = readFileSync('src/assets/style/print.scss', 'utf8');
+    expect(css).toMatch(/--ol-print-input-ratio:\s*40%/);
+    expect(css).toMatch(/grid-template-columns:\s*minmax\(420px, var\(--ol-print-input-ratio\)\) 10px minmax\(360px, 1fr\)/);
+    expect(css).toMatch(/@container ol-print-dialog \(max-width: 800px\)[\s\S]*\.ol-print-dialog__splitter\s*\{[^}]*display:\s*none;/s);
+    expect(css).toMatch(/\.ol-print-dialog__preview-stage\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-height:\s*0;/s);
+    expect(css).toMatch(/\.ol-print-paper--fit\s*\{[^}]*flex:\s*0 0 auto;[^}]*max-height:\s*100%;/s);
+    const observer = FakeResizeObserver.instances.at(-1);
+    adapter.destroy();
+    expect(observer?.disconnected).toBe(true);
+  });
+
+  it('keeps the primary action area outside the independently scrolling body on all five screens', () => {
+    const { adapter, target } = setup();
+    for (const [step, expectedAction] of [
+      ['1 版式设置', '下一步：选择范围'],
+      ['2 范围选择', '下一步：自动图例'],
+      ['3 自动图例', '下一步：手动图例'],
+      ['4 手动图例', '下一步：预览导出'],
+      ['5 预览导出', '浏览器打印']
+    ] as const) {
+      clickText(target, step);
+      const content = byClass(target, 'ol-print-dialog__content');
+      const directElements = content.children.filter((child): child is FakeElement => child instanceof FakeElement);
+      expect(directElements).toHaveLength(2);
+      expect(directElements[0]?.classList.contains('ol-print-dialog__scroll')).toBe(true);
+      expect(directElements[1]?.classList.contains('ol-print-actions--footer')).toBe(true);
+      expect(allText(directElements[1]!)).toContain(expectedAction);
+    }
+    const css = readFileSync('src/assets/style/print.scss', 'utf8');
+    expect(css).toMatch(/\.ol-print-dialog__content\s*\{[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s);
+    expect(css).toMatch(/\.ol-print-dialog__scroll\s*\{[^}]*gap:\s*18px;[^}]*padding:\s*22px;[^}]*overflow:\s*auto;/s);
+    expect(css).toMatch(/\.ol-print-actions--footer\s*\{[^}]*flex:\s*0 0 auto;/s);
+    adapter.destroy();
+  });
+
+  it('keeps the desktop box-selection preview and exposes the map without narrow-preview controls', async () => {
     const { adapter, target } = setup();
     const range = fieldControl(target, '范围来源');
     range.value = 'box';
@@ -1169,12 +1486,9 @@ describe('PrintDialogAdapter', () => {
     clickText(target, '2 范围选择');
     const dialog = byClass(target, 'ol-print-dialog');
     expect(dialog.classList.contains('is-selecting')).toBe(true);
-    expect(dialog.classList.contains('is-selection-preview-expanded')).toBe(false);
-    expect(buttonText(target, '展开成品预览').getAttribute('aria-expanded')).toBe('false');
-    clickText(target, '展开成品预览');
-    expect(dialog.classList.contains('is-selection-preview-expanded')).toBe(true);
-    clickText(target, '收起成品预览');
-    expect(dialog.classList.contains('is-selection-preview-expanded')).toBe(false);
+    expect(allText(target)).not.toContain('窄屏预览');
+    expect(allText(target)).not.toContain('展开成品预览');
+    expect(allText(target)).not.toContain('收起成品预览');
     clickText(target, '开始框选');
     expect(byClass(target, 'ol-print-dialog__workspace')).toBeDefined();
     expect(byClass(target, 'ol-print-dialog__content')).toBeDefined();
@@ -1184,16 +1498,27 @@ describe('PrintDialogAdapter', () => {
     expect(css).toMatch(/\.ol-print-dialog\.is-selecting \.ol-print-dialog__workspace\s*\{[^}]*background:\s*transparent;/s);
     expect(css).toMatch(/\.ol-print-dialog\.is-selecting \.ol-print-dialog__preview\s*\{[^}]*background:\s*var\(--ol-print-bg\);/s);
     expect(css).toMatch(
-      /@container ol-print-dialog \(max-width: 760px\)[\s\S]*\.ol-print-dialog\.is-selecting \.ol-print-dialog__content\s*\{[^}]*position:\s*absolute;/s
+      /@container ol-print-dialog \(max-width: 800px\)[\s\S]*\.ol-print-dialog\.is-selecting \.ol-print-dialog__content\s*\{[^}]*position:\s*absolute;/s
     );
-    expect(css).toMatch(/\.ol-print-dialog\.is-selecting:not\(\.is-selection-preview-expanded\) \.ol-print-dialog__preview/);
+    expect(css).toMatch(
+      /@container ol-print-dialog \(max-width: 800px\)[\s\S]*\.ol-print-dialog\.is-selecting \.ol-print-dialog__preview\s*\{[^}]*display:\s*none;/s
+    );
+    expect(css).toMatch(
+      /\.ol-print-dialog\.is-selecting \.ol-print-dialog__content\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;[^}]*pointer-events:\s*none;/s
+    );
+    expect(css).toMatch(/\.ol-print-dialog\.is-selecting \.ol-print-dialog__scroll\s*\{[^}]*max-height:\s*min\(360px, 45%\);[^}]*pointer-events:\s*auto;/s);
+    expect(css).toMatch(/\.ol-print-dialog\.is-selecting \.ol-print-actions--footer\s*\{[^}]*margin-top:\s*auto;[^}]*pointer-events:\s*auto;/s);
+    expect(css).toMatch(/\.ol-print-dialog\.is-selecting \.ol-print-actions--footer\s*\{[^}]*box-shadow:\s*none;/s);
+    expect(css).toMatch(/\.ol-print-dialog__content\s*\{[^}]*container:\s*ol-print-input \/ inline-size;/s);
+    expect(css).toMatch(/@container ol-print-input \(max-width: 560px\)[\s\S]*\.ol-print-legend-editor__group-row,[\s\S]*flex-wrap:\s*wrap;/s);
+    expect(css).not.toContain('is-selection-preview-expanded');
     expect(css).toMatch(/min-height:\s*520px;[\s\S]*min-width:\s*300px;/);
     expect(css).toMatch(/\.ol-print-paper--fit\s*\{[^}]*max-width:\s*100%;[^}]*max-height:/s);
     const selectionBoxRule = [...css.matchAll(/\.ol-print-selection-box\s*\{([^}]*)\}/g)].at(-1)?.[1] ?? '';
     expect(selectionBoxRule).toMatch(/border:\s*2px solid #1677ff/);
     expect(selectionBoxRule).not.toMatch(/background|box-shadow/);
+    expect(css).toMatch(/\.ol-print-selection-output\s*\{[^}]*border:\s*2px dashed[^}]*pointer-events:\s*none;/s);
     await flush();
-    expect(dialog.classList.contains('is-selection-preview-expanded')).toBe(true);
     adapter.destroy();
   });
 
@@ -1293,7 +1618,7 @@ describe('PrintDialogAdapter', () => {
     expect(allText(target)).toContain('旧版本');
     clickText(target, '5 预览导出');
     await flush();
-    expect(allText(target)).toContain('更新失败：字体尚未就绪');
+    expect(allText(target)).toContain('更新失败：资源加载失败：字体尚未就绪');
     expect(allText(target)).toContain('当前显示 r1 草稿预览（继续显示旧版本）');
     expect(buttonText(target, '重试资源并刷新').disabled).toBe(false);
     expect(buttonText(target, '导出 PNG').disabled).toBe(true);
@@ -1511,7 +1836,7 @@ function clickAria(root: FakeElement, label: string): void {
 }
 
 function fieldControl(root: FakeElement, label: string): FakeElement {
-  const field = descendants(root).find((element) => element.tagName === 'LABEL' && allText(element).startsWith(label));
+  const field = descendants(root).find((element) => element.classList.contains('ol-print-field') && allText(element).startsWith(label));
   const control = field?.children.find((child): child is FakeElement => child instanceof FakeElement && ['INPUT', 'SELECT'].includes(child.tagName));
   if (control === undefined) throw new Error(`Missing field: ${label}`);
   return control;

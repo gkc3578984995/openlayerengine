@@ -111,6 +111,30 @@ describe('BrowserPrintAdapter', () => {
     adapter.destroy();
   });
 
+  it('accepts an image created in the iframe realm instead of requiring the parent constructor', async () => {
+    class ParentRealmImageElement {}
+    Object.defineProperty(globalThis, 'HTMLImageElement', { configurable: true, value: ParentRealmImageElement });
+    const adapter = new BrowserPrintAdapter();
+
+    await adapter.print(request());
+
+    expect(image.decode).toHaveBeenCalledOnce();
+    expect(frame.contentWindow.print).toHaveBeenCalledOnce();
+    frame.contentWindow.dispatch('afterprint');
+    adapter.destroy();
+  });
+
+  it('still rejects and cleans up when the controlled print document has no image', async () => {
+    vi.spyOn(frame.contentDocument, 'querySelector').mockReturnValue(null);
+    const adapter = new BrowserPrintAdapter();
+
+    await expect(adapter.print(request())).rejects.toMatchObject({ code: 'print-window-blocked', message: '无法创建浏览器打印页面。' });
+
+    expect(frame.removed).toBe(true);
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:print-page');
+    adapter.destroy();
+  });
+
   it('cancels a pending image decode and cleans every owned resource', async () => {
     image.decode.mockReturnValue(new Promise<void>(() => undefined));
     const controller = new AbortController();

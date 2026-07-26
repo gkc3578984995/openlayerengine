@@ -357,7 +357,12 @@ const memberCoverage: CoverageItem[] = [
   ...members('earth', 'PrintLegendSymbolSpec', ['kind', 'radiusMm', 'fill', 'stroke', 'src', 'size', 'anchor', 'crossOrigin'], '编译'),
   ...members('earth', 'PrintLegendGroup', ['id', 'title', 'visible', 'order'], '编译'),
   ...members('earth', 'PrintLegendItem', ['id', 'groupId', 'label', 'symbol', 'visible', 'order', 'count', 'sourceKey'], '编译'),
-  ...members('earth', 'PrintLegendLayoutSpec', ['columns', 'direction', 'maxWidthMm', 'paddingMm', 'background', 'groupGapMm', 'itemGapMm'], '编译'),
+  ...members(
+    'earth',
+    'PrintLegendLayoutSpec',
+    ['position', 'columns', 'direction', 'maxWidthMm', 'paddingMm', 'background', 'groupGapMm', 'itemGapMm'],
+    '编译'
+  ),
   ...members('earth', 'PrintAutoLegendSpec', ['mode', 'showCounts'], '编译'),
   ...members('earth', 'PrintManualLegendSpec', ['mode', 'groups', 'items', 'layout'], '编译'),
   ...members('earth', 'PrintLegendSpec', ['mode', 'showCounts', 'groups', 'items', 'layout'], '编译'),

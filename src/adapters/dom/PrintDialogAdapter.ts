@@ -118,8 +118,7 @@ interface MutablePrintDraft {
   marginBottomMm: number;
   marginLeftMm: number;
   dpi: number;
-  rangeMode: 'view' | 'box' | 'extent';
-  extent: string;
+  rangeMode: 'view' | 'box';
   scaleMode: 'fit' | 'fixed';
   denominator: number;
   content: NonNullable<PrintSpec['content']>;
@@ -149,6 +148,7 @@ interface LiveInputScheduler {
 
 const steps = Object.freeze(['版式设置', '范围选择', '自动图例', '手动图例', '预览导出']);
 const classificationSuggestions = Object.freeze(['公开', '内部', '秘密', '机密', '机密★30年', '绝密']);
+const splitLayout = Object.freeze({ dividerWidth: 10, minInputPx: 420, minPreviewPx: 360, stackedMaxWidthPx: 800 });
 let printDialogSequence = 0;
 
 /** 内置五屏打印工作台；地图计算全部委托给同一个 PrintSession。 */
@@ -159,7 +159,9 @@ export class PrintDialogAdapter {
   readonly #embedded: boolean;
   readonly #previousActiveElement: HTMLElement | null;
   readonly #root: HTMLDivElement;
+  readonly #workspace: HTMLElement;
   readonly #content: HTMLElement;
+  readonly #splitter: HTMLElement;
   readonly #preview: HTMLElement;
   readonly #statusText: HTMLSpanElement;
   readonly #classificationSuggestionsId = `ol-print-classification-${++printDialogSequence}`;
@@ -167,6 +169,7 @@ export class PrintDialogAdapter {
   readonly #draft: MutablePrintDraft;
   #state: 'open' | 'closed' | 'destroyed' = 'open';
   #step = 0;
+  #renderedStep: number | undefined;
   #previewUrl: string | undefined;
   #previewGeneration = 0;
   #previewTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
@@ -180,7 +183,8 @@ export class PrintDialogAdapter {
   #previewQuality: 'draft' | 'final' | undefined;
   #previewError: string | undefined;
   #activePreviewQuality: 'draft' | 'final' | undefined;
-  #selectionPreviewExpanded = false;
+  #splitRatio = 40;
+  #splitPointerId: number | undefined;
   #acknowledgedValidationRevision: number | undefined;
   #draftError: string | undefined;
   readonly #invalidNumericFields = new Map<string, Readonly<{ value: string; message: string }>>();
@@ -189,6 +193,7 @@ export class PrintDialogAdapter {
   #tornDown = false;
   #lastValidationRevision: number;
   #manualIdCounter = 0;
+  readonly #collapsedLegendGroups = new Set<string>();
   readonly #iconValidationGenerations = new Map<string, number>();
   readonly #iconValidationControllers = new Map<string, AbortController>();
   readonly #liveScheduler: LiveInputScheduler = {
@@ -233,6 +238,7 @@ export class PrintDialogAdapter {
     this.#onDestroy = options.onDestroy;
     this.#embedded = options.embedded === true;
     this.#previousActiveElement = (document.activeElement as HTMLElement | null) ?? null;
+    const normalizeInitialExtent = options.session.spec?.range.source.mode === 'extent';
     this.#draft = draftFromSpec(options.session.spec);
     this.#lastValidationRevision = options.session.validation.revision;
     this.#root = element('div', 'ol-print-dialog');
@@ -260,10 +266,24 @@ export class PrintDialogAdapter {
     }
 
     const workspace = element('div', 'ol-print-dialog__workspace');
+    this.#workspace = workspace;
     this.#content = element('section', 'ol-print-dialog__content');
+    this.#splitter = element('div', 'ol-print-dialog__splitter');
+    this.#splitter.tabIndex = 0;
+    this.#splitter.setAttribute('role', 'separator');
+    this.#splitter.setAttribute('aria-label', '调整设置区和预览区宽度');
+    this.#splitter.setAttribute('aria-orientation', 'vertical');
+    this.#splitter.setAttribute('aria-valuemin', '0');
+    this.#splitter.setAttribute('aria-valuemax', '100');
+    this.#splitter.setAttribute('aria-valuenow', String(this.#splitRatio));
+    this.#splitter.addEventListener('pointerdown', this.#handleSplitterPointerDown);
+    this.#splitter.addEventListener('pointermove', this.#handleSplitterPointerMove);
+    this.#splitter.addEventListener('pointerup', this.#handleSplitterPointerEnd);
+    this.#splitter.addEventListener('pointercancel', this.#handleSplitterPointerEnd);
+    this.#splitter.addEventListener('keydown', this.#handleSplitterKeydown);
     this.#preview = element('aside', 'ol-print-dialog__preview');
     this.#preview.setAttribute('aria-label', '完整纸张实时预览');
-    workspace.append(this.#content, this.#preview);
+    workspace.append(this.#content, this.#splitter, this.#preview);
     this.#root.append(header, stepper, workspace);
     if (!this.#embedded) this.#root.addEventListener('keydown', this.#handleModalKeydown);
     options.target.append(this.#root);
@@ -282,6 +302,16 @@ export class PrintDialogAdapter {
         this.session.on('specchange', ({ spec, revision }) => {
           const external = !this.#committingDraft;
           this.#syncDraftFromSpec(spec, external);
+          if (external && spec.range.source.mode === 'extent') {
+            const normalized = this.#applyDraft(spec.legend);
+            this.#markPreviewUpdating(this.session.validation.revision);
+            this.#render();
+            if (normalized) {
+              this.#showMessage('内置界面不编辑外部坐标范围，已切换为当前视图。', 'info');
+              this.#queuePreview();
+            }
+            return;
+          }
           this.#markPreviewUpdating(revision);
           if (external) this.#render();
           else this.#renderPaper();
@@ -328,8 +358,19 @@ export class PrintDialogAdapter {
           this.#showMessage(errorMessage(error), 'error');
         })
       );
-      if (this.session.spec === undefined) this.#applyDraft();
+      this.#setSplitRatio(this.#splitRatio);
+      if (typeof ResizeObserver !== 'undefined') {
+        const resizeObserver = new ResizeObserver(() => {
+          this.#setSplitRatio(this.#splitRatio);
+          this.#syncFitPaperSize();
+        });
+        resizeObserver.observe(this.#workspace);
+        resizeObserver.observe(this.#preview);
+        own(() => resizeObserver.disconnect());
+      }
+      if (this.session.spec === undefined || normalizeInitialExtent) this.#applyDraft();
       this.#render();
+      if (normalizeInitialExtent) this.#showMessage('内置界面不编辑外部坐标范围，已切换为当前视图。', 'info');
       this.#queuePreview();
     } catch (error) {
       this.#teardown();
@@ -411,10 +452,69 @@ export class PrintDialogAdapter {
     target?.focus();
   };
 
+  readonly #handleSplitterPointerDown = (event: PointerEvent): void => {
+    this.#splitPointerId = event.pointerId;
+    this.#splitter.setPointerCapture?.(event.pointerId);
+    this.#splitter.classList.add('is-dragging');
+    this.#resizeFromPointer(event.clientX);
+    event.preventDefault();
+  };
+
+  readonly #handleSplitterPointerMove = (event: PointerEvent): void => {
+    if (this.#splitPointerId !== event.pointerId) return;
+    this.#resizeFromPointer(event.clientX);
+  };
+
+  readonly #handleSplitterPointerEnd = (event: PointerEvent): void => {
+    if (this.#splitPointerId !== event.pointerId) return;
+    this.#resizeFromPointer(event.clientX);
+    this.#splitPointerId = undefined;
+    this.#splitter.classList.remove('is-dragging');
+    this.#splitter.releasePointerCapture?.(event.pointerId);
+  };
+
+  readonly #handleSplitterKeydown = (event: KeyboardEvent): void => {
+    let ratio = this.#splitRatio;
+    if (event.key === 'ArrowLeft') ratio -= 2;
+    else if (event.key === 'ArrowRight') ratio += 2;
+    else if (event.key === 'Home') ratio = 0;
+    else if (event.key === 'End') ratio = 100;
+    else return;
+    this.#setSplitRatio(ratio);
+    event.preventDefault();
+  };
+
+  #resizeFromPointer(clientX: number): void {
+    const bounds = this.#workspace.getBoundingClientRect();
+    if (!Number.isFinite(bounds.width) || bounds.width <= 0) return;
+    this.#setSplitRatio(((clientX - bounds.left) / bounds.width) * 100);
+  }
+
+  #setSplitRatio(ratio: number): void {
+    const width = this.#workspace.getBoundingClientRect().width;
+    if (!Number.isFinite(width) || width <= 0) return;
+    const stacked = width <= splitLayout.stackedMaxWidthPx;
+    if (stacked) {
+      this.#splitter.setAttribute('aria-valuemin', '50');
+      this.#splitter.setAttribute('aria-valuemax', '50');
+      this.#splitter.setAttribute('aria-valuenow', '50');
+      return;
+    }
+    const minRatio = (splitLayout.minInputPx / width) * 100;
+    const maxRatio = ((width - splitLayout.dividerWidth - splitLayout.minPreviewPx) / width) * 100;
+    this.#splitRatio = Math.round(Math.min(maxRatio, Math.max(minRatio, ratio)) * 10) / 10;
+    if (typeof this.#root.style.setProperty === 'function') this.#root.style.setProperty('--ol-print-input-ratio', `${this.#splitRatio}%`);
+    else (this.#root.style as unknown as Record<string, string>)['--ol-print-input-ratio'] = `${this.#splitRatio}%`;
+    this.#splitter.setAttribute('aria-valuemin', String(Math.round(minRatio * 10) / 10));
+    this.#splitter.setAttribute('aria-valuemax', String(Math.round(maxRatio * 10) / 10));
+    this.#splitter.setAttribute('aria-valuenow', String(this.#splitRatio));
+  }
+
   #render(): void {
     if (this.#state !== 'open') return;
+    const previousScroll = this.#renderedStep === this.#step ? this.#scrollContent() : undefined;
+    const scrollPosition = previousScroll === undefined ? undefined : { top: previousScroll.scrollTop, left: previousScroll.scrollLeft };
     this.#root.classList.toggle('is-selecting', this.#step === 1 && this.#draft.rangeMode === 'box');
-    this.#root.classList.toggle('is-selection-preview-expanded', this.#selectionPreviewExpanded);
     for (const item of this.#root.querySelectorAll<HTMLButtonElement>('.ol-print-dialog__step')) {
       const active = Number(item.dataset.step) === this.#step;
       item.classList.toggle('is-active', active);
@@ -427,9 +527,30 @@ export class PrintDialogAdapter {
     else if (this.#step === 2) this.#renderAutoLegendStep();
     else if (this.#step === 3) this.#renderManualLegendStep();
     else this.#renderExportStep();
+    this.#fixActionArea();
     this.#renderPaper();
     this.#syncStatus();
     this.#syncDraftValidity();
+    this.#renderedStep = this.#step;
+    if (scrollPosition !== undefined) {
+      const currentScroll = this.#scrollContent();
+      currentScroll.scrollTop = scrollPosition.top;
+      currentScroll.scrollLeft = scrollPosition.left;
+    }
+  }
+
+  #fixActionArea(): void {
+    const children = [...this.#content.children] as HTMLElement[];
+    const actions = children.at(-1);
+    if (actions === undefined || !actions.classList.contains('ol-print-actions')) return;
+    actions.classList.add('ol-print-actions--footer');
+    const scroll = element('div', 'ol-print-dialog__scroll');
+    scroll.append(...children.slice(0, -1));
+    this.#content.replaceChildren(scroll, actions);
+  }
+
+  #scrollContent(): HTMLElement {
+    return this.#content.querySelector<HTMLElement>('.ol-print-dialog__scroll') ?? this.#content;
   }
 
   #renderPreservingEditorFocus(): void {
@@ -439,7 +560,13 @@ export class PrintDialogAdapter {
     this.#render();
     if (fieldKey === undefined) return;
     const replacement = [...this.#content.querySelectorAll<HTMLElement>('input, select, textarea')].find((editor) => editor.dataset.printField === fieldKey);
-    replacement?.focus();
+    replacement?.focus({ preventScroll: true });
+  }
+
+  #renderPreservingActionFocus(actionKey: string): void {
+    this.#render();
+    const replacement = [...this.#content.querySelectorAll<HTMLElement>('button')].find((control) => control.dataset.printAction === actionKey);
+    replacement?.focus({ preventScroll: true });
   }
 
   #renderLayoutStep(): void {
@@ -494,8 +621,7 @@ export class PrintDialogAdapter {
         this.#draft.rangeMode,
         [
           ['view', '当前视图'],
-          ['box', '框选范围'],
-          ['extent', '指定范围']
+          ['box', '框选范围']
         ],
         (value) => this.#updateDraft('rangeMode', value as MutablePrintDraft['rangeMode'])
       ),
@@ -539,11 +665,6 @@ export class PrintDialogAdapter {
         )
       );
     }
-    if (this.#draft.rangeMode === 'extent') {
-      form.append(
-        textField('范围坐标', this.#draft.extent, (value, final) => this.#updateDraft('extent', value, final), 'minX,minY,maxX,maxY', this.#liveScheduler)
-      );
-    }
     if (this.#draft.scaleMode === 'fixed') {
       form.append(
         this.#liveNumberField('比例尺 1∶', 'denominator', this.#draft.denominator, 1, 1_000_000_000, 100, (value, final) =>
@@ -571,7 +692,7 @@ export class PrintDialogAdapter {
     this.#content.append(
       sectionHeading(
         '2. 范围选择',
-        this.#draft.rangeMode === 'box' ? '在左侧活动地图拖拽单蓝线选框；框外区域会被遮罩，双线框只出现在成品预览。' : '确认当前视图或指定范围。'
+        this.#draft.rangeMode === 'box' ? '在左侧活动地图自由拖拽蓝色选框；打印适配范围会同步显示在地图与右侧预览中。' : '确认当前视图范围。'
       )
     );
     const summary = element('dl', 'ol-print-summary');
@@ -581,21 +702,6 @@ export class PrintDialogAdapter {
     if (this.session.plan !== undefined) {
       description(summary, '来源范围', formatExtent(this.session.plan.range.sourceExtent));
       description(summary, '实际范围', formatExtent(this.session.plan.range.actualExtent));
-      description(summary, '最终足迹', formatFootprint(this.session.plan.range.footprint));
-    }
-    if (this.#draft.rangeMode === 'box') {
-      const togglePreview = button(
-        this.#selectionPreviewExpanded ? '收起成品预览' : '展开成品预览',
-        'ol-print-button ol-print-selection-preview-toggle',
-        () => {
-          this.#selectionPreviewExpanded = !this.#selectionPreviewExpanded;
-          this.#render();
-        }
-      );
-      togglePreview.setAttribute('aria-expanded', String(this.#selectionPreviewExpanded));
-      const previewControl = element('dd');
-      previewControl.append(togglePreview);
-      summary.append(element('dt', undefined, '窄屏预览'), previewControl);
     }
     this.#content.append(summary, validationPanel(this.session.validation.issues, this.session.validation.warnings));
     this.#appendDraftError();
@@ -655,10 +761,14 @@ export class PrintDialogAdapter {
     const groups = orderedGroups(manual.groups);
     for (const [groupIndex, group] of groups.entries()) {
       const section = element('section', 'ol-print-legend-editor__group');
+      const collapsed = this.#collapsedLegendGroups.has(group.id);
+      section.classList.toggle('is-collapsed', collapsed);
       section.append(this.#legendGroupEditor(group, groupIndex, groups, result));
       const items = orderedItems(manual.items.filter((item) => item.groupId === group.id));
-      for (const [itemIndex, item] of items.entries()) section.append(this.#legendEditorRow(item, itemIndex, items, result));
-      if (items.length === 0) section.append(notice('此分组当前没有条目。', 'info'));
+      if (!collapsed) {
+        for (const [itemIndex, item] of items.entries()) section.append(this.#legendEditorRow(item, itemIndex, items, result));
+        if (items.length === 0) section.append(notice('此分组当前没有条目。', 'info'));
+      }
       list.append(section);
     }
     if (groups.length === 0) {
@@ -680,9 +790,7 @@ export class PrintDialogAdapter {
     this.#content.append(this.#finalChecklist(), validationPanel(this.session.validation.issues, this.session.validation.warnings));
     this.#appendDraftError();
     if (this.#capabilities.browserPrint) {
-      this.#content.append(
-        notice('printer-scaling-not-guaranteed：浏览器打印请选择实际大小/100%并关闭页眉页脚；自定义纸张是否生效取决于浏览器、打印机驱动和纸盒能力。', 'info')
-      );
+      this.#content.append(notice('浏览器打印提示：请选择“实际大小/100%”并关闭页眉页脚；自定义纸张是否生效取决于浏览器、打印机驱动和纸盒能力。', 'info'));
     }
     const validation = this.session.validation;
     if (this.#acknowledgedValidationRevision !== undefined && this.#acknowledgedValidationRevision !== validation.revision) {
@@ -720,10 +828,7 @@ export class PrintDialogAdapter {
     this.#content.append(previewModes);
     const pixelSize = this.session.plan?.outputSizePx;
     if (pixelSize !== undefined) this.#content.append(notice(`输出尺寸：${pixelSize[0]} × ${pixelSize[1]} px，${this.#draft.dpi} DPI`, 'info'));
-    if (!this.#capabilities.pdf) this.#content.append(notice('PDF 需要调用方注入 PrintPdfEncoder；核心包不会引入强制 PDF 依赖。', 'info'));
     const png = button('导出 PNG', 'ol-print-button ol-print-button--primary', () => void this.#export({ format: 'png' }));
-    const pdf = button('导出 PDF', 'ol-print-button', () => void this.#export({ format: 'pdf' }));
-    pdf.disabled = !this.#capabilities.pdf;
     const browserPrint = button('浏览器打印', 'ol-print-button', () => void this.#export({ format: 'browser-print', documentTitle: this.#draft.title }));
     browserPrint.disabled = !this.#capabilities.browserPrint;
     const recoverablePreviewFailure = validation.issues.some((issue) => isRecoverableResourceIssue(issue.code)) || this.#previewUiState === 'error';
@@ -739,14 +844,12 @@ export class PrintDialogAdapter {
       validation.issues.length > 0 ||
       (acknowledgementWarnings.length > 0 && this.#acknowledgedValidationRevision !== validation.revision);
     png.disabled = blocked;
-    if (blocked) pdf.disabled = true;
     if (blocked) browserPrint.disabled = true;
     this.#content.append(
       actionBar(
         button('返回图例', 'ol-print-button', () => this.#goTo(3)),
         finalPreview,
         png,
-        pdf,
         browserPrint
       )
     );
@@ -773,7 +876,6 @@ export class PrintDialogAdapter {
     item('资源与 CORS', has('resource', 'cors', 'tile', 'font') ? '存在资源加载或跨域提示' : '当前无资源/CORS 阻断', has('resource', 'cors'));
     item('像素预算', has('pixel', 'canvas', 'dimension') ? '超出或接近平台限制' : '在当前平台限制内', has('pixel', 'canvas', 'dimension'));
     item('动画快照', animationChecklistLabel(this.#draft.content.animations));
-    item('PDF', this.#capabilities.pdf ? '编码器可用' : '未注入 PrintPdfEncoder', !this.#capabilities.pdf);
     item('浏览器打印限制', this.#capabilities.browserPrint ? '须选择实际大小/100%，并关闭浏览器页眉页脚' : '当前环境不可用');
     const wrapper = element('section', 'ol-print-checklist-panel');
     wrapper.append(element('h3', undefined, '输出前检查清单'), list);
@@ -782,6 +884,7 @@ export class PrintDialogAdapter {
 
   #legendLayoutEditor(result: Readonly<PrintLegendResult>): HTMLElement {
     const layout = this.#manualLegend(result).layout;
+    const position = layout?.position ?? 'bottom-left';
     const wrapper = element('fieldset', 'ol-print-legend-layout');
     wrapper.append(element('legend', undefined, '图例版式'));
     const form = element('div', 'ol-print-form');
@@ -796,9 +899,22 @@ export class PrintDialogAdapter {
         ],
         (value) => this.#updateLegendLayout(result, { direction: value as 'row' | 'column' })
       ),
+      selectField(
+        '图例位置',
+        position,
+        [
+          ['top-left', '左上'],
+          ['top-right', '右上'],
+          ['bottom-left', '左下'],
+          ['bottom-right', '右下']
+        ],
+        (value) => this.#updateLegendLayout(result, { position: value as NonNullable<PrintLegendLayoutSpec['position']> })
+      ),
       numberField('最大宽度（mm）', layout?.maxWidthMm ?? 80, 10, 1000, 1, (value) => this.#updateLegendLayout(result, { maxWidthMm: value })),
       numberField('内边距（mm）', uniformPadding(layout?.paddingMm, 2), 0, 100, 0.5, (value) => this.#updateLegendLayout(result, { paddingMm: value })),
-      colorField('背景', layout?.background ?? '#ffffff', (value) => this.#updateLegendLayout(result, { background: value })),
+      this.#symbolColorField('背景', 'legend-layout:background', layout?.background ?? '#ffffff', (value) =>
+        this.#updateLegendLayout(result, { background: value })
+      ),
       numberField('组间距（mm）', layout?.groupGapMm ?? 2, 0, 100, 0.5, (value) => this.#updateLegendLayout(result, { groupGapMm: value })),
       numberField('条目间距（mm）', layout?.itemGapMm ?? 1, 0, 100, 0.5, (value) => this.#updateLegendLayout(result, { itemGapMm: value }))
     );
@@ -813,6 +929,16 @@ export class PrintDialogAdapter {
     result: Readonly<PrintLegendResult>
   ): HTMLElement {
     const row = element('div', 'ol-print-legend-editor__group-row');
+    const collapsed = this.#collapsedLegendGroups.has(group.id);
+    const actionKey = `legend-group-collapse:${group.id}`;
+    const collapse = button(collapsed ? '展开' : '折叠', 'ol-print-icon-button ol-print-legend-editor__collapse', () => {
+      if (collapsed) this.#collapsedLegendGroups.delete(group.id);
+      else this.#collapsedLegendGroups.add(group.id);
+      this.#renderPreservingActionFocus(actionKey);
+    });
+    collapse.dataset.printAction = actionKey;
+    collapse.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'}图例分组 ${group.title}`);
+    collapse.setAttribute('aria-expanded', String(!collapsed));
     const visible = document.createElement('input');
     visible.type = 'checkbox';
     visible.checked = group.visible !== false;
@@ -834,7 +960,7 @@ export class PrintDialogAdapter {
       this.#removeLegendGroup(group.id, result)
     );
     remove.setAttribute('aria-label', automatic ? `从输出隐藏分组 ${group.title}` : `删除分组 ${group.title} 及其条目`);
-    row.append(visible, title, up, down, remove);
+    row.append(collapse, visible, title, up, down, remove);
     return row;
   }
 
@@ -1000,18 +1126,16 @@ export class PrintDialogAdapter {
   }
 
   #symbolColorField(label: string, fieldId: string, value: string, update: (color: string) => void): HTMLElement {
-    return validatedTextField(
+    const invalid = this.#invalidNumericFields.get(fieldId);
+    return editableColorField(
       label,
       value,
-      (rawValue) => {
-        const color = rawValue.trim();
-        return isCssColor(color) ? color : undefined;
-      },
       update,
-      (rawValue) => this.#invalidateNumericField(fieldId, rawValue, `${label}必须是 Canvas 可识别的 CSS 颜色`),
+      (rawValue) => this.#invalidateNumericField(fieldId, rawValue, `${label}必须是浏览器可识别的颜色`),
       () => {
         this.#invalidNumericFields.delete(fieldId);
-      }
+      },
+      invalid?.value
     );
   }
 
@@ -1062,7 +1186,7 @@ export class PrintDialogAdapter {
     const validate = (): void => void this.#validateIconAndUpdate(item.id, result, draft, status);
     editor.append(
       textField(
-        '图标 URL',
+        '图标地址',
         draft.src,
         (value) => {
           draft.src = value;
@@ -1087,12 +1211,12 @@ export class PrintDialogAdapter {
         validate();
       }),
       selectField(
-        'crossOrigin',
+        '跨域模式',
         draft.crossOrigin,
         [
           ['', '不设置'],
-          ['anonymous', 'anonymous'],
-          ['use-credentials', 'use-credentials']
+          ['anonymous', '匿名请求'],
+          ['use-credentials', '携带凭据']
         ],
         (value) => {
           draft.crossOrigin = value as MutableIconLegendDraft['crossOrigin'];
@@ -1150,7 +1274,27 @@ export class PrintDialogAdapter {
       footer.append(scale, north);
       shell.append(header, titles, map, footer);
     }
-    this.#preview.append(label, shell);
+    if (actual) this.#preview.append(label, shell);
+    else {
+      const stage = element('div', 'ol-print-dialog__preview-stage');
+      stage.append(shell);
+      this.#preview.append(label, stage);
+      this.#syncFitPaperSize();
+    }
+  }
+
+  #syncFitPaperSize(): void {
+    const stage = this.#preview.querySelector<HTMLElement>('.ol-print-dialog__preview-stage');
+    const paper = stage?.querySelector<HTMLElement>('.ol-print-paper--fit');
+    if (stage === null || stage === undefined || paper === null || paper === undefined) return;
+    const availableWidth = stage.clientWidth;
+    const availableHeight = stage.clientHeight;
+    if (!Number.isFinite(availableWidth) || !Number.isFinite(availableHeight) || availableWidth <= 0 || availableHeight <= 0) return;
+    const pageSize = this.session.plan?.pageSizeMm ?? draftPageSize(this.#draft);
+    const ratio = pageSize[0] / pageSize[1];
+    const width = Math.min(availableWidth, availableHeight * ratio);
+    paper.style.width = `${width}px`;
+    paper.style.height = `${width / ratio}px`;
   }
 
   #previewLabel(actual: boolean): string {
@@ -1174,6 +1318,8 @@ export class PrintDialogAdapter {
     const items = result?.items.filter((item) => visibleGroups.has(item.groupId) && item.visible !== false) ?? [];
     const manual = this.session.spec?.legend;
     if (manual?.mode === 'manual') {
+      const position = manual.layout?.position ?? 'bottom-left';
+      legend.classList.add(`ol-print-paper__legend--${position}`);
       legend.style.background = manual.layout?.background ?? '';
       legend.style.gridTemplateColumns = `repeat(${manual.layout?.columns ?? 1}, minmax(0, 1fr))`;
       legend.style.padding = `${uniformPadding(manual.layout?.paddingMm, 2)}%`;
@@ -1305,7 +1451,6 @@ export class PrintDialogAdapter {
     if (this.#draftError !== undefined) return;
     try {
       await this.session.selectArea();
-      this.#selectionPreviewExpanded = true;
       this.#showMessage('打印范围已更新。', 'success');
       this.#queuePreview();
       this.#render();
@@ -1372,6 +1517,7 @@ export class PrintDialogAdapter {
 
   #removeLegendGroup(id: string, result: Readonly<PrintLegendResult>): void {
     const manual = this.#manualLegend(result);
+    this.#collapsedLegendGroups.delete(id);
     for (const item of manual.items) {
       if (item.groupId !== id) continue;
       this.#abortIconValidation(item.id);
@@ -1512,7 +1658,7 @@ export class PrintDialogAdapter {
       !Number.isFinite(draft.anchorX) ||
       !Number.isFinite(draft.anchorY)
     ) {
-      setIconStatus(status, '请输入可加载的图标 URL、正数尺寸和有限锚点。', 'error');
+      setIconStatus(status, '请输入可加载的图标地址、正数尺寸和有限锚点。', 'error');
       return;
     }
     const controller = new AbortController();
@@ -1539,8 +1685,8 @@ export class PrintDialogAdapter {
       setIconStatus(
         status,
         error instanceof PrintError && error.code === 'resource-timeout'
-          ? '图标验证超时，请检查资源响应或调整 resources.timeoutMs；当前符号未提交。'
-          : '图标加载失败，请检查 URL、crossOrigin 或资源可用性；当前符号未提交。',
+          ? '图标验证超时，请检查资源响应或调整资源超时时间；当前符号未提交。'
+          : '图标加载失败，请检查图标地址、跨域模式或资源可用性；当前符号未提交。',
         'error'
       );
     } finally {
@@ -1691,7 +1837,7 @@ export class PrintDialogAdapter {
     }
     const error = notice(message, 'error');
     error.classList.add('ol-print-draft-error');
-    this.#content.append(error);
+    this.#scrollContent().append(error);
   }
 
   #showMessage(message: string, kind: 'info' | 'success' | 'error'): void {
@@ -1699,7 +1845,7 @@ export class PrintDialogAdapter {
     current?.remove();
     const messageElement = notice(message, kind);
     messageElement.classList.add('ol-print-notice--transient');
-    this.#content.prepend(messageElement);
+    this.#scrollContent().prepend(messageElement);
   }
 }
 
@@ -1727,8 +1873,7 @@ function draftFromSpec(spec: Readonly<PrintSpec> | undefined): MutablePrintDraft
     marginBottomMm: marginInsets?.bottom ?? uniformMargin,
     marginLeftMm: marginInsets?.left ?? uniformMargin,
     dpi: spec?.paper.dpi ?? 150,
-    rangeMode: source?.mode ?? 'view',
-    extent: source?.mode === 'extent' ? source.extent.join(',') : '',
+    rangeMode: source?.mode === 'box' ? 'box' : 'view',
     scaleMode: spec?.range.scale.mode ?? 'fit',
     denominator: spec?.range.scale.mode === 'fixed' ? spec.range.scale.denominator : 10_000,
     content: spec?.content === undefined ? { animations: 'current-frame', domOverlays: 'exclude', controls: 'exclude' } : { ...spec.content },
@@ -1741,13 +1886,7 @@ function draftChangeRequiresFormRender(key: keyof MutablePrintDraft): boolean {
 }
 
 function specFromDraft(draft: MutablePrintDraft, legend: PrintSpec['legend']): PrintSpec {
-  const extentValues = draft.extent.split(',').map((value) => Number(value.trim()));
-  const source: PrintSpec['range']['source'] =
-    draft.rangeMode === 'extent'
-      ? { mode: 'extent', extent: extentValues as [number, number, number, number] }
-      : draft.rangeMode === 'box'
-        ? { mode: 'box' }
-        : { mode: 'view' };
+  const source: PrintSpec['range']['source'] = draft.rangeMode === 'box' ? { mode: 'box' } : { mode: 'view' };
   return {
     range: { source, scale: draft.scaleMode === 'fixed' ? { mode: 'fixed', denominator: draft.denominator } : { mode: 'fit' } },
     paper: {
@@ -1861,18 +2000,114 @@ function validatedTextField<T>(
   return field(label, input);
 }
 
-function colorField(label: string, value: string, update: (value: string) => void): HTMLElement {
-  return field(label, colorInput(value, `设置${label}`, update));
+function editableColorField(
+  label: string,
+  value: string,
+  update: (value: string) => void,
+  invalid: (rawValue: string) => void,
+  valid: () => void,
+  invalidValue?: string
+): HTMLElement {
+  const text = document.createElement('input');
+  text.type = 'text';
+  text.value = invalidValue ?? value;
+  if (invalidValue !== undefined) text.setAttribute('aria-invalid', 'true');
+  text.dataset.printField = label;
+  text.setAttribute('aria-label', `${label}文本值`);
+  const picker = document.createElement('input');
+  picker.type = 'color';
+  picker.value = pickerColor(value);
+  picker.dataset.printField = `${label}颜色选择器`;
+  picker.setAttribute('aria-label', `选择${label}`);
+  const commitText = (): void => {
+    const color = text.value.trim();
+    if (!isCssColor(color)) {
+      text.setAttribute('aria-invalid', 'true');
+      invalid(text.value);
+      return;
+    }
+    text.setAttribute('aria-invalid', 'false');
+    valid();
+    picker.value = pickerColor(color);
+    update(color);
+  };
+  text.addEventListener('change', commitText);
+  picker.addEventListener('change', () => {
+    text.value = picker.value;
+    text.setAttribute('aria-invalid', 'false');
+    valid();
+    update(picker.value);
+  });
+  const wrapper = element('div', 'ol-print-field ol-print-color-field');
+  wrapper.setAttribute('role', 'group');
+  wrapper.setAttribute('aria-label', `${label}颜色编辑`);
+  wrapper.append(element('span', undefined, label), text, picker);
+  return wrapper;
 }
 
-function colorInput(value: string, ariaLabel: string, update: (value: string) => void): HTMLInputElement {
-  const input = document.createElement('input');
-  input.type = 'color';
-  input.value = /^#[0-9a-f]{6}$/i.test(value) ? value : '#ffffff';
-  input.setAttribute('aria-label', ariaLabel);
-  input.addEventListener('change', () => update(input.value));
-  return input;
+function pickerColor(value: string): string {
+  const normalized = value.trim();
+  if (/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(normalized)) return normalized.slice(0, 7);
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])(?:[0-9a-f])?$/i.exec(normalized);
+  if (short !== null) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  const rgb = rgbColor(normalized);
+  if (rgb !== undefined) return rgb;
+  const basic = basicNamedColors[normalized.toLowerCase()];
+  if (basic !== undefined) return basic;
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    if (typeof canvas.getContext === 'function') {
+      const context = canvas.getContext('2d');
+      if (context !== null) {
+        context.fillStyle = '#010203';
+        context.fillStyle = normalized;
+        const resolved = String(context.fillStyle);
+        if (resolved !== '#010203' || normalized.toLowerCase() === '#010203') return pickerColor(resolved);
+      }
+    }
+  }
+  return '#ffffff';
 }
+
+function rgbColor(value: string): string | undefined {
+  const match = /^rgba?\((.*)\)$/i.exec(value);
+  if (match === null) return undefined;
+  const channels = (match[1] ?? '')
+    .split('/')[0]
+    ?.trim()
+    .split(/\s*,\s*|\s+/u)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (channels === undefined || channels.length !== 3) return undefined;
+  const parsed = channels.map((channel) => {
+    const percentage = channel.endsWith('%');
+    const numeric = Number(percentage ? channel.slice(0, -1) : channel);
+    if (!Number.isFinite(numeric)) return undefined;
+    return Math.round(Math.max(0, Math.min(255, percentage ? (numeric / 100) * 255 : numeric)));
+  });
+  if (parsed.some((channel) => channel === undefined)) return undefined;
+  return `#${parsed.map((channel) => channel!.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const basicNamedColors: Readonly<Record<string, string>> = Object.freeze({
+  transparent: '#000000',
+  black: '#000000',
+  silver: '#c0c0c0',
+  gray: '#808080',
+  white: '#ffffff',
+  maroon: '#800000',
+  red: '#ff0000',
+  purple: '#800080',
+  fuchsia: '#ff00ff',
+  green: '#008000',
+  lime: '#00ff00',
+  olive: '#808000',
+  yellow: '#ffff00',
+  navy: '#000080',
+  blue: '#0000ff',
+  teal: '#008080',
+  aqua: '#00ffff'
+});
 
 function numberField(
   label: string,
@@ -1961,8 +2196,16 @@ function field(labelText: string, control: HTMLElement): HTMLElement {
 function validationPanel(issues: readonly PrintValidationIssue[], warnings: readonly PrintWarning[]): HTMLElement {
   const panel = element('div', 'ol-print-validation');
   if (issues.length === 0 && warnings.length === 0) panel.append(notice('当前检查通过。', 'success'));
-  for (const issue of issues) panel.append(notice(`${issue.code}：${issue.message}`, 'error'));
-  for (const warning of warnings) panel.append(notice(`${warning.code}：${warning.message}`, 'info'));
+  for (const issue of issues) {
+    const item = notice(localizedValidationMessage(issue.code, issue.message), 'error');
+    item.dataset.printValidationCode = issue.code;
+    panel.append(item);
+  }
+  for (const warning of warnings) {
+    const item = notice(localizedValidationMessage(warning.code, warning.message), 'info');
+    item.dataset.printValidationCode = warning.code;
+    panel.append(item);
+  }
   return panel;
 }
 
@@ -2016,7 +2259,7 @@ function description(list: HTMLElement, term: string, value: string): void {
 }
 
 function rangeLabel(mode: MutablePrintDraft['rangeMode']): string {
-  return mode === 'box' ? '地图框选' : mode === 'extent' ? '指定范围' : '当前视图';
+  return mode === 'box' ? '地图框选' : '当前视图';
 }
 
 function statusLabel(status: PrintDialogSessionPort['status']): string {
@@ -2035,7 +2278,44 @@ function statusLabel(status: PrintDialogSessionPort['status']): string {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof PrintError) return localizedValidationMessage(error.code, error.message);
+  const message = error instanceof Error ? error.message : String(error);
+  return containsChinese(message) ? message : '操作未完成，请检查当前配置后重试。';
+}
+
+const validationCopy: Readonly<Record<string, Readonly<{ title: string; message: string }>>> = Object.freeze({
+  'range-unresolved': { title: '打印范围未就绪', message: '请先确认或框选打印范围。' },
+  'north-direction-unavailable': { title: '指北方向不可用', message: '当前打印中心无法确定真北方向。' },
+  'fixed-scale-crops-source': { title: '固定比例尺范围不足', message: '当前固定比例尺的地图框无法完整包含来源范围。' },
+  'scale-valid-at-center': { title: '比例尺适用范围提示', message: '受投影影响，固定比例尺仅在打印中心准确。' },
+  'animations-excluded': { title: '动画快照提示', message: '打印快照已排除动画，仅使用 Element 基础状态。' },
+  'pixel-budget-exceeded': { title: '输出像素超限', message: '当前纸张与 DPI 组合超出平台输出限制，请降低 DPI 或纸张尺寸。' },
+  'printer-scaling-not-guaranteed': { title: '打印比例提示', message: '实际输出比例取决于浏览器与打印机是否采用实际大小（100%）。' },
+  'unknown-dynamic-style': { title: '动态样式需确认', message: '图层存在无法自动解析的动态样式，请在手动图例中确认。' },
+  'legend-overflow': { title: '图例超出页面', message: '图例内容超出可用区域，请调整版式或精简条目。' },
+  'layout-overflow': { title: '页面内容溢出', message: '页面内容超出可用区域，请调整纸张、边距或版式。' },
+  'layer-not-printable': { title: '图层无法打印', message: '部分图层当前无法生成稳定的打印快照。' },
+  'animation-snapshot-unavailable': { title: '动画快照不可用', message: '目标存在活动的交互预览，暂时无法冻结当前动画帧。' },
+  'resource-load-failed': { title: '资源加载失败', message: '打印所需资源加载失败，请检查网络或资源地址后重试。' },
+  'resource-not-ready': { title: '资源尚未就绪', message: '打印所需资源尚未加载完成，请稍后重试。' },
+  'resource-timeout': { title: '资源加载超时', message: '打印所需资源加载超时，请检查网络后重试。' },
+  'cors-tainted-canvas': { title: '跨域资源限制', message: '跨域资源未提供打印所需授权，当前页面无法安全导出。' },
+  'png-encode-failed': { title: 'PNG 生成失败', message: '无法生成 PNG 文件，请重试。' },
+  'pdf-encode-failed': { title: 'PDF 生成失败', message: '无法生成 PDF 文件，请检查编码器配置。' }
+});
+
+function localizedValidationMessage(code: string, message: string): string {
+  const copy = validationCopy[code.toLowerCase()];
+  const title = copy?.title ?? '打印检查提示';
+  const body =
+    containsChinese(message) && !/[A-Za-z]+(?:\s+[A-Za-z]+){2}/u.test(message)
+      ? message
+      : (copy?.message ?? '系统返回了一条未本地化的检查信息，请检查打印配置。');
+  return `${title}：${body}`;
+}
+
+function containsChinese(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value);
 }
 
 function formatInteger(value: number): string {
@@ -2048,10 +2328,6 @@ function formatDecimal(value: number): string {
 
 function formatExtent(extent: readonly number[]): string {
   return extent.map(formatDecimal).join(', ');
-}
-
-function formatFootprint(footprint: readonly (readonly number[])[]): string {
-  return footprint.map((coordinate) => `(${coordinate.map(formatDecimal).join(', ')})`).join(' → ');
 }
 
 function rgbaMemoryLabel(size: readonly [number, number]): string {

@@ -18,6 +18,7 @@ interface CanvasOperation {
   readonly strokeStyle: string;
   readonly lineWidth: number;
   readonly font: string;
+  readonly textAlign: CanvasTextAlign;
 }
 
 interface CanvasHarness {
@@ -60,7 +61,15 @@ function canvasHarness(): CanvasHarness {
   } as unknown as PrintCanvasContext;
 
   function record(name: string, ...args: unknown[]): void {
-    operations.push({ name, args, fillStyle: context.fillStyle, strokeStyle: context.strokeStyle, lineWidth: context.lineWidth, font: context.font });
+    operations.push({
+      name,
+      args,
+      fillStyle: context.fillStyle,
+      strokeStyle: context.strokeStyle,
+      lineWidth: context.lineWidth,
+      font: context.font,
+      textAlign: context.textAlign
+    });
   }
 
   return { canvas, context, operations, factory: () => ({ canvas, context }) };
@@ -257,6 +266,48 @@ describe('PrintPageRenderer', () => {
     expect(Number(rowText[0]?.args[1])).toBeGreaterThan(Number(uniformA?.args[1]));
   });
 
+  it('anchors manual legends to all four map corners and keeps the default at bottom-left', () => {
+    const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+    const boxes = new Map<(typeof positions)[number] | 'default', CanvasOperation>();
+    const renderAt = (position?: (typeof positions)[number]): void => {
+      const harness = canvasHarness();
+      new PrintPageRenderer(printPageTokens, harness.factory).render({
+        ...renderInput(),
+        legendLayout: position === undefined ? undefined : { position }
+      });
+      const background = operationsNamed(harness, 'fillRect').find((operation) => operation.fillStyle === printPageTokens.colors.legendBackground);
+      expect(background).toBeDefined();
+      boxes.set(position ?? 'default', background!);
+    };
+
+    renderAt();
+    for (const position of positions) renderAt(position);
+
+    const topLeft = boxes.get('top-left')!;
+    const topRight = boxes.get('top-right')!;
+    const bottomLeft = boxes.get('bottom-left')!;
+    const bottomRight = boxes.get('bottom-right')!;
+    expect(topLeft.args[0]).toBe(bottomLeft.args[0]);
+    expect(topRight.args[0]).toBe(bottomRight.args[0]);
+    expect(Number(topRight.args[0])).toBeGreaterThan(Number(topLeft.args[0]));
+    expect(topLeft.args[1]).toBe(topRight.args[1]);
+    expect(bottomLeft.args[1]).toBe(bottomRight.args[1]);
+    expect(Number(bottomLeft.args[1])).toBeGreaterThan(Number(topLeft.args[1]));
+    expect(boxes.get('default')?.args).toEqual(bottomLeft.args);
+
+    const mapLeft = 200;
+    const mapTop = 450;
+    const mapRight = 1800;
+    const mapBottom = 1150;
+    const inset = 30;
+    for (const box of [topLeft, topRight, bottomLeft, bottomRight]) {
+      expect(Number(box.args[0])).toBeGreaterThanOrEqual(mapLeft + inset);
+      expect(Number(box.args[1])).toBeGreaterThanOrEqual(mapTop + inset);
+      expect(Number(box.args[0]) + Number(box.args[2])).toBeLessThanOrEqual(mapRight - inset);
+      expect(Number(box.args[1]) + Number(box.args[3])).toBeLessThanOrEqual(mapBottom - inset);
+    }
+  });
+
   it('applies manual group/item gaps and reports legend width or height overflow explicitly', () => {
     const legend: PrintLegendResult = {
       groups: [
@@ -344,6 +395,7 @@ describe('PrintPageRenderer', () => {
     const input = renderInput('final', emptyLegend);
     const narrow = {
       ...input,
+      layout: { title: input.layout.title },
       plan: {
         ...input.plan,
         pageSizeMm: [72, 150] as const,
@@ -454,6 +506,42 @@ describe('PrintPageRenderer', () => {
     expect(textX(issuerOnly, '签发人：张三')).toBe(textX(complete, '签发人：张三'));
     expect(textX(dateOnly, '签发人：张三')).toBeUndefined();
     expect(textX(issuerOnly, '日期：2026-07-23')).toBeUndefined();
+  });
+
+  it('keeps date and issuer in a compact stable right-side cluster', () => {
+    const harness = canvasHarness();
+    const input = renderInput();
+    new PrintPageRenderer(printPageTokens, harness.factory).render(input);
+
+    const date = operationsNamed(harness, 'fillText').find((operation) => operation.args[0] === '日期：2026-07-23');
+    const issuer = operationsNamed(harness, 'fillText').find((operation) => operation.args[0] === '签发人：张三');
+    const pixelsPerMm = input.plan.outputSizePx[0] / input.plan.pageSizeMm[0];
+    expect(date?.textAlign).toBe('right');
+    expect(issuer?.textAlign).toBe('left');
+    expect(Number(issuer?.args[1]) - Number(date?.args[1])).toBeCloseTo(printPageTokens.header.metadataGapMm * pixelsPerMm, 8);
+    expect(Number(issuer?.args[1]) + printPageTokens.header.issuerSlotWidthMm * pixelsPerMm).toBeCloseTo(
+      input.plan.outputSizePx[0] - printPageTokens.header.pageInsetMm * pixelsPerMm,
+      8
+    );
+  });
+
+  it('keeps title and footer decorations visibly clear of the outer map border', () => {
+    const harness = canvasHarness();
+    const input = renderInput();
+    new PrintPageRenderer(printPageTokens, harness.factory).render(input);
+
+    const outerBorder = operationsNamed(harness, 'strokeRect')[0]!;
+    const subtitle = operationsNamed(harness, 'fillText').find((operation) => operation.args[0] === '综合态势')!;
+    const scaleSegment = operationsNamed(harness, 'fillRect').find((operation) => {
+      const y = Number(operation.args[1]);
+      const width = Number(operation.args[2]);
+      return y > 1150 && width < 500 && (operation.fillStyle === printPageTokens.colors.ink || operation.fillStyle === printPageTokens.colors.paper);
+    })!;
+    const pixelsPerMmY = input.plan.outputSizePx[1] / input.plan.pageSizeMm[1];
+    const outerTop = Number(outerBorder.args[1]) - outerBorder.lineWidth / 2;
+    const outerBottom = Number(outerBorder.args[1]) + Number(outerBorder.args[3]) + outerBorder.lineWidth / 2;
+    expect(outerTop - Number(subtitle.args[2])).toBeGreaterThanOrEqual(3 * pixelsPerMmY);
+    expect(Number(scaleSegment.args[1]) - outerBottom).toBeGreaterThanOrEqual(3 * pixelsPerMmY);
   });
 
   it('preflights real symbol bounds and scales extreme icon size/anchor into its fixed slot', () => {

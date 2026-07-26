@@ -28,7 +28,7 @@ interface ScreenRect {
   readonly height: number;
 }
 
-/** 在活动地图上显示单蓝线和外遮罩，并把框选结果转换为 View 坐标。 */
+/** 在活动地图上显示来源框、成品框和外遮罩，并把框选结果转换为 View 坐标。 */
 export class PrintBoxSelectionAdapter {
   readonly #map: Map;
   readonly #viewport: HTMLElement;
@@ -45,7 +45,7 @@ export class PrintBoxSelectionAdapter {
   }
 
   select(request: PrintBoxSelectionRequest): Promise<Readonly<PrintBoxSelectionResult>> {
-    if (this.#disposed) throw new ObjectDisposedError('Print box selection adapter has been destroyed');
+    if (this.#disposed) throw new ObjectDisposedError('打印框选适配器已销毁。');
     assertRequest(request);
     assertFixedSizeFitsViewport(request, this.#viewport);
     this.#active?.cancel('replaced');
@@ -89,6 +89,7 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
   readonly #onEnd: () => void;
   readonly #root: HTMLDivElement;
   readonly #box: HTMLDivElement;
+  readonly #outputBox: HTMLDivElement;
   readonly #masks: readonly HTMLDivElement[];
   #cursor: CursorViewHandle | undefined;
   #resolve: ((value: Readonly<PrintBoxSelectionResult>) => void) | undefined;
@@ -114,6 +115,8 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
     this.#root.setAttribute('aria-hidden', 'true');
     this.#box = document.createElement('div');
     this.#box.className = 'ol-print-selection-box';
+    this.#outputBox = document.createElement('div');
+    this.#outputBox.className = 'ol-print-selection-output';
     this.#masks = Object.freeze(
       ['top', 'right', 'bottom', 'left'].map((position) => {
         const mask = document.createElement('div');
@@ -122,11 +125,11 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
         return mask;
       })
     );
-    this.#root.append(this.#box);
+    this.#root.append(this.#outputBox, this.#box);
   }
 
   start(): Promise<Readonly<PrintBoxSelectionResult>> {
-    if (this.#started) throw new InvalidArgumentError('Print box selection has already started');
+    if (this.#started) throw new InvalidArgumentError('打印框选已经启动。');
     this.#started = true;
     try {
       this.#viewport.append(this.#root);
@@ -167,7 +170,7 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
   }
 
   readonly #onPointerDown = (event: PointerEvent): void => {
-    if (this.#ended || event.button !== 0 || !event.isPrimary || isPrintUiTarget(event.target)) return;
+    if (this.#ended || this.#dragging || event.button !== 0 || !event.isPrimary || isPrintUiTarget(event.target)) return;
     consume(event);
     const point = localPoint(event, this.#viewport);
     this.#pointerId = event.pointerId;
@@ -179,7 +182,10 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
   };
 
   readonly #onPointerMove = (event: PointerEvent): void => {
-    if (!this.#dragging || event.pointerId !== this.#pointerId) return;
+    const fixed = this.#request.fixedSizeCssPixels !== undefined;
+    if (this.#ended || !event.isPrimary || isPrintUiTarget(event.target)) return;
+    if (!fixed && (!this.#dragging || event.pointerId !== this.#pointerId)) return;
+    if (fixed && this.#dragging && event.pointerId !== this.#pointerId) return;
     consume(event);
     this.#pending = localPoint(event, this.#viewport);
     if (this.#frame !== 0) return;
@@ -195,7 +201,11 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
     this.#pending = localPoint(event, this.#viewport);
     this.#flushPending();
     const rect = this.#rect;
-    if (rect === undefined || rect.width < 2 || rect.height < 2) return;
+    const isFixed = this.#request.fixedSizeCssPixels !== undefined;
+    if (rect === undefined || (!isFixed && (rect.width < 2 || rect.height < 2))) {
+      this.#resetPointer();
+      return;
+    }
     const resolve = this.#resolve;
     const reject = this.#reject;
     try {
@@ -232,30 +242,47 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
   #publishFit(point: readonly [number, number]): void {
     const origin = this.#origin;
     if (origin === undefined) return;
-    let deltaX = point[0] - origin[0];
-    let deltaY = point[1] - origin[1];
-    const ratio = this.#request.aspectRatio;
-    if (Math.abs(deltaX) / Math.max(1, Math.abs(deltaY)) > ratio) deltaY = Math.sign(deltaY || 1) * (Math.abs(deltaX) / ratio);
-    else deltaX = Math.sign(deltaX || 1) * (Math.abs(deltaY) * ratio);
-    this.#publishRect(clampRect(rectFromCorners(origin, [origin[0] + deltaX, origin[1] + deltaY]), this.#viewport));
+    this.#publishRect(rectFromCorners(origin, point));
   }
 
   #publishFixed(center: readonly [number, number]): void {
     const size = this.#request.fixedSizeCssPixels;
     if (size === undefined) return;
-    this.#publishRect(positionRect({ left: center[0] - size[0] / 2, top: center[1] - size[1] / 2, width: size[0], height: size[1] }, this.#viewport));
+    this.#publishRect({ left: center[0] - size[0] / 2, top: center[1] - size[1] / 2, width: size[0], height: size[1] });
   }
 
   #publishRect(rect: ScreenRect): void {
     this.#rect = rect;
+    for (const mask of this.#masks) mask.style.display = '';
+    this.#box.style.display = '';
     applyRect(this.#box, rect);
+    let printRect = rect;
+    if (this.#request.fixedSizeCssPixels === undefined) {
+      this.#outputBox.style.display = '';
+      printRect = expandRectToAspectRatio(rect, this.#request.aspectRatio);
+      applyRect(this.#outputBox, printRect);
+    } else {
+      this.#outputBox.style.display = 'none';
+    }
     const width = this.#viewport.clientWidth;
     const height = this.#viewport.clientHeight;
-    applyRect(this.#masks[0], { left: 0, top: 0, width, height: rect.top });
-    applyRect(this.#masks[1], { left: rect.left + rect.width, top: rect.top, width: Math.max(0, width - rect.left - rect.width), height: rect.height });
-    applyRect(this.#masks[2], { left: 0, top: rect.top + rect.height, width, height: Math.max(0, height - rect.top - rect.height) });
-    applyRect(this.#masks[3], { left: 0, top: rect.top, width: rect.left, height: rect.height });
-    if (rect.width >= 2 && rect.height >= 2 && this.#request.onChange !== undefined) {
+    const visiblePrintRect = intersectRect(printRect, width, height);
+    applyRect(this.#masks[0], { left: 0, top: 0, width, height: visiblePrintRect.top });
+    applyRect(this.#masks[1], {
+      left: visiblePrintRect.left + visiblePrintRect.width,
+      top: visiblePrintRect.top,
+      width: Math.max(0, width - visiblePrintRect.left - visiblePrintRect.width),
+      height: visiblePrintRect.height
+    });
+    applyRect(this.#masks[2], {
+      left: 0,
+      top: visiblePrintRect.top + visiblePrintRect.height,
+      width,
+      height: Math.max(0, height - visiblePrintRect.top - visiblePrintRect.height)
+    });
+    applyRect(this.#masks[3], { left: 0, top: visiblePrintRect.top, width: visiblePrintRect.left, height: visiblePrintRect.height });
+    const canPublishChange = this.#request.fixedSizeCssPixels !== undefined || (rect.width >= 2 && rect.height >= 2);
+    if (canPublishChange && this.#request.onChange !== undefined) {
       try {
         this.#request.onChange(this.#toResult(rect));
       } catch {
@@ -302,7 +329,7 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
       this.#viewport.removeEventListener('pointercancel', this.#onPointerCancel, true);
       document.removeEventListener('keydown', this.#onKeyDown, true);
       this.#request.signal?.removeEventListener('abort', this.#onAbort);
-      if (this.#pointerId !== undefined && this.#viewport.hasPointerCapture?.(this.#pointerId)) this.#viewport.releasePointerCapture?.(this.#pointerId);
+      this.#releasePointerCapture();
       this.#root.remove();
     } finally {
       const cursor = this.#cursor;
@@ -318,21 +345,39 @@ class BoxSelectionSession implements ExclusiveInteractionSession {
       }
     }
   }
+
+  #resetPointer(): void {
+    if (this.#frame !== 0) cancelFrame(this.#frame);
+    this.#frame = 0;
+    this.#releasePointerCapture();
+    this.#dragging = false;
+    this.#pointerId = undefined;
+    this.#origin = undefined;
+    this.#pending = undefined;
+    this.#rect = undefined;
+    this.#box.style.display = 'none';
+    this.#outputBox.style.display = 'none';
+    for (const mask of this.#masks) mask.style.display = 'none';
+  }
+
+  #releasePointerCapture(): void {
+    if (this.#pointerId !== undefined && this.#viewport.hasPointerCapture?.(this.#pointerId)) this.#viewport.releasePointerCapture?.(this.#pointerId);
+  }
 }
 
 function assertRequest(request: PrintBoxSelectionRequest): void {
-  if (!Number.isFinite(request.aspectRatio) || request.aspectRatio <= 0) throw new InvalidArgumentError('Print box aspect ratio must be finite and positive');
-  if (request.onChange !== undefined && typeof request.onChange !== 'function') throw new InvalidArgumentError('Print box onChange must be a function');
+  if (!Number.isFinite(request.aspectRatio) || request.aspectRatio <= 0) throw new InvalidArgumentError('打印框宽高比必须是有限正数。');
+  if (request.onChange !== undefined && typeof request.onChange !== 'function') throw new InvalidArgumentError('打印框 onChange 必须是函数。');
   const size = request.fixedSizeCssPixels;
   if (size !== undefined && (size.length !== 2 || size.some((value) => !Number.isFinite(value) || value <= 0))) {
-    throw new InvalidArgumentError('Fixed print box size must contain two finite positive values');
+    throw new InvalidArgumentError('固定打印框尺寸必须包含两个有限正数。');
   }
 }
 
 function assertFixedSizeFitsViewport(request: PrintBoxSelectionRequest, viewport: HTMLElement): void {
   const size = request.fixedSizeCssPixels;
   if (size === undefined || (size[0] <= viewport.clientWidth && size[1] <= viewport.clientHeight)) return;
-  throw new CapabilityError('Fixed-scale print box exceeds the current viewport; adjust the scale, paper, or map zoom before selecting an area');
+  throw new CapabilityError('固定比例尺打印框超出当前地图视口，请调整比例尺、纸张或地图缩放级别后重新框选。');
 }
 
 function localPoint(event: PointerEvent, viewport: HTMLElement): readonly [number, number] {
@@ -349,31 +394,39 @@ function rectFromCorners(first: readonly [number, number], second: readonly [num
   };
 }
 
-function clampRect(rect: ScreenRect, viewport: HTMLElement): ScreenRect {
-  const scale = Math.min(1, viewport.clientWidth / Math.max(1, rect.width), viewport.clientHeight / Math.max(1, rect.height));
-  const width = rect.width * scale;
-  const height = rect.height * scale;
+function expandRectToAspectRatio(rect: ScreenRect, aspectRatio: number): ScreenRect {
+  if (rect.width === 0 || rect.height === 0) return rect;
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const width = rect.width / rect.height < aspectRatio ? rect.height * aspectRatio : rect.width;
+  const height = rect.width / rect.height > aspectRatio ? rect.width / aspectRatio : rect.height;
   return {
-    left: Math.max(0, Math.min(viewport.clientWidth - width, rect.left)),
-    top: Math.max(0, Math.min(viewport.clientHeight - height, rect.top)),
+    left: centerX - width / 2,
+    top: centerY - height / 2,
     width,
     height
   };
 }
 
-function positionRect(rect: ScreenRect, viewport: HTMLElement): ScreenRect {
+function intersectRect(rect: ScreenRect, width: number, height: number): ScreenRect {
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(width, rect.left + rect.width);
+  const bottom = Math.min(height, rect.top + rect.height);
   return {
-    left: Math.max(0, Math.min(viewport.clientWidth - rect.width, rect.left)),
-    top: Math.max(0, Math.min(viewport.clientHeight - rect.height, rect.top)),
-    width: rect.width,
-    height: rect.height
+    left,
+    top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top)
   };
 }
 
 function isPrintUiTarget(target: EventTarget | null): boolean {
   return (
+    typeof Element !== 'undefined' &&
     target instanceof Element &&
-    target.closest('.ol-print-dialog__header, .ol-print-dialog__steps, .ol-print-dialog__content, .ol-print-dialog__preview') !== null
+    target.closest('.ol-print-dialog__header, .ol-print-dialog__steps, .ol-print-dialog__content, .ol-print-dialog__splitter, .ol-print-dialog__preview') !==
+      null
   );
 }
 

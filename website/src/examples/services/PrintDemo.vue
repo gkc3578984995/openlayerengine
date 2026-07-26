@@ -9,7 +9,7 @@ const EARTH_ID = 'docs-services-print';
 const ELEMENT_LAYER_ID = 'print-demo-elements';
 const DEFAULT_DENOMINATOR = 100_000;
 
-type Scenario = 'view-fit' | 'box-fixed' | 'extent-fit';
+type Scenario = 'view-fit' | 'box-fixed';
 
 const mapTarget = ref<HTMLDivElement | null>(null);
 const dialogTarget = ref<HTMLDivElement | null>(null);
@@ -17,7 +17,7 @@ const earthRef = shallowRef<Earth | null>(null);
 const dialogRef = shallowRef<PrintDialogHandle | null>(null);
 const sessionRef = shallowRef<PrintSession | null>(null);
 const printCapabilities = shallowRef<Readonly<PrintCapabilities> | null>(null);
-const scenario = ref<Scenario>('extent-fit');
+const scenario = ref<Scenario>('view-fit');
 const denominator = ref(DEFAULT_DENOMINATOR);
 const sessionStatus = ref('未创建');
 const validationSummary = ref('创建 Session 后显示');
@@ -34,18 +34,12 @@ let eventDisposers: Array<() => void> = [];
 
 const scenarioOptions = [
   { label: '视图范围 · fit', value: 'view-fit' },
-  { label: '框选 · 固定比例尺', value: 'box-fixed' },
-  { label: '指定范围 · 自定义纸张', value: 'extent-fit' }
+  { label: '框选 · 固定比例尺', value: 'box-fixed' }
 ];
 
 const uiUnavailableReason = computed(() => {
   if (printCapabilities.value === null) return 'Earth 尚未就绪';
   return printCapabilities.value.ui ? '' : '当前环境没有 DOM UI port，无法打开内置五屏对话框';
-});
-
-const pdfUnavailableReason = computed(() => {
-  if (printCapabilities.value === null) return 'Earth 尚未就绪';
-  return printCapabilities.value.pdf ? '' : '当前 Session 未配置 PrintPdfEncoder，PDF 不可用';
 });
 
 const browserPrintUnavailableReason = computed(() => {
@@ -86,23 +80,9 @@ const createBoxFixedSpec = (): PrintSpec => ({
   content: createCommonContent()
 });
 
-const createExtentFitSpec = (earth: Earth): PrintSpec => {
-  const center = earth.view.toProjectedCoordinates([116.4074, 39.9042]);
-  const extent = [center[0] - 52_000, center[1] - 34_000, center[0] + 52_000, center[1] + 34_000] as const;
-  return {
-    range: { source: { mode: 'extent', extent }, scale: { mode: 'fit' } },
-    paper: { size: { widthMm: 320, heightMm: 180 }, orientation: 'landscape', marginMm: 10, dpi: 150 },
-    layout: createLayout(),
-    legend: { mode: 'auto', showCounts: true },
-    content: createCommonContent(),
-    resources: { timeoutMs: 12_000 }
-  };
-};
-
-const createScenarioSpec = (earth: Earth): PrintSpec => {
+const createScenarioSpec = (): PrintSpec => {
   if (scenario.value === 'view-fit') return createViewFitSpec();
-  if (scenario.value === 'box-fixed') return createBoxFixedSpec();
-  return createExtentFitSpec(earth);
+  return createBoxFixedSpec();
 };
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -209,7 +189,7 @@ const createHeadless = () =>
     if (earth === null) throw new Error('Earth 尚未就绪');
     destroyPrintState();
     const session = earth.print.create({
-      initialSpec: createScenarioSpec(earth),
+      initialSpec: createScenarioSpec(),
       sessionConflictPolicy: 'replace',
       interactionConflictPolicy: 'replace'
     });
@@ -222,7 +202,7 @@ const updateSession = () =>
     const earth = earthRef.value;
     const session = sessionRef.value;
     if (earth === null || session === null) throw new Error('请先创建 headless Session');
-    session.update(createScenarioSpec(earth));
+    session.update(createScenarioSpec());
     manualLegendApplied.value = false;
     resolvedRange.value = false;
     legendReady.value = false;
@@ -287,18 +267,6 @@ const exportPng = () =>
     if (!('blob' in result) || result.format !== 'png') throw new Error('PNG 输出返回了不匹配的结果');
     exposeArtifact(result);
     operationResult.value = `PNG 已真实生成：${result.widthPx} × ${result.heightPx} px，${result.warnings.length} 个 warning`;
-  });
-
-const exportPdf = () =>
-  runOperation('导出 PDF', async () => {
-    const earth = earthRef.value;
-    const session = sessionRef.value;
-    if (earth === null || session === null) throw new Error('请先创建 Session');
-    if (!earth.print.capabilities.pdf) throw new Error(pdfUnavailableReason.value);
-    const result = await session.export({ format: 'pdf' });
-    if (!('blob' in result) || result.format !== 'pdf') throw new Error('PDF 输出返回了不匹配的结果');
-    exposeArtifact(result);
-    operationResult.value = `PDF encoder 已返回真实 application/pdf Blob，${result.warnings.length} 个 warning`;
   });
 
 const openBrowserPrint = () =>
@@ -434,7 +402,7 @@ onBeforeUnmount(() => {
     <div class="example-demo__control-panel print-demo__controls">
       <div class="example-demo__control-grid">
         <label class="example-demo__field">
-          <span>headless 场景</span>
+          <span>无界面调用场景</span>
           <el-segmented v-model="scenario" :options="scenarioOptions" :disabled="busy" aria-label="选择打印范围和比例尺场景" />
         </label>
         <label v-if="scenario === 'box-fixed'" class="example-demo__field">
@@ -451,14 +419,14 @@ onBeforeUnmount(() => {
               <span><el-button type="primary" :disabled="busy || !!uiUnavailableReason" @click="openFiveScreen">earth.print.open()</el-button></span>
             </el-tooltip>
             <el-button type="primary" plain :loading="busy" @click="createHeadless">earth.print.create()</el-button>
-            <el-button :disabled="busy || !sessionAvailable" @click="updateSession">update spec</el-button>
+            <el-button :disabled="busy || !sessionAvailable" @click="updateSession">更新配置</el-button>
           </div>
         </div>
 
         <div class="example-demo__action-group" role="group" aria-label="准备打印内容">
           <span>2. 范围与图例</span>
           <div class="example-demo__action-buttons">
-            <el-button :disabled="busy || !sessionAvailable" @click="selectArea">selectArea</el-button>
+            <el-button :disabled="busy || !sessionAvailable" @click="selectArea">解析范围</el-button>
             <el-button :disabled="busy || !sessionAvailable" @click="generateLegend">自动图例</el-button>
             <el-button :disabled="busy || !legendReady" @click="retainAsManualLegend">保留为手动图例</el-button>
           </div>
@@ -467,11 +435,8 @@ onBeforeUnmount(() => {
         <div class="example-demo__action-group" role="group" aria-label="预览与输出">
           <span>3. 预览与输出</span>
           <div class="example-demo__action-buttons">
-            <el-button :disabled="busy || !sessionAvailable" @click="createPreview">final preview</el-button>
+            <el-button :disabled="busy || !sessionAvailable" @click="createPreview">生成最终预览</el-button>
             <el-button type="success" :disabled="busy || !sessionAvailable" @click="exportPng">导出 PNG</el-button>
-            <el-tooltip :disabled="!pdfUnavailableReason" :content="pdfUnavailableReason">
-              <span><el-button :disabled="busy || !sessionAvailable || !!pdfUnavailableReason" @click="exportPdf">导出 PDF</el-button></span>
-            </el-tooltip>
             <el-tooltip :disabled="!browserPrintUnavailableReason" :content="browserPrintUnavailableReason">
               <span>
                 <el-button :disabled="busy || !sessionAvailable || !!browserPrintUnavailableReason" @click="openBrowserPrint">浏览器打印</el-button>
@@ -502,7 +467,10 @@ onBeforeUnmount(() => {
         <header><strong>版式结构预检</strong><span>仅说明固定位置，不冒充导出结果</span></header>
         <div class="print-demo__paper">
           <div class="print-demo__paper-sheet">
-            <div class="print-demo__header"><span>内部资料</span><span>2026-07-23 · 城市运行中心</span></div>
+            <div class="print-demo__header">
+              <span>内部资料</span>
+              <span class="print-demo__metadata"><span>日期：2026-07-23</span><span>签发人：城市运行中心</span></span>
+            </div>
             <div class="print-demo__titles"><strong>城市公共设施分布图</strong><span>打印能力集成样例</span></div>
             <div class="print-demo__paper-map">
               <div class="print-demo__legend">
@@ -539,8 +507,8 @@ onBeforeUnmount(() => {
     <el-descriptions class="print-demo__state" :column="1" border aria-live="polite">
       <el-descriptions-item label="capabilities">
         <template v-if="printCapabilities">
-          UI {{ printCapabilities.ui ? '可用' : '不可用' }} · PNG 可用 · PDF {{ printCapabilities.pdf ? '可用' : '不可用' }} · browser-print
-          {{ printCapabilities.browserPrint ? '可用' : '不可用' }}
+          界面 {{ printCapabilities.ui ? '可用' : '不可用' }} · PNG 可用 · 浏览器打印 {{ printCapabilities.browserPrint ? '可用' : '不可用' }} · PDF 仅供无界面
+          API 按需注入编码器
         </template>
         <template v-else>Earth 尚未就绪</template>
       </el-descriptions-item>
@@ -652,10 +620,18 @@ onBeforeUnmount(() => {
   padding: 5px 8px;
 }
 
+.print-demo__metadata {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
+}
+
 .print-demo__titles {
   display: grid;
   place-items: center;
-  padding: 3px 8px 8px;
+  padding: 6px 8px 12px;
   line-height: 1.35;
 }
 
@@ -666,7 +642,7 @@ onBeforeUnmount(() => {
 .print-demo__paper-map {
   position: relative;
   overflow: hidden;
-  margin-inline: 8px;
+  margin: 0 8px 11px;
   border: 3px solid var(--print-proof-ink);
   outline: 1px solid var(--print-proof-ink);
   outline-offset: -7px;
@@ -727,6 +703,11 @@ onBeforeUnmount(() => {
 .print-demo__scale,
 .print-demo__north {
   font-weight: 700;
+}
+
+.print-demo__footer {
+  min-height: 25px;
+  padding-top: 8px;
 }
 
 .print-demo__north {
@@ -801,6 +782,13 @@ onBeforeUnmount(() => {
   .print-demo__artifact > header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .print-demo__metadata {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    white-space: normal;
   }
 
   .print-demo__paper {
