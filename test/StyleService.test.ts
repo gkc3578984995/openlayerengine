@@ -79,6 +79,18 @@ describe('StyleService', () => {
     expect(store.get('c')?.style).toEqual(baseStyle());
   });
 
+  it('accepts a positive Callout text maxWidth and rejects non-positive or non-finite values', () => {
+    const { store, service } = createFixture();
+    store.add(element('a'));
+
+    service.patch({ id: 'a' }, { text: { maxWidth: 180 } });
+    expect((store.get('a')?.style as StyleSpec).text?.maxWidth).toBe(180);
+
+    expect(() => service.patch({ id: 'a' }, { text: { maxWidth: 0 } })).toThrow(InvalidArgumentError);
+    expect(() => service.patch({ id: 'a' }, { text: { maxWidth: Number.NaN } })).toThrow(InvalidArgumentError);
+    expect((store.get('a')?.style as StyleSpec).text?.maxWidth).toBe(180);
+  });
+
   it('deeply patches objects, replaces arrays, deletes undefined fields, and evaluates the selector once', () => {
     const { store, service } = createFixture();
     store.add(element('a'));

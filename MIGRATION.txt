@@ -763,7 +763,7 @@ session.on('complete', ({ element }) => {
 });
 ```
 
-不再为每一种图形提供独立方法。`type` 统一支持 20 种图形：
+不再为每一种图形提供独立方法。`type` 统一支持全部内置图形：
 
 ```text
 point
@@ -771,6 +771,7 @@ polyline
 polygon
 circle
 ellipse
+callout
 attack-arrow
 tailed-attack-arrow
 fine-arrow
@@ -787,6 +788,33 @@ lune-polygon
 lune-polyline
 curve-polyline
 ```
+
+文本气泡、文字标注框或旧业务 Label 若需要“框体 + 尾巴 + 居中文字”的原子对象，可迁移为 `callout`。它不是普通 `controlPoints` Shape：
+
+```ts
+const callout = earth.elements.add({
+  geometry: {
+    type: 'callout',
+    anchor: earth.view.toProjectedCoordinates([116.3974, 39.8942]),
+    center: earth.view.toProjectedCoordinates([116.4074, 39.9042]),
+    size: [220, 96]
+  },
+  style: {
+    strokes: [{ color: '#2563eb', width: 3 }],
+    fill: { type: 'solid', color: 'rgba(239, 246, 255, 0.96)' },
+    text: {
+      text: '迁移后的文本标注框',
+      maxWidth: 180,
+      padding: [12, 16, 12, 16],
+      fill: { type: 'solid', color: '#1e3a8a' }
+    }
+  }
+});
+```
+
+`anchor` 与 `center` 使用当前 View 投影坐标，`size` 使用 CSS 像素。原始文字只保存在 `StyleSpec.text.text`；`text.maxWidth` 是两点 Draw 自动计算初始内容宽度的 CSS px 上限，省略时为 240px。Callout Draw 第一次点击保存 `anchor`，第二次点击保存框体 `center` 并自动完成。独立 Edit 提供 1 个定位点和 8 个框体缩放点；Transform 只允许整体平移，不支持旋转、缩放、拉伸或 Transform Edit。Callout 文字固定居中且保持屏幕正向，不应迁移旧 Label 的沿线 placement、offset、rotation、随 View 旋转或文字背景，scale 只能省略或使用数值 `1`；框体背景与边框分别使用顶层 `fill` 和 `strokes`。
+
+持久 Callout 的文字由引擎托管在独立内部层。地图连续缩放或旋转时文字会暂时隐藏，View 稳定后按最终分辨率重排一次并恢复；普通业务 VectorLayer 保持 OpenLayers 默认缓存策略，同层普通文字不会被迁移或隐藏。
 
 ### 6.2 Plot 不再是独立入口
 
@@ -1431,7 +1459,7 @@ import {
 
 旧 `DrawType`、`ModifyType`、`ETransform`、`ETranslateType`、`EPlotType`、`ECursor` 和 `EntityType` 等枚举不再公开。
 
-`ECursor` 的值本来就是 CSS cursor 字符串，改为直接传给 `earth.view.setCursor('pointer')`。`EntityType` 中的 Point、Polyline、Polygon、Circle 分别改为小写 `ShapeType`，Rect 可在确认原有语义后改为 `rectangle`，Billboard 改为 point + icon 样式；Label、Heatmap、Model、MilStd 和 Custom 没有可以直接照搬的独立 `ShapeType`。
+`ECursor` 的值本来就是 CSS cursor 字符串，改为直接传给 `earth.view.setCursor('pointer')`。`EntityType` 中的 Point、Polyline、Polygon、Circle 分别改为小写 `ShapeType`，Rect 可在确认原有语义后改为 `rectangle`，Billboard 改为 point + icon 样式。带框体和定位尾巴的 Label 可按上文迁移为 `callout`；没有框体尾巴的纯文字 Label 仍应根据业务语义选择 point + text。Heatmap、Model、MilStd 和 Custom 没有可以直接照搬的独立 `ShapeType`。
 
 `EPlotType` 多数值从 camelCase 改为 kebab-case，部分名称也变了：
 
@@ -1504,6 +1532,7 @@ V2 还提供 `lineStyles.polyline()` 与 `lineStyles.polygon()`，用于生成�
 - [ ] 将 `feature.get('param')` 和 metadata key 访问迁移到 `Element.state`。
 - [ ] 经纬度写入 Element 前调用 `earth.view.toProjectedCoordinates()`，读取后调用 `earth.view.toGeographicCoordinates()`。
 - [ ] 将几何圆的 `radius` 统一改为米，不要持久化 `element.olFeature` 中使用投影单位的半径。
+- [ ] 将文本气泡迁移为 `callout` 的 `anchor + center + CSS px size`，并把原始文字放在 `StyleSpec.text.text`。
 - [ ] 将旧图层样式参数迁移为 `StyleSpec` 和 `earth.styles`。
 - [ ] 将可复用的线型参数迁移到 `lineStyles.polyline()` 或 `lineStyles.polygon()`；使用 `tracks`、`casing`、`caps` 与 `decoration` 组合，不再创建重复 Geometry 充当底衬。
 - [ ] 将 DynamicDraw、PlotDraw、PlotEdit 迁移到 `earth.draw` 会话。

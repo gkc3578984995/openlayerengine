@@ -20,6 +20,7 @@ import type {
 
 type Equal<Left, Right> = (<Value>() => Value extends Left ? 1 : 2) extends <Value>() => Value extends Right ? 1 : 2 ? true : false;
 type Assert<Condition extends true> = Condition;
+type PublicRenderGeometry<Geometry extends RenderGeometryState> = Geometry extends { readonly type: 'polygon' } ? Omit<Geometry, 'label'> : Geometry;
 
 type EarthMapContract = Assert<Equal<Earth['map'], Map>>;
 type EarthViewContract = Assert<Equal<Earth['view'], ViewService>>;
@@ -29,7 +30,7 @@ type UseEarthContract = Assert<Equal<ReturnType<typeof useEarth>, Earth>>;
 type ElementFeatureContract = Assert<Equal<Element['olFeature'], Feature<Geometry>>>;
 type ElementGeometryDetailsContract = Assert<Equal<Element['geometryDetails'], Readonly<ElementGeometryDetails>>>;
 type ElementGeometryContract = Assert<Equal<ElementGeometryDetails['renderGeometry'], ElementRenderGeometry>>;
-type ElementGeometryParityContract = Assert<Equal<ElementRenderGeometry, RenderGeometryState>>;
+type ElementGeometryParityContract = Assert<Equal<ElementRenderGeometry, PublicRenderGeometry<RenderGeometryState>>>;
 type ElementExtentContract = Assert<Equal<ElementGeometryDetails['extent'], MapExtent>>;
 type ElementExtentPointsContract = Assert<
   Equal<

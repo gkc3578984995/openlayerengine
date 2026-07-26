@@ -4,16 +4,19 @@ import Point from 'ol/geom/Point.js';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
+import { PresentedPolygonGeometry } from '../src/adapters/openlayers/PresentedPolygonGeometry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { CapabilityError, ObjectDisposedError } from '../src/core/errors.js';
 import { LayerManager } from '../src/core/layer/LayerManager.js';
+import type { ShapePresentationPort } from '../src/core/ports/ShapePresentationPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import { isNativeStyleRef } from '../src/core/style/types.js';
 import { assertStructuredStyleSpec } from '../src/services/style/StyleService.js';
@@ -34,7 +37,24 @@ function point(id: string, layerId = 'default', overrides: Partial<ElementState<
   };
 }
 
-function setup(seed: ElementState[] = []) {
+function callout(id: string, layerId = 'default'): ElementState<{ label: string }> {
+  return {
+    id,
+    type: 'callout',
+    geometry: { type: 'callout', anchor: [0, 0], center: [40, 30], size: [120, 50] },
+    style: {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [{ color: '#222222', width: 2 }],
+      text: { text: '自动换行文本', fontSize: 14, padding: [8, 12, 8, 12] }
+    },
+    data: { label: id },
+    module: 'labels',
+    layerId,
+    visible: true
+  };
+}
+
+function setup(seed: ElementState[] = [], shapePresentation?: ShapePresentationPort) {
   const map = createTestMap();
   const refs = new NativeRefRegistry();
   const shapes = new ShapeRegistry(basicShapeDefinitions);
@@ -51,10 +71,92 @@ function setup(seed: ElementState[] = []) {
   manager.add({ kind: 'vector', id: 'second', visible: true, opacity: 1, wrapX: true, declutter: false });
   for (const state of seed) store.add(state);
   const subscribe = vi.spyOn(store, 'subscribe');
-  const codec = new GeometryCodec(shapes, identityShapeProjection);
+  const codec = new GeometryCodec(shapes, identityShapeProjection, shapePresentation);
   const errorReporter = vi.fn();
-  const binding = new FeatureBinding(store, adapter, codec, new StyleCompiler(refs), { errorReporter });
+  const binding = new FeatureBinding(store, adapter, codec, new StyleCompiler(refs), {
+    errorReporter,
+    ...(shapePresentation === undefined ? {} : { shapePresentation })
+  });
   return { adapter, binding, codec, errorReporter, manager, refs, store, subscribe };
+}
+
+function presentationHarness(): {
+  readonly port: ShapePresentationPort;
+  readonly present: ReturnType<typeof vi.fn>;
+  readonly unsubscribe: ReturnType<typeof vi.fn>;
+  readonly unsubscribeMotion: ReturnType<typeof vi.fn>;
+  beginMotion(): void;
+  endMotion(): void;
+  emit(offset: number): void;
+} {
+  const listeners = new Set<() => void>();
+  const motionListeners = new Set<(moving: boolean) => void>();
+  let offset = 0;
+  const present = vi.fn();
+  const unsubscribe = vi.fn();
+  const unsubscribeMotion = vi.fn();
+  const port: ShapePresentationPort = {
+    present(definition, state, style) {
+      present(definition.type);
+      const result = testShapePresentation.present(definition, state, style);
+      if (definition.presentation?.viewDependent !== true || result.geometry.type !== 'polygon' || offset === 0) return result;
+      return Object.freeze({
+        state: result.state,
+        geometry: Object.freeze({
+          type: 'polygon' as const,
+          coordinates: Object.freeze(
+            result.geometry.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => Object.freeze([coordinate[0] + offset, coordinate[1]] as const))))
+          ),
+          ...(result.geometry.label === undefined
+            ? {}
+            : {
+                label: Object.freeze({
+                  coordinate: Object.freeze([result.geometry.label.coordinate[0] + offset, result.geometry.label.coordinate[1]] as const),
+                  text: result.geometry.label.text
+                })
+              })
+        })
+      });
+    },
+    describeEdit: (definition, state, style) => testShapePresentation.describeEdit(definition, state, style),
+    moveEdit: (definition, state, style, index, coordinate) => testShapePresentation.moveEdit(definition, state, style, index, coordinate),
+    subscribe(listener) {
+      listeners.add(listener);
+      let active = true;
+      return () => {
+        if (!active) return;
+        active = false;
+        unsubscribe();
+        listeners.delete(listener);
+      };
+    },
+    subscribeMotion(listener) {
+      motionListeners.add(listener);
+      let active = true;
+      return () => {
+        if (!active) return;
+        active = false;
+        unsubscribeMotion();
+        motionListeners.delete(listener);
+      };
+    }
+  };
+  return {
+    port,
+    present,
+    unsubscribe,
+    unsubscribeMotion,
+    beginMotion() {
+      for (const listener of [...motionListeners]) listener(true);
+    },
+    endMotion() {
+      for (const listener of [...motionListeners]) listener(false);
+    },
+    emit(nextOffset) {
+      offset = nextOffset;
+      for (const listener of [...listeners]) listener();
+    }
+  };
 }
 
 describe('FeatureBinding', () => {
@@ -86,6 +188,99 @@ describe('FeatureBinding', () => {
     }
     feature.changed();
     expect(styleFunction?.(feature, 16)).toBe(first);
+  });
+
+  it('splits Callout labels, coalesces presentation revisions during motion, and unsubscribes on destroy', () => {
+    const presentation = presentationHarness();
+    const { adapter, binding, codec } = setup([point('static'), callout('callout')], presentation.port);
+    const staticFeature = binding.requireFeature('static');
+    const staticGeometry = staticFeature.getGeometry();
+    const calloutFeature = binding.requireFeature('callout');
+    const calloutGeometry = calloutFeature.getGeometry();
+    const labelLayer = adapter.presentationLabelLayer('default')!;
+    const labelSource = labelLayer.getSource()!;
+    const labelFeature = labelSource.getFeatures()[0]!;
+    const labelGeometry = labelFeature.getGeometry();
+    expect(calloutGeometry).toBeInstanceOf(PresentedPolygonGeometry);
+    expect((calloutGeometry as PresentedPolygonGeometry).getPresentationLabel()).toBeUndefined();
+    expect(labelGeometry).toBeInstanceOf(PresentedPolygonGeometry);
+    expect((labelGeometry as PresentedPolygonGeometry).getPresentationLabel()?.coordinate).toEqual([40, 30]);
+    expect(labelLayer.getVisible()).toBe(true);
+
+    const project = vi.spyOn(codec, 'project');
+    presentation.present.mockClear();
+    presentation.beginMotion();
+    expect(labelLayer.getVisible()).toBe(false);
+    presentation.emit(10);
+    presentation.emit(20);
+    presentation.emit(25);
+
+    expect(project).not.toHaveBeenCalled();
+    expect(presentation.present).not.toHaveBeenCalled();
+    expect(staticFeature.getGeometry()).toBe(staticGeometry);
+    expect(calloutFeature.getGeometry()).toBe(calloutGeometry);
+    expect(labelFeature.getGeometry()).toBe(labelGeometry);
+    expect((labelGeometry as PresentedPolygonGeometry).getPresentationLabel()?.coordinate).toEqual([40, 30]);
+
+    presentation.endMotion();
+
+    expect(project).toHaveBeenCalledTimes(1);
+    expect(project.mock.calls[0]?.[1].type).toBe('callout');
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    expect(labelLayer.getVisible()).toBe(true);
+    expect(staticFeature.getGeometry()).toBe(staticGeometry);
+    expect(calloutFeature.getGeometry()).toBe(calloutGeometry);
+    expect(labelFeature.getGeometry()).toBe(labelGeometry);
+    expect((calloutGeometry as PresentedPolygonGeometry).getPresentationLabel()).toBeUndefined();
+    expect((labelGeometry as PresentedPolygonGeometry).getPresentationLabel()?.coordinate).toEqual([65, 30]);
+
+    project.mockClear();
+    presentation.present.mockClear();
+    presentation.emit(30);
+    expect(project).toHaveBeenCalledTimes(1);
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    expect(calloutFeature.getGeometry()).toBe(calloutGeometry);
+    expect(labelFeature.getGeometry()).toBe(labelGeometry);
+    expect((labelGeometry as PresentedPolygonGeometry).getPresentationLabel()?.coordinate).toEqual([70, 30]);
+
+    project.mockClear();
+    const disposeLabel = vi.spyOn(labelFeature, 'dispose');
+    binding.destroy();
+    expect(presentation.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(presentation.unsubscribeMotion).toHaveBeenCalledTimes(1);
+    expect(labelSource.getFeatures()).toEqual([]);
+    expect(labelFeature.getGeometry()).toBeUndefined();
+    expect(disposeLabel).toHaveBeenCalledTimes(1);
+    presentation.emit(50);
+    presentation.beginMotion();
+    presentation.endMotion();
+    expect(project).not.toHaveBeenCalled();
+  });
+
+  it('keeps wrapped Callout labels canonical without diverting ordinary Point text', () => {
+    const presentation = presentationHarness();
+    const textPoint = point('plain-text', 'second', {
+      style: { text: { text: '普通文本', fontSize: 14, fill: { type: 'solid', color: '#333333' } } }
+    });
+    const { adapter, binding } = setup([callout('wrapped-callout', 'second'), textPoint], presentation.port);
+    const source = adapter.requireVectorSource('second');
+    const calloutFeature = binding.requireFeature('wrapped-callout');
+    const pointFeature = binding.requireFeature('plain-text');
+    const labelLayer = adapter.presentationLabelLayer('second')!;
+    const labelSource = labelLayer.getSource()!;
+    const labelFeatures = labelSource.getFeatures();
+
+    expect(source.getWrapX()).toBe(true);
+    expect(labelSource.getWrapX()).toBe(true);
+    expect(source.getFeatures()).toEqual(expect.arrayContaining([calloutFeature, pointFeature]));
+    expect(labelFeatures).toHaveLength(1);
+    expect(labelFeatures[0]).not.toBe(calloutFeature);
+    expect(labelFeatures[0]).not.toBe(pointFeature);
+    expect(binding.elementIdFor(labelFeatures[0]!)).toBeUndefined();
+    expect((calloutFeature.getGeometry() as PresentedPolygonGeometry).getPresentationLabel()).toBeUndefined();
+    expect((labelFeatures[0]?.getGeometry() as PresentedPolygonGeometry).getPresentationLabel()?.coordinate).toEqual([40, 30]);
+    const pointStyles = pointFeature.getStyleFunction()?.(pointFeature, 1) as Style[];
+    expect(pointStyles.some((style) => style.getText() !== null)).toBe(true);
   });
 
   it('closes the subscribe-before-seed initialization window', () => {
@@ -598,6 +793,40 @@ describe('FeatureBinding', () => {
     expect(() => transitionLease.release()).not.toThrow();
   });
 
+  it('hides and restores both halves of a Callout across presentation and suppression leases', () => {
+    const presentationHarnessContext = presentationHarness();
+    const { adapter, binding } = setup([callout('leased-callout')], presentationHarnessContext.port);
+    const source = adapter.requireVectorSource('default');
+    const feature = binding.requireFeature('leased-callout');
+    const labelSource = adapter.presentationLabelLayer('default')!.getSource()!;
+    const labelFeature = labelSource.getFeatures()[0]!;
+
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(labelSource.hasFeature(labelFeature)).toBe(true);
+    expect((labelFeature.getStyleFunction()?.(labelFeature, 1) as Style[]).some((style) => style.getText() !== null)).toBe(true);
+
+    const presentation = binding.acquirePresentation('leased-callout');
+    const hiddenBase = feature.getStyleFunction()?.(feature, 1) as Style[];
+    expect(hiddenBase.length).toBeGreaterThan(0);
+    for (const style of hiddenBase) {
+      if (style.getFill() !== null) expect(style.getFill()?.getColor()).toEqual([0, 0, 0, 0]);
+      if (style.getStroke() !== null) expect(style.getStroke()?.getColor()).toEqual([0, 0, 0, 0]);
+    }
+    expect(labelFeature.getStyleFunction()?.(labelFeature, 1)).toEqual([]);
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(labelSource.hasFeature(labelFeature)).toBe(true);
+
+    presentation.release();
+    expect((labelFeature.getStyleFunction()?.(labelFeature, 1) as Style[]).some((style) => style.getText() !== null)).toBe(true);
+
+    const suppression = binding.suppressProjection('leased-callout');
+    expect(source.hasFeature(feature)).toBe(false);
+    expect(labelSource.hasFeature(labelFeature)).toBe(false);
+    suppression.release();
+    expect(source.hasFeature(feature)).toBe(true);
+    expect(labelSource.hasFeature(labelFeature)).toBe(true);
+  });
+
   it('reports projection failure, keeps committed Core truth dirty, and reconciles on the next operation', () => {
     const { binding, codec, errorReporter, store } = setup([point('dirty')]);
     const feature = binding.requireFeature('dirty');
@@ -762,5 +991,43 @@ describe('FeatureBinding', () => {
     expect(setGeometry).toHaveBeenCalledTimes(1);
     expect(setStyle).toHaveBeenCalledTimes(1);
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries only the failed presentation unsubscribe without repeating the completed Store unsubscribe', () => {
+    const map = createTestMap();
+    const refs = new NativeRefRegistry();
+    const shapes = new ShapeRegistry(basicShapeDefinitions);
+    const store = new ElementStore(shapes);
+    const adapter = new LayerAdapter(map, refs);
+    const manager = new LayerManager(store, adapter);
+    manager.ensureDefaultVector();
+    const nativeSubscribe = store.subscribe.bind(store);
+    const unsubscribeStore = vi.fn();
+    vi.spyOn(store, 'subscribe').mockImplementation((listener) => {
+      const unsubscribe = nativeSubscribe(listener);
+      return () => {
+        unsubscribeStore();
+        unsubscribe();
+      };
+    });
+    const failure = new Error('presentation unsubscribe failed');
+    const unsubscribePresentation = vi.fn().mockImplementationOnce(() => {
+      throw failure;
+    });
+    const presentation = {
+      subscribe: () => unsubscribePresentation
+    } as unknown as ShapePresentationPort;
+    const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs), {
+      shapePresentation: presentation
+    });
+
+    expect(() => binding.destroy()).toThrow(failure);
+    expect(unsubscribeStore).toHaveBeenCalledOnce();
+    expect(unsubscribePresentation).toHaveBeenCalledOnce();
+
+    binding.destroy();
+    binding.destroy();
+    expect(unsubscribeStore).toHaveBeenCalledOnce();
+    expect(unsubscribePresentation).toHaveBeenCalledTimes(2);
   });
 });

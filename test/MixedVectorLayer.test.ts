@@ -15,6 +15,7 @@ import { shapeTypes, type ShapeState, type ShapeType } from '../src/core/shape/t
 import { assertStructuredStyleSpec } from '../src/services/style/StyleService.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { createTestMap } from './fixtures/Task8Map.js';
+import { identityShapePresentation } from './helpers/shapePresentation.js';
 
 const geometry: Record<ShapeType, ShapeState> = {
   point: { type: 'point', controlPoints: [[1, 2]] },
@@ -41,6 +42,7 @@ const geometry: Record<ShapeType, ShapeState> = {
       [3, 2]
     ]
   },
+  callout: { type: 'callout', anchor: [0, 0], center: [4, 3], size: [160, 56] },
   'attack-arrow': {
     type: 'attack-arrow',
     controlPoints: [
@@ -166,7 +168,7 @@ const geometry: Record<ShapeType, ShapeState> = {
 describe('mixed vector layer', () => {
   coversCapabilities('layer-feature-query-remove', 'element-metadata-id-module-data');
 
-  it('keeps all 20 shape kinds together while query/update/remove remain Store-driven', () => {
+  it('keeps every shape kind together while query/update/remove remain Store-driven', () => {
     const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
     const refs = new NativeRefRegistry();
     const store = new ElementStore(shapes, {
@@ -178,7 +180,7 @@ describe('mixed vector layer', () => {
     const adapter = new LayerAdapter(createTestMap(), refs);
     const manager = new LayerManager(store, adapter);
     manager.ensureDefaultVector();
-    const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection), new StyleCompiler(refs));
+    const binding = new FeatureBinding(store, adapter, new GeometryCodec(shapes, identityShapeProjection, identityShapePresentation), new StyleCompiler(refs));
 
     store.transaction((transaction) => {
       for (const [index, type] of shapeTypes.entries()) {
@@ -186,7 +188,7 @@ describe('mixed vector layer', () => {
           id: `shape-${type}`,
           type,
           geometry: geometry[type],
-          style: {},
+          style: type === 'callout' ? { text: { text: 'Callout' } } : {},
           data: { index, label: type },
           module: index % 2 === 0 ? 'even' : 'odd',
           layerId: 'default',
@@ -195,17 +197,17 @@ describe('mixed vector layer', () => {
       }
     });
 
-    expect(adapter.requireVectorSource('default').getFeatures()).toHaveLength(20);
+    expect(adapter.requireVectorSource('default').getFeatures()).toHaveLength(shapeTypes.length);
     expect(shapeTypes.map((type) => binding.requireFeature(`shape-${type}`).getId())).toEqual(shapeTypes.map((type) => `shape-${type}`));
-    expect(store.query({ module: 'even' })).toHaveLength(10);
+    expect(store.query({ module: 'even' })).toHaveLength(11);
     const updated = store.update({ module: 'even' }, { visible: false });
-    expect(updated.changes).toHaveLength(10);
+    expect(updated.changes).toHaveLength(11);
     expect(adapter.requireVectorSource('default').getFeatures()).toHaveLength(10);
     expect(store.get<{ index: number; label: string }>('shape-point')?.data).toEqual({ index: 0, label: 'point' });
 
     const removed = store.remove({ module: 'odd' });
     expect(removed.changes).toHaveLength(10);
-    expect(store.query()).toHaveLength(10);
+    expect(store.query()).toHaveLength(11);
     expect(adapter.requireVectorSource('default').getFeatures()).toEqual([]);
   });
 });

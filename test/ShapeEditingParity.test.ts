@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import type { Coordinate } from '../src/core/common/types.js';
@@ -24,7 +25,8 @@ import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 const style: ElementStyleState = {
   symbol: { type: 'circle', radius: 5, fill: { type: 'solid', color: '#3366ff' } },
   strokes: [{ color: '#3366ff', width: 2 }],
-  fill: { type: 'solid', color: 'rgba(51, 102, 255, 0.2)' }
+  fill: { type: 'solid', color: 'rgba(51, 102, 255, 0.2)' },
+  text: { text: 'Callout', maxWidth: 120 }
 };
 
 const representativePoints = {
@@ -43,6 +45,10 @@ const representativePoints = {
     [2, 0]
   ],
   ellipse: [
+    [0, 0],
+    [4, 2]
+  ],
+  callout: [
     [0, 0],
     [4, 2]
   ],
@@ -182,11 +188,10 @@ describe('Shape editing parity', () => {
   it.each(shapeTypes)('edits %s through its registered semantic definition in one commit', async (type) => {
     const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
     const definition = shapes.get(type);
-    const topology = definition.editTopology;
     expect(definition.capabilities.has('edit')).toBe(true);
-    expect(topology).toBeDefined();
-    if (topology === undefined) throw new Error(`${type} edit topology is unavailable`);
     const geometry = completeRepresentative(shapes, type);
+    const presented = testShapePresentation.present(definition, geometry, style);
+    const description = testShapePresentation.describeEdit(definition, presented.state, style);
     const store = new ElementStore(shapes);
     const id = `edit-parity-${type}`;
     const original = store.add({
@@ -204,6 +209,7 @@ describe('Shape editing parity', () => {
       store,
       shapes,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       styles: new StyleService(store),
       coordinator: new InteractionCoordinator(),
       drawPort: {} as DrawInteractionPort,
@@ -212,12 +218,11 @@ describe('Shape editing parity', () => {
     });
     const session = service.edit(id);
 
-    const description = topology.describe(geometry as never);
     const expectedControlPoints = [...description.handles].sort((left, right) => left.index - right.index).map(({ coordinate }) => coordinate);
     expect(port.spec).toEqual({ elementId: id, controlPoints: expectedControlPoints, underlay: false });
     expect(port.renders).toHaveLength(1);
     expect(port.renders[0]).toEqual({
-      geometry: definition.toRenderGeometry(geometry as never),
+      geometry: presented.geometry,
       style,
       anchors: [
         ...description.handles.map((anchor) => ({ ...anchor, kind: 'control' })),
@@ -232,11 +237,11 @@ describe('Shape editing parity', () => {
     expect(port.destroy).toHaveBeenCalledOnce();
     expect(transaction).toHaveBeenCalledOnce();
     const final = store.get(id);
-    expect(final).toEqual(original);
-    expect(final?.geometry).toEqual(geometry);
+    expect(final).toEqual({ ...original, geometry: presented.state });
+    expect(final?.geometry).toEqual(presented.state);
     expect(definition.isComplete(final?.geometry as never)).toBe(true);
-    expect(definition.toRenderGeometry(final?.geometry as never)).toEqual(definition.toRenderGeometry(geometry as never));
-    expect(topology.describe(final?.geometry as never)).toEqual(description);
+    expect(testShapePresentation.present(definition, final!.geometry, style).geometry).toEqual(presented.geometry);
+    expect(testShapePresentation.describeEdit(definition, final!.geometry, style)).toEqual(description);
     await expect(session.finished).resolves.toEqual(final);
   });
 
@@ -274,6 +279,7 @@ describe('Shape editing parity', () => {
       store,
       shapes,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       styles: new StyleService(store),
       coordinator: new InteractionCoordinator(),
       drawPort: {} as DrawInteractionPort,

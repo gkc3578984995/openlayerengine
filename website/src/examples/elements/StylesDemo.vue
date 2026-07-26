@@ -30,18 +30,22 @@ const mapTarget = ref<HTMLDivElement | null>(null);
 const earthRef = shallowRef<Earth | null>(null);
 const previewCenter = shallowRef<Coordinate | null>(null);
 const presetName = ref<StylePresetName>('point-default');
+const previewKind = ref<'preset' | 'callout'>('preset');
+const calloutMaxWidth = ref(190);
 const accentColor = ref<string | null>('#f56c6c');
-const currentAction = ref<'set' | 'patch' | 'native' | 'native-patch'>('set');
+const currentAction = ref<'set' | 'patch' | 'callout' | 'native' | 'native-patch'>('set');
 const styleMode = ref<'structured' | 'native'>('structured');
 const nativePatchResult = ref<'idle' | 'verified' | 'failed'>('idle');
 const feedback = ref('选择结构化预设，或进入 nativeStyle 边界验证。');
 
-const isPointPreset = computed(() => pointPresetNames.has(presetName.value));
+const isPointPreset = computed(() => previewKind.value === 'preset' && pointPresetNames.has(presetName.value));
+const currentTargetLabel = computed(() => (previewKind.value === 'callout' ? 'Callout 文本框' : presetLabels[presetName.value]));
 const currentActionLabel = computed(
   () =>
     ({
       set: '完整替换 set()',
       patch: '局部合并 patch()',
+      callout: 'Callout 结构化样式',
       native: '原生替换 set({ nativeStyle })',
       'native-patch': '边界校验 patch()'
     })[currentAction.value]
@@ -94,6 +98,7 @@ const applyPreset = () => {
   });
   earth.styles.set({ id: PREVIEW_ID }, stylePresets[presetName.value]);
   currentAction.value = 'set';
+  previewKind.value = 'preset';
   styleMode.value = 'structured';
   nativePatchResult.value = 'idle';
   feedback.value = `已应用 ${presetName.value} 结构化预设。`;
@@ -101,13 +106,53 @@ const applyPreset = () => {
 };
 // #endregion style-preset
 
+// #region callout-style
+const applyCalloutExample = () => {
+  const earth = earthRef.value;
+  const center = previewCenter.value;
+  if (earth === null || center === null) return;
+
+  earth.elements.remove({ id: PREVIEW_ID });
+  earth.elements.add({
+    id: PREVIEW_ID,
+    module: 'style-preview',
+    layerId: PREVIEW_LAYER_ID,
+    geometry: {
+      type: 'callout',
+      anchor: [center[0] - 30_000, center[1] - 24_000],
+      center,
+      size: [calloutMaxWidth.value + 36, 68]
+    },
+    style: {
+      strokes: [{ color: '#be123c', width: 3, lineJoin: 'round' }],
+      fill: { type: 'solid', color: 'rgba(255, 241, 242, 0.96)' },
+      text: {
+        text: 'maxWidth 控制 Draw 初始内容宽度；框体缩窄时文字继续自动换行',
+        maxWidth: calloutMaxWidth.value,
+        padding: [12, 18, 12, 18],
+        fontSize: 16,
+        fill: { type: 'solid', color: '#881337' }
+      }
+    }
+  });
+  previewKind.value = 'callout';
+  currentAction.value = 'callout';
+  styleMode.value = 'structured';
+  nativePatchResult.value = 'idle';
+  feedback.value = `已应用 Callout：内容最大宽度 ${calloutMaxWidth.value}px；顶层 fill / strokes 绘制框体和尾巴，text 绘制居中文字。`;
+  focusPreview();
+};
+// #endregion callout-style
+
 // #region style-patch
 const patchAccent = () => {
   const earth = earthRef.value;
   if (earth === null) return;
   const patchColor = accentColor.value ?? '#f56c6c';
   let patch: StylePatch;
-  if (presetName.value === 'point-default' || presetName.value === 'transform-handle') {
+  if (previewKind.value === 'callout') {
+    patch = { fill: { color: patchColor } };
+  } else if (presetName.value === 'point-default' || presetName.value === 'transform-handle') {
     patch = { symbol: { fill: { color: patchColor } } };
   } else if (presetName.value === 'icon-default') {
     patch = { symbol: { color: patchColor } };
@@ -145,6 +190,8 @@ const createNativePreviewStyle = () =>
 const applyNativeStyle = () => {
   const earth = earthRef.value;
   if (earth === null) return;
+
+  if (previewKind.value === 'callout') applyPreset();
 
   earth.styles.set({ id: PREVIEW_ID }, { nativeStyle: createNativePreviewStyle() });
   currentAction.value = 'native';
@@ -229,6 +276,15 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="example-demo__action-group styles-demo__control-group">
+          <strong>Callout 自动换行</strong>
+          <el-form-item label="text.maxWidth · CSS px">
+            <el-slider v-model="calloutMaxWidth" :min="100" :max="260" :step="10" show-input />
+          </el-form-item>
+          <div class="example-demo__action-buttons">
+            <el-button type="primary" plain @click="applyCalloutExample">应用 Callout 示例</el-button>
+          </div>
+        </div>
+        <div class="example-demo__action-group styles-demo__control-group">
           <strong>保留其余字段</strong>
           <el-form-item label="局部颜色">
             <el-color-picker v-model="accentColor" aria-label="局部更新颜色" />
@@ -249,7 +305,7 @@ onBeforeUnmount(() => {
       </el-form>
 
       <div class="example-demo__feedback styles-demo__status" aria-live="polite">
-        <el-tag type="primary" effect="dark">{{ presetLabels[presetName] }}</el-tag>
+        <el-tag type="primary" effect="dark">{{ currentTargetLabel }}</el-tag>
         <el-tag :type="styleMode === 'native' ? 'warning' : 'success'" effect="plain">{{ styleMode === 'native' ? 'NativeStyleRef' : 'StyleSpec' }}</el-tag>
         <el-tag :type="currentActionType" effect="plain">当前结果：{{ currentActionLabel }}</el-tag>
         <el-tag v-if="nativePatchResult !== 'idle'" :type="nativePatchResult === 'verified' ? 'success' : 'danger'" effect="dark">
@@ -268,6 +324,9 @@ onBeforeUnmount(() => {
     <el-descriptions class="styles-demo__semantics" :column="2" border size="small">
       <el-descriptions-item label="styles.set()">用选中的 <code>StyleSpec</code> 完整替换当前样式。</el-descriptions-item>
       <el-descriptions-item label="styles.patch()">只合并颜色等局部字段，未提供的字段继续保留。</el-descriptions-item>
+      <el-descriptions-item label="Callout"
+        >顶层 <code>fill / strokes</code> 绘制框体与尾巴；<code>text.maxWidth</code> 参与两点 Draw 初始尺寸。</el-descriptions-item
+      >
       <el-descriptions-item label="{ nativeStyle }">通过 <code>styles.set()</code> 正向注册 OpenLayers Style。</el-descriptions-item>
       <el-descriptions-item label="失败原子性">原生样式上的结构化 patch 抛错，且保留原 <code>NativeStyleRef</code>。</el-descriptions-item>
     </el-descriptions>

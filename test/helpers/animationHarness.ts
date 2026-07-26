@@ -5,6 +5,7 @@ import { ElementStore } from '../../src/core/element/ElementStore.js';
 import type { ElementState } from '../../src/core/element/types.js';
 import type { AnimationClockPort } from '../../src/core/ports/AnimationClockPort.js';
 import type { AnimationWakeHandle, AnimationWakePort } from '../../src/core/ports/AnimationWakePort.js';
+import type { ShapePresentationPort } from '../../src/core/ports/ShapePresentationPort.js';
 import type {
   LayerRenderBatch,
   LayerRenderFrame,
@@ -18,6 +19,7 @@ import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import { AnimationManagerImpl } from '../../src/services/animation/AnimationManager.js';
 import type { AnimationRegistry } from '../../src/services/animation/AnimationRegistry.js';
 import { identityShapeProjection } from './shapeProjection.js';
+import { testShapePresentation } from './shapePresentation.js';
 
 interface FakeLoop {
   readonly layerId: string;
@@ -213,7 +215,11 @@ export interface AnimationHarness {
   readonly manager: AnimationManagerImpl;
 }
 
-export function createAnimationHarness(seed: readonly ElementState[] = [], registry: AnimationRegistry = createBuiltinAnimationRegistry()): AnimationHarness {
+export function createAnimationHarness(
+  seed: readonly ElementState[] = [],
+  registry: AnimationRegistry = createBuiltinAnimationRegistry(),
+  shapePresentation: ShapePresentationPort = testShapePresentation
+): AnimationHarness {
   const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
   const store = new ElementStore(shapes);
   for (const state of seed) store.add(state);
@@ -224,6 +230,7 @@ export function createAnimationHarness(seed: readonly ElementState[] = [], regis
     shapes,
     render,
     shapeProjection: identityShapeProjection,
+    shapePresentation,
     registry,
     clock: render,
     wake: render

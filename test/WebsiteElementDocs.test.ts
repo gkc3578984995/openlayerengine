@@ -51,7 +51,7 @@ describe('website Element documentation', () => {
     const recordStart = catalog.indexOf('const definitions');
     const recordEnd = catalog.indexOf('satisfies Record<ShapeType', recordStart);
 
-    expect(shapeTypes).toHaveLength(20);
+    expect(shapeTypes).toContain('callout');
     expect(recordStart).toBeGreaterThan(-1);
     expect(recordEnd).toBeGreaterThan(recordStart);
     expect(catalog).toMatch(/shapeExamples[\s\S]{0,240}shapeTypes\.map/u);
@@ -78,7 +78,7 @@ describe('website Element documentation', () => {
     expect(orderedSections.every((index) => index >= 0)).toBe(true);
     expect(orderedSections).toEqual([...orderedSections].sort((left, right) => left - right));
     expect(view).toContain('创建第一个 Element');
-    expect(view).toContain('全部 20 种 Shape');
+    expect(view).toContain('全部内置 Shape');
     expect(view).toContain('<h2 class="doc-h2">Element API</h2>');
     expect(view).toContain('<h3 id="api-element-properties" class="doc-h3">属性</h3>');
     expect(view).toContain('<h3 id="api-element-methods" class="doc-h3">方法</h3>');
@@ -180,7 +180,7 @@ describe('website Element documentation', () => {
     expect(demo).toContain('@click="renderShape(example.type)"');
     expect(demo).toContain('placeholder="搜索中文名或 ShapeType"');
     expect(demo).toContain('aria-label="按图形类别筛选"');
-    expect(demo).toContain('找到 {{ filteredCount }} / 20');
+    expect(demo).toContain('找到 {{ filteredCount }} / {{ shapeExamples.length }}');
     expect(demo).toContain('href="/api/types#api-type-shape-type"');
     expect(demo).toContain('href="/api/types#api-type-shape-input"');
     expect(demo).toContain('href="/api/types#api-type-shape-state"');

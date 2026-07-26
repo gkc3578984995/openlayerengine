@@ -32,6 +32,7 @@ import { styleVisualOutsetPx } from '../../../core/style/visualOutset.js';
 import type { FeatureBinding } from '../FeatureBinding.js';
 import { projectRenderGeometry } from '../GeometryCodec.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
+import { presentationLabel } from '../PresentedPolygonGeometry.js';
 import type { CompiledPresentationStyle, StyleCompiler } from '../style/StyleCompiler.js';
 
 /** 图层渲染通道的可选配置。 */
@@ -514,6 +515,7 @@ export class LayerRenderPass implements LayerRenderPort {
   ): void {
     const geometry = cached.feature.getGeometry();
     if (geometry === undefined) return;
+    const hidePresentationLabel = this.#layers.presentationLabelsSuspended() && presentationLabel(geometry) !== undefined;
     const offsets = worldOffsets(event, layer, geometry.getExtent(), cached.styleInput, dynamicStyle, resolution);
     let appliedOffset = 0;
     try {
@@ -529,7 +531,9 @@ export class LayerRenderPass implements LayerRenderPort {
             cached.compiledStyleRevision = cached.compiledStyle.revision;
           }
           applyDynamicStyle(styles, dynamicStyle, cached.dynamicDefaults, cached.styleInput);
-          for (const style of styles) vectorContext.drawFeature(cached.feature, style);
+          for (const style of styles) {
+            if (!hidePresentationLabel || style.getText() === null) vectorContext.drawFeature(cached.feature, style);
+          }
         }
       });
     } finally {

@@ -23,7 +23,10 @@ import type { ElementState } from '../../core/element/types.js';
 import { InvalidArgumentError, ObjectDisposedError } from '../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ElementProtectionViewPort } from '../../core/ports/ElementProtectionPort.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { ElementProtectionState } from '../../core/protection/types.js';
+import type { ShapeState } from '../../core/shape/types.js';
+import type { ElementStyleState } from '../../core/style/types.js';
 import type { GeometryCodec } from './GeometryCodec.js';
 import { projectRenderGeometry } from './GeometryCodec.js';
 import type { LayerAdapter } from './LayerAdapter.js';
@@ -52,6 +55,8 @@ interface ProtectionVisualRecord {
   readonly feature: ProtectionFeature;
   readonly maskStyle: Style;
   readonly styleFunction: StyleFunction;
+  geometry: ShapeState;
+  style: ElementStyleState;
   bucket: ProtectionLayerBucket;
   compiledBaseStyle: StyleLike;
   resolvedBaseStyles: readonly Style[];
@@ -70,6 +75,8 @@ export interface ElementProtectionViewAdapterOptions {
   readonly errorReporter?: ErrorReporter;
   /** 创建保护标签根节点；非浏览器环境未提供时只渲染 OpenLayers 遮罩。 */
   readonly createElement?: () => HTMLDivElement;
+  /** View presentation 变化时刷新依赖屏幕像素的保护几何。 */
+  readonly shapePresentation?: ShapePresentationPort;
 }
 
 const protectionStroke = '#f59e0b';
@@ -97,6 +104,7 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
   readonly #styles: StyleCompiler;
   readonly #errorReporter: ErrorReporter;
   readonly #createElement: (() => HTMLDivElement) | undefined;
+  readonly #unsubscribePresentation: () => void;
   readonly #buckets = new Map<string, ProtectionLayerBucket>();
   readonly #records = new Map<string, ProtectionVisualRecord>();
   #postrenderKey: EventsKey | undefined;
@@ -115,6 +123,7 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
     this.#styles = styles;
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
     this.#createElement = options.createElement ?? defaultElementFactory();
+    this.#unsubscribePresentation = options.shapePresentation?.subscribe(() => this.#handlePresentationFrame()) ?? (() => undefined);
   }
 
   /** 新增或原位更新一个保护遮罩与编辑者标签。 */
@@ -122,7 +131,7 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
     this.#assertActive();
     assertViewInput(element, protection);
 
-    const rendered = this.#geometry.render(element.geometry);
+    const rendered = this.#geometry.present(element.geometry, element.style);
     const compiledBaseStyle = this.#styles.compile(element.style);
     const bucket = this.#requireBucket(element.layerId);
     const current = this.#records.get(element.id);
@@ -133,6 +142,8 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
 
     current.feature.setId(element.id);
     projectRenderGeometry(current.feature, rendered);
+    current.geometry = element.geometry;
+    current.style = element.style;
     current.compiledBaseStyle = compiledBaseStyle;
     current.resolvedBaseStyles = Object.freeze([]);
     current.elementVisible = element.visible;
@@ -162,6 +173,7 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
   destroy(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#attempt(this.#unsubscribePresentation, 'unsubscribe-presentation');
     const postrenderKey = this.#postrenderKey;
     this.#postrenderKey = undefined;
     if (postrenderKey !== undefined) this.#attempt(() => unByKey(postrenderKey), 'unsubscribe-postrender');
@@ -188,6 +200,8 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
     Object.assign(record, {
       elementId: element.id,
       feature,
+      geometry: element.geometry,
+      style: element.style,
       bucket,
       compiledBaseStyle,
       resolvedBaseStyles: Object.freeze([]),
@@ -306,7 +320,14 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
     if (collection === undefined) throw new InvalidArgumentError(`Element protection target layer is not attached: ${layerId}`);
 
     const source = new VectorSource<ProtectionFeature>({ wrapX: targetSource.getWrapX() });
-    const layer = new VectorLayer<ProtectionSource>({ source, style: null, declutter: targetLayer.getDeclutter() });
+    const layer = new VectorLayer<ProtectionSource>({
+      source,
+      style: null,
+      declutter: targetLayer.getDeclutter(),
+      // 保护替身与原 Element 共用 view-dependent presentation，缩放期间也必须同步重投影。
+      updateWhileAnimating: true,
+      updateWhileInteracting: true
+    });
     const bucket: ProtectionLayerBucket = {
       layerId,
       targetLayer,
@@ -330,9 +351,11 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
           this.#report(error, 'target-layer-presentation', layerId);
         }
       });
-      insertLayerAfter(collection, targetLayer, layer);
-      const targetIndex = collection.getArray().indexOf(targetLayer);
-      if (targetIndex < 0 || collection.getArray()[targetIndex + 1] !== layer) {
+      const presentationLabelLayer = this.#layers.presentationLabelLayer(layerId);
+      const insertionAnchor = presentationLabelLayer ?? targetLayer;
+      insertLayerAfter(collection, insertionAnchor, layer);
+      const anchorIndex = collection.getArray().indexOf(insertionAnchor);
+      if (anchorIndex < 0 || collection.getArray()[anchorIndex + 1] !== layer) {
         throw new InvalidArgumentError(`OpenLayers did not attach protection layer after target: ${layerId}`);
       }
       this.#buckets.set(layerId, bucket);
@@ -395,6 +418,24 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
     const key = this.#postrenderKey;
     this.#postrenderKey = undefined;
     this.#attempt(() => unByKey(key), 'unsubscribe-postrender');
+  }
+
+  /** View 或字体 revision 变化后只刷新声明为 view-dependent 的保护 Feature。 */
+  #handlePresentationFrame(): void {
+    if (this.#disposed) return;
+    for (const record of this.#records.values()) {
+      if (!this.#geometry.isViewDependent(record.geometry)) continue;
+      try {
+        const rendered = this.#geometry.present(record.geometry, record.style);
+        projectRenderGeometry(record.feature, rendered);
+        record.anchor = representativeCoordinate(record.feature.getGeometry());
+        record.feature.changed();
+        this.#hideUntilRendered(record);
+      } catch (error) {
+        this.#report(error, 'presentation-refresh', record.elementId);
+      }
+    }
+    this.#ensurePostrenderListener();
   }
 
   #hideUntilRendered(record: ProtectionVisualRecord): void {

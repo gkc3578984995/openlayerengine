@@ -8,7 +8,7 @@ import { createShapeExampleInput } from '../../config/shapeExamples';
 
 const LAYER_ID = 'docs-edit-targets';
 const TARGET_ID = 'docs-edit-target';
-const DEFAULT_TARGET: InteractionTargetId = 'polygon';
+const DEFAULT_TARGET: InteractionTargetId = 'callout';
 const ICON_SOURCE =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="56" viewBox="0 0 48 56"%3E%3Cpath fill="%232563eb" stroke="white" stroke-width="3" d="M24 2C12.4 2 3 11.4 3 23c0 15.8 21 31 21 31s21-15.2 21-31C45 11.4 35.6 2 24 2Z"/%3E%3Ccircle cx="24" cy="23" r="8" fill="white"/%3E%3C/svg%3E';
 
@@ -37,12 +37,29 @@ const supportRows = interactionTargetExamples.map((target) => ({
   note: target.description
 }));
 
-const controlPointCount = (geometry: ShapeState) => (geometry.type === 'circle' ? 2 : geometry.controlPoints.length);
+const controlPointCount = (geometry: ShapeState) => {
+  if (geometry.type === 'circle') return 2;
+  if (geometry.type === 'callout') return 9;
+  return geometry.controlPoints.length;
+};
 
 const styleFor = (id: InteractionTargetId): StyleSpec => {
   if (id === 'point-icon') {
     return {
       symbol: { type: 'icon', src: ICON_SOURCE, size: [48, 56], anchor: [0.5, 1], anchorXUnits: 'fraction', anchorYUnits: 'fraction' }
+    };
+  }
+  if (id === 'callout') {
+    return {
+      strokes: [{ color: '#2563eb', width: 3, lineJoin: 'round' }],
+      fill: { type: 'solid', color: 'rgba(239, 246, 255, 0.96)' },
+      text: {
+        text: '拖拽左右中点会自动适高；上下与四角缩放时文字也不会越界',
+        maxWidth: 220,
+        padding: [12, 16, 12, 16],
+        fontSize: 16,
+        fill: { type: 'solid', color: '#1e3a8a' }
+      }
     };
   }
   if (id === 'polyline') return { strokes: [{ color: '#2563eb', width: 7 }] };
@@ -198,7 +215,7 @@ onBeforeUnmount(() => {
       type="info"
       :closable="false"
       show-icon
-      title="选择不同 Shape 后再开始编辑；蓝色实心圆是控制点，浅蓝虚线圆是合法插入候选。"
+      title="Callout 使用 1 个 anchor + 8 个框体缩放点；颜色、尺寸、hover 与 active 状态复用统一 Edit 控制点规范。"
     />
 
     <div class="edit-session-demo__catalog" aria-label="Edit 目标目录">
@@ -220,7 +237,7 @@ onBeforeUnmount(() => {
     <el-descriptions class="edit-session-demo__target-detail" :column="2" border>
       <el-descriptions-item label="当前目标">{{ selectedTarget.label }}</el-descriptions-item>
       <el-descriptions-item label="ShapeType">{{ selectedTarget.type }}</el-descriptions-item>
-      <el-descriptions-item label="移动控制点">支持</el-descriptions-item>
+      <el-descriptions-item label="移动控制点">{{ selectedTargetId === 'callout' ? '1 个 anchor + 8 个 resize' : '支持' }}</el-descriptions-item>
       <el-descriptions-item label="插入 / 删除">
         {{ selectedTarget.edit.insert ? '支持 Alt + 单击插入 / 删除' : '— 不支持，只有固定控制点' }}
       </el-descriptions-item>
@@ -265,7 +282,13 @@ onBeforeUnmount(() => {
     </div>
     <div class="edit-session-demo__map-shell">
       <div ref="mapTarget" class="example-stage"></div>
-      <div class="edit-session-demo__map-guide">先点“开始编辑当前目标”，再拖拽地图上的蓝色控制点</div>
+      <div class="edit-session-demo__map-guide">
+        {{
+          selectedTargetId === 'callout'
+            ? '拖拽 anchor 改变指向；左右中点改宽并自动适高，上下与四角保留高度控制'
+            : '先点“开始编辑当前目标”，再拖拽地图上的蓝色控制点'
+        }}
+      </div>
     </div>
     <el-descriptions class="edit-session-demo__summary" :column="2" border>
       <el-descriptions-item label="工作态操作数">{{ operationCount }}</el-descriptions-item>

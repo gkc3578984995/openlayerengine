@@ -3,6 +3,7 @@ import Geometry from 'ol/geom/Geometry.js';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -132,6 +133,7 @@ function setup() {
     store,
     shapes,
     shapeProjection: identityShapeProjection,
+    shapePresentation: testShapePresentation,
     styles: new StyleService(store),
     coordinator: new InteractionCoordinator(),
     drawPort,

@@ -32,6 +32,7 @@ import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { ElementStyleState } from '../../../core/style/types.js';
 import type { FeatureBinding, ProjectionSuppressionLease } from '../FeatureBinding.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
+import { createPresentedPolygonGeometry, PresentedPolygonGeometry, updatePresentationLabel } from '../PresentedPolygonGeometry.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 import {
   EDIT_CONTROL_ANCHOR_HIT_RADIUS,
@@ -187,6 +188,9 @@ export class EditInteractionAdapter implements EditInteractionPort {
       transientLayer = new VectorLayer<EditSource>({
         source: transientSource,
         style: null,
+        // View-dependent 编辑预览在连续 View 变化期间不能复用旧 replay group。
+        updateWhileAnimating: true,
+        updateWhileInteracting: true,
         ...(targetZIndex === undefined ? {} : { zIndex: targetZIndex + 1 })
       });
       const interactionOwner: { handle?: OpenLayersEditInteractionHandle } = {};
@@ -1282,7 +1286,15 @@ function presentationGeometry(state: RenderGeometryState, worldOffset: number): 
   if (state.type === 'polygon') {
     return Object.freeze({
       type: 'polygon',
-      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((value) => shiftCoordinate(value, worldOffset)))))
+      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((value) => shiftCoordinate(value, worldOffset))))),
+      ...(state.label === undefined
+        ? {}
+        : {
+            label: Object.freeze({
+              coordinate: shiftCoordinate(state.label.coordinate, worldOffset),
+              text: state.label.text
+            })
+          })
     });
   }
   return Object.freeze({ type: 'circle', center: shiftCoordinate(state.center, worldOffset), radius: state.radius });
@@ -1371,7 +1383,8 @@ function renderGeometryIsFrozen(state: RenderGeometryState): boolean {
   if (state.type === 'point') return Object.isFrozen(state.coordinates);
   if (state.type === 'polyline') return Object.isFrozen(state.coordinates) && state.coordinates.every(Object.isFrozen);
   if (state.type === 'polygon') {
-    return Object.isFrozen(state.coordinates) && state.coordinates.every((ring) => Object.isFrozen(ring) && ring.every(Object.isFrozen));
+    const coordinatesFrozen = Object.isFrozen(state.coordinates) && state.coordinates.every((ring) => Object.isFrozen(ring) && ring.every(Object.isFrozen));
+    return coordinatesFrozen && (state.label === undefined || (Object.isFrozen(state.label) && Object.isFrozen(state.label.coordinate)));
   }
   return Object.isFrozen(state.center);
 }
@@ -1388,7 +1401,15 @@ function snapshotRenderGeometry(state: RenderGeometryState): RenderGeometryState
   if (state.type === 'polygon') {
     return Object.freeze({
       type: 'polygon',
-      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => Object.freeze(copyCoordinate(coordinate))))))
+      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => Object.freeze(copyCoordinate(coordinate)))))),
+      ...(state.label === undefined
+        ? {}
+        : {
+            label: Object.freeze({
+              coordinate: Object.freeze(copyCoordinate(state.label.coordinate)) as Coordinate,
+              text: state.label.text
+            })
+          })
     });
   }
   if (state.type === 'circle') {
@@ -1400,7 +1421,7 @@ function snapshotRenderGeometry(state: RenderGeometryState): RenderGeometryState
 function createGeometry(state: RenderGeometryState): Geometry {
   if (state.type === 'point') return new Point(state.coordinates as unknown as number[]);
   if (state.type === 'polyline') return new LineString(state.coordinates as unknown as number[][]);
-  if (state.type === 'polygon') return new Polygon(state.coordinates as unknown as number[][][]);
+  if (state.type === 'polygon') return createPresentedPolygonGeometry(state);
   return new Circle(state.center as unknown as number[], state.radius);
 }
 
@@ -1408,7 +1429,15 @@ function createGeometry(state: RenderGeometryState): Geometry {
 function updateFeatureGeometry(feature: EditFeature, state: RenderGeometryState, worldOffset = 0): void {
   const geometry = feature.getGeometry();
   if (state.type === 'polyline' && geometry instanceof LineString && updateLineStringFlatCoordinates(geometry, state.coordinates, worldOffset)) return;
-  if (state.type === 'polygon' && geometry instanceof Polygon && updatePolygonFlatCoordinates(geometry, state.coordinates, worldOffset)) return;
+  if (
+    state.type === 'polygon' &&
+    geometry instanceof Polygon &&
+    (state.label === undefined || geometry instanceof PresentedPolygonGeometry) &&
+    updatePolygonFlatCoordinates(geometry, state.coordinates, worldOffset)
+  ) {
+    updatePresentationLabel(geometry, state.label, worldOffset);
+    return;
+  }
   const presented = presentationGeometry(state, worldOffset);
   if (presented.type === 'point' && geometry instanceof Point) {
     if (flatCoordinatesEqual(geometry, presented.coordinates)) return;
@@ -1421,8 +1450,13 @@ function updateFeatureGeometry(feature: EditFeature, state: RenderGeometryState,
     return;
   }
   if (presented.type === 'polygon' && geometry instanceof Polygon) {
+    if (presented.label !== undefined && !(geometry instanceof PresentedPolygonGeometry)) {
+      feature.setGeometry(createGeometry(presented));
+      return;
+    }
     if (polygonCoordinatesEqual(geometry, presented.coordinates)) return;
     geometry.setCoordinates(presented.coordinates as unknown as number[][][]);
+    updatePresentationLabel(geometry, presented.label);
     return;
   }
   if (presented.type === 'circle' && geometry instanceof Circle) {

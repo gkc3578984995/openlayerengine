@@ -6,6 +6,7 @@ import type { LayerRenderValue } from '../src/core/ports/LayerRenderPort.js';
 import { AnimationManagerImpl } from '../src/services/animation/AnimationManager.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { createAnimationHarness, FakeLayerRenderPort, pointElement, polylineElement } from './helpers/animationHarness.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { addElement, createTransformHarness } from './helpers/transformHarness.js';
 
 describe('动画生命周期', () => {
@@ -323,6 +324,7 @@ describe('动画生命周期', () => {
         shapes,
         render,
         shapeProjection: identityShapeProjection,
+        shapePresentation: testShapePresentation,
         registry: createBuiltinAnimationRegistry(),
         clock: render,
         wake: render
@@ -381,6 +383,84 @@ describe('动画生命周期', () => {
     expect(render.activeLoopCount).toBe(0);
     expect(render.openCalls.get('default')).toBe(1);
     expect(() => manager.play({ id: 'point' }, { type: 'pulse' })).toThrowError(ObjectDisposedError);
+  });
+
+  it('presentation 订阅失败时回滚 Store 订阅并保留原始错误', () => {
+    const { manager: initialManager, render, shapes, store } = createAnimationHarness();
+    initialManager.destroy();
+    const subscribeError = new Error('presentation subscribe failed');
+    const originalSubscribe = store.subscribe.bind(store);
+    const unsubscribeStore = vi.fn();
+    const subscribeStore = vi.spyOn(store, 'subscribe').mockImplementation((listener) => {
+      const originalUnsubscribe = originalSubscribe(listener);
+      return () => {
+        unsubscribeStore();
+        originalUnsubscribe();
+      };
+    });
+    const shapePresentation = {
+      ...testShapePresentation,
+      subscribe: () => {
+        throw subscribeError;
+      }
+    };
+
+    expect(
+      () =>
+        new AnimationManagerImpl({
+          store,
+          shapes,
+          render,
+          shapeProjection: identityShapeProjection,
+          shapePresentation,
+          registry: createBuiltinAnimationRegistry(),
+          clock: render,
+          wake: render
+        })
+    ).toThrow(subscribeError);
+    expect(unsubscribeStore).toHaveBeenCalledOnce();
+    subscribeStore.mockRestore();
+  });
+
+  it('destroy 独立尝试两项订阅解绑，并只重试失败项', () => {
+    const { manager: initialManager, render, shapes, store } = createAnimationHarness();
+    initialManager.destroy();
+    const unsubscribeError = new Error('store unsubscribe failed');
+    const originalSubscribe = store.subscribe.bind(store);
+    let failStoreUnsubscribe = true;
+    const unsubscribeStore = vi.fn(() => {
+      if (failStoreUnsubscribe) {
+        failStoreUnsubscribe = false;
+        throw unsubscribeError;
+      }
+    });
+    const subscribeStore = vi.spyOn(store, 'subscribe').mockImplementation((listener) => {
+      const originalUnsubscribe = originalSubscribe(listener);
+      return () => {
+        unsubscribeStore();
+        originalUnsubscribe();
+      };
+    });
+    const unsubscribePresentation = vi.fn();
+    const manager = new AnimationManagerImpl({
+      store,
+      shapes,
+      render,
+      shapeProjection: identityShapeProjection,
+      shapePresentation: { ...testShapePresentation, subscribe: () => unsubscribePresentation },
+      registry: createBuiltinAnimationRegistry(),
+      clock: render,
+      wake: render
+    });
+
+    expect(() => manager.destroy()).toThrow(unsubscribeError);
+    expect(unsubscribeStore).toHaveBeenCalledOnce();
+    expect(unsubscribePresentation).toHaveBeenCalledOnce();
+
+    manager.destroy();
+    expect(unsubscribeStore).toHaveBeenCalledTimes(2);
+    expect(unsubscribePresentation).toHaveBeenCalledOnce();
+    subscribeStore.mockRestore();
   });
 
   it('destroy 在 RenderPass 清理失败后保持引用并允许重复调用完成释放', () => {

@@ -736,7 +736,7 @@ function transformWorldFor(map: Map, binding: FeatureBinding, target: TransformI
 
 /** 返回目标在 Core 规范世界中的稳定水平参考位置。 */
 function targetReferenceX(target: TransformInteractionTarget): number {
-  return target.controlPoints[0]?.[0] ?? extentCenter(renderExtent(target.geometry))[0];
+  return target.controlPoints[0]?.[0] ?? extentCenter(renderExtent(target.selectionGeometry ?? target.geometry))[0];
 }
 
 /** 计算视图中心相对固定规范坐标所在的整数世界偏移。 */

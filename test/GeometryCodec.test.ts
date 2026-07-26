@@ -6,13 +6,16 @@ import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import { describe, expect, it, vi } from 'vitest';
 import { GeometryCodec, projectRenderGeometry } from '../src/adapters/openlayers/GeometryCodec.js';
+import { PresentedPolygonGeometry } from '../src/adapters/openlayers/PresentedPolygonGeometry.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import { createRenderGeometryDetails } from '../src/core/shape/geometryDetails.js';
 import { shapeTypes, type RenderGeometryState, type ShapeState, type ShapeType } from '../src/core/shape/types.js';
 import { createElementGeometryDetails } from '../src/facade/resolveElementGeometryDetails.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { identityShapePresentation } from './helpers/shapePresentation.js';
 
 const inputs: Record<ShapeType, ShapeState> = {
   point: { type: 'point', controlPoints: [[1, 2]] },
@@ -39,6 +42,7 @@ const inputs: Record<ShapeType, ShapeState> = {
       [3, 2]
     ]
   },
+  callout: { type: 'callout', anchor: [0, 0], center: [4, 3], size: [160, 56] },
   'attack-arrow': {
     type: 'attack-arrow',
     controlPoints: [
@@ -162,21 +166,23 @@ const inputs: Record<ShapeType, ShapeState> = {
 };
 
 function createCodec(): GeometryCodec {
-  return new GeometryCodec(new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]), identityShapeProjection);
+  return new GeometryCodec(new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]), identityShapeProjection, identityShapePresentation);
 }
+
+const calloutStyle = { text: { text: 'Callout' } } as const;
 
 describe('GeometryCodec', () => {
   coversCapabilities('element-point', 'element-polyline', 'element-polygon', 'element-circle');
 
-  it('projects all 20 registered shapes into the exact four render classes', () => {
+  it('projects every registered shape into the exact four render classes', () => {
     const codec = createCodec();
     const counts = { Point: 0, LineString: 0, Polygon: 0, Circle: 0 };
 
     for (const type of shapeTypes) {
       const feature = new Feature<Geometry>();
-      codec.project(feature, inputs[type]);
+      codec.project(feature, inputs[type], type === 'callout' ? calloutStyle : undefined);
       const geometry = feature.getGeometry();
-      codec.project(feature, inputs[type]);
+      codec.project(feature, inputs[type], type === 'callout' ? calloutStyle : undefined);
       expect(feature.getGeometry(), `${type} replaced a compatible geometry`).toBe(geometry);
       if (geometry instanceof Point) counts.Point += 1;
       else if (geometry instanceof LineString) counts.LineString += 1;
@@ -185,10 +191,10 @@ describe('GeometryCodec', () => {
       else throw new Error(`Unexpected render geometry for ${type}`);
     }
 
-    expect(counts).toEqual({ Point: 1, LineString: 3, Polygon: 15, Circle: 1 });
+    expect(counts).toEqual({ Point: 1, LineString: 3, Polygon: 16, Circle: 1 });
   });
 
-  it('derives complete frozen geometry details for all 20 registered shapes', () => {
+  it('derives complete frozen geometry details for every registered shape', () => {
     const codec = createCodec();
 
     for (const type of shapeTypes) {
@@ -226,8 +232,9 @@ describe('GeometryCodec', () => {
         expect(Object.isFrozen(details.radius), type).toBe(true);
       }
       if (state.type !== 'circle') {
-        expect(details.controlPoints).toEqual(state.controlPoints);
-        expect(details.controlPoints).not.toBe(state.controlPoints);
+        const sourceControlPoints = state.type === 'callout' ? [state.anchor, state.center] : state.controlPoints;
+        expect(details.controlPoints).toEqual(sourceControlPoints);
+        expect(details.controlPoints).not.toBe(sourceControlPoints);
         expect(Object.isFrozen(details.controlPoints), type).toBe(true);
         expect(details.controlPoints?.every(Object.isFrozen), type).toBe(true);
         expect(details.center).toBeNull();
@@ -391,5 +398,30 @@ describe('GeometryCodec', () => {
     expect(circleSetter).toHaveBeenCalledTimes(2);
     expect(circleSetter.mock.calls[1]?.[0]).toBe(circle.center);
     circleSetter.mockRestore();
+  });
+
+  it('keeps an explicit Polygon label through projection and world translation while public details strip it', () => {
+    const rendered = Object.freeze({
+      type: 'polygon' as const,
+      coordinates: Object.freeze([
+        Object.freeze([Object.freeze([0, 0] as const), Object.freeze([8, 0] as const), Object.freeze([8, 4] as const), Object.freeze([0, 0] as const)])
+      ]),
+      label: Object.freeze({ coordinate: Object.freeze([4, 2] as const), text: 'first\nsecond' })
+    });
+    const feature = new Feature<Geometry>();
+
+    const geometry = projectRenderGeometry(feature, rendered);
+    expect(geometry).toBeInstanceOf(PresentedPolygonGeometry);
+    expect((geometry as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [4, 2], text: 'first\nsecond' });
+
+    geometry.translate(20, -3);
+    expect((geometry as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [24, -1], text: 'first\nsecond' });
+
+    const updated = { ...rendered, label: { coordinate: [5, 3] as const, text: 'updated' } };
+    expect(projectRenderGeometry(feature, updated)).toBe(geometry);
+    expect((geometry as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [5, 3], text: 'updated' });
+
+    const details = createRenderGeometryDetails(rendered);
+    expect(details.renderGeometry).not.toHaveProperty('label');
   });
 });

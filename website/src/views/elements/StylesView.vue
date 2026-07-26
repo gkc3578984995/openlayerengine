@@ -13,6 +13,7 @@ import { extractExampleSnippet } from '../../utils/exampleSource';
 
 const stylesSnippet = [
   extractExampleSnippet(stylesSource, 'style-preset'),
+  extractExampleSnippet(stylesSource, 'callout-style'),
   extractExampleSnippet(stylesSource, 'style-patch'),
   extractExampleSnippet(stylesSource, 'native-style-boundary')
 ].join('\n\n');
@@ -25,7 +26,7 @@ const anchors = [
   { id: 'overview', label: '结构化样式模型' },
   { id: 'style-fields', label: 'StyleSpec 字段' },
   { id: 'presets', label: '内置 stylePresets' },
-  { id: 'example-element-styles', label: '预设、结构化更新与 nativeStyle 边界' },
+  { id: 'example-element-styles', label: '预设、Callout 结构化样式与 nativeStyle 边界' },
   { id: 'example-pattern-fill', label: '五种纹理与应用目标' },
   { id: 'native-style', label: 'nativeStyle 边界' },
   { id: 'api-actions', label: '样式方法' },
@@ -141,6 +142,14 @@ const runtimeApi = ['stylePresets'] as const;
           <RouterLink class="doc-link" to="/components/elements/linework#factory-options">lineStyles 的 casing 选项</RouterLink>，无需复制 Geometry 或创建第二个
           Element。
         </p>
+        <el-alert type="info" :closable="false" show-icon title="Callout 使用结构化 fill / strokes / text">
+          顶层 <ApiReference kind="property" to="#api-style-fill">fill</ApiReference> 与
+          <ApiReference kind="property" to="#api-style-strokes">strokes</ApiReference> 同时绘制文本框和尾巴；
+          <ApiReference kind="property" to="#api-style-text">text</ApiReference> 绘制框体中心文字。
+          <ApiReference kind="property" to="/api/types#api-type-text-spec-property-max-width">TextSpec.maxWidth</ApiReference>
+          是两点 Draw 自动计算初始内容宽度的 CSS px 上限，省略时使用 240px；缩放后会按当前框宽重新换行。 为保持文字居中、屏幕正向且不越界，Callout 不接受沿线
+          placement、文字 offset、旋转、随 View 旋转或文字背景；scale 只能省略或使用数值 <code>1</code>。背景与边框应继续使用顶层 <code>fill / strokes</code>。
+        </el-alert>
       </section>
 
       <section id="presets" class="doc-prose">
@@ -161,13 +170,21 @@ const runtimeApi = ['stylePresets'] as const;
       </section>
 
       <section id="example-element-styles" class="doc-prose">
-        <ExampleBlock title="预设、结构化更新与 nativeStyle 边界" :source="stylesSource" :snippet="stylesSnippet" source-lang="vue" snippet-lang="typescript">
+        <ExampleBlock
+          title="预设、Callout 结构化样式与 nativeStyle 边界"
+          :source="stylesSource"
+          :snippet="stylesSnippet"
+          source-lang="vue"
+          snippet-lang="typescript"
+        >
           <template #description>
             <p>
               示例从 stylePresets 选择独立样式，通过 <ApiReference kind="method" to="#api-method-style-set">styles.set</ApiReference> 完整替换，再用
               <ApiReference kind="method" to="#api-method-style-patch">styles.patch</ApiReference>
               修改局部颜色；线样式会提供完整 <code>strokes</code> 数组，保留多层描边、宽度与虚线配置。原生边界闭环会正向应用 OpenLayers
-              Style，捕获原生状态上结构化 patch 的预期错误并验证 NativeStyleRef 不变，最后在同一 Element 上恢复所选结构化预设。
+              Style，捕获原生状态上结构化 patch 的预期错误并验证 NativeStyleRef 不变，最后在同一 Element 上恢复所选结构化预设。 “Callout
+              自动换行”控件会运行同一组件中的 <code>fill + strokes + text</code> 示例，可调整
+              <ApiReference kind="property" to="/api/types#api-type-text-spec-property-max-width">text.maxWidth</ApiReference> 后重新创建预览。
             </p>
           </template>
           <template #preview><StylesDemo /></template>
@@ -217,6 +234,7 @@ const runtimeApi = ['stylePresets'] as const;
             NativeStyleRef 保持不变。
           </el-descriptions-item>
           <el-descriptions-item label="兼容承诺">原生样式是高级逃生口，不承诺跨 OpenLayers 主版本可移植。</el-descriptions-item>
+          <el-descriptions-item label="Callout">必须使用结构化 <code>StyleSpec.text</code>；Callout 不接受 <code>nativeStyle</code>。</el-descriptions-item>
         </el-descriptions>
       </section>
 

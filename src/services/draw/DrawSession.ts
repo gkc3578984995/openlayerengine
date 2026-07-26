@@ -11,6 +11,7 @@ import type { DrawInteractionEvent, DrawInteractionHandle, DrawInteractionPort, 
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { ShapeDefinition, ShapeState } from '../../core/shape/types.js';
 import { shapeFreehandAccumulatorFor, type ShapeFreehandAccumulator } from '../../core/shape/freehandAccumulator.js';
 import type { ElementStyleState } from '../../core/style/types.js';
@@ -40,6 +41,8 @@ export interface DrawSessionDependencies<T> {
   readonly port: DrawInteractionPort;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局并生成最终渲染几何。 */
+  readonly shapePresentation: ShapePresentationPort;
   /** 规范化后的绘制配置。 */
   readonly options: Readonly<Required<Pick<InternalDrawOptions<T>, 'type' | 'layerId' | 'limit' | 'keepGraphics'>> & InternalDrawOptions<T>>;
   /** 可选的键盘输入。 */
@@ -82,6 +85,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   readonly #port: DrawInteractionPort;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局并生成最终渲染几何。 */
+  readonly #shapePresentation: ShapePresentationPort;
   /** 规范化后的绘制配置。 */
   readonly #options: DrawSessionDependencies<T>['options'];
   /** 可选的键盘输入。 */
@@ -116,6 +121,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   #handle: DrawInteractionHandle | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
+  /** View 或字体 revision 变化订阅释放函数。 */
+  #unsubscribePresentation: (() => void) | undefined;
   /** 当前绘制提示框句柄。 */
   #tooltip: TooltipViewHandle | undefined;
   /** 当前绘制光标句柄。 */
@@ -159,6 +166,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     this.#coordinator = dependencies.coordinator;
     this.#port = dependencies.port;
     this.#shapeProjection = dependencies.shapeProjection;
+    this.#shapePresentation = dependencies.shapePresentation;
     this.#options = dependencies.options;
     this.#input = dependencies.input;
     this.#tooltipPort = dependencies.tooltipPort;
@@ -204,6 +212,9 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
         },
         (event) => this.#handlePortEvent(event)
       );
+      const unsubscribePresentation = this.#shapePresentation.subscribe(() => this.#handlePresentationFrame());
+      if (typeof unsubscribePresentation !== 'function') throw new InvalidArgumentError('Shape presentation must return a disposer');
+      this.#unsubscribePresentation = unsubscribePresentation;
       this.#cursor = this.#cursorPort?.open();
       this.#cursor?.set('pointer');
       if (this.#status !== 'active') throw new ObjectDisposedError('Draw session was cancelled while opening');
@@ -495,7 +506,8 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
       let generation: ElementGeneration;
       try {
         const style = this.#styleFor(completed);
-        const elementGeometry = this.#shapeProjection.toElementState(completed);
+        const presented = this.#shapePresentation.present(this.#definition, completed, style);
+        const elementGeometry = this.#shapeProjection.toElementState(presented.state);
         const id = requireId(this.#createId());
         const committed = this.#store.transaction((transaction) =>
           transaction.add<T>({
@@ -577,13 +589,26 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
   /** 通过交互 Port 原子发布草稿、样式和光标位置。 */
   #showPreview(draft: ShapeState, coordinate: Coordinate | undefined): void {
     const geometry = this.#definition.clone(draft as never) as ShapeState;
-    const renderGeometry = this.#definition.toRenderGeometry(geometry as never);
-    this.#setPreview(Object.freeze({ geometry: deepFreeze(cloneCoreState(renderGeometry)), style: this.#styleFor(geometry) }));
+    const style = this.#styleFor(geometry);
+    const presented = this.#shapePresentation.present(this.#definition, geometry, style);
+    this.#setPreview(Object.freeze({ geometry: deepFreeze(cloneCoreState(presented.geometry)), style }));
     if ((this.#listeners.get('change')?.size ?? 0) > 0) {
       this.#emit(
         'change',
-        freeze({ type: 'change', geometry: this.#shapeProjection.toElementState(geometry), ...(coordinate === undefined ? {} : { coordinate }) })
+        freeze({ type: 'change', geometry: this.#shapeProjection.toElementState(presented.state), ...(coordinate === undefined ? {} : { coordinate }) })
       );
+    }
+  }
+
+  /** View、rotation 或字体 revision 变化后重建当前瞬态预览。 */
+  #handlePresentationFrame(): void {
+    if (this.#status !== 'active' || this.#handle === undefined || this.#completionActive || this.#controlPoints.length === 0) return;
+    try {
+      if (this.#freehandActive) this.#renderFreehand('preview');
+      else this.#renderPreview(this.#pointer);
+    } catch (error) {
+      this.#report(error, 'presentation-frame');
+      if (this.#status === 'active') this.#terminate('cancelled', 'error');
     }
   }
 
@@ -689,6 +714,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
     try {
       const handle = this.#handle;
       const unsubscribeInput = this.#unsubscribeInput;
+      const unsubscribePresentation = this.#unsubscribePresentation;
       const tooltip = this.#tooltip;
       const cursor = this.#cursor;
       try {
@@ -707,6 +733,14 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
                 () => {
                   unsubscribeInput();
                   if (this.#unsubscribeInput === unsubscribeInput) this.#unsubscribeInput = undefined;
+                }
+              ]),
+          ...(unsubscribePresentation === undefined
+            ? []
+            : [
+                () => {
+                  unsubscribePresentation();
+                  if (this.#unsubscribePresentation === unsubscribePresentation) this.#unsubscribePresentation = undefined;
                 }
               ]),
           ...(tooltip === undefined
@@ -741,6 +775,7 @@ export class DrawSession<T = unknown> implements InternalDrawSession<T>, Exclusi
         !this.#opening &&
         this.#handle === undefined &&
         this.#unsubscribeInput === undefined &&
+        this.#unsubscribePresentation === undefined &&
         this.#tooltip === undefined &&
         this.#cursor === undefined &&
         this.#coordinatorReleased &&

@@ -436,6 +436,54 @@ describe('TransformInteractionAdapter', () => {
     handle.destroy();
   });
 
+  it.each([1, -1, 50, -50])('preserves authoritative selection geometry while placing a distant-tail target in wrapped world %s', (world) => {
+    const map = new MapHarness();
+    map.view.setCenter([world * 360, 0]);
+    const binding = {
+      wrapsX: vi.fn(() => true),
+      suppressProjection: vi.fn(() => ({ release: vi.fn() }))
+    } as unknown as FeatureBinding;
+    const styles = { compile: vi.fn(() => new Style()) } as unknown as StyleCompiler;
+    const render = { registerTarget: vi.fn(() => ({ destroy: vi.fn() })) } as unknown as LayerRenderPort;
+    const adapter = new TransformInteractionAdapter(map as unknown as OlMap, { atPixel: () => [] } as unknown as TransformHitTest, binding, styles, render);
+    const handle = adapter.open(`transform-selection-world-${world}`, options, vi.fn());
+    const frameRing = [
+      [-10, -5],
+      [-10, 5],
+      [10, 5],
+      [10, -5],
+      [-10, -5]
+    ] as const;
+    handle.setTarget({
+      ...polygonTarget(),
+      elementId: 'callout',
+      type: 'callout',
+      geometry: {
+        type: 'polygon',
+        coordinates: [[frameRing[0], frameRing[1], frameRing[2], [-10_000, -10_000], frameRing[3], frameRing[4]]],
+        label: { coordinate: [0, 0], text: 'wrapped callout' }
+      },
+      selectionGeometry: { type: 'polygon', coordinates: [frameRing] },
+      controlPoints: [],
+      canRotate: false,
+      canScale: false,
+      canStretch: false
+    });
+
+    const offset = world * 360;
+    const preview = transformHandleFeature(map, 'feature');
+    expect(preview.getGeometry()?.getExtent()[0]).toBe(-10_000 + offset);
+    const bbox = transformSource(map)
+      .getFeatures()
+      .find((feature) => feature.get(handleMetadata) === undefined);
+    if (bbox === undefined) throw new Error('Transform selection bbox was not found.');
+    expect(geometryCenterX(bbox)).toBeCloseTo(offset);
+    const bboxExtent = bbox.getGeometry()?.getExtent();
+    if (bboxExtent === undefined) throw new Error('Transform selection bbox geometry was not found.');
+    expect(bboxExtent[2] - bboxExtent[0]).toBeLessThan(100);
+    handle.destroy();
+  });
+
   it('emits structural edit requests only for Alt clicks on insertion or removable control anchors', () => {
     const map = new MapHarness();
     const binding = { suppressProjection: vi.fn(() => ({ release: vi.fn() })) } as unknown as FeatureBinding;

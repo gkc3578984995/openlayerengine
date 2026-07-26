@@ -31,7 +31,8 @@ const shapeOptions = [
   { label: '扇形（sector）', value: 'sector' },
   { label: '弓形面（lune-polygon）', value: 'lune-polygon' },
   { label: '弓形线（lune-polyline）', value: 'lune-polyline' },
-  { label: '曲线（curve-polyline）', value: 'curve-polyline' }
+  { label: '曲线（curve-polyline）', value: 'curve-polyline' },
+  { label: '文本标注框（callout）', value: 'callout' }
 ] as const satisfies readonly SelectOption<ShapeType>[];
 const policyOptions = [
   { label: 'replace（替换当前交互）', value: 'replace' },
@@ -42,7 +43,7 @@ export const drawEditScenario: ScenarioDefinition = {
   id: 'draw-edit',
   group: '交互能力',
   title: 'Draw 与动态 Edit',
-  summary: '逐项验收 20 种 ShapeType、DrawOptions、EditOptions、会话控制、冲突策略、结果查询及全部公开事件。',
+  summary: '逐项验收全部内置 ShapeType、DrawOptions、EditOptions、会话控制、冲突策略、结果查询及全部公开事件。',
   steps: [
     '从 ShapeType 下拉框逐项选择图形，点击“启动 Draw”，再按地图提示完成绘制；不定长图形可右键或点击“finish()”结束。',
     '绘制过程中使用 undo()、redo()，并观察 start、change、click、complete、cancel 事件和 finished Promise。',
@@ -85,7 +86,7 @@ export const drawEditScenario: ScenarioDefinition = {
     });
     let editable: Element | undefined = seed;
 
-    const drawOptionsSection = context.section('绘制参数（DrawOptions）', '所有字段都会写入下一次 start() 调用。ShapeType 下拉框包含全部 20 种内置图形。');
+    const drawOptionsSection = context.section('绘制参数（DrawOptions）', '所有字段都会写入下一次 start() 调用。ShapeType 下拉框包含全部内置图形。');
     const shape = context.select(drawOptionsSection, '图形类型（type）', shapeOptions, 'polygon');
     const module = context.text(drawOptionsSection, '业务模块（module）', 'acceptance-draw');
     const limit = context.number(drawOptionsSection, '数量上限（limit）', 1, { min: 0, step: 1 });
@@ -196,7 +197,16 @@ export const drawEditScenario: ScenarioDefinition = {
               fill: { type: 'solid', color: '#2563eb' },
               stroke: { color: '#ffffff', width: 2 }
             },
-            text: { text: shape.value, fontSize: 12, fill: { type: 'solid', color: '#0f172a' }, offsetY: -16 }
+            text:
+              shape.value === 'callout'
+                ? {
+                    text: 'Callout 两点绘制：先定位 anchor，再定位文本框中心；文字自动换行',
+                    maxWidth: 220,
+                    padding: [12, 16, 12, 16],
+                    fontSize: 16,
+                    fill: { type: 'solid', color: '#0f172a' }
+                  }
+                : { text: shape.value, fontSize: 12, fill: { type: 'solid', color: '#0f172a' }, offsetY: -16 }
           },
           data: { createdBy: 'draw-edit 验收场景', selectedType: shape.value as ShapeType },
           limit: Math.max(0, Math.trunc(limit.valueAsNumber || 0)),

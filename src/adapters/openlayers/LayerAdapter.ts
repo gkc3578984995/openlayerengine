@@ -38,7 +38,15 @@ interface AdapterRecord {
   readonly sourceMode?: 'exclusive' | 'shared';
   readonly sourceOwnership?: LayerOwnership;
   readonly vectorSource?: VectorFeatureSource;
+  readonly declutter?: boolean;
   readonly presentation: LayerPresentation;
+}
+
+/** 仅承载 view-dependent Shape 显式文字的伴随图层。 */
+interface PresentationLabelRecord {
+  readonly layerId: string;
+  readonly layer: VectorLayer;
+  readonly source: VectorFeatureSource;
 }
 
 /** 共享瓦片 Source 的引用计数和所有权状态。 */
@@ -57,7 +65,9 @@ export class LayerAdapter implements LayerPort {
   readonly #records = new Map<string, AdapterRecord>();
   readonly #layerIds = new WeakMap<BaseLayer, string>();
   readonly #vectorLayerIds = new WeakMap<BaseLayer, string>();
+  readonly #presentationLabels = new Map<string, PresentationLabelRecord>();
   readonly #sharedSources = new Map<TileSource, SharedSourceRecord>();
+  #presentationLabelsSuspended = false;
   #disposed = false;
 
   constructor(map: OlMap, nativeRefs: NativeRefRegistry, options: LayerAdapterOptions = {}) {
@@ -127,6 +137,8 @@ export class LayerAdapter implements LayerPort {
     const record = this.#records.get(before.id);
     if (record === undefined) throw new InvalidArgumentError(`Layer adapter record does not exist: ${before.id}`);
     this.#applyPresentation(record.layer, after);
+    const presentationLabel = this.#presentationLabels.get(before.id);
+    if (presentationLabel !== undefined) this.#syncPresentationLabel(record, presentationLabel);
   }
 
   /** 从地图移除图层，并按独占、共享及所有权规则清理资源。 */
@@ -137,6 +149,12 @@ export class LayerAdapter implements LayerPort {
     this.#records.delete(id);
     this.#layerIds.delete(record.layer);
     this.#vectorLayerIds.delete(record.layer);
+
+    const presentationLabel = this.#presentationLabels.get(id);
+    if (presentationLabel !== undefined) {
+      this.#presentationLabels.delete(id);
+      this.#detachPresentationLabel(presentationLabel);
+    }
 
     try {
       this.#rootLayers.remove(record.layer);
@@ -170,6 +188,88 @@ export class LayerAdapter implements LayerPort {
     const source = this.#records.get(id)?.vectorSource;
     if (source === undefined) throw new InvalidArgumentError(`Registered layer is not vector: ${id}`);
     return source;
+  }
+
+  /** 延迟创建与业务矢量层相邻的显式文字层，并返回其 Source。 */
+  ensurePresentationLabelSource(id: string): VectorFeatureSource {
+    this.#assertActive();
+    const existing = this.#presentationLabels.get(id);
+    if (existing !== undefined) return existing.source;
+    const owner = this.#records.get(id);
+    if (owner?.vectorSource === undefined || !(owner.layer instanceof VectorLayer)) {
+      throw new InvalidArgumentError(`Registered layer is not vector: ${id}`);
+    }
+
+    const source = new VectorSource<Feature<Geometry>>({ wrapX: owner.vectorSource.getWrapX() });
+    let layer: VectorLayer | undefined;
+    try {
+      layer = new VectorLayer({
+        source,
+        style: null,
+        ...(owner.declutter === undefined ? {} : { declutter: owner.declutter }),
+        visible: false,
+        opacity: owner.layer.getOpacity(),
+        ...(owner.layer.getZIndex() === undefined ? {} : { zIndex: owner.layer.getZIndex() })
+      });
+      const ownerIndex = this.#rootLayers.getArray().indexOf(owner.layer);
+      if (ownerIndex < 0) throw new ObjectDisposedError(`Layer is not attached: ${id}`);
+      let inserted = false;
+      try {
+        this.#rootLayers.insertAt(ownerIndex + 1, layer);
+        inserted = this.#rootLayers.getArray().includes(layer);
+      } catch (error) {
+        inserted = this.#rootLayers.getArray().includes(layer);
+        if (!inserted) throw error;
+        this.#report(error, 'attach-presentation-label-listener');
+      }
+      if (!inserted) throw new InvalidArgumentError(`OpenLayers did not attach presentation label layer: ${id}`);
+      const record: PresentationLabelRecord = { layerId: id, layer, source };
+      this.#presentationLabels.set(id, record);
+      this.#syncPresentationLabel(owner, record);
+      return source;
+    } catch (error) {
+      if (layer !== undefined && this.#rootLayers.getArray().includes(layer)) {
+        try {
+          this.#rootLayers.remove(layer);
+        } catch (removeError) {
+          this.#report(removeError, 'rollback-presentation-label-listener');
+        }
+      }
+      if (layer !== undefined) this.#disposeRollback(layer);
+      this.#disposeRollback(source);
+      throw error;
+    }
+  }
+
+  /** 返回已经创建的显式文字层；不会因读取而分配资源。 */
+  presentationLabelLayer(id: string): VectorLayer | undefined {
+    this.#assertActive();
+    return this.#presentationLabels.get(id)?.layer;
+  }
+
+  /** 返回当前全部显式文字 Source 的不可变快照。 */
+  presentationLabelSources(): readonly VectorFeatureSource[] {
+    this.#assertActive();
+    return Object.freeze([...this.#presentationLabels.values()].map(({ source }) => source));
+  }
+
+  /** View 连续缩放或旋转时只暂停显式文字层。 */
+  setPresentationLabelsSuspended(suspended: boolean): void {
+    this.#assertActive();
+    if (this.#presentationLabelsSuspended === suspended) return;
+    this.#presentationLabelsSuspended = suspended;
+    for (const record of this.#presentationLabels.values()) {
+      const owner = this.#records.get(record.layerId);
+      if (owner !== undefined) this.#syncPresentationLabel(owner, record);
+    }
+    const render = this.#map.render;
+    if (typeof render === 'function') render.call(this.#map);
+  }
+
+  /** 供动画合成路径复用同一显式文字运动门控。 */
+  presentationLabelsSuspended(): boolean {
+    this.#assertActive();
+    return this.#presentationLabelsSuspended;
   }
 
   layerIdFor(layer: BaseLayer): string | undefined {
@@ -224,6 +324,7 @@ export class LayerAdapter implements LayerPort {
           sourceMode: 'exclusive',
           sourceOwnership: 'earth',
           vectorSource: source,
+          declutter: spec.declutter,
           presentation: presentationOf(layer)
         };
       } catch (error) {
@@ -305,6 +406,41 @@ export class LayerAdapter implements LayerPort {
       const zIndex = state.zIndex;
       this.#setAndRecover(layer, 'zIndex', zIndex, () => layer.setZIndex(zIndex));
     }
+  }
+
+  /** 伴随文字层继承业务层展示属性；运动期的隐藏只作用于伴随层。 */
+  #syncPresentationLabel(owner: AdapterRecord, label: PresentationLabelRecord): void {
+    const layer = label.layer;
+    const visible = !this.#presentationLabelsSuspended && owner.layer.getVisible();
+    this.#setAndRecover(layer, 'visible', visible, () => layer.setVisible(visible));
+    const opacity = owner.layer.getOpacity();
+    this.#setAndRecover(layer, 'opacity', opacity, () => layer.setOpacity(opacity));
+    const zIndex = owner.layer.getZIndex();
+    if (zIndex === undefined) {
+      try {
+        layer.unset('zIndex');
+      } catch (error) {
+        this.#report(error, 'update-presentation-label-z-index');
+        this.#attempt(() => layer.unset('zIndex', true), 'recover-presentation-label-z-index');
+      }
+    } else {
+      this.#setAndRecover(layer, 'zIndex', zIndex, () => layer.setZIndex(zIndex));
+    }
+  }
+
+  /** 移除并释放 adapter 自建的显式文字层。 */
+  #detachPresentationLabel(record: PresentationLabelRecord): void {
+    try {
+      this.#rootLayers.remove(record.layer);
+    } catch (error) {
+      this.#report(error, 'detach-presentation-label-listener');
+      if (this.#rootLayers.getArray().includes(record.layer)) {
+        this.#attempt(() => this.#rootLayers.remove(record.layer), 'detach-presentation-label-listener-retry');
+      }
+    }
+    this.#attempt(() => record.source.clear(true), 'clear-presentation-label-source');
+    this.#attempt(() => record.layer.dispose(), 'dispose-presentation-label-layer');
+    this.#attempt(() => record.source.dispose(), 'dispose-presentation-label-source');
   }
 
   /** 执行标准 setter，失败时用静默属性写入恢复状态。 */

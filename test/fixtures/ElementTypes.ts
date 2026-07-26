@@ -17,6 +17,10 @@ const validPoint: ElementCreateInput<{ label: string }> = {
   style: { symbol: { type: 'circle', radius: 4 } }
 };
 const validCircle: ElementCreateInput = { geometry: { type: 'circle', center: [0, 0], radius: 2 }, visible: false };
+const validCallout: ElementCreateInput = {
+  geometry: { type: 'callout', anchor: [0, 0], center: [10, 10], size: [160, 56] },
+  style: { text: { text: 'Callout', maxWidth: 240 }, fill: { type: 'solid', color: '#fff' }, strokes: [{ color: '#111' }] }
+};
 const flatPoint: ElementCreateInput = { geometry: { type: 'point', controlPoints: [120, 0] } };
 const flatPolyline: ShapeInput<'polyline'> = { type: 'polyline', controlPoints: [120, 0, 110, 0] };
 const projectedCenter: number[] = fromLonLat([120, 0]);
@@ -35,6 +39,8 @@ const unknownKey: ElementCreateInput = { geometry: { type: 'point', controlPoint
 const undefinedVisible: ElementCreateInput = { geometry: { type: 'point', controlPoints: [[0, 0]] }, visible: undefined };
 // @ts-expect-error circle uses center/radius instead of controlPoints
 const invalidCircle: ElementCreateInput = { geometry: { type: 'circle', controlPoints: [[0, 0]] } };
+// @ts-expect-error callout requires a CSS-pixel size tuple
+const invalidCallout: ElementCreateInput = { geometry: { type: 'callout', anchor: [0, 0], center: [10, 10] } };
 
 declare const element: Element<{ label: string }>;
 element.update({ geometry: { type: 'point', controlPoints: [1, 2] } });
@@ -54,6 +60,7 @@ void [
   layerConstructorIsExactlyEmpty,
   validPoint,
   validCircle,
+  validCallout,
   flatPoint,
   flatPolyline,
   circleFromOpenLayers,
@@ -64,6 +71,7 @@ void [
   unknownKey,
   undefinedVisible,
   invalidCircle,
+  invalidCallout,
   geometryDetails,
   renderGeometry,
   mapExtent,

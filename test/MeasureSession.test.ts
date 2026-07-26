@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { MeasurementAdapter } from '../src/adapters/openlayers/MeasurementAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
@@ -153,6 +154,7 @@ function setup() {
     store,
     shapes,
     shapeProjection: identityShapeProjection,
+    shapePresentation: testShapePresentation,
     styles,
     coordinator,
     drawPort,

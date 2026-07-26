@@ -20,11 +20,12 @@ export function resolveCompiledStyles(feature: FeatureLike, resolution: number):
   }
 }
 
-/** 汇总标准 OL Style 在指定坐标空间中的最大 CSS 像素外扩。 */
+/** 汇总标准 OL Style 在指定坐标空间中的最大 CSS 像素外扩；权威选择几何已包含文字时可排除文本分支。 */
 export function compiledStylesVisualFootprintPx(
   styles: readonly Style[],
   viewRotation: number,
-  coordinateSpace: CompiledVisualCoordinateSpace = 'screen'
+  coordinateSpace: CompiledVisualCoordinateSpace = 'screen',
+  includeText = true
 ): readonly [number, number] {
   let x = 0;
   let y = 0;
@@ -41,9 +42,11 @@ export function compiledStylesVisualFootprintPx(
       }
     }
 
-    const text = compiledTextVisualFootprintPx(style);
-    x = Math.max(x, text[0]);
-    y = Math.max(y, text[1]);
+    if (includeText) {
+      const text = compiledTextVisualFootprintPx(style);
+      x = Math.max(x, text[0]);
+      y = Math.max(y, text[1]);
+    }
   }
   return Object.freeze([x, y]);
 }

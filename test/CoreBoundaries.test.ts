@@ -189,13 +189,14 @@ describe('pure Core boundaries', () => {
     expect(reporterResult).toBeUndefined();
   });
 
-  it('freezes the complete 20-shape contract and pure render geometry values', () => {
+  it('freezes the complete 21-shape contract and pure render geometry values', () => {
     expect(shapeTypes).toEqual([
       'point',
       'polyline',
       'polygon',
       'circle',
       'ellipse',
+      'callout',
       'attack-arrow',
       'tailed-attack-arrow',
       'fine-arrow',

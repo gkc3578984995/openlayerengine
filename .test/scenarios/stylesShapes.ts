@@ -67,7 +67,8 @@ const shapeLabels: Record<ShapeType, string> = {
   sector: '扇形',
   'lune-polygon': '弓形面',
   'lune-polyline': '弓形线',
-  'curve-polyline': '曲线'
+  'curve-polyline': '曲线',
+  callout: '文本标注框'
 };
 
 const presetLabels: Record<StylePresetName, string> = {
@@ -224,11 +225,11 @@ export const stylesShapesScenario: ScenarioDefinition = {
   title: '图形、丰富路径线型与完整样式系统',
   summary: '分六个可视面板验收丰富路径线型、全部 ShapeType、八种 stylePresets、五种纹理、完整结构化样式及三种原生 StyleLike 分支。',
   steps: [
-    '默认检查“丰富路径线型”，再切换“20 种图形”“内置样式”“纹理填充”“完整样式”“三种 nativeStyle”面板逐项确认可视结果。',
+    '默认检查“丰富路径线型”，再切换“全部内置图形”“内置样式”“纹理填充”“完整样式”“三种 nativeStyle”面板逐项确认可视结果。',
     '在线型面板检查 14px 单轨装饰、10px 双轨净间隙、Polyline 内外与居中衬色、Polygon 内外与居中衬色、端帽连接、中点文本及曲线。',
     '在 ShapeType 下拉框选择图形，分别应用结构化 StyleSpec、StylePatch、内置 preset、Style、Style[] 和 StyleFunction。',
     '在完整样式面板检查图片偏移/锚点、文本字体/背景、多描边，以及四种箭头 placement。',
-    '确认状态区列出 20 种 shapeTypes 和 8 种 stylePresets，自动检查全部通过。'
+    '确认状态区列出全部 shapeTypes 和 8 种 stylePresets，自动检查全部通过。'
   ],
   mount(context) {
     const target = context.createMapTarget('图形与样式验收地图');
@@ -257,7 +258,7 @@ export const stylesShapesScenario: ScenarioDefinition = {
       '路径线型面板覆盖 20 个可视示例及对应标签',
       lineworkBoardSamples.length === 20 && earth.elements.query({ module: 'style-linework' }).length === lineworkBoardSamples.length * 2
     );
-    context.check('shapeTypes 包含 20 种公开图形', shapeTypes.length === 20 && earth.elements.query({ module: 'style-shapes' }).length === 20);
+    context.check('shapeTypes 与可视图形数量一致', earth.elements.query({ module: 'style-shapes' }).length === shapeTypes.length);
     context.check('stylePresets 包含 8 种内置样式', presetNames.length === 8);
     context.check('nativeStyle 覆盖 Style、Style[]、StyleFunction 三种 StyleLike', earth.elements.query({ module: 'style-native' }).length === 3);
     context.check(
@@ -276,9 +277,9 @@ export const stylesShapesScenario: ScenarioDefinition = {
       },
       '主要'
     );
-    context.button(boardActions, '显示 20 种图形', () => {
+    context.button(boardActions, '显示全部内置图形', () => {
       showBoard(earth, 'style-shapes', [0, 0], 2.25);
-      context.status('当前面板', '20 种 ShapeType');
+      context.status('当前面板', `全部 ${shapeTypes.length} 种 ShapeType`);
     });
     context.button(boardActions, '显示 8 种 stylePresets', () => {
       showBoard(earth, 'style-presets', [0, 0], 3.1);
@@ -861,6 +862,14 @@ function shapeElementId(type: ShapeType): string {
 
 function shapeGeometry(type: ShapeType, origin: Coordinate, unit: number): ShapeState {
   if (type === 'circle') return { type, center: origin, radius: unit * 2.2 };
+  if (type === 'callout') {
+    return {
+      type,
+      anchor: [origin[0] - unit * 2.2, origin[1] - unit * 1.8],
+      center: origin,
+      size: [180, 68]
+    };
+  }
   const template = shapeTemplates[type];
   return {
     type,
@@ -870,6 +879,22 @@ function shapeGeometry(type: ShapeType, origin: Coordinate, unit: number): Shape
 
 function shapeBoardStyle(type: ShapeType): StyleSpec {
   const color = shapeColor(type);
+  if (type === 'callout') {
+    return {
+      strokes: [{ color, width: 3, lineJoin: 'round' }],
+      fill: { type: 'solid', color: colorWithAlpha(color, 0.16) },
+      text: {
+        text: `${shapeLabels[type]}\n${type}`,
+        fontFamily: 'Microsoft YaHei, sans-serif',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: { type: 'solid', color: '#16324f' },
+        padding: [8, 12, 8, 12],
+        maxWidth: 160
+      },
+      zIndex: 20
+    };
+  }
   const base: StyleSpec = {
     symbol: {
       type: 'circle',
@@ -985,7 +1010,7 @@ function colorWithAlpha(color: string, alpha: number): Color {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255, alpha];
 }
 
-const shapeTemplates: Record<Exclude<ShapeType, 'circle'>, readonly Coordinate[]> = {
+const shapeTemplates: Record<Exclude<ShapeType, 'circle' | 'callout'>, readonly Coordinate[]> = {
   point: [[0, 0]],
   polyline: [
     [-2, -1],

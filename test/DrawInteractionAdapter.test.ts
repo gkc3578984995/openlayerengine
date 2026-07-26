@@ -21,6 +21,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DrawInteractionAdapter } from '../src/adapters/openlayers/interactions/DrawInteractionAdapter.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
+import { PresentedPolygonGeometry } from '../src/adapters/openlayers/PresentedPolygonGeometry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import type { DrawInteractionEvent } from '../src/core/ports/DrawInteractionPort.js';
 import type { ElementStyleState } from '../src/core/style/types.js';
@@ -366,6 +367,8 @@ describe('DrawInteractionAdapter', () => {
     expect(previewLayer.getMaxResolution()).toBe(100);
     expect(previewLayer.getMinZoom()).toBe(1);
     expect(previewLayer.getMaxZoom()).toBe(12);
+    expect(previewLayer.getUpdateWhileAnimating()).toBe(true);
+    expect(previewLayer.getUpdateWhileInteracting()).toBe(true);
     expect(targetLayer.getListeners('propertychange')?.length ?? 0).toBe(initialPresentationListeners + 1);
     expect(businessSource.getFeatures()).toEqual([businessFeature]);
     expect(businessSource.getRevision()).toBe(businessRevision);
@@ -496,11 +499,13 @@ describe('DrawInteractionAdapter', () => {
             [180 + farWorldOffset, 2],
             [175 + farWorldOffset, 2]
           ]
-        ]
+        ],
+        label: { coordinate: [180 + farWorldOffset, 5], text: 'wrapped' }
       },
       style
     });
-    expect((wrappedSource.getFeatures()[0].getGeometry() as Polygon).getCoordinates()).toEqual([
+    const wrappedPolygon = wrappedSource.getFeatures()[0].getGeometry() as Polygon;
+    expect(wrappedPolygon.getCoordinates()).toEqual([
       [
         [170, 0],
         [190, 0],
@@ -513,6 +518,8 @@ describe('DrawInteractionAdapter', () => {
         [175, 2]
       ]
     ]);
+    expect(wrappedPolygon).toBeInstanceOf(PresentedPolygonGeometry);
+    expect((wrappedPolygon as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [180, 5], text: 'wrapped' });
 
     wrappedHandle.render({ geometry: { type: 'circle', center: [12 + farWorldOffset, 3], radius: 4 }, style });
     const circle = wrappedSource.getFeatures()[0].getGeometry() as Circle;

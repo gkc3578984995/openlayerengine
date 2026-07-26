@@ -37,6 +37,7 @@ import { TransformService } from '../../src/services/transform/TransformService.
 import type { InternalTransformToolbarOptions } from '../../src/services/transform/types.js';
 import { FakeCursorPort } from './cursorHarness.js';
 import { identityShapeProjection } from './shapeProjection.js';
+import { testShapePresentation } from './shapePresentation.js';
 
 export class FakeTransformPort implements TransformInteractionPort {
   readonly log: string[];
@@ -302,6 +303,7 @@ export function createTransformHarness(
     store,
     shapes,
     shapeProjection,
+    shapePresentation: testShapePresentation,
     styles,
     coordinator,
     interaction,
@@ -337,7 +339,7 @@ export function addElement<T = unknown>(
   id: string,
   type: ShapeType,
   points: readonly Coordinate[],
-  style: ElementStyleState = { strokes: [{ color: '#36f', width: 2 }] },
+  style: ElementStyleState = { strokes: [{ color: '#36f', width: 2 }], text: { text: 'Callout', maxWidth: 120 } },
   data?: T
 ): Readonly<ElementState<T>> {
   const definition = harness.shapes.get(type);
@@ -345,10 +347,12 @@ export function addElement<T = unknown>(
   if (draft === undefined) throw new Error(`Incomplete representative geometry: ${type}`);
   const completion = definition.tryComplete(draft as never);
   if (completion.status !== 'complete') throw new Error(`Incomplete representative geometry: ${type}`);
+  const geometry =
+    completion.state.type === 'callout' ? testShapePresentation.present(definition, completion.state, style).state : (completion.state as ShapeState);
   return harness.store.add<T>({
     id,
     type,
-    geometry: completion.state as ShapeState,
+    geometry,
     style,
     ...(data === undefined ? {} : { data }),
     layerId: 'vector',
@@ -372,6 +376,10 @@ export const representativePoints = {
     [2, 0]
   ],
   ellipse: [
+    [0, 0],
+    [4, 2]
+  ],
+  callout: [
     [0, 0],
     [4, 2]
   ],

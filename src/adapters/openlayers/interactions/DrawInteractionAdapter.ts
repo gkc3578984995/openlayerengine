@@ -28,6 +28,7 @@ import type {
 import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
+import { createPresentedPolygonGeometry, PresentedPolygonGeometry, updatePresentationLabel } from '../PresentedPolygonGeometry.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 
 type PreviewFeature = Feature<Geometry>;
@@ -127,7 +128,10 @@ export class DrawInteractionAdapter implements DrawInteractionPort {
       previewSource = new VectorSource<PreviewFeature>({ wrapX: source.getWrapX() });
       previewLayer = new VectorLayer<PreviewSource>({
         source: previewSource,
-        style: null
+        style: null,
+        // View-dependent 草稿在缩放与旋转期间仍须保持 CSS 像素尺寸。
+        updateWhileAnimating: true,
+        updateWhileInteracting: true
       });
       const routing: { handle?: OpenLayersDrawInteractionHandle } = {};
       const interaction = new Interaction({ handleEvent: (event) => routing.handle?.handleEvent(event) ?? true });
@@ -966,7 +970,15 @@ function copyRenderGeometryState(state: RenderGeometryState, world?: HorizontalW
   if (state.type === 'polygon') {
     return Object.freeze({
       type: state.type,
-      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => copyFrozenCoordinate(coordinate, worldOffset)))))
+      coordinates: Object.freeze(state.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => copyFrozenCoordinate(coordinate, worldOffset))))),
+      ...(state.label === undefined
+        ? {}
+        : {
+            label: Object.freeze({
+              coordinate: copyFrozenCoordinate(state.label.coordinate, worldOffset),
+              text: state.label.text
+            })
+          })
     });
   }
   if (state.type !== 'circle' || !Number.isFinite(state.radius) || state.radius < 0) {
@@ -1000,7 +1012,7 @@ function previewAnchor(state: RenderGeometryState): Coordinate | undefined {
 function geometrySupportsState(geometry: Geometry, state: RenderGeometryState): boolean {
   if (state.type === 'point') return geometry instanceof Point;
   if (state.type === 'polyline') return geometry instanceof LineString;
-  if (state.type === 'polygon') return geometry instanceof Polygon;
+  if (state.type === 'polygon') return geometry instanceof Polygon && (state.label === undefined || geometry instanceof PresentedPolygonGeometry);
   return geometry instanceof Circle;
 }
 
@@ -1016,6 +1028,7 @@ function applyGeometryState(geometry: Geometry, state: RenderGeometryState): voi
   }
   if (state.type === 'polygon' && geometry instanceof Polygon) {
     geometry.setCoordinates(state.coordinates.map((ring) => ring.map(copyCoordinate)));
+    updatePresentationLabel(geometry, state.label);
     return;
   }
   if (state.type === 'circle' && geometry instanceof Circle) {
@@ -1028,7 +1041,7 @@ function applyGeometryState(geometry: Geometry, state: RenderGeometryState): voi
 function createGeometry(state: RenderGeometryState): Geometry {
   if (state.type === 'point') return new Point(copyCoordinate(state.coordinates));
   if (state.type === 'polyline') return new LineString(state.coordinates.map(copyCoordinate));
-  if (state.type === 'polygon') return new Polygon(state.coordinates.map((ring) => ring.map(copyCoordinate)));
+  if (state.type === 'polygon') return createPresentedPolygonGeometry(state);
   if (!Number.isFinite(state.radius) || state.radius < 0) throw new InvalidArgumentError('Draw preview circle radius must be a finite non-negative number');
   return new Circle(copyCoordinate(state.center), state.radius);
 }

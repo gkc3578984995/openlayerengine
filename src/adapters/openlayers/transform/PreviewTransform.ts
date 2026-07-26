@@ -24,7 +24,15 @@ export function translateRenderGeometry(geometry: RenderGeometryState, x: number
   }
   return Object.freeze({
     type: 'polygon',
-    coordinates: Object.freeze(geometry.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => translate(coordinate, x, y)))))
+    coordinates: Object.freeze(geometry.coordinates.map((ring) => Object.freeze(ring.map((coordinate) => translate(coordinate, x, y))))),
+    ...(geometry.label === undefined
+      ? {}
+      : {
+          label: Object.freeze({
+            coordinate: translate(geometry.label.coordinate, x, y),
+            text: geometry.label.text
+          })
+        })
   });
 }
 

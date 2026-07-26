@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { plotShapeDefinitions } from '../src/builtins/shapes/plot/index.js';
 import type { Coordinate } from '../src/core/common/types.js';
@@ -20,7 +21,7 @@ import { InteractionCoordinator } from '../src/services/events/InteractionCoordi
 import { StyleService } from '../src/services/style/StyleService.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 
-const style: ElementStyleState = { strokes: [{ color: '#3366ff', width: 2 }] };
+const style: ElementStyleState = { strokes: [{ color: '#3366ff', width: 2 }], text: { text: 'Callout', maxWidth: 120 } };
 
 const representativePoints = {
   point: [[1, 2]],
@@ -38,6 +39,10 @@ const representativePoints = {
     [2, 0]
   ],
   ellipse: [
+    [0, 0],
+    [4, 2]
+  ],
+  callout: [
     [0, 0],
     [4, 2]
   ],
@@ -168,6 +173,7 @@ describe('Shape drawing parity', () => {
       store,
       shapes,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       styles: new StyleService(store),
       coordinator: new InteractionCoordinator(),
       drawPort: port,
@@ -187,8 +193,9 @@ describe('Shape drawing parity', () => {
     const completion = definition.tryComplete(draft as never);
     expect(completion.status).toBe('complete');
     if (completion.status !== 'complete') throw new Error(`${type} representative state is incomplete`);
+    const presented = testShapePresentation.present(definition, completion.state, style);
     expect(session.results).toHaveLength(1);
-    expect(session.results[0].geometry).toEqual(completion.state);
+    expect(session.results[0].geometry).toEqual(presented.state);
     expect(port.previews.some((preview) => preview !== undefined)).toBe(true);
     expect(store.query()).toHaveLength(1);
   });
@@ -224,6 +231,7 @@ describe('Shape drawing parity', () => {
       store,
       shapes,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       styles: new StyleService(store),
       coordinator: new InteractionCoordinator(),
       drawPort: port,

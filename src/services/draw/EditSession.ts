@@ -18,9 +18,10 @@ import type {
 } from '../../core/ports/EditInteractionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { TooltipPort, TooltipViewHandle } from '../../core/ports/TooltipPort.js';
-import type { ControlPointTopology, RenderGeometryState, ShapeDefinition, ShapeEditTopology, ShapeState } from '../../core/shape/types.js';
-import { moveTrustedShapeState, renderTrustedShapeState } from '../../core/shape/trustedRender.js';
+import type { ControlPointHandle, ControlPointTopology, RenderGeometryState, ShapeDefinition, ShapeEditTopology, ShapeState } from '../../core/shape/types.js';
+import { trustedShapeControlPointAt } from '../../core/shape/trustedRender.js';
 import type { ElementChangeSet, ElementGeneration, ElementRevision } from '../../core/transaction/types.js';
 import type { InteractionCoordinator } from '../events/InteractionCoordinator.js';
 import { formatTooltipLines } from '../events/TooltipFormatting.js';
@@ -43,6 +44,8 @@ export interface EditSessionDependencies {
   readonly port: EditInteractionPort;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局、渲染和上下文编辑。 */
+  readonly shapePresentation: ShapePresentationPort;
   /** Element 协同保护门禁。 */
   readonly protection?: ElementProtectionGuard;
   /** 目标元素 ID。 */
@@ -80,6 +83,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   readonly #port: EditInteractionPort;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局、渲染和上下文编辑。 */
+  readonly #shapePresentation: ShapePresentationPort;
   /** Element 协同保护门禁。 */
   readonly #protection: ElementProtectionGuard;
   /** 目标元素预期代次。 */
@@ -114,6 +119,8 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   #unsubscribeProtection: (() => void) | undefined;
   /** 键盘输入订阅释放函数。 */
   #unsubscribeInput: (() => void) | undefined;
+  /** View 或字体 revision 变化订阅释放函数。 */
+  #unsubscribePresentation: (() => void) | undefined;
   /** 当前编辑提示框句柄。 */
   #tooltip: TooltipViewHandle | undefined;
   /** 当前编辑光标句柄。 */
@@ -163,6 +170,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     this.#coordinator = dependencies.coordinator;
     this.#port = dependencies.port;
     this.#shapeProjection = dependencies.shapeProjection;
+    this.#shapePresentation = dependencies.shapePresentation;
     this.#protection = dependencies.protection ?? unprotectedElementGuard;
     this.elementId = requireElementId(dependencies.elementId);
     const expectedGeneration = dependencies.expectedGeneration ?? dependencies.store.generationOf(this.elementId);
@@ -200,9 +208,12 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     const entry = this.#store.resolve<T>(this.elementId);
     if (entry === undefined) throw new InvalidArgumentError(`Element does not exist: ${this.elementId}`);
     if (entry.type !== this.#definition.type) throw new InvalidArgumentError('Edit shape definition does not match the target element');
-    const topology = this.#topology();
     const viewGeometry = this.#shapeProjection.toViewState(entry.geometry);
-    const controlPoints = topology.describe(viewGeometry as never).handles.map(({ coordinate }) => cloneCoordinate(coordinate));
+    const initialPresentation = this.#shapePresentation.present(this.#definition, viewGeometry, entry.style);
+    const controlPoints = this.#shapePresentation
+      .describeEdit(this.#definition, initialPresentation.state, entry.style)
+      .handles.map(({ coordinate }) => cloneCoordinate(coordinate));
+    if (controlPoints.length === 0) throw new InvalidArgumentError(`Shape edit topology has no handles: ${this.#definition.type}`);
     this.#entryState = entry;
     this.#entryRevision = entryRevision;
     this.#opening = true;
@@ -221,13 +232,17 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       this.#handle = handle;
       this.#cursor = this.#cursorPort?.open();
       if (this.#status !== 'active') throw new ObjectDisposedError('Edit session was cancelled while opening');
-      const placedState = this.#stateFromControlPoints(handle.placement.controlPoints);
-      this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(placedState, entry.geometry));
+      const placedState = this.#translateByPlacement(initialPresentation.state, controlPoints, handle.placement.controlPoints);
+      const presented = this.#shapePresentation.present(this.#definition, placedState, entry.style);
+      this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(presented.state, entry.geometry));
       this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(this.#workingElementState));
       this.#history = [this.#workingElementState];
       this.#historyIndex = 0;
       this.#render();
       if (this.#status !== 'active') throw new ObjectDisposedError('Edit session was cancelled while opening');
+      const unsubscribePresentation = this.#shapePresentation.subscribe(() => this.#handlePresentationFrame());
+      if (typeof unsubscribePresentation !== 'function') throw new InvalidArgumentError('Shape presentation must return a disposer');
+      this.#unsubscribePresentation = unsubscribePresentation;
       const unsubscribeInput = this.#input?.on('keydown', (event) => this.#handleKeydown(event));
       if (unsubscribeInput !== undefined && typeof unsubscribeInput !== 'function') {
         throw new InvalidArgumentError('Edit keyboard input must return a disposer');
@@ -257,9 +272,12 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     let committed: Readonly<ElementState<T>>;
     try {
       const working = this.#requireWorkingState();
-      const canonicalControlPoints = canonicalizeWorldEdit(this.#controlPoints(working), this.#requireHandle().placement.handoff);
-      const completed = this.#stateFromControlPoints(canonicalControlPoints);
-      const elementGeometry = this.#shapeProjection.toElementState(completed, this.#requireWorkingElementState());
+      const canonical = this.#canonicalizeWorkingState(working);
+      const completion = this.#definition.tryComplete(canonical as never);
+      if (completion.status === 'incomplete') throw new InvalidArgumentError(`Edit result is incomplete for shape: ${this.#definition.type}`);
+      const entryGeometry = this.#entryState?.geometry;
+      if (entryGeometry === undefined) throw new ObjectDisposedError('Edit interaction is not open');
+      const elementGeometry = this.#shapeProjection.toElementState(completion.state, entryGeometry);
       const entryRevision = this.#entryRevision;
       if (entryRevision === undefined) throw new ObjectDisposedError('Edit interaction is not open');
       if (!this.#store.isGenerationCurrent(this.elementId, this.#expectedGeneration) || !this.#store.isRevisionCurrent(this.elementId, entryRevision)) {
@@ -486,11 +504,11 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
     const state = this.#requireWorkingState();
     const coordinate = this.#placeCoordinate(input, anchor.index);
     const referenceState = this.#requireWorkingElementState();
-    const moved = moveTrustedShapeState(this.#definition, state as never, anchor.index, coordinate) as ShapeState;
+    const moved = this.#shapePresentation.moveEdit(this.#definition, state, this.#style(), anchor.index, coordinate);
     this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(moved, referenceState));
     this.#workingState = freezeShapeState(this.#shapeProjection.toViewState(this.#workingElementState));
     this.#dragCoordinate = coordinate;
-    this.#render(end ? undefined : { anchor, coordinate });
+    this.#render(end ? undefined : anchor.index);
     if (end) {
       this.#recordHistory();
       this.#clearDrag();
@@ -535,47 +553,95 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
   }
 
   /** 通过交互 Port 原子发布工作图形、强调层和锚点。 */
-  #render(activeMove?: Readonly<{ anchor: EditControlAnchor; coordinate: Coordinate }>): void {
+  #render(activeIndex?: number): void {
     const handle = this.#handle;
     const state = this.#requireWorkingState();
     const entry = this.#entryState;
     if (handle === undefined || entry === undefined) throw new ObjectDisposedError('Edit interaction is not open');
-    const description = activeMove === undefined ? this.#topology().describe(state as never) : undefined;
+    const presented = this.#shapePresentation.present(this.#definition, state, entry.style);
+    this.#workingState = freezeShapeState(presented.state);
+    this.#workingElementState = freezeShapeState(this.#shapeProjection.toElementState(presented.state, this.#requireWorkingElementState()));
+    let description: ControlPointTopology | undefined;
+    let activeHandle: ControlPointHandle | undefined;
+    if (activeIndex === undefined) {
+      description = this.#shapePresentation.describeEdit(this.#definition, presented.state, entry.style);
+    } else if (this.#definition.presentation?.edit !== undefined) {
+      description = this.#shapePresentation.describeEdit(this.#definition, presented.state, entry.style);
+      activeHandle = description.handles.find(({ index }) => index === activeIndex);
+    } else {
+      const previous = this.#renderedTopology?.handles.find(({ index }) => index === activeIndex);
+      const direct = trustedShapeControlPointAt(this.#definition, presented.state as never, activeIndex);
+      const coordinate = direct ?? ('controlPoints' in presented.state ? presented.state.controlPoints[activeIndex] : undefined);
+      if (previous !== undefined && coordinate !== undefined)
+        activeHandle = Object.freeze({ ...previous, coordinate: Object.freeze(cloneCoordinate(coordinate)) });
+      else {
+        description = this.#shapePresentation.describeEdit(this.#definition, presented.state, entry.style);
+        activeHandle = description.handles.find(({ index }) => index === activeIndex);
+      }
+    }
+    if (activeIndex !== undefined && activeHandle === undefined) throw new InvalidArgumentError(`Edit active handle is unavailable: ${activeIndex}`);
     const preview: EditInteractionRenderState = Object.freeze({
-      geometry: freezeRenderGeometry(renderTrustedShapeState(this.#definition, state as never)),
+      geometry: freezeRenderGeometry(presented.geometry),
       style: entry.style,
-      anchors: activeMove === undefined ? freezeAnchors(description as ControlPointTopology) : freezeActiveAnchor(activeMove)
+      anchors: activeHandle === undefined ? freezeAnchors(description as ControlPointTopology) : freezeActiveAnchor(activeHandle)
     });
     handle.render(preview);
-    if (description !== undefined) this.#renderedTopology = this.#status === 'active' ? description : undefined;
+    if (activeIndex === undefined && description !== undefined) this.#renderedTopology = this.#status === 'active' ? description : undefined;
   }
 
   /** 将输入坐标放置到连续的编辑世界。 */
   #placeCoordinate(coordinate: Coordinate, index: number): Coordinate {
     const state = this.#requireWorkingState();
     const movingReference = this.#dragIndex === index ? this.#dragCoordinate : undefined;
-    const handles = movingReference === undefined ? (this.#renderedTopology?.handles ?? this.#topology().describe(state as never).handles) : undefined;
+    const handles =
+      movingReference === undefined
+        ? (this.#renderedTopology?.handles ?? this.#shapePresentation.describeEdit(this.#definition, state, this.#style()).handles)
+        : undefined;
     const indexed = handles?.[index];
     const reference = movingReference ?? (indexed?.index === index ? indexed : handles?.find((handle) => handle.index === index))?.coordinate;
     return placeCoordinateInEditWorld(coordinate, reference?.[0] ?? coordinate[0], this.#requireHandle().placement.handoff);
   }
 
-  /** 从控制点构建当前图形状态。 */
-  #stateFromControlPoints(controlPoints: readonly Coordinate[]): ShapeState {
-    const draft = this.#definition.createDraft(controlPoints);
-    if (draft === undefined) throw new InvalidArgumentError(`Edit placement is incomplete for shape: ${this.#definition.type}`);
-    const completion = this.#definition.tryComplete(draft as never);
-    if (completion.status === 'incomplete') throw new InvalidArgumentError(`Edit placement is incomplete for shape: ${this.#definition.type}`);
-    return this.#definition.clone(completion.state as never) as ShapeState;
+  /** 把进入 Edit 时由 Adapter 选择的统一世界偏移应用到完整 Shape 状态。 */
+  #translateByPlacement(state: ShapeState, source: readonly Coordinate[], placed: readonly Coordinate[]): ShapeState {
+    if (source.length !== placed.length || source.length === 0) throw new InvalidArgumentError('Edit world placement must preserve every control point');
+    const x = placed[0][0] - source[0][0];
+    const y = placed[0][1] - source[0][1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InvalidArgumentError('Edit world placement offset must be finite');
+    return this.#translateState(state, x, y);
   }
 
-  /** 从图形状态提取可编辑控制点。 */
-  #controlPoints(state: ShapeState): readonly Coordinate[] {
-    const handles = [...this.#topology().describe(state as never).handles].sort((left, right) => left.index - right.index);
-    for (let index = 0; index < handles.length; index += 1) {
-      if (handles[index].index !== index) throw new InvalidArgumentError(`Shape edit topology has a non-contiguous handle index: ${handles[index].index}`);
+  /** 通过一个权威编辑 handle 求出世界回交偏移，并整体恢复完整 Shape。 */
+  #canonicalizeWorkingState(state: ShapeState): ShapeState {
+    const handle = this.#shapePresentation.describeEdit(this.#definition, state, this.#style()).handles[0];
+    if (handle === undefined) throw new InvalidArgumentError(`Shape edit topology has no handles: ${this.#definition.type}`);
+    const canonical = canonicalizeWorldEdit([handle.coordinate], this.#requireHandle().placement.handoff)[0];
+    return this.#translateState(state, canonical[0] - handle.coordinate[0], canonical[1] - handle.coordinate[1]);
+  }
+
+  /** 所有位置字段统一委托 ShapeDefinition 平移，避免由派生 handles 反建状态。 */
+  #translateState(state: ShapeState, x: number, y: number): ShapeState {
+    const translate = this.#definition.translate;
+    if (translate === undefined) throw new InvalidArgumentError(`Editable shape does not support whole-state translation: ${this.#definition.type}`);
+    return translate(state as never, x, y) as ShapeState;
+  }
+
+  /** 返回当前 Element 的不可变样式快照。 */
+  #style(): Readonly<ElementState<T>>['style'] {
+    const style = this.#entryState?.style;
+    if (style === undefined) throw new ObjectDisposedError('Edit interaction is not open');
+    return style;
+  }
+
+  /** View、rotation 或字体 revision 变化后重建编辑几何和权威 handles。 */
+  #handlePresentationFrame(): void {
+    if (this.#status !== 'active' || this.#handle === undefined || this.#workingState === undefined) return;
+    try {
+      this.#render(this.#dragIndex);
+    } catch (error) {
+      this.#report(error, 'presentation-frame');
+      if (this.#status === 'active') this.#terminate('cancelled', 'error');
     }
-    return handles.map(({ coordinate }) => cloneCoordinate(coordinate));
   }
 
   /** 将当前图形状态写入编辑历史。 */
@@ -687,6 +753,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
       const unsubscribeStore = this.#unsubscribeStore;
       const unsubscribeProtection = this.#unsubscribeProtection;
       const unsubscribeInput = this.#unsubscribeInput;
+      const unsubscribePresentation = this.#unsubscribePresentation;
       const tooltip = this.#tooltip;
       const cursor = this.#cursor;
       try {
@@ -726,6 +793,14 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
                   if (this.#unsubscribeInput === unsubscribeInput) this.#unsubscribeInput = undefined;
                 }
               ]),
+          ...(unsubscribePresentation === undefined
+            ? []
+            : [
+                () => {
+                  unsubscribePresentation();
+                  if (this.#unsubscribePresentation === unsubscribePresentation) this.#unsubscribePresentation = undefined;
+                }
+              ]),
           ...(tooltip === undefined
             ? []
             : [
@@ -763,6 +838,7 @@ export class EditSession<T = unknown> implements InternalEditSession<T>, Exclusi
         this.#unsubscribeStore === undefined &&
         this.#unsubscribeProtection === undefined &&
         this.#unsubscribeInput === undefined &&
+        this.#unsubscribePresentation === undefined &&
         this.#tooltip === undefined &&
         this.#cursor === undefined &&
         this.#coordinatorReleased &&
@@ -857,9 +933,9 @@ function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryStat
   return Object.freeze(geometry);
 }
 
-function freezeActiveAnchor(activeMove: Readonly<{ anchor: EditControlAnchor; coordinate: Coordinate }>): readonly EditInteractionAnchor[] {
-  Object.freeze(activeMove.coordinate);
-  return Object.freeze([Object.freeze({ ...activeMove.anchor, coordinate: activeMove.coordinate })]);
+function freezeActiveAnchor(handle: Readonly<EditControlAnchor | ControlPointTopology['handles'][number]>): readonly EditInteractionAnchor[] {
+  const coordinate = Object.freeze(cloneCoordinate(handle.coordinate));
+  return Object.freeze([Object.freeze({ ...handle, kind: 'control' as const, coordinate })]);
 }
 
 function freezeAnchors(topology: ControlPointTopology): readonly EditInteractionAnchor[] {

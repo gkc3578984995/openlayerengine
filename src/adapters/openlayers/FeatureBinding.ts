@@ -8,12 +8,14 @@ import { runFinalizers } from '../../core/common/dispose.js';
 import { CapabilityError, ObjectDisposedError } from '../../core/errors.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { LayerPresentationLease } from '../../core/ports/LayerRenderPort.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { ElementChange, ElementChangeSet } from '../../core/transaction/types.js';
 import type { ShapeInput } from '../../core/shape/types.js';
-import { isNativeStyleRef, type ElementStyleState } from '../../core/style/types.js';
+import { isNativeStyleRef, type ElementStyleState, type StyleSpec } from '../../core/style/types.js';
 import type { RenderGeometryKind } from './GeometryCodec.js';
 import type { GeometryCodec } from './GeometryCodec.js';
 import type { LayerAdapter } from './LayerAdapter.js';
+import { PresentedPolygonGeometry } from './PresentedPolygonGeometry.js';
 import { createTransparentStyleProxy, type StyleCompiler } from './style/StyleCompiler.js';
 
 type BoundSource = VectorSource<Feature<Geometry>>;
@@ -21,6 +23,7 @@ type BoundSource = VectorSource<Feature<Geometry>>;
 /** 单个 Element 与 OpenLayers Feature 的绑定状态。 */
 interface BindingRecord {
   readonly feature: Feature<Geometry>;
+  presentationLabelFeature: Feature<Geometry> | undefined;
   readonly generation: symbol;
   /** 当前 Element generation 建立时分配的稳定规范渲染顺序。 */
   readonly renderOrder: number;
@@ -29,7 +32,9 @@ interface BindingRecord {
   readonly styleFunction: StyleFunction;
   suppressionAcquisition: Set<symbol> | undefined;
   canonicalStyle: StyleLike;
+  presentationLabelStyle: StyleLike | undefined;
   presentationProxy: StyleFunction | undefined;
+  hasPresentationLabel: boolean;
   structuredStyle: boolean;
   layerId: string;
   visible: boolean;
@@ -42,12 +47,17 @@ interface DestroyRecordProgress {
   geometryCleared: boolean;
   styleCleared: boolean;
   disposed: boolean;
+  presentationLabelGeometryCleared: boolean;
+  presentationLabelStyleCleared: boolean;
+  presentationLabelDisposed: boolean;
 }
 
 /** FeatureBinding 整体销毁进度。 */
 interface DestroyProgress {
   readonly records: readonly DestroyRecordProgress[];
-  unsubscribed: boolean;
+  storeUnsubscribed: boolean;
+  presentationUnsubscribed: boolean;
+  presentationMotionUnsubscribed: boolean;
   detached: boolean;
 }
 
@@ -67,6 +77,8 @@ interface SuppressionLeaseState {
 export interface FeatureBindingOptions {
   /** 接收投影同步与资源清理中的非致命错误。 */
   readonly errorReporter?: ErrorReporter;
+  /** 在 View presentation revision 变化时只重投影依赖 View 的 Shape。 */
+  readonly shapePresentation?: ShapePresentationPort;
 }
 
 /** 从 OpenLayers Feature 解析出的 Element 身份。 */
@@ -99,13 +111,19 @@ export class FeatureBinding {
   readonly #errorReporter: ErrorReporter;
   readonly #bindings = new Map<string, BindingRecord>();
   readonly #featureIds = new WeakMap<Feature<Geometry>, string>();
+  readonly #presentationLabelFeatureIds = new WeakMap<Feature<Geometry>, string>();
   readonly #dirty = new Set<string>();
   readonly #pendingPresentationLayers = new Set<string>();
-  readonly #unsubscribe: () => void;
+  readonly #unsubscribeStore: () => void;
+  readonly #unsubscribePresentation: () => void;
+  readonly #unsubscribePresentationMotion: () => void;
   #lifecycle: Lifecycle = 'active';
   #destroyProgress: DestroyProgress | undefined;
   #destroyRunning = false;
   #reconciling = false;
+  #presentationRefreshing = false;
+  #presentationSuspended = false;
+  #presentationRefreshPending = false;
   #presentationInvalidationScheduled = false;
   #nextRenderOrder = 0;
 
@@ -116,8 +134,24 @@ export class FeatureBinding {
     this.#geometry = geometry;
     this.#styles = styles;
     this.#errorReporter = options.errorReporter ?? defaultErrorReporter;
-    this.#unsubscribe = store.subscribe((changes) => this.#onChanges(changes));
-    this.reconcile();
+    const unsubscribeStore = store.subscribe((changes) => this.#onChanges(changes));
+    let unsubscribePresentation: (() => void) | undefined;
+    let unsubscribePresentationMotion: (() => void) | undefined;
+    try {
+      unsubscribePresentation = options.shapePresentation?.subscribe(() => this.#onPresentationFrame());
+      unsubscribePresentationMotion = options.shapePresentation?.subscribeMotion?.((moving) => this.#onPresentationMotion(moving));
+      this.#unsubscribeStore = unsubscribeStore;
+      this.#unsubscribePresentation = unsubscribePresentation ?? (() => undefined);
+      this.#unsubscribePresentationMotion = unsubscribePresentationMotion ?? (() => undefined);
+      this.reconcile();
+    } catch (error) {
+      runFinalizers([
+        unsubscribeStore,
+        ...(unsubscribePresentation === undefined ? [] : [unsubscribePresentation]),
+        ...(unsubscribePresentationMotion === undefined ? [] : [unsubscribePresentationMotion])
+      ]);
+      throw error;
+    }
   }
 
   /** 在提交前用临时 Feature 验证图层、Geometry 和样式均可投影。 */
@@ -126,8 +160,12 @@ export class FeatureBinding {
     void this.#layers.requireVectorSource(state.layerId);
     const feature = new Feature<Geometry>();
     try {
-      this.#geometry.project(feature, state.geometry);
-      void this.#styles.compile(state.style);
+      const geometry = this.#geometry.project(feature, state.geometry, state.style);
+      if (geometry instanceof PresentedPolygonGeometry && geometry.getPresentationLabel() !== undefined && !isNativeStyleRef(state.style)) {
+        void this.#styles.compilePresentationLabelParts(state.style);
+      } else {
+        void this.#styles.compile(state.style);
+      }
     } finally {
       feature.setGeometry(undefined);
       feature.setStyle(undefined);
@@ -230,8 +268,17 @@ export class FeatureBinding {
         for (const source of sources) {
           if (source.hasFeature(binding.feature)) append(removals, source, binding.feature);
         }
+        const presentationLabelFeature = binding.presentationLabelFeature;
+        if (presentationLabelFeature !== undefined) {
+          for (const source of this.#layers.presentationLabelSources()) {
+            if (source.hasFeature(presentationLabelFeature)) append(removals, source, presentationLabelFeature);
+          }
+        }
         this.#removeBatches(removals, false);
-        if (sources.some((source) => source.hasFeature(binding.feature))) {
+        if (
+          sources.some((source) => source.hasFeature(binding.feature)) ||
+          (presentationLabelFeature !== undefined && this.#layers.presentationLabelSources().some((source) => source.hasFeature(presentationLabelFeature)))
+        ) {
           throw new CapabilityError(`Element Feature could not be suppressed: ${elementId}`);
         }
         this.#assertActive();
@@ -280,6 +327,12 @@ export class FeatureBinding {
             const removals = new Map<BoundSource, Feature<Geometry>[]>();
             for (const source of this.#layers.vectorSources()) {
               if (source.hasFeature(state.binding.feature)) append(removals, source, state.binding.feature);
+            }
+            const presentationLabelFeature = state.binding.presentationLabelFeature;
+            if (presentationLabelFeature !== undefined) {
+              for (const source of this.#layers.presentationLabelSources()) {
+                if (source.hasFeature(presentationLabelFeature)) append(removals, source, presentationLabelFeature);
+              }
             }
             this.#removeBatches(removals, false);
           },
@@ -369,9 +422,19 @@ export class FeatureBinding {
 
     const finalizers: Array<() => void> = [
       () => {
-        if (progress.unsubscribed) return;
-        this.#unsubscribe();
-        progress.unsubscribed = true;
+        if (progress.storeUnsubscribed) return;
+        this.#unsubscribeStore();
+        progress.storeUnsubscribed = true;
+      },
+      () => {
+        if (progress.presentationUnsubscribed) return;
+        this.#unsubscribePresentation();
+        progress.presentationUnsubscribed = true;
+      },
+      () => {
+        if (progress.presentationMotionUnsubscribed) return;
+        this.#unsubscribePresentationMotion();
+        progress.presentationMotionUnsubscribed = true;
       },
       () => {
         if (progress.detached) return;
@@ -395,6 +458,21 @@ export class FeatureBinding {
           if (record.disposed) return;
           record.binding.feature.dispose();
           record.disposed = true;
+        },
+        () => {
+          if (record.presentationLabelGeometryCleared) return;
+          record.binding.presentationLabelFeature?.setGeometry(undefined);
+          record.presentationLabelGeometryCleared = true;
+        },
+        () => {
+          if (record.presentationLabelStyleCleared) return;
+          record.binding.presentationLabelFeature?.setStyle(undefined);
+          record.presentationLabelStyleCleared = true;
+        },
+        () => {
+          if (record.presentationLabelDisposed) return;
+          record.binding.presentationLabelFeature?.dispose();
+          record.presentationLabelDisposed = true;
         }
       );
     }
@@ -413,6 +491,57 @@ export class FeatureBinding {
     if (this.#lifecycle !== 'active') return;
     this.#reconcileDirty();
     this.#applyChanges(changes);
+  }
+
+  /** 当前 View 变化时只重建显式声明 viewDependent 的 Feature。 */
+  #onPresentationFrame(): void {
+    if (this.#presentationSuspended) {
+      this.#presentationRefreshPending = true;
+      return;
+    }
+    this.#refreshPresentation();
+  }
+
+  /** 连续缩放或旋转时合并业务投影，并只暂停独立的显式文字层。 */
+  #onPresentationMotion(moving: boolean): void {
+    if (this.#lifecycle !== 'active' || moving === this.#presentationSuspended) return;
+    if (moving) {
+      this.#presentationSuspended = true;
+      this.#presentationRefreshPending = false;
+      this.#attempt(() => this.#layers.setPresentationLabelsSuspended(true), 'presentation-labels', 'suspend');
+      return;
+    }
+
+    this.#presentationSuspended = false;
+    const refreshPending = this.#presentationRefreshPending;
+    this.#presentationRefreshPending = false;
+    try {
+      if (refreshPending) this.#refreshPresentation();
+    } finally {
+      if (!this.#presentationSuspended) {
+        this.#attempt(() => this.#layers.setPresentationLabelsSuspended(false), 'presentation-labels', 'resume');
+      }
+    }
+  }
+
+  /** 重建当前稳定 View 下全部 view-dependent 业务 Feature。 */
+  #refreshPresentation(): void {
+    if (this.#lifecycle !== 'active' || this.#presentationRefreshing) return;
+    this.#presentationRefreshing = true;
+    try {
+      this.#reconcileDirty();
+      const changes: ElementChange[] = [];
+      for (const id of this.#bindings.keys()) {
+        const state = this.#store.get(id);
+        if (state === undefined || this.#dirty.has(id) || !this.#geometry.isViewDependent(state.geometry)) continue;
+        changes.push({ kind: 'update', id, after: state });
+      }
+      if (changes.length > 0) this.#applyChanges({ changes });
+    } catch (error) {
+      this.#report(error, 'presentation-refresh');
+    } finally {
+      this.#presentationRefreshing = false;
+    }
   }
 
   /** 重新同步此前失败并标记为脏的 Element。 */
@@ -459,6 +588,12 @@ export class FeatureBinding {
         const binding = this.#bindings.get(change.id);
         if (binding === undefined) continue;
         for (const source of sources) if (source.hasFeature(binding.feature)) append(removals, source, binding.feature);
+        const presentationLabelFeature = binding.presentationLabelFeature;
+        if (presentationLabelFeature !== undefined) {
+          for (const source of this.#layers.presentationLabelSources()) {
+            if (source.hasFeature(presentationLabelFeature)) append(removals, source, presentationLabelFeature);
+          }
+        }
         removed.push([change.id, binding]);
         continue;
       }
@@ -469,8 +604,9 @@ export class FeatureBinding {
       const binding = existing ?? this.#createBinding(change.id, change.after.layerId);
       try {
         binding.feature.setId(change.after.id);
-        this.#geometry.project(binding.feature, change.after.geometry);
-        this.#projectStyle(binding, change.after.style);
+        const geometry = this.#geometry.project(binding.feature, change.after.geometry, change.after.style);
+        const hasPresentationLabel = this.#projectPresentationLabel(binding, geometry, change.id);
+        this.#projectStyle(binding, change.after.style, hasPresentationLabel);
         binding.layerId = change.after.layerId;
         binding.visible = change.after.visible;
         for (const source of sources) {
@@ -478,6 +614,16 @@ export class FeatureBinding {
           const contains = source.hasFeature(binding.feature);
           if (contains && !shouldContain) append(removals, source, binding.feature);
           else if (!contains && shouldContain) append(additions, source, binding.feature);
+        }
+        const presentationLabelFeature = binding.presentationLabelFeature;
+        if (presentationLabelFeature !== undefined) {
+          const labelTarget = hasPresentationLabel ? this.#layers.ensurePresentationLabelSource(change.after.layerId) : undefined;
+          for (const source of this.#layers.presentationLabelSources()) {
+            const shouldContain = hasPresentationLabel && change.after.visible && binding.suppressionTokens.size === 0 && source === labelTarget;
+            const contains = source.hasFeature(presentationLabelFeature);
+            if (contains && !shouldContain) append(removals, source, presentationLabelFeature);
+            else if (!contains && shouldContain) append(additions, source, presentationLabelFeature);
+          }
         }
         this.#dirty.delete(change.id);
       } catch (error) {
@@ -502,14 +648,69 @@ export class FeatureBinding {
     return record;
   }
 
+  /** 把显式定位文字复制到伴随 Feature，并从规范框体 Geometry 移除重复文字。 */
+  #projectPresentationLabel(binding: BindingRecord, geometry: Geometry, id: string): boolean {
+    if (!(geometry instanceof PresentedPolygonGeometry)) {
+      binding.hasPresentationLabel = false;
+      return false;
+    }
+    const label = geometry.getPresentationLabel();
+    if (label === undefined) {
+      binding.hasPresentationLabel = false;
+      return false;
+    }
+
+    const feature = this.#ensurePresentationLabelFeature(binding, id);
+    const current = feature.getGeometry();
+    if (current instanceof PresentedPolygonGeometry) {
+      current.setCoordinates(geometry.getCoordinates());
+      current.setPresentationLabel(label);
+    } else {
+      feature.setGeometry(geometry.clone());
+    }
+    geometry.setPresentationLabel(undefined);
+    binding.hasPresentationLabel = true;
+    return true;
+  }
+
+  /** 首次遇到显式文字时才分配内部 Feature。 */
+  #ensurePresentationLabelFeature(binding: BindingRecord, id: string): Feature<Geometry> {
+    const existing = binding.presentationLabelFeature;
+    if (existing !== undefined) return existing;
+    const feature = new Feature<Geometry>();
+    const styleFunction: StyleFunction = (styledFeature, resolution) => {
+      if (
+        !binding.visible ||
+        !binding.hasPresentationLabel ||
+        binding.suppressionTokens.size > 0 ||
+        binding.presentationTokens.size > 0 ||
+        binding.presentationLabelStyle === undefined
+      ) {
+        return [];
+      }
+      const selected = binding.presentationLabelStyle;
+      return typeof selected === 'function' ? selected(styledFeature, resolution) : selected;
+    };
+    feature.setStyle(styleFunction);
+    binding.presentationLabelFeature = feature;
+    this.#presentationLabelFeatureIds.set(feature, id);
+    return feature;
+  }
+
   /** 保存最新业务样式，并在租约期间更新透明代理而不替换稳定 StyleFunction。 */
-  #projectStyle(binding: BindingRecord, style: ElementStyleState): void {
-    const compiled = this.#styles.compile(style);
+  #projectStyle(binding: BindingRecord, style: ElementStyleState, hasPresentationLabel: boolean): void {
     const structured = !isNativeStyleRef(style);
-    binding.canonicalStyle = compiled;
+    if (structured && hasPresentationLabel) {
+      const compiled = this.#styles.compilePresentationLabelParts(style as StyleSpec);
+      binding.canonicalStyle = compiled.base;
+      binding.presentationLabelStyle = compiled.label;
+    } else {
+      binding.canonicalStyle = this.#styles.compile(style);
+      binding.presentationLabelStyle = undefined;
+    }
     binding.structuredStyle = structured;
     if (structured) {
-      binding.presentationProxy = binding.presentationTokens.size === 0 ? undefined : createTransparentStyleProxy(compiled);
+      binding.presentationProxy = binding.presentationTokens.size === 0 ? undefined : createTransparentStyleProxy(binding.canonicalStyle);
       if (binding.feature.getStyle() !== binding.styleFunction) binding.feature.setStyle(binding.styleFunction);
       return;
     }
@@ -519,7 +720,7 @@ export class FeatureBinding {
       this.#schedulePresentationInvalidation(binding.layerId);
     }
     binding.presentationProxy = undefined;
-    if (binding.feature.getStyle() !== compiled) binding.feature.setStyle(compiled);
+    if (binding.feature.getStyle() !== binding.canonicalStyle) binding.feature.setStyle(binding.canonicalStyle);
   }
 
   /** 把同一同步批次中的 lease 边界变化合并为每层一次 revision 更新。 */
@@ -532,7 +733,10 @@ export class FeatureBinding {
       const layerIds = [...this.#pendingPresentationLayers];
       this.#pendingPresentationLayers.clear();
       if (this.#lifecycle !== 'active') return;
-      for (const pendingLayerId of layerIds) this.#attempt(() => this.#layers.requireLayer(pendingLayerId).changed(), pendingLayerId, 'presentation-changed');
+      for (const pendingLayerId of layerIds) {
+        this.#attempt(() => this.#layers.requireLayer(pendingLayerId).changed(), pendingLayerId, 'presentation-changed');
+        this.#attempt(() => this.#layers.presentationLabelLayer(pendingLayerId)?.changed(), pendingLayerId, 'presentation-label-changed');
+      }
     });
   }
 
@@ -546,7 +750,7 @@ export class FeatureBinding {
         this.#report(error, 'remove-features');
         for (const feature of unique) {
           if (markDirty) {
-            const id = this.#featureIds.get(feature);
+            const id = this.#featureIds.get(feature) ?? this.#presentationLabelFeatureIds.get(feature);
             if (id !== undefined) this.#dirty.add(id);
           }
           if (!source.hasFeature(feature)) continue;
@@ -570,7 +774,7 @@ export class FeatureBinding {
       } catch (error) {
         this.#report(error, 'add-features');
         for (const feature of unique) {
-          const id = this.#featureIds.get(feature);
+          const id = this.#featureIds.get(feature) ?? this.#presentationLabelFeatureIds.get(feature);
           if (id !== undefined) this.#dirty.add(id);
           if (source.hasFeature(feature)) continue;
           try {
@@ -592,9 +796,19 @@ export class FeatureBinding {
     binding.presentationTokens.clear();
     binding.suppressionAcquisition = undefined;
     binding.presentationProxy = undefined;
+    binding.presentationLabelStyle = undefined;
+    binding.hasPresentationLabel = false;
     this.#attempt(() => binding.feature.setGeometry(undefined), id, 'clear-geometry');
     this.#attempt(() => binding.feature.setStyle(undefined), id, 'clear-style');
     this.#attempt(() => binding.feature.dispose(), id, 'dispose-feature');
+    const presentationLabelFeature = binding.presentationLabelFeature;
+    if (presentationLabelFeature !== undefined) {
+      this.#presentationLabelFeatureIds.delete(presentationLabelFeature);
+      this.#attempt(() => presentationLabelFeature.setGeometry(undefined), id, 'clear-presentation-label-geometry');
+      this.#attempt(() => presentationLabelFeature.setStyle(undefined), id, 'clear-presentation-label-style');
+      this.#attempt(() => presentationLabelFeature.dispose(), id, 'dispose-presentation-label-feature');
+      binding.presentationLabelFeature = undefined;
+    }
   }
 
   /** 标记 Element 需要重试并上报本次错误。 */
@@ -638,25 +852,43 @@ export class FeatureBinding {
       binding,
       geometryCleared: false,
       styleCleared: false,
-      disposed: false
+      disposed: false,
+      presentationLabelGeometryCleared: binding.presentationLabelFeature === undefined,
+      presentationLabelStyleCleared: binding.presentationLabelFeature === undefined,
+      presentationLabelDisposed: binding.presentationLabelFeature === undefined
     }));
-    this.#destroyProgress = { records, unsubscribed: false, detached: false };
+    this.#destroyProgress = {
+      records,
+      storeUnsubscribed: false,
+      presentationUnsubscribed: false,
+      presentationMotionUnsubscribed: false,
+      detached: false
+    };
     this.#lifecycle = 'destroying';
     for (const { binding } of records) {
       binding.suppressionTokens.clear();
       binding.presentationTokens.clear();
       binding.suppressionAcquisition = undefined;
       binding.presentationProxy = undefined;
+      binding.presentationLabelStyle = undefined;
+      binding.hasPresentationLabel = false;
     }
   }
 
   /** 从全部矢量 Source 移除待销毁 Feature。 */
   #detachDestroyRecords(records: readonly DestroyRecordProgress[]): void {
     const sources = this.#layers.vectorSources();
+    const presentationLabelSources = this.#layers.presentationLabelSources();
     const bySource = new Map<BoundSource, Feature<Geometry>[]>();
     for (const source of sources) {
       for (const { binding } of records) {
         if (source.hasFeature(binding.feature)) append(bySource, source, binding.feature);
+      }
+    }
+    for (const source of presentationLabelSources) {
+      for (const { binding } of records) {
+        const feature = binding.presentationLabelFeature;
+        if (feature !== undefined && source.hasFeature(feature)) append(bySource, source, feature);
       }
     }
     this.#removeBatches(bySource, false);
@@ -665,11 +897,33 @@ export class FeatureBinding {
         if (source.hasFeature(binding.feature)) throw new CapabilityError(`Element Feature could not be detached during destroy: ${id}`);
       }
     }
+    for (const source of presentationLabelSources) {
+      for (const { id, binding } of records) {
+        const feature = binding.presentationLabelFeature;
+        if (feature !== undefined && source.hasFeature(feature)) {
+          throw new CapabilityError(`Element presentation label Feature could not be detached during destroy: ${id}`);
+        }
+      }
+    }
   }
 
   /** 判断所有销毁步骤是否已经完成。 */
   #destroyComplete(progress: DestroyProgress): boolean {
-    return progress.unsubscribed && progress.detached && progress.records.every((record) => record.geometryCleared && record.styleCleared && record.disposed);
+    return (
+      progress.storeUnsubscribed &&
+      progress.presentationUnsubscribed &&
+      progress.presentationMotionUnsubscribed &&
+      progress.detached &&
+      progress.records.every(
+        (record) =>
+          record.geometryCleared &&
+          record.styleCleared &&
+          record.disposed &&
+          record.presentationLabelGeometryCleared &&
+          record.presentationLabelStyleCleared &&
+          record.presentationLabelDisposed
+      )
+    );
   }
 
   /** 清空销毁状态并进入最终已销毁状态。 */
@@ -678,6 +932,7 @@ export class FeatureBinding {
     for (const { id, binding } of progress.records) {
       this.#bindings.delete(id);
       this.#featureIds.delete(binding.feature);
+      if (binding.presentationLabelFeature !== undefined) this.#presentationLabelFeatureIds.delete(binding.presentationLabelFeature);
     }
     this.#bindings.clear();
     this.#dirty.clear();
@@ -699,6 +954,7 @@ function createBindingRecord(feature: Feature<Geometry>, id: string, layerId: st
   };
   const record: BindingRecord = {
     feature,
+    presentationLabelFeature: undefined,
     generation: Symbol(id),
     renderOrder,
     suppressionTokens: new Set<symbol>(),
@@ -706,7 +962,9 @@ function createBindingRecord(feature: Feature<Geometry>, id: string, layerId: st
     styleFunction,
     suppressionAcquisition: undefined,
     canonicalStyle: hiddenStyle,
+    presentationLabelStyle: undefined,
     presentationProxy: undefined,
+    hasPresentationLabel: false,
     structuredStyle: true,
     layerId,
     visible: false

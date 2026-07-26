@@ -4,10 +4,14 @@ import Geometry from 'ol/geom/Geometry.js';
 import LineString from 'ol/geom/LineString.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
+import { CapabilityError } from '../../core/errors.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import { renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { RenderGeometryState, ShapeInput, ShapeState } from '../../core/shape/types.js';
+import type { ElementStyleState } from '../../core/style/types.js';
+import { createPresentedPolygonGeometry, PresentedPolygonGeometry, updatePresentationLabel } from './PresentedPolygonGeometry.js';
 
 /** OpenLayers 接收的渲染几何类型。 */
 export type RenderGeometryKind = RenderGeometryState['type'];
@@ -16,16 +20,34 @@ export type RenderGeometryKind = RenderGeometryState['type'];
 export class GeometryCodec {
   readonly #shapes: ShapeRegistry;
   readonly #projection: ShapeProjectionPort;
+  readonly #presentation: ShapePresentationPort | undefined;
 
-  constructor(shapes: ShapeRegistry, projection: ShapeProjectionPort) {
+  constructor(shapes: ShapeRegistry, projection: ShapeProjectionPort, presentation?: ShapePresentationPort) {
     this.#shapes = shapes;
     this.#projection = projection;
+    this.#presentation = presentation;
   }
 
   /** 把规范状态投影到 Feature；几何类型未变时复用原对象。 */
-  project(feature: Feature<Geometry>, state: ShapeState): Geometry {
-    const rendered = this.render(state);
+  project(feature: Feature<Geometry>, state: ShapeState, style?: ElementStyleState): Geometry {
+    const rendered = this.present(state, style);
     return projectRenderGeometry(feature, rendered);
+  }
+
+  /** 解析依赖当前 View 与 Style 的最终展示几何。 */
+  present(state: ShapeState, style?: ElementStyleState): RenderGeometryState {
+    const definition = this.#shapes.get(state.type);
+    if (definition.presentation === undefined) {
+      return renderTrustedShapeState(definition, this.#projection.toViewState(state) as never);
+    }
+    if (this.#presentation === undefined) throw new CapabilityError(`Shape presentation adapter is unavailable: ${state.type}`);
+    if (style === undefined) throw new CapabilityError(`Shape presentation requires an Element style: ${state.type}`);
+    return this.#presentation.present(definition, this.#projection.toViewState(state), style).geometry;
+  }
+
+  /** 判断 Shape 是否需要在 View presentation revision 变化时重新投影。 */
+  isViewDependent(state: ShapeState): boolean {
+    return this.#shapes.get(state.type).presentation?.viewDependent === true;
   }
 
   /** 把规范 Shape 状态解析为当前 View 投影中的完整静态渲染几何。 */
@@ -69,10 +91,16 @@ export function projectRenderGeometry(feature: Feature<Geometry>, rendered: Rend
   if (rendered.type === 'polygon') {
     const coordinates = asOpenLayersCoordinates(rendered.coordinates);
     if (current instanceof Polygon) {
+      if (rendered.label !== undefined && !(current instanceof PresentedPolygonGeometry)) {
+        const geometry = createPresentedPolygonGeometry(rendered);
+        feature.setGeometry(geometry);
+        return geometry;
+      }
       current.setCoordinates(coordinates);
+      updatePresentationLabel(current, rendered.label);
       return current;
     }
-    const geometry = new Polygon(coordinates);
+    const geometry = createPresentedPolygonGeometry(rendered);
     feature.setGeometry(geometry);
     return geometry;
   }

@@ -315,6 +315,40 @@ describe('Transform 默认视觉', () => {
     harness.handles.destroy();
   });
 
+  it('使用权威 selection geometry 包络文本框，不受远端尾巴和长文本 footprint 污染', () => {
+    const longText = '这是一段会换行的很长文本\nCallout selection geometry must remain stable';
+    const previewStyle = new Style({ text: new Text({ text: longText, font: 'normal bold 16px sans-serif' }) });
+    const anchors: Coordinate[] = [];
+    const harness = createHarness(previewStyle, interactionOptions({ buffer: 0 }), undefined, new MapHarness(), (coordinate) => anchors.push(coordinate));
+    const frameRing = [
+      [-110, -48],
+      [110, -48],
+      [110, 48],
+      [-110, 48],
+      [-110, -48]
+    ] as const;
+    const fullRing = [...frameRing.slice(0, 3), [-10_000, -10_000] as const, ...frameRing.slice(3)];
+    harness.handles.setTarget(
+      polygonTarget({
+        elementId: 'callout',
+        type: 'callout',
+        geometry: { type: 'polygon', coordinates: [fullRing], label: { coordinate: [0, 0], text: longText } },
+        selectionGeometry: { type: 'polygon', coordinates: [frameRing] },
+        style: { text: { text: longText, fontSize: 16 } },
+        canRotate: false,
+        canScale: false,
+        canStretch: false,
+        canEditVertices: false
+      })
+    );
+
+    expect(harness.handles.extent).toEqual([-110, -48, 110, 48]);
+    expect(polygonCoordinates(previewFeature(harness.map, previewStyle))?.[0]).toContainEqual([-10_000, -10_000]);
+    expect(anchors.at(-1)).toEqual([110, 48]);
+    expect([...transformHandles(harness.map).keys()].filter((key) => key !== 'feature')).toEqual([]);
+    harness.handles.destroy();
+  });
+
   it('linework 选框复用统一外扩，并在字体度量未知时回退到已编译样式与派生 Geometry', () => {
     const lineworkStyle: StyleSpec = {
       linework: {
@@ -377,7 +411,7 @@ describe('Transform 默认视觉', () => {
     fallbackHarness.handles.destroy();
   });
 
-  it('关闭交互期间的强制全量重绘，并按旋转后的屏幕外接框右上角定位工具栏', () => {
+  it('保持动画与交互期间的临时图层刷新，并按旋转后的屏幕外接框右上角定位工具栏', () => {
     const previewStyle = new Style({ stroke: new Stroke({ color: '#000000' }) });
     const map = new MapHarness();
     const anchors: Coordinate[] = [];
@@ -385,8 +419,8 @@ describe('Transform 默认视觉', () => {
     harness.handles.setTarget(polygonTarget());
 
     const layer = map.layers.item(0) as VectorLayer<VectorSource<Feature<Geometry>>>;
-    expect(layer.getUpdateWhileAnimating()).toBe(false);
-    expect(layer.getUpdateWhileInteracting()).toBe(false);
+    expect(layer.getUpdateWhileAnimating()).toBe(true);
+    expect(layer.getUpdateWhileInteracting()).toBe(true);
     expect(sourceOf(map).getWrapX()).toBe(false);
     expect(harness.handles.hit([0, 0], 2)).toBeUndefined();
     expect(map.lastCheckWrapped).toBe(false);

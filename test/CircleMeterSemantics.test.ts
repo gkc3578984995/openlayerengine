@@ -42,6 +42,7 @@ import { createTestMap } from './fixtures/Task8Map.js';
 import { FakeLayerRenderPort } from './helpers/animationHarness.js';
 import { createFacadeHarness } from './helpers/facadeHarness.js';
 import { createTransformHarness } from './helpers/transformHarness.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 
 const circleStyle: ElementStyleState = {
   fill: { type: 'solid', color: 'rgba(0, 120, 255, 0.15)' },
@@ -166,6 +167,7 @@ describe('Circle 米制半径语义', () => {
       drawPort: port,
       editPort: {} as EditInteractionPort,
       shapeProjection,
+      shapePresentation: testShapePresentation,
       defaultStyle: () => circleStyle,
       createId: () => 'draw-circle'
     });
@@ -208,6 +210,7 @@ describe('Circle 米制半径语义', () => {
       drawPort: {} as DrawInteractionPort,
       editPort: port,
       shapeProjection,
+      shapePresentation: testShapePresentation,
       defaultStyle: () => circleStyle
     });
 
@@ -234,6 +237,7 @@ describe('Circle 米制半径语义', () => {
       drawPort: {} as DrawInteractionPort,
       editPort: port,
       shapeProjection,
+      shapePresentation: testShapePresentation,
       defaultStyle: () => circleStyle
     });
     const session = service.edit('edit-circle');
@@ -376,6 +380,7 @@ describe('Circle 米制半径语义', () => {
       shapes,
       render,
       shapeProjection,
+      shapePresentation: testShapePresentation,
       registry: new AnimationRegistry([definition]),
       clock: render,
       wake: render

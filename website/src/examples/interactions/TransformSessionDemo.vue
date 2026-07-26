@@ -10,7 +10,7 @@ const LAYER_ID = 'docs-transform-targets';
 const FIRST_ID = 'docs-transform-a';
 const SECOND_ID = 'docs-transform-b';
 const MODULE = 'docs-transform';
-const DEFAULT_TARGET: InteractionTargetId = 'polygon';
+const DEFAULT_TARGET: InteractionTargetId = 'callout';
 const ICON_SOURCE =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="56" viewBox="0 0 48 56"%3E%3Cpath fill="%237c3aed" stroke="white" stroke-width="3" d="M24 2C12.4 2 3 11.4 3 23c0 15.8 21 31 21 31s21-15.2 21-31C45 11.4 35.6 2 24 2Z"/%3E%3Ccircle cx="24" cy="23" r="8" fill="white"/%3E%3C/svg%3E';
 
@@ -40,6 +40,12 @@ const hasSelection = computed(() => isActive.value && selectedId.value !== '未�
 const hasBothTargets = computed(() => firstRef.value !== null && secondRef.value !== null);
 const selectedTarget = computed(() => interactionTargetById[selectedTargetId.value]);
 const companionTarget = computed(() => interactionTargetById[companionTargetId.value]);
+const activeSelectedTarget = computed(() => {
+  if (selectedId.value === FIRST_ID) return selectedTarget.value;
+  if (selectedId.value === SECOND_ID) return companionTarget.value;
+  return undefined;
+});
+const canEditSelected = computed(() => activeSelectedTarget.value?.transform.vertex === true);
 const hasToolbar = computed(() => {
   selectedId.value;
   return sessionRef.value?.toolbar !== undefined && !toolbarDestroyed.value;
@@ -185,6 +191,20 @@ const styleFor = (id: InteractionTargetId, role: 'primary' | 'secondary'): Style
       text: { text: role === 'primary' ? 'A' : 'B', fontSize: 18, fontWeight: 'bold', fill: { type: 'solid', color } }
     };
   }
+  if (id === 'callout') {
+    return {
+      strokes: [{ color, width: 3, lineJoin: 'round' }],
+      fill: { type: 'solid', color: role === 'primary' ? 'rgba(245, 243, 255, 0.96)' : 'rgba(236, 253, 245, 0.96)' },
+      text: {
+        text: `${role === 'primary' ? 'A' : 'B'} · Transform 只移动整个 Callout`,
+        maxWidth: 220,
+        padding: [12, 16, 12, 16],
+        fontSize: 16,
+        fontWeight: 'bold',
+        fill: { type: 'solid', color }
+      }
+    };
+  }
   return {
     strokes: [{ color, width: 5 }],
     fill: { type: 'solid', color: fill },
@@ -317,9 +337,14 @@ const replaceSelected = () => {
 
 // #region transform-session-and-toolbar
 const setMode = (nextMode: TransformMode) => {
-  sessionRef.value?.setMode(nextMode);
-  mode.value = sessionRef.value?.mode ?? nextMode;
-  lastEvent.value = `setMode · ${nextMode}`;
+  try {
+    sessionRef.value?.setMode(nextMode);
+    mode.value = sessionRef.value?.mode ?? nextMode;
+    lastEvent.value = `setMode · ${nextMode}`;
+  } catch (error) {
+    mode.value = sessionRef.value?.mode ?? 'transform';
+    lastEvent.value = error instanceof Error ? `setMode('${nextMode}') 已拒绝 · ${error.message}` : `setMode('${nextMode}') 已拒绝`;
+  }
 };
 
 const undo = () => {
@@ -346,6 +371,10 @@ const toggleToolbar = () => {
 };
 
 const markToolbarEdit = () => {
+  if (!canEditSelected.value) {
+    lastEvent.value = '当前 Shape 不声明 vertexEdit，工具栏没有可用 Edit 项';
+    return;
+  }
   sessionRef.value?.toolbar?.setActive('edit');
   lastEvent.value = 'toolbar.setActive · edit';
 };
@@ -460,7 +489,9 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="旋转">
         {{ selectedTarget.transform.rotate ? '支持' : '— 不支持，Session 不会显示旋转手柄' }}
       </el-descriptions-item>
-      <el-descriptions-item label="缩放 / 顶点编辑">支持</el-descriptions-item>
+      <el-descriptions-item label="缩放 / 顶点编辑">
+        {{ selectedTarget.transform.scale ? '支持缩放' : '— 不支持缩放' }} / {{ selectedTarget.transform.vertex ? '支持顶点编辑' : '— 不支持顶点编辑' }}
+      </el-descriptions-item>
       <el-descriptions-item label="说明" :span="2">{{ selectedTarget.description }}</el-descriptions-item>
     </el-descriptions>
 
@@ -530,7 +561,7 @@ onBeforeUnmount(() => {
         <span>编辑模式</span>
         <el-radio-group :model-value="mode" :disabled="!hasSelection" @update:model-value="setMode">
           <el-radio-button value="transform">变换</el-radio-button>
-          <el-radio-button value="edit">顶点编辑</el-radio-button>
+          <el-radio-button value="edit">{{ canEditSelected ? '顶点编辑' : '尝试顶点编辑（Shape 将拒绝）' }}</el-radio-button>
         </el-radio-group>
       </div>
       <div class="example-demo__action-row transform-session-demo__secondary-actions">
@@ -564,7 +595,7 @@ onBeforeUnmount(() => {
       <div class="example-demo__action-group">
         <strong>Toolbar</strong>
         <div class="example-demo__action-buttons transform-session-demo__toolbar-actions">
-          <el-button size="small" :disabled="!hasToolbar" @click="markToolbarEdit">高亮编辑项</el-button>
+          <el-button size="small" :disabled="!hasToolbar || !canEditSelected" @click="markToolbarEdit">高亮编辑项</el-button>
           <el-button size="small" :disabled="!hasToolbar" @click="toggleToolbar">{{ toolbarVisible ? '隐藏' : '显示' }}</el-button>
           <el-button size="small" :disabled="!hasToolbar" @click="toggleRemoveDisabled">
             {{ toolbarRemoveDisabled ? '启用删除项' : '禁用删除项' }}
@@ -578,7 +609,13 @@ onBeforeUnmount(() => {
     </div>
     <div class="transform-session-demo__map-shell">
       <div ref="mapTarget" class="example-stage"></div>
-      <div class="transform-session-demo__map-guide">{{ activeOptionPreset.id }} · 选择 A 或 B；拖拽图形、外框手柄，或切换到顶点编辑</div>
+      <div class="transform-session-demo__map-guide">
+        {{
+          activeSelectedTarget?.type === 'callout'
+            ? 'Callout 只允许整体平移；不会出现旋转、缩放、拉伸或顶点编辑手柄'
+            : `${activeOptionPreset.id} · 选择 A 或 B；拖拽图形、外框手柄，或切换到顶点编辑`
+        }}
+      </div>
     </div>
     <el-descriptions class="transform-session-demo__summary" :column="2" border>
       <el-descriptions-item label="当前选择">{{ selectedId }}</el-descriptions-item>

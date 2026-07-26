@@ -7,6 +7,7 @@ import type { CursorPort } from '../../core/ports/CursorPort.js';
 import { unprotectedElementGuard, type ElementProtectionGuard } from '../../core/ports/ElementProtectionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { TransformInteractionPort } from '../../core/ports/TransformInteractionPort.js';
 import type { TransformToolbarPort } from '../../core/ports/TransformToolbarPort.js';
 import type { TransformTooltipPort } from '../../core/ports/TransformTooltipPort.js';
@@ -52,6 +53,8 @@ export interface TransformServiceDependencies {
   readonly protection?: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局、渲染和拓扑派生。 */
+  readonly shapePresentation: ShapePresentationPort;
   /** 元素动画控制端口。 */
   readonly animations: TransformAnimationPort;
   /** 临时动画端口。 */
@@ -86,6 +89,8 @@ export class TransformService implements InternalTransformService {
   readonly #protection: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局、渲染和拓扑派生。 */
+  readonly #shapePresentation: ShapePresentationPort;
   /** 元素动画控制端口。 */
   readonly #animations: TransformAnimationPort;
   /** 临时动画端口。 */
@@ -127,6 +132,7 @@ export class TransformService implements InternalTransformService {
     this.#interaction = dependencies.interaction;
     this.#protection = dependencies.protection ?? unprotectedElementGuard;
     this.#shapeProjection = dependencies.shapeProjection;
+    this.#shapePresentation = dependencies.shapePresentation;
     this.#animations = dependencies.animations;
     this.#transients = dependencies.transients;
     this.#toolbar = dependencies.toolbar;
@@ -172,6 +178,7 @@ export class TransformService implements InternalTransformService {
       interaction: this.#interaction,
       protection: this.#protection,
       shapeProjection: this.#shapeProjection,
+      shapePresentation: this.#shapePresentation,
       animations: this.#animations,
       transients: this.#transients,
       ...(this.#toolbar === undefined ? {} : { toolbarPort: this.#toolbar }),

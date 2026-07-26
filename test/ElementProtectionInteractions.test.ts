@@ -13,6 +13,7 @@ import { InteractionCoordinator } from '../src/services/events/InteractionCoordi
 import { StyleService } from '../src/services/style/StyleService.js';
 import { addElement, createTransformHarness, representativePoints } from './helpers/transformHarness.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 
 class MutableProtectionGuard implements ElementProtectionGuard {
   readonly #states = new Map<string, ElementProtectionState>();
@@ -77,6 +78,7 @@ describe('Element protection interaction guards', () => {
       drawPort: {} as DrawInteractionPort,
       editPort: {} as EditInteractionPort,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       protection,
       defaultStyle: () => ({ strokes: [{ color: '#36f', width: 2 }] })
     });

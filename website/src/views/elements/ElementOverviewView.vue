@@ -24,7 +24,7 @@ const focusShapesDemo = () => shapesDemoRef.value?.focusSelected();
 const anchors = [
   { id: 'overview', label: 'Element 是什么' },
   { id: 'example-element-quick-start', label: '创建第一个 Element' },
-  { id: 'example-all-shapes', label: 'Shape 视觉目录' },
+  { id: 'example-all-shapes', label: '全部内置 Shape 视觉目录' },
   { id: 'common-workflows', label: '常用操作' },
   {
     id: 'api-element',
@@ -210,7 +210,7 @@ const apiMembers = {
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">地图元素</span>
         <h1>Element 概览</h1>
-        <p>先创建一个 Element，再通过可搜索、可分类的视觉目录查看全部 20 种 Shape，最后按任务找到查询、更新、显隐和清理 API。</p>
+        <p>先创建一个 Element，再通过可搜索、可分类的视觉目录查看全部内置 Shape，最后按任务找到查询、更新、显隐和清理 API。</p>
       </header>
 
       <section id="overview" class="doc-prose">
@@ -252,7 +252,7 @@ const apiMembers = {
 
       <section id="example-all-shapes" class="doc-prose">
         <ExampleBlock
-          title="全部 20 种 Shape 视觉目录"
+          title="全部内置 Shape 视觉目录"
           :source="shapesSource"
           :snippet="shapesSnippet"
           source-lang="vue"
@@ -266,16 +266,14 @@ const apiMembers = {
             <p>
               预览区一次放大一个
               <ApiReference kind="property" to="/components/elements/shapes#api-value-shape-types">shapeTypes</ApiReference>
-              中的图形，并用编号标出
-              <code>controlPoints</code>
-              的输入顺序。可以按中文名、英文类型搜索或按类别筛选；选择卡片后，地图会重新聚焦并以宽描边高亮目标。每个图形都提供最小创建代码和
+              中的图形，并用编号标出规范输入点顺序。可以按中文名、英文类型搜索或按类别筛选；选择卡片后，地图会重新聚焦并以宽描边高亮目标。每个图形都提供最小创建代码和
               <ApiReference kind="type" to="/api/types#api-type-shape-input">ShapeInput</ApiReference>
               等相关类型入口。选中图形后，示例还会读取
               <ApiReference kind="property" to="#api-property-geometry-details">Element.geometryDetails</ApiReference>
               ，统一显示范围角点、最终轮廓点、规范控制点以及 Circle 圆心和双单位半径，并调用
               <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">earth.view.toGeographicCoordinates()</ApiReference>
-              转换一个坐标样本。面箭头的最终 polygon ring 与绘制控制点会分别展示；详细控制点规则见
-              <a href="/components/elements/shapes">图形类型（Shapes）</a>。
+              转换一个坐标样本。面箭头的最终 polygon ring 与绘制控制点会分别展示；Callout 则展示 <code>anchor + center</code> 静态骨架，屏幕框体不写入
+              <code>geometryDetails</code>。详细输入规则见 <a href="/components/elements/shapes">图形类型（Shapes）</a>。
             </p>
           </template>
           <template #preview><ShapesDemo ref="shapesDemoRef" /></template>
@@ -375,6 +373,10 @@ const apiMembers = {
           <li>
             箭头和其他派生面会返回 <code>type: 'polygon'</code>；<code>coordinates</code> 是完整的 polygon rings，不再只是绘制时输入的
             <code>controlPoints</code>。
+          </li>
+          <li>
+            Callout 的 <code>renderGeometry</code> 固定为连接 <code>anchor</code> 与 <code>center</code> 的 polyline，<code>controlPoints</code>
+            返回这两个规范坐标。屏幕轴对齐框体、尾巴与换行文字依赖当前 View，不进入静态详情。
           </li>
           <li>
             Circle 的便利字段 <code>center</code> 返回 View 投影圆心，<code>radius</code> 同时提供米制 <code>meters</code> 和 View 投影单位下的

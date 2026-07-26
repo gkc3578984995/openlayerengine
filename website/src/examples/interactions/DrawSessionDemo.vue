@@ -23,6 +23,7 @@ const DEFAULT_TYPE: ShapeType = 'polygon';
 const autoFinishCounts: Readonly<Partial<Record<ShapeType, number>>> = Object.freeze({
   point: 1,
   circle: 2,
+  callout: 2,
   ellipse: 2,
   'fine-arrow': 2,
   'tailed-squad-combat-arrow': 2,
@@ -36,10 +37,11 @@ const autoFinishCounts: Readonly<Partial<Record<ShapeType, number>>> = Object.fr
   'lune-polygon': 3,
   'lune-polyline': 3
 });
-const basicTypes = new Set<ShapeType>(['point', 'polyline', 'polygon']);
+const basicTypes = new Set<ShapeType>(['point', 'polyline', 'polygon', 'callout']);
 const parameterTypes = new Set<ShapeType>(['circle', 'ellipse']);
 
 const completionText = (type: ShapeType) => {
+  if (type === 'callout') return '第 1 次单击定位 anchor，第 2 次单击文本框 center 后自动完成';
   if (type === 'double-arrow') return '第 4 次单击后自动补齐规范状态的第 5 个控制点并完成';
   const count = autoFinishCounts[type];
   return count === undefined ? '达到最少控制点后，右击地图或点击“完成”提交' : `接受 ${count} 个控制点后自动完成`;
@@ -104,6 +106,19 @@ const releaseListeners = () => {
 };
 
 const styleFor = (type: ShapeType): StyleSpec => {
+  if (type === 'callout') {
+    return {
+      strokes: [{ color: '#ea580c', width: 3, lineJoin: 'round' }],
+      fill: { type: 'solid', color: 'rgba(255, 247, 237, 0.96)' },
+      text: {
+        text: '两点绘制文本标注框；缩窄后文字会自动换行',
+        maxWidth: 220,
+        padding: [12, 16, 12, 16],
+        fontSize: 17,
+        fill: { type: 'solid', color: '#9a3412' }
+      }
+    };
+  }
   const render = shapeExampleByType[type].render;
   if (render === 'Point') {
     return {
@@ -295,7 +310,7 @@ onBeforeUnmount(() => {
       type="info"
       :closable="false"
       show-icon
-      title="20 种公开 Shape 共用同一个 earth.draw.start()；目录同时说明输入规则、完成方式与最终几何。"
+      title="全部公开 Shape 共用同一个 earth.draw.start()；Callout 以 anchor + center 两点绘制，并从最终文字样式自动计算初始尺寸。"
     />
 
     <el-tabs v-model="selectedCategory" class="draw-session-demo__catalog-tabs">

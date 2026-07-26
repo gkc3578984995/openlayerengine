@@ -111,14 +111,18 @@ assert(findMethod(findType('ControlService'), 'enableGraticule'), 'ControlServic
 assert(findMethod(findType('ControlService'), 'enableScaleLine'), 'ControlService.enableScaleLine 未写入类型目录');
 
 const shapeInput = findType('ShapeInput');
-assert(shapeInput.variants.length === 2, 'ShapeInput 必须展开 Circle 与非 Circle 两个对象分支');
+assert(shapeInput.variants.length === 3, 'ShapeInput 必须展开 Circle、Callout 与普通 Shape 三个对象分支');
 assert(
   shapeInput.variants.some((variant) => variant.properties.some((property) => property.name === 'radius')),
   'ShapeInput Circle 分支缺少 radius'
 );
 assert(
+  shapeInput.variants.some((variant) => ['anchor', 'center', 'size'].every((name) => variant.properties.some((property) => property.name === name))),
+  'ShapeInput Callout 分支缺少 anchor、center 或 size'
+);
+assert(
   shapeInput.variants.some((variant) => variant.properties.some((property) => property.name === 'controlPoints')),
-  'ShapeInput 非 Circle 分支缺少 controlPoints'
+  'ShapeInput 普通 Shape 分支缺少 controlPoints'
 );
 
 const animationSpec = findType('AnimationSpec');

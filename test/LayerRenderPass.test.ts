@@ -19,6 +19,7 @@ import { LayerRenderPass } from '../src/adapters/openlayers/render/LayerRenderPa
 import type { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import type { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
+import { PresentedPolygonGeometry } from '../src/adapters/openlayers/PresentedPolygonGeometry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { createBuiltinAnimationRegistry } from '../src/builtins/animations/index.js';
@@ -31,6 +32,7 @@ import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
 import type { StyleSpec } from '../src/core/style/types.js';
 import { AnimationManagerImpl } from '../src/services/animation/AnimationManager.js';
 import { FakeLayerRenderPort, pointElement, polylineElement } from './helpers/animationHarness.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 
 const animationTiming = new FakeLayerRenderPort();
 
@@ -131,6 +133,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -547,6 +550,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -590,6 +594,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -629,6 +634,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -698,6 +704,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -762,6 +769,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -820,6 +828,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -898,6 +907,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -944,6 +954,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -1099,6 +1110,152 @@ describe('LayerRenderPass', () => {
     pass.destroy();
   });
 
+  it('keeps a Callout presentation label aligned across movement and wrapped worlds', () => {
+    const state = pointElement('callout-target');
+    const harness = createPassHarness([state]);
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const compilePresentation = vi.spyOn(compiler, 'compilePresentation');
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, compiler);
+    const style: StyleSpec = {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [{ color: '#222222', width: 2 }],
+      text: { text: 'raw', fill: { type: 'solid', color: '#111111' } }
+    };
+    let geometry: RenderGeometryState = {
+      type: 'polygon',
+      coordinates: [
+        [
+          [-50, -30],
+          [50, -30],
+          [50, 30],
+          [-50, 30],
+          [-50, -30]
+        ]
+      ],
+      label: { coordinate: [0, 0], text: '第一\n帧' }
+    };
+    pass.open('default', () => ({
+      contributions: [
+        {
+          targetId: 'callout-target',
+          channel: '$animation',
+          value: { presentation: { geometry, style } }
+        }
+      ],
+      requestNextFrame: false
+    }));
+    const labelXs: number[] = [];
+    let cachedFeature: Feature<Geometry> | undefined;
+    renderSpies.drawFeature.mockImplementation((feature: Feature<Geometry>, renderedStyle: Style) => {
+      const pointGeometry = renderedStyle.getGeometry();
+      if (renderedStyle.getText() === null || !(pointGeometry instanceof Point)) return;
+      cachedFeature = feature;
+      labelXs.push(pointGeometry.getCoordinates()[0]);
+    });
+    const projection = wrappedProjection(1_000);
+
+    dispatchExtentFrame(harness.layer, 0, projection, [-900, -100, 900, 100]);
+    expect(labelXs).toEqual([-1_000, 0, 1_000]);
+    expect((cachedFeature?.getGeometry() as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [0, 0], text: '第一\n帧' });
+
+    geometry = {
+      type: 'polygon',
+      coordinates: [
+        [
+          [50, -30],
+          [150, -30],
+          [150, 30],
+          [50, 30],
+          [50, -30]
+        ]
+      ],
+      label: { coordinate: [100, 0], text: '第二\n帧' }
+    };
+    labelXs.length = 0;
+    dispatchExtentFrame(harness.layer, 16, projection, [-800, -100, 1_000, 100]);
+
+    expect(labelXs).toEqual([-900, 100, 1_100]);
+    expect(compilePresentation).toHaveBeenCalledOnce();
+    expect((cachedFeature?.getGeometry() as PresentedPolygonGeometry).getPresentationLabel()).toEqual({ coordinate: [100, 0], text: '第二\n帧' });
+    pass.destroy();
+  });
+
+  it('suspends only explicit presentation labels while preserving frame and ordinary text styles', () => {
+    const harness = createPassHarness([pointElement('callout-target'), pointElement('point-target')]);
+    const compiler = new StyleCompiler(new NativeRefRegistry());
+    const pass = new LayerRenderPass(harness.map, harness.layers, harness.binding, compiler);
+    const calloutGeometry: RenderGeometryState = {
+      type: 'polygon',
+      coordinates: [
+        [
+          [-50, -30],
+          [50, -30],
+          [50, 30],
+          [-50, 30],
+          [-50, -30]
+        ]
+      ],
+      label: { coordinate: [0, 0], text: 'Callout label' }
+    };
+    pass.open('default', () => ({
+      contributions: [
+        {
+          targetId: 'callout-target',
+          channel: '$animation',
+          value: {
+            presentation: {
+              geometry: calloutGeometry,
+              style: {
+                fill: { type: 'solid', color: '#ffffff' },
+                strokes: [{ color: '#222222', width: 2 }],
+                text: { text: 'raw', fill: { type: 'solid', color: '#111111' } }
+              }
+            }
+          }
+        },
+        {
+          targetId: 'point-target',
+          channel: '$animation',
+          value: {
+            presentation: {
+              geometry: { type: 'point', coordinates: [100, 0] },
+              style: { text: { text: 'Point label', fill: { type: 'solid', color: '#333333' } } }
+            }
+          }
+        }
+      ],
+      requestNextFrame: false
+    }));
+    const drawn = (): ReadonlyArray<{ readonly callout: boolean; readonly hasText: boolean }> =>
+      renderSpies.drawFeature.mock.calls.map(([feature, style]) => ({
+        callout: (feature as Feature<Geometry>).getGeometry() instanceof PresentedPolygonGeometry,
+        hasText: (style as Style).getText() !== null
+      }));
+
+    dispatchFrame(harness.layer, 0, 0);
+    expect(drawn()).toEqual(
+      expect.arrayContaining([
+        { callout: true, hasText: false },
+        { callout: true, hasText: true },
+        { callout: false, hasText: true }
+      ])
+    );
+
+    harness.layers.setPresentationLabelsSuspended(true);
+    renderSpies.drawFeature.mockClear();
+    dispatchFrame(harness.layer, 16, 0);
+    expect(drawn()).toContainEqual({ callout: true, hasText: false });
+    expect(drawn()).not.toContainEqual({ callout: true, hasText: true });
+    expect(drawn()).toContainEqual({ callout: false, hasText: true });
+
+    harness.layers.setPresentationLabelsSuspended(false);
+    renderSpies.drawFeature.mockClear();
+    dispatchFrame(harness.layer, 32, 0);
+    expect(drawn()).toContainEqual({ callout: true, hasText: true });
+    expect(drawn()).toContainEqual({ callout: false, hasText: true });
+    pass.destroy();
+  });
+
   it('wrapX 关闭时只绘制规范世界，不生成相邻世界副本', () => {
     const state = pointElement('point');
     const shapes = new ShapeRegistry(basicShapeDefinitions);
@@ -1111,6 +1268,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -1187,6 +1345,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -1285,6 +1444,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -1318,6 +1478,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -1378,6 +1539,7 @@ describe('LayerRenderPass', () => {
       shapes,
       render: pass,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationTiming,
       wake: animationTiming
@@ -1487,10 +1649,17 @@ function createPassHarness(states: readonly ElementState[], wrapX = true): PassH
     features.set(state.id, feature);
     renderOrders.set(state.id, renderOrders.size);
   }
+  let presentationLabelsSuspended = false;
   const layers = {
     requireLayer(layerId: string) {
       if (layerId !== 'default') throw new Error(`未知图层 ${layerId}`);
       return layer;
+    },
+    setPresentationLabelsSuspended(suspended: boolean) {
+      presentationLabelsSuspended = suspended;
+    },
+    presentationLabelsSuspended() {
+      return presentationLabelsSuspended;
     }
   } as unknown as LayerAdapter;
   const binding = {

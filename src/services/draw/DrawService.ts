@@ -9,6 +9,7 @@ import type { EditInteractionPort } from '../../core/ports/EditInteractionPort.j
 import { unprotectedElementGuard, type ElementProtectionGuard } from '../../core/ports/ElementProtectionPort.js';
 import { defaultErrorReporter, type ErrorReporter } from '../../core/ports/ErrorReporter.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { TooltipPort } from '../../core/ports/TooltipPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import type { ShapeState, ShapeType } from '../../core/shape/types.js';
@@ -43,6 +44,8 @@ export interface DrawServiceDependencies {
   readonly protection?: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局、渲染和上下文编辑。 */
+  readonly shapePresentation: ShapePresentationPort;
   /** 可选的键盘输入。 */
   readonly input?: SessionKeyboardInput;
   /** 可选的跟随鼠标交互提示端口。 */
@@ -79,6 +82,8 @@ export class DrawService implements InternalDrawService {
   readonly #protection: ElementProtectionGuard;
   /** 在 Element 规范状态与 View 工作态之间换算图形。 */
   readonly #shapeProjection: ShapeProjectionPort;
+  /** 在当前 View 中完成 Shape 布局、渲染和上下文编辑。 */
+  readonly #shapePresentation: ShapePresentationPort;
   /** 可选的键盘输入。 */
   readonly #input: SessionKeyboardInput | undefined;
   /** 可选的跟随鼠标交互提示端口。 */
@@ -125,6 +130,7 @@ export class DrawService implements InternalDrawService {
     this.#editPort = dependencies.editPort;
     this.#protection = dependencies.protection ?? unprotectedElementGuard;
     this.#shapeProjection = dependencies.shapeProjection;
+    this.#shapePresentation = dependencies.shapePresentation;
     this.#input = dependencies.input;
     this.#tooltipPort = dependencies.tooltipPort;
     this.#cursorPort = dependencies.cursorPort;
@@ -139,7 +145,10 @@ export class DrawService implements InternalDrawService {
     this.#assertActive();
     const options = this.#normalizeDrawOptions(input);
     const definition = this.#shapes.get(options.type);
-    if (options.style !== undefined) assertLineworkShapeCompatibility(options.style, definition);
+    if (options.style !== undefined) {
+      assertLineworkShapeCompatibility(options.style, definition);
+      definition.presentation?.validateStyle?.(options.style);
+    }
     if (!definition.capabilities.has('draw')) throw new CapabilityError(`Shape does not support drawing: ${options.type}`);
 
     const session = new DrawSession<T>({
@@ -149,6 +158,7 @@ export class DrawService implements InternalDrawService {
       coordinator: this.#coordinator,
       port: this.#drawPort,
       shapeProjection: this.#shapeProjection,
+      shapePresentation: this.#shapePresentation,
       options,
       ...(this.#input === undefined ? {} : { input: this.#input }),
       ...(this.#tooltipPort === undefined ? {} : { tooltipPort: this.#tooltipPort }),
@@ -181,7 +191,7 @@ export class DrawService implements InternalDrawService {
     if (expectedGeneration === undefined) throw new InvalidArgumentError(`Element does not exist: ${elementId}`);
     this.#protection.assertEditable(elementId, expectedGeneration);
     const definition = this.#shapes.get(state.type);
-    if (!definition.capabilities.has('edit') || definition.editTopology === undefined) {
+    if (!definition.capabilities.has('edit') || (definition.editTopology === undefined && definition.presentation?.edit === undefined)) {
       throw new CapabilityError(`Shape does not support editing: ${state.type}`);
     }
 
@@ -191,6 +201,7 @@ export class DrawService implements InternalDrawService {
       coordinator: this.#coordinator,
       port: this.#editPort,
       shapeProjection: this.#shapeProjection,
+      shapePresentation: this.#shapePresentation,
       protection: this.#protection,
       elementId,
       expectedGeneration,

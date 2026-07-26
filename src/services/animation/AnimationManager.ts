@@ -18,11 +18,11 @@ import type {
   LayerRenderPrimitive,
   LayerRenderSlotReservation
 } from '../../core/ports/LayerRenderPort.js';
+import type { ShapePresentationPort } from '../../core/ports/ShapePresentationPort.js';
 import type { ShapeProjectionPort } from '../../core/ports/ShapeProjectionPort.js';
 import type { TransientAnimationHandle, TransientAnimationPort, TransientAnimationSpec } from '../../core/ports/TransientAnimationPort.js';
 import type { ShapeRegistry } from '../../core/shape/ShapeRegistry.js';
 import { calculateRenderGeometryExtent, type RenderGeometryExtent } from '../../core/shape/geometryDetails.js';
-import { renderTrustedShapeState } from '../../core/shape/trustedRender.js';
 import type { RenderGeometryState } from '../../core/shape/types.js';
 import { isNativeStyleRef, type StyleSpec } from '../../core/style/types.js';
 import { styleVisualOutsetPx } from '../../core/style/visualOutset.js';
@@ -54,6 +54,8 @@ export interface AnimationManagerDependencies {
   readonly render: LayerRenderPort;
   /** 将元素规范状态转换为 View 工作状态。 */
   readonly shapeProjection: ShapeProjectionPort;
+  /** 生成包含 View-dependent 布局的最终展示状态与 Geometry。 */
+  readonly shapePresentation: ShapePresentationPort;
   /** 动画定义注册表。 */
   readonly registry: AnimationRegistry;
   /** 与渲染帧时间使用同一时间域的时钟。 */
@@ -204,6 +206,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   readonly #render: LayerRenderPort;
   /** 将元素规范状态转换为 View 工作状态。 */
   readonly #shapeProjection: ShapeProjectionPort;
+  /** 生成包含 View-dependent 布局的最终展示状态与 Geometry。 */
+  readonly #shapePresentation: ShapePresentationPort;
   /** 动画定义注册表。 */
   readonly #registry: AnimationRegistry;
   readonly #clock: AnimationClockPort;
@@ -233,6 +237,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   readonly #presentationLeases = new Map<string, LayerPresentationLease>();
   /** ElementStore 订阅的释放函数。 */
   readonly #unsubscribeStore: () => void;
+  /** Shape presentation 帧订阅的释放函数。 */
+  readonly #unsubscribePresentation: () => void;
   /** 下一个动画句柄 ID。 */
   #nextHandleId = 0;
   /** 下一个动画记录 ID。 */
@@ -244,6 +250,8 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
   #destroyRequested = false;
   /** ElementStore 订阅是否仍有效。 */
   #storeSubscribed = true;
+  /** Shape presentation 帧订阅是否仍有效。 */
+  #presentationSubscribed = true;
 
   /** 创建动画管理器并订阅元素变化。 */
   constructor(dependencies: AnimationManagerDependencies) {
@@ -254,6 +262,7 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#shapes = dependencies.shapes;
     this.#render = dependencies.render;
     this.#shapeProjection = dependencies.shapeProjection;
+    this.#shapePresentation = dependencies.shapePresentation;
     this.#registry = dependencies.registry;
     this.#clock = dependencies.clock;
     this.#deadlines = new AnimationDeadlineScheduler({
@@ -263,6 +272,17 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     });
     this.#errorReporter = dependencies.errorReporter ?? defaultErrorReporter;
     this.#unsubscribeStore = this.#store.subscribe((changes) => this.#handleStoreChanges(changes));
+    try {
+      this.#unsubscribePresentation = this.#shapePresentation.subscribe(() => this.#handlePresentationFrame());
+    } catch (error) {
+      try {
+        this.#unsubscribeStore();
+        this.#storeSubscribed = false;
+      } catch (cleanupError) {
+        this.#report(cleanupError, 'rollback-store-subscription');
+      }
+      throw error;
+    }
   }
 
   /** 返回当前活动动画记录数量。 */
@@ -624,10 +644,27 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     try {
       this.stopAll();
       if (this.#passes.size > 0) throw new Error('Animation render pass cleanup failed');
+      let unsubscribeFailed = false;
+      let unsubscribeError: unknown;
       if (this.#storeSubscribed) {
-        this.#unsubscribeStore();
-        this.#storeSubscribed = false;
+        try {
+          this.#unsubscribeStore();
+          this.#storeSubscribed = false;
+        } catch (error) {
+          unsubscribeFailed = true;
+          unsubscribeError = error;
+        }
       }
+      if (this.#presentationSubscribed) {
+        try {
+          this.#unsubscribePresentation();
+          this.#presentationSubscribed = false;
+        } catch (error) {
+          if (!unsubscribeFailed) unsubscribeError = error;
+          unsubscribeFailed = true;
+        }
+      }
+      if (unsubscribeFailed) throw unsubscribeError;
       this.#deadlines.destroy();
       this.#activePreviews.clear();
       this.#previews.clear();
@@ -1266,6 +1303,55 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     this.#requestLayers(affectedLayers);
   }
 
+  /** View 或字体 revision 变化后重新准备依赖 presentation 的动画目标。 */
+  #handlePresentationFrame(): void {
+    if (this.#disposed || this.#destroyRequested) return;
+    const affectedLayers = new Set<string>();
+    for (const [elementId, indexedRecords] of this.#recordsByElement) {
+      const records = [...indexedRecords].filter((record) => this.#records.get(record.id) === record);
+      if (records.length === 0) continue;
+      const state = this.#store.resolve(elementId);
+      if (state === undefined || this.#shapes.get(state.type).presentation?.viewDependent !== true) continue;
+
+      this.#committedStates.delete(elementId);
+      let committed: PreparedElementState;
+      try {
+        committed = this.#resolvePreparedState(elementId);
+        this.#committedStates.set(elementId, committed);
+      } catch (error) {
+        for (const record of records) {
+          affectedLayers.add(record.layerId);
+          this.#report(error, 'prepare-presentation', record.id);
+          this.#removeRecord(record, 'stopped');
+        }
+        continue;
+      }
+
+      const preview = this.#previews.get(elementId);
+      for (const record of records) {
+        affectedLayers.add(record.layerId);
+        if (preview !== undefined) continue;
+        const timingChanged = record.layerId !== committed.state.layerId || record.hidden === committed.state.visible;
+        this.#updateRecordState(record, () => {
+          record.layerId = committed.state.layerId;
+          record.hidden = !committed.state.visible;
+          if (timingChanged) record.lastFrameTime = undefined;
+        });
+        try {
+          this.#rebindRecord(record, committed);
+        } catch (error) {
+          this.#report(error, 'rebind-presentation', record.id);
+          this.#removeRecord(record, 'stopped');
+          continue;
+        }
+        affectedLayers.add(record.layerId);
+        this.#refreshHandle(record.handleId);
+      }
+    }
+    this.#syncPasses(affectedLayers);
+    this.#requestLayers(affectedLayers);
+  }
+
   /** 解析当前仓库版本并复用或生成对应的动画帧输入。 */
   #resolvePreparedState(elementId: string): PreparedElementState {
     const state = this.#store.resolve(elementId);
@@ -1278,14 +1364,15 @@ export class AnimationManagerImpl implements AnimationManager, AnimationControlP
     if (cached?.state === state && cached.generation === generation && cached.revision === revision) return cached;
     if (isNativeStyleRef(state.style)) throw new UnsupportedOperationError('Native styles cannot use structured animations');
     const shape = this.#shapes.get(state.type);
-    const viewShape = this.#shapeProjection.toViewState(state.geometry);
-    const geometry = freezeRenderGeometry(renderTrustedShapeState(shape, viewShape as never));
+    const projectedShape = this.#shapeProjection.toViewState(state.geometry);
+    const presented = this.#shapePresentation.present(shape, projectedShape, state.style);
+    const geometry = freezeRenderGeometry(presented.geometry);
     return Object.freeze({
       state,
       geometry,
       bounds: renderGeometryBounds(geometry),
       baseVisualOutsetPx: styleVisualOutsetPx(state.style as StyleSpec),
-      target: Object.freeze({ state, viewShape, geometry, style: state.style as StyleSpec, shape }),
+      target: Object.freeze({ state, viewShape: presented.state, geometry, style: state.style as StyleSpec, shape }),
       generation,
       revision
     });
@@ -1479,6 +1566,10 @@ function freezeRenderGeometry(geometry: RenderGeometryState): RenderGeometryStat
       Object.freeze(ring);
     }
     Object.freeze(geometry.coordinates);
+    if (geometry.label !== undefined) {
+      Object.freeze(geometry.label.coordinate);
+      Object.freeze(geometry.label);
+    }
   } else {
     Object.freeze(geometry.center);
   }

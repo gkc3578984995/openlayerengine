@@ -168,7 +168,7 @@ export function haveSamePlanarDirection(origin: Coordinate, first: Coordinate, s
 
 type ControlPointTopologyMode = 'fixed' | 'open' | 'closed' | 'arrow';
 
-interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle'>> {
+interface ControlPointDefinitionOptions<T extends Exclude<ShapeType, 'circle' | 'callout'>> {
   readonly type: T;
   readonly previewMin: number;
   readonly completeMin: number;
@@ -278,7 +278,7 @@ export function assertFiniteRenderGeometry(geometry: RenderGeometryState): void 
   throw new InvalidArgumentError('Render geometry has an unsupported type');
 }
 
-export function createControlPointDefinition<T extends Exclude<ShapeType, 'circle'>>(
+export function createControlPointDefinition<T extends Exclude<ShapeType, 'circle' | 'callout'>>(
   options: ControlPointDefinitionOptions<T>
 ): ShapeDefinition<ShapeState<T>> {
   const hasCompleteCount = (count: number): boolean => count >= options.completeMin && (options.completeMax === undefined || count <= options.completeMax);
@@ -503,9 +503,10 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     return geometry;
   };
 
+  const capabilities = options.capabilities ?? editableCapabilities;
   const definition: ShapeDefinition<ShapeState<T>> = {
     type: options.type,
-    capabilities: options.capabilities ?? editableCapabilities,
+    capabilities,
     controlPointPolicy: Object.freeze({
       previewMin: options.previewMin,
       completeMin: options.completeMin,
@@ -519,6 +520,20 @@ export function createControlPointDefinition<T extends Exclude<ShapeType, 'circl
     createDraft,
     normalize,
     clone: (state) => normalize(state),
+    ...(capabilities.has('translate')
+      ? {
+          translate: (state: ShapeState<T>, x: number, y: number): ShapeState<T> => {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InvalidArgumentError('Shape translation must use finite offsets');
+            const normalized = normalize(state);
+            return normalize({
+              type: options.type,
+              controlPoints: normalized.controlPoints.map((coordinate) =>
+                coordinate.length === 3 ? [coordinate[0] + x, coordinate[1] + y, coordinate[2]] : [coordinate[0] + x, coordinate[1] + y]
+              )
+            });
+          }
+        }
+      : {}),
     isComplete: (state) => hasCompleteCount(normalize(state).controlPoints.length),
     tryComplete,
     toRenderGeometry

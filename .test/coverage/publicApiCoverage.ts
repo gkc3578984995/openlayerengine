@@ -338,7 +338,7 @@ const memberCoverage: CoverageItem[] = [
   ...members('elements', 'ElementProtectionUpdate', ['protected', 'operatorId', 'operatorName', 'revision', 'expiresAt']),
   ...members('elements', 'ElementProtectionState', ['elementId', 'protected', 'operatorId', 'operatorName', 'revision', 'expiresAt']),
   ...members('elements', 'ElementState', ['id', 'type', 'geometry', 'style', 'data', 'module', 'layerId', 'visible']),
-  ...members('elements', 'ShapeInput', ['type', 'controlPoints', 'center', 'radius']),
+  ...members('elements', 'ShapeInput', ['type', 'controlPoints', 'center', 'radius', 'anchor', 'size']),
 
   ...members(
     'styles-shapes',
@@ -363,11 +363,12 @@ const memberCoverage: CoverageItem[] = [
       'sector',
       'lune-polygon',
       'lune-polyline',
-      'curve-polyline'
+      'curve-polyline',
+      'callout'
     ],
     '可视'
   ),
-  ...members('styles-shapes', 'ShapeState', ['type', 'controlPoints', 'center', 'radius']),
+  ...members('styles-shapes', 'ShapeState', ['type', 'controlPoints', 'center', 'radius', 'anchor', 'size']),
   ...members('styles-shapes', 'StyleService', ['set', 'patch']),
   ...members('styles-shapes', 'StyleSpec', ['symbol', 'strokes', 'fill', 'text', 'decorations', 'linework', 'zIndex']),
   ...members('styles-shapes', 'StrokeSpec', ['color', 'width', 'lineDash', 'lineDashOffset', 'lineCap', 'lineJoin', 'miterLimit', 'fitPatternOnce']),
@@ -416,6 +417,7 @@ const memberCoverage: CoverageItem[] = [
     'backgroundFill',
     'backgroundStroke',
     'padding',
+    'maxWidth',
     'offsetX',
     'offsetY',
     'scale',

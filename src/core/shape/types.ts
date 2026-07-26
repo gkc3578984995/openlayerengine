@@ -1,4 +1,5 @@
-import type { Coordinate } from '../common/types.js';
+import type { Coordinate, Pixel } from '../common/types.js';
+import type { ElementStyleState } from '../style/types.js';
 
 /** 引擎内置并注册的图形类型。 */
 export const shapeTypes = Object.freeze([
@@ -7,6 +8,7 @@ export const shapeTypes = Object.freeze([
   'polygon',
   'circle',
   'ellipse',
+  'callout',
   'attack-arrow',
   'tailed-attack-arrow',
   'fine-arrow',
@@ -43,15 +45,26 @@ export type ShapeInput<T extends ShapeType = ShapeType> = T extends 'circle'
       /** 米制半径。 */
       readonly radius: number;
     }
-  : {
-      /** 图形类型判别字段。 */
-      readonly type: T;
-      /** 二维扁平数组，或二维、三维嵌套坐标。 */
-      readonly controlPoints: readonly number[] | readonly (readonly number[])[];
-    };
+  : T extends 'callout'
+    ? {
+        /** 文本标注框的判别字段。 */
+        readonly type: 'callout';
+        /** 尾巴指向的二维或三维定位点。 */
+        readonly anchor: readonly number[];
+        /** 文本框中心的二维或三维坐标。 */
+        readonly center: readonly number[];
+        /** 文本框宽高，单位为 CSS 像素；公共 Element 写入必须为正值，Draw 会根据文本自动计算初始值。 */
+        readonly size: readonly [widthPx: number, heightPx: number];
+      }
+    : {
+        /** 图形类型判别字段。 */
+        readonly type: T;
+        /** 二维扁平数组，或二维、三维嵌套坐标。 */
+        readonly controlPoints: readonly number[] | readonly (readonly number[])[];
+      };
 
 /**
- * 图形状态。圆使用圆心和半径，其他图形使用有序控制点。
+ * 图形状态。圆使用圆心和半径，Callout 使用定位点、文本框中心和 CSS 像素尺寸，其余图形使用有序控制点。
  *
  * @typeParam T 状态对应的图形类型。
  */
@@ -64,12 +77,31 @@ export type ShapeState<T extends ShapeType = ShapeType> = T extends 'circle'
       /** 米制半径。 */
       readonly radius: number;
     }
-  : {
-      /** 图形类型判别字段。 */
-      readonly type: T;
-      /** 按顺序定义图形的控制点。 */
-      readonly controlPoints: readonly Coordinate[];
-    };
+  : T extends 'callout'
+    ? {
+        /** 文本标注框的判别字段。 */
+        readonly type: 'callout';
+        /** 尾巴指向的规范投影坐标。 */
+        readonly anchor: Coordinate;
+        /** 文本框中心的规范投影坐标。 */
+        readonly center: Coordinate;
+        /** 文本框宽高，单位为 CSS 像素。 */
+        readonly size: readonly [widthPx: number, heightPx: number];
+      }
+    : {
+        /** 图形类型判别字段。 */
+        readonly type: T;
+        /** 按顺序定义图形的控制点。 */
+        readonly controlPoints: readonly Coordinate[];
+      };
+
+/** Polygon 上仅供展示编译器消费的临时中心文字。 @internal */
+export interface RenderTextLabel {
+  /** 文字固定使用的显式定位点。 */
+  readonly coordinate: Coordinate;
+  /** 已完成自动换行、但不会写回 StyleSpec 的展示文字。 */
+  readonly text: string;
+}
 
 /** 已转换到当前 View 工作单位的渲染几何快照。 */
 export type RenderGeometryState =
@@ -90,6 +122,8 @@ export type RenderGeometryState =
       readonly type: 'polygon';
       /** 多边形各个环的坐标。 */
       readonly coordinates: readonly (readonly Coordinate[])[];
+      /** 显式位于框体中心的临时文字；公共几何详情会剥离该字段。 @internal */
+      readonly label?: RenderTextLabel;
     }
   | {
       /** 圆几何判别字段。 */
@@ -259,6 +293,52 @@ export interface ShapeEditTopology<S extends ShapeState = ShapeState> {
   remove?(state: S, index: number): S;
 }
 
+/** View-dependent Shape presentation 使用的显式像素、坐标与字体能力。 @internal */
+export interface ShapePresentationContext {
+  /** 把当前 View 工作坐标转换为 viewport CSS 像素。 */
+  readonly toPixel: (coordinate: Coordinate) => Pixel;
+  /** 把 viewport CSS 像素转换回当前 View 工作坐标。 */
+  readonly toCoordinate: (pixel: Pixel, template?: Coordinate) => Coordinate;
+  /** 使用最终 CSS font 测量文字宽度。 */
+  readonly measureTextWidth: (font: string, text: string) => number;
+  /** 使用最终 CSS font 测量单行文字高度。 */
+  readonly measureTextHeight: (font: string) => number;
+}
+
+/** View-dependent presentation 原子返回的已布局状态与标准渲染几何。 @internal */
+export interface ShapePresentationResult<S extends ShapeState = ShapeState> {
+  /** 已应用自动尺寸和边界约束的工作状态。 */
+  readonly state: S;
+  /** 可直接投影到原生 Feature 的标准渲染几何。 */
+  readonly geometry: RenderGeometryState;
+  /**
+   * Transform 选中框使用的权威基准几何。
+   *
+   * 它只描述可操作主体，不替代业务预览、命中或 Feature extent。
+   */
+  readonly selectionGeometry?: RenderGeometryState;
+}
+
+/** 依赖当前 View 与 Style 的独立 Edit 拓扑。 @internal */
+export interface ShapeContextualEditTopology<S extends ShapeState = ShapeState> {
+  /** 派生当前帧的完整编辑控制点。 */
+  describe(state: S, style: ElementStyleState, context: ShapePresentationContext): ControlPointTopology;
+  /** 按当前帧上下文移动一个派生控制点。 */
+  move(state: S, index: number, coordinate: Coordinate, style: ElementStyleState, context: ShapePresentationContext): S;
+}
+
+/** Shape 自己持有的 View-dependent 展示与上下文编辑语义。 @internal */
+export interface ShapePresentationProfile<S extends ShapeState = ShapeState> {
+  /** 标记 resolution 或 rotation 改变时必须重新投影真实 Feature。 */
+  readonly viewDependent: boolean;
+  /** 在状态提交前校验该 presentation 对 Style 的额外约束。 */
+  readonly validateStyle?: (style: ElementStyleState) => void;
+  /** 原子生成已布局状态和最终标准 RenderGeometry。 */
+  present(state: S, style: ElementStyleState, context: ShapePresentationContext): ShapePresentationResult<S>;
+  /** 可选的上下文编辑语义；独立 Edit 可用，但不会自动开放 Transform Edit。 */
+  readonly edit?: ShapeContextualEditTopology<S>;
+}
+
 /** 自由绘制采样的处理阶段。 */
 export type FreehandPhase = 'preview' | 'complete';
 
@@ -300,6 +380,8 @@ export interface ShapeDefinition<S extends ShapeState = ShapeState> {
   readonly controlPointPolicy?: ControlPointPolicy;
   /** 提供控制点编辑规则。 */
   readonly editTopology?: ShapeEditTopology<S>;
+  /** 提供依赖当前 View、字体和结构化 Style 的展示及独立编辑语义。 */
+  readonly presentation?: ShapePresentationProfile<S>;
   /** 提供连续采样处理规则。 */
   readonly freehand?: ShapeFreehandPolicy<S>;
   /** 提供动画揭示或径向语义；provider 的存在即为对应能力声明。 */
@@ -329,6 +411,8 @@ export interface ShapeDefinition<S extends ShapeState = ShapeState> {
    * @returns 与输入无共享可变数据的新状态。
    */
   clone(state: S): S;
+  /** 按当前坐标单位整体平移 Shape 的全部位置字段；声明 translate capability 时必需。 */
+  translate?(state: S, x: number, y: number): S;
   /**
    * 确认图形是否满足完成条件。
    *

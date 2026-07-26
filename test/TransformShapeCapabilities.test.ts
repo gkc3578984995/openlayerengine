@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { shapeTypes } from '../src/core/shape/types.js';
+import { CapabilityError, InvalidArgumentError } from '../src/core/errors.js';
 import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { addElement, createTransformHarness, representativePoints } from './helpers/transformHarness.js';
@@ -19,7 +20,10 @@ describe('Transform shape capabilities', () => {
       const after = harness.store.get(type);
       expect(after?.geometry).not.toEqual(before?.geometry);
       if (after?.geometry.type === 'circle') expect(after.geometry.center).toEqual([3, -2]);
-      else expect(after?.geometry.controlPoints[0]).toEqual([representativePoints[type][0][0] + 3, representativePoints[type][0][1] - 2]);
+      else if (after?.geometry.type === 'callout') {
+        expect(after.geometry.anchor).toEqual([representativePoints.callout[0][0] + 3, representativePoints.callout[0][1] - 2]);
+        expect(after.geometry.center).toEqual([representativePoints.callout[1][0] + 3, representativePoints.callout[1][1] - 2]);
+      } else expect(after?.geometry.controlPoints[0]).toEqual([representativePoints[type][0][0] + 3, representativePoints[type][0][1] - 2]);
     }
   });
 
@@ -131,6 +135,85 @@ describe('Transform shape capabilities', () => {
       canRotate: false,
       canEditVertices: true
     });
+  });
+
+  it('exposes Callout as translate-only and rejects Transform edit mode', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'callout', 'callout', representativePoints.callout);
+    const session = harness.service.select('callout');
+
+    expect(harness.interaction.handle?.target).toMatchObject({
+      mode: 'transform',
+      canTranslate: true,
+      canRotate: false,
+      canScale: false,
+      canStretch: false,
+      canEditVertices: false
+    });
+    expect(() => session.setMode('edit')).toThrow(CapabilityError);
+    expect(session.mode).toBe('transform');
+    session.cancel();
+  });
+
+  it('keeps a distant Callout tail out of the Transform selection geometry and toolbar fallback', () => {
+    const harness = createTransformHarness({});
+    const element = addElement(
+      harness,
+      'callout-selection',
+      'callout',
+      [
+        [-10_000, -10_000],
+        [0, 0]
+      ],
+      {
+        strokes: [{ color: '#36f', width: 3 }],
+        text: {
+          text: '一段会在文本框中自动换行的很长文本 Callout selection geometry',
+          maxWidth: 220,
+          padding: [12, 16, 12, 16],
+          fontSize: 16
+        }
+      }
+    );
+    const session = harness.service.select(element.id, { toolbar: {} });
+    const target = harness.interaction.handle?.target;
+    if (target?.geometry.type !== 'polygon' || target.selectionGeometry?.type !== 'polygon' || element.geometry.type !== 'callout') {
+      throw new Error('Callout Transform presentation must expose full and selection Polygon geometries');
+    }
+
+    expect(target.geometry.coordinates[0]).toContainEqual([-10_000, -10_000]);
+    expect(target.geometry.label?.text).toContain('\n');
+    expect(target.selectionGeometry.label).toBeUndefined();
+    expect(target.selectionGeometry.coordinates[0]).not.toContainEqual([-10_000, -10_000]);
+    expect(target.selectionGeometry.coordinates[0]).toEqual([
+      [-element.geometry.size[0] / 2, -element.geometry.size[1] / 2],
+      [element.geometry.size[0] / 2, -element.geometry.size[1] / 2],
+      [element.geometry.size[0] / 2, element.geometry.size[1] / 2],
+      [-element.geometry.size[0] / 2, element.geometry.size[1] / 2],
+      [-element.geometry.size[0] / 2, -element.geometry.size[1] / 2]
+    ]);
+    expect(harness.toolbarPort.views[0]?.spec.options.position).toEqual([element.geometry.size[0] / 2, element.geometry.size[1] / 2]);
+    session.cancel();
+  });
+
+  it('keeps the final Callout polygon and label in clipboard preview', () => {
+    const harness = createTransformHarness();
+    addElement(harness, 'callout-copy', 'callout', representativePoints.callout);
+    const session = harness.service.select('callout-copy');
+
+    session.copy();
+    harness.input.key('v', { ctrlKey: true });
+
+    expect(harness.interaction.handle?.copyPreview?.geometry).toMatchObject({
+      type: 'polygon',
+      label: { text: 'Callout' }
+    });
+    expect(() =>
+      session.copy({
+        geometry: { type: 'callout', anchor: [0, 0], center: [4, 2], size: [0, 0] }
+      })
+    ).toThrow(InvalidArgumentError);
+    session.cancel();
   });
 
   it('keeps arrow tails non-removable and omits insertion anchors for fixed edit topology', () => {

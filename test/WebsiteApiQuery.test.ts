@@ -78,7 +78,13 @@ describe('website API query', () => {
 
     expect(shapeInput?.variants.map((variant) => variant.properties.map((property) => property.name))).toEqual([
       ['center', 'radius', 'type'],
+      ['anchor', 'center', 'size', 'type'],
       ['controlPoints', 'type']
+    ]);
+    expect(shapeInput?.variants.map((variant) => variant.label)).toEqual([
+      '满足 T extends "circle"',
+      '不满足 T extends "circle"；满足 T extends "callout"',
+      '不满足 T extends "circle"；不满足 T extends "callout"'
     ]);
     expect(animationSpec?.variants).toHaveLength(10);
     expect(animationSpec?.variants.every((variant) => variant.properties.some((property) => property.name === 'type'))).toBe(true);

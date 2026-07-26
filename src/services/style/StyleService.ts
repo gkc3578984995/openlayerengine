@@ -73,6 +73,7 @@ const textFields = new Set([
   'backgroundFill',
   'backgroundStroke',
   'padding',
+  'maxWidth',
   'offsetX',
   'offsetY',
   'scale',
@@ -414,6 +415,7 @@ function assertText(value: unknown, partial: boolean): asserts value is TextSpec
   if (hasDefined(text, 'backgroundFill')) assertFill(text.backgroundFill, partial);
   if (hasDefined(text, 'backgroundStroke')) assertStroke(text.backgroundStroke, partial, 'Text backgroundStroke');
   if (hasDefined(text, 'padding')) numberArray(text.padding, 'Text padding');
+  if (hasDefined(text, 'maxWidth')) positiveFiniteNumber(text.maxWidth, 'Text maxWidth');
   if (hasDefined(text, 'offsetX')) finiteNumber(text.offsetX, 'Text offsetX');
   if (hasDefined(text, 'offsetY')) finiteNumber(text.offsetY, 'Text offsetY');
   if (hasDefined(text, 'scale')) assertScale(text.scale, 'Text scale');

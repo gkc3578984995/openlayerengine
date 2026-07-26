@@ -13,7 +13,7 @@ const shapesSnippet = extractExampleSnippet(shapesSource, 'shape-gallery');
 
 const anchors = [
   { id: 'overview', label: '怎样选择 Shape' },
-  { id: 'example-shape-catalog', label: '全部 20 种 Shape' },
+  { id: 'example-shape-catalog', label: '全部内置 Shape（逐个放大）' },
   { id: 'shape-catalog', label: '类型与控制点规则' },
   { id: 'coordinates', label: '输入、状态与单位' },
   { id: 'api-values', label: '运行时类型列表' },
@@ -77,17 +77,18 @@ const runtimeApi = ['shapeTypes'] as const;
       </section>
 
       <section id="example-shape-catalog" class="doc-prose">
-        <ExampleBlock title="全部 20 种 Shape（逐个放大）" :source="shapesSource" :snippet="shapesSnippet" source-lang="vue" snippet-lang="typescript">
+        <ExampleBlock title="全部内置 Shape（逐个放大）" :source="shapesSource" :snippet="shapesSnippet" source-lang="vue" snippet-lang="typescript">
           <template #description>
             <p>
               预览区默认放大一个
               <ApiReference kind="property" to="#api-value-shape-types">shapeTypes</ApiReference>
-              中的图形；编号表示 <code>controlPoints</code> 的输入顺序，虚线表示控制路径。目录卡片按点、开放路径、参数图形、闭合面和面箭头分组，点击即可切换全部
-              20 种类型。结果区通过
+              中的图形；编号表示规范输入点的顺序，虚线表示输入骨架。目录卡片按点、开放路径、参数图形、文本标注、闭合面和面箭头分组，点击即可切换全部内置类型。结果区通过
               <ApiReference kind="property" to="/components/elements/overview#api-property-geometry-details">Element.geometryDetails</ApiReference>
               同时展示范围角点、最终轮廓点、规范控制点以及 Circle 的圆心和双单位半径，并实际调用
               <ApiReference kind="method" to="/components/core/view#api-method-to-geographic-coordinates">earth.view.toGeographicCoordinates()</ApiReference>
-              把一个 View Coordinate 转回经纬度。面箭头展示的是最终 polygon ring，不是绘制时的控制点。
+              把一个 View Coordinate 转回经纬度。面箭头展示的是最终 polygon ring，不是绘制时的控制点；Callout 的静态详情只保存
+              <code>[anchor, center]</code> 骨架，屏幕框体与自动换行属于当前 View 的展示结果。连续缩放或旋转时，持久 Callout 的独立文字层会暂时隐藏；View
+              稳定后只按最终分辨率重排一次并在下一帧恢复，既守住文本边界，也避免所有业务 VectorLayer 持续重建。
             </p>
           </template>
           <template #preview><ShapesDemo /></template>
@@ -106,6 +107,10 @@ const runtimeApi = ['shapeTypes'] as const;
           <el-descriptions-item label="坐标系">controlPoints 与 circle.center 使用当前 View 投影；经纬度先调用 toProjectedCoordinates()。</el-descriptions-item>
           <el-descriptions-item label="普通图形">使用 type + controlPoints；扁平数组严格按二维 XY 分组，三维坐标必须使用嵌套数组。</el-descriptions-item>
           <el-descriptions-item label="圆">使用 type + center + radius；radius 固定为米，不是 CSS 像素。</el-descriptions-item>
+          <el-descriptions-item label="文本标注框">
+            使用 <code>type + anchor + center + size</code>；两个坐标使用当前 View 投影，<code>size</code> 是 <code>[width, height]</code> CSS
+            像素。直接创建时传正尺寸，Draw 会从文字自动计算初始尺寸。
+          </el-descriptions-item>
           <el-descriptions-item label="闭合面">控制点无需重复首点；规范状态不会保存重复的闭合点。</el-descriptions-item>
           <el-descriptions-item label="完整性">elements.add() 只接受完整输入；交互式收集控制点、自动补点和结束规则归属 DrawService。</el-descriptions-item>
         </el-descriptions>
@@ -119,7 +124,7 @@ const runtimeApi = ['shapeTypes'] as const;
       <PublicApiSection
         :type-names="apiTypes"
         :runtime-names="runtimeApi"
-        description="完整展开 ShapeType、Circle/非 Circle 输入与状态分支，以及 shapeTypes 的运行时导出。"
+        description="完整展开 ShapeType、Circle、Callout 与普通 controlPoints 输入和状态分支，以及 shapeTypes 的运行时导出。"
       />
     </article>
 

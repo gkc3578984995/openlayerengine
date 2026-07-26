@@ -17,6 +17,7 @@ import { MeasurementAdapter } from '../adapters/openlayers/MeasurementAdapter.js
 import { NativeRefRegistry } from '../adapters/openlayers/NativeRefRegistry.js';
 import { OverlayAdapter } from '../adapters/openlayers/OverlayAdapter.js';
 import { ShapeProjectionAdapter } from '../adapters/openlayers/ShapeProjectionAdapter.js';
+import { ShapePresentationAdapter } from '../adapters/openlayers/ShapePresentationAdapter.js';
 import { getWorldWidth } from '../adapters/openlayers/world.js';
 import { DrawInteractionAdapter } from '../adapters/openlayers/interactions/DrawInteractionAdapter.js';
 import { EditInteractionAdapter } from '../adapters/openlayers/interactions/EditInteractionAdapter.js';
@@ -81,6 +82,8 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     const viewport = map.getViewport();
     const shapes = new ShapeRegistry([...basicShapeDefinitions, ...plotShapeDefinitions]);
     const shapeProjection = new ShapeProjectionAdapter(olView.getProjection());
+    const shapePresentation = new ShapePresentationAdapter(map);
+    rollback.push(() => shapePresentation.destroy());
     const nativeRefs = new NativeRefRegistry();
     rollback.push(() => nativeRefs.destroy());
 
@@ -95,7 +98,9 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
         currentLayerManager.requireVector(state.layerId);
         if (isNativeStyleRef(state.style)) void nativeRefs.requireStyle(state.style);
         else assertStructuredStyleSpec(state.style);
-        assertLineworkShapeCompatibility(state.style, shapes.get(state.type));
+        const definition = shapes.get(state.type);
+        assertLineworkShapeCompatibility(state.style, definition);
+        definition.presentation?.validateStyle?.(state.style);
       }
     });
     rollback.push(() => store.destroy());
@@ -105,7 +110,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     rollback.push(() => layerManager.destroy());
     const layers = new LayerServiceImpl(layerManager, layerAdapter, nativeRefs);
 
-    const geometry = new GeometryCodec(shapes, shapeProjection);
+    const geometry = new GeometryCodec(shapes, shapeProjection, shapePresentation);
     const styleCompiler = new StyleCompiler(nativeRefs, {
       getViewRotation: () => olView.getRotation(),
       getLineworkViewport: () => {
@@ -123,10 +128,10 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
     });
     const internalStyles = new StyleService(store);
     const styles = new StyleFacade(internalStyles, nativeRefs);
-    const binding = new FeatureBinding(store, layerAdapter, geometry, styleCompiler);
+    const binding = new FeatureBinding(store, layerAdapter, geometry, styleCompiler, { shapePresentation });
     rollback.push(() => binding.destroy());
     const hitTest = new HitTestAdapter(map, store, layerManager, layerAdapter, binding);
-    const protectionView = new ElementProtectionViewAdapter(map, layerAdapter, geometry, styleCompiler);
+    const protectionView = new ElementProtectionViewAdapter(map, layerAdapter, geometry, styleCompiler, { shapePresentation });
     rollback.push(() => protectionView.destroy());
     const protection = new ElementProtectionService(store, protectionView);
     rollback.push(() => protection.destroy());
@@ -160,6 +165,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       shapes,
       render,
       shapeProjection,
+      shapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: animationClock,
       wake: animationWake
@@ -233,6 +239,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       drawPort: drawAdapter,
       editPort: editAdapter,
       shapeProjection,
+      shapePresentation,
       protection,
       input,
       tooltipPort: interactionTooltip,
@@ -265,6 +272,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
       coordinator,
       interaction: transformInteraction,
       shapeProjection,
+      shapePresentation,
       protection,
       animations,
       transients: animations,
@@ -308,6 +316,7 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
         () => layerAdapter.destroy(),
         () => store.destroy(),
         () => nativeRefs.destroy(),
+        () => shapePresentation.destroy(),
         () => cleanupMap(map)
       ]);
     };
@@ -343,6 +352,13 @@ export function createEngineContext(options: EarthOptions = {}): EngineContext {
 
 /** 为基础线型和面型图形选择内置默认样式。 */
 function defaultStyle(state: ShapeState): ElementStyleState {
+  if (state.type === 'callout') {
+    return {
+      strokes: [{ color: '#1677ff', width: 2 }],
+      fill: { type: 'solid', color: 'rgba(255, 255, 255, 0.92)' },
+      text: { text: '文本', fontSize: 14, fill: { type: 'solid', color: '#16324f' }, padding: [8, 12, 8, 12], maxWidth: 240 }
+    };
+  }
   if (state.type === 'point') return stylePresets['point-default'];
   if (lineShapes.has(state.type)) return stylePresets['line-default'];
   return stylePresets['polygon-default'];

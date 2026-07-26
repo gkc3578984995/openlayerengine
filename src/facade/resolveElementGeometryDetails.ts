@@ -30,12 +30,15 @@ export function createElementGeometryDetails(stateGeometry: ShapeState, renderGe
 
   if (rendered.renderGeometry.type === 'circle') throw new InvalidArgumentError('Circle render geometry must resolve from Circle state');
 
+  const controlPoints =
+    stateGeometry.type === 'callout' ? cloneControlPoints([stateGeometry.anchor, stateGeometry.center]) : cloneControlPoints(stateGeometry.controlPoints);
+
   return Object.freeze({
     renderGeometry: rendered.renderGeometry,
     extent: rendered.extent,
     extentPoints,
     rangePoints: createRangePoints(rendered.renderGeometry),
-    controlPoints: cloneControlPoints(stateGeometry.controlPoints),
+    controlPoints,
     center: null,
     radius: null
   });

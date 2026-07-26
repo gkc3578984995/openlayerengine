@@ -32,15 +32,24 @@ const fixedAutoFinish = new Map<ShapeType, number>([
   ['assemble-polygon', 3],
   ['sector', 3],
   ['lune-polygon', 3],
-  ['lune-polyline', 3]
+  ['lune-polyline', 3],
+  ['callout', 2]
 ]);
 
 describe('shape editing topology', () => {
-  it('declares the exact semantic topology and freehand matrix for all 20 shapes', () => {
-    expect(shapeTypes).toHaveLength(20);
+  it('declares the exact semantic topology and freehand matrix for every shape', () => {
+    expect(shapeTypes).toHaveLength(21);
 
     for (const type of shapeTypes) {
       const shape = definition(type);
+      if (type === 'callout') {
+        expect(shape.editTopology).toBeUndefined();
+        expect(shape.presentation?.edit).toBeDefined();
+        expect(shape.capabilities.has('edit')).toBe(true);
+        expect(shape.capabilities.has('vertexEdit')).toBe(false);
+        expect(shape.controlPointPolicy?.autoFinish).toBe(2);
+        continue;
+      }
       expect(shape.editTopology, `${type} did not declare edit topology`).toBeDefined();
       expect(shape.capabilities.has('vertexEdit')).toBe(true);
       expect(shape.capabilities.has('controlPointInsert'), `${type} insert capability drifted`).toBe(structural.has(type));

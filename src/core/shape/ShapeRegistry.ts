@@ -10,6 +10,7 @@ import {
   type ShapeEditTopology,
   type ShapeFreehandPolicy,
   type ShapePathContourKind,
+  type ShapePresentationProfile,
   type ShapeState,
   type ShapeType
 } from './types.js';
@@ -105,6 +106,26 @@ function parseEditTopology<S extends ShapeState>(input: unknown): ShapeEditTopol
   }) as unknown as ShapeEditTopology<S>;
 }
 
+function parsePresentationProfile<S extends ShapeState>(input: unknown): ShapePresentationProfile<S> {
+  const record = ownDataSnapshot(input, 'Shape presentation profile');
+  if (typeof record.viewDependent !== 'boolean') throw new InvalidArgumentError('Shape presentation profile viewDependent must be a boolean');
+  const validateStyle = optionalFunction(record, 'validateStyle');
+  let edit: ShapePresentationProfile<S>['edit'];
+  if (Object.prototype.hasOwnProperty.call(record, 'edit') && record.edit !== undefined) {
+    const editRecord = ownDataSnapshot(record.edit, 'Shape contextual edit topology');
+    edit = Object.freeze({
+      describe: requiredFunction(editRecord, 'describe', 'Shape contextual edit topology'),
+      move: requiredFunction(editRecord, 'move', 'Shape contextual edit topology')
+    }) as unknown as NonNullable<ShapePresentationProfile<S>['edit']>;
+  }
+  return Object.freeze({
+    viewDependent: record.viewDependent,
+    ...(validateStyle === undefined ? {} : { validateStyle }),
+    present: requiredFunction(record, 'present', 'Shape presentation profile'),
+    ...(edit === undefined ? {} : { edit })
+  }) as unknown as ShapePresentationProfile<S>;
+}
+
 function parseFreehandPolicy<S extends ShapeState>(input: unknown): ShapeFreehandPolicy<S> {
   const record = ownDataSnapshot(input, 'Shape freehand policy');
   return Object.freeze({
@@ -131,6 +152,8 @@ function parseAnimationProfile<S extends ShapeState>(input: unknown): ShapeAnima
 function assertCapabilityContracts<S extends ShapeState>(
   capabilities: ReadonlySet<ShapeCapability>,
   editTopology?: ShapeEditTopology<S>,
+  presentation?: ShapePresentationProfile<S>,
+  translate?: (...args: never[]) => unknown,
   freehand?: ShapeFreehandPolicy<S>
 ): void {
   const requireExact = (capability: ShapeCapability, implemented: boolean): void => {
@@ -139,12 +162,13 @@ function assertCapabilityContracts<S extends ShapeState>(
     }
   };
 
-  requireExact('vertexEdit', editTopology !== undefined);
+  requireExact('edit', editTopology !== undefined || presentation?.edit !== undefined);
+  requireExact('translate', translate !== undefined);
   requireExact('controlPointInsert', editTopology?.insert !== undefined);
   requireExact('controlPointRemove', editTopology?.remove !== undefined);
   requireExact('freehand', freehand !== undefined);
-  if (capabilities.has('vertexEdit') && !capabilities.has('edit')) {
-    throw new InvalidArgumentError('Vertex-edit capability requires edit capability');
+  if (capabilities.has('vertexEdit') && (editTopology === undefined || !capabilities.has('edit'))) {
+    throw new InvalidArgumentError('Vertex-edit capability requires a context-free edit topology');
   }
   if ((capabilities.has('controlPointInsert') || capabilities.has('controlPointRemove')) && !capabilities.has('edit')) {
     throw new InvalidArgumentError('Structural control-point capabilities require edit capability');
@@ -166,24 +190,31 @@ function snapshotDefinition<S extends ShapeState>(definition: ShapeDefinition<S>
       : undefined;
   const editTopology =
     Object.prototype.hasOwnProperty.call(record, 'editTopology') && record.editTopology !== undefined ? parseEditTopology<S>(record.editTopology) : undefined;
+  const presentation =
+    Object.prototype.hasOwnProperty.call(record, 'presentation') && record.presentation !== undefined
+      ? parsePresentationProfile<S>(record.presentation)
+      : undefined;
+  const translate = optionalFunction(record, 'translate');
   const freehand =
     Object.prototype.hasOwnProperty.call(record, 'freehand') && record.freehand !== undefined ? parseFreehandPolicy<S>(record.freehand) : undefined;
   const animation =
     Object.prototype.hasOwnProperty.call(record, 'animation') && record.animation !== undefined ? parseAnimationProfile<S>(record.animation) : undefined;
   const pathContour =
     Object.prototype.hasOwnProperty.call(record, 'pathContour') && record.pathContour !== undefined ? parsePathContour(record.pathContour) : undefined;
-  assertCapabilityContracts(capabilities, editTopology, freehand);
+  assertCapabilityContracts(capabilities, editTopology, presentation, translate, freehand);
   const snapshot = {
     type,
     capabilities,
     ...(policy === undefined ? {} : { controlPointPolicy: policy }),
     ...(editTopology === undefined ? {} : { editTopology }),
+    ...(presentation === undefined ? {} : { presentation }),
     ...(freehand === undefined ? {} : { freehand }),
     ...(animation === undefined ? {} : { animation }),
     ...(pathContour === undefined ? {} : { pathContour }),
     createDraft: requiredFunction(record, 'createDraft'),
     normalize: requiredFunction(record, 'normalize'),
     clone: requiredFunction(record, 'clone'),
+    ...(translate === undefined ? {} : { translate }),
     isComplete: requiredFunction(record, 'isComplete'),
     tryComplete: requiredFunction(record, 'tryComplete'),
     toRenderGeometry: requiredFunction(record, 'toRenderGeometry')

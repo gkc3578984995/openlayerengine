@@ -24,6 +24,7 @@ import { ShapeRegistry } from '../../src/core/shape/ShapeRegistry.js';
 import type { ElementStyleState } from '../../src/core/style/types.js';
 import { DrawService } from '../../src/services/draw/DrawService.js';
 import { identityShapeProjection } from './shapeProjection.js';
+import { testShapePresentation } from './shapePresentation.js';
 import type { SessionKeyboardInput } from '../../src/services/draw/types.js';
 import { InteractionCoordinator } from '../../src/services/events/InteractionCoordinator.js';
 import type { RoutedPointerEvent } from '../../src/services/events/types.js';
@@ -213,6 +214,7 @@ export function createDrawLifecycleHarness(style: ElementStyleState = defaultSty
     store,
     shapes,
     shapeProjection: identityShapeProjection,
+    shapePresentation: testShapePresentation,
     styles,
     coordinator,
     drawPort,

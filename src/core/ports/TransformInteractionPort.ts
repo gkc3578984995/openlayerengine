@@ -56,6 +56,8 @@ export interface TransformInteractionTarget {
   readonly layerId: string;
   /** 当前工作几何的渲染快照。 */
   readonly geometry: RenderGeometryState;
+  /** presentation 可选提供的选中框基准；预览和业务命中仍使用完整 geometry。 */
+  readonly selectionGeometry?: RenderGeometryState;
   /** 目标 Element 的样式快照。 */
   readonly style: ElementStyleState;
   /** 区分 Transform 与 Edit 模式。 */

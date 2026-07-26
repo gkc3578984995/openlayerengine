@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import Feature from 'ol/Feature.js';
+import Point from 'ol/geom/Point.js';
 import TileLayer from 'ol/layer/Tile.js';
 import LayerGroup from 'ol/layer/Group.js';
 import VectorLayer from 'ol/layer/Vector.js';
@@ -77,6 +79,8 @@ describe('LayerAdapter ownership', () => {
     const compact = adapter.requireLayer('compact') as TileLayer;
     expect(vector.getSource()).toBe(adapter.requireVectorSource('vector'));
     expect(vector.getStyle()).toBeNull();
+    expect(vector.getUpdateWhileAnimating()).toBe(false);
+    expect(vector.getUpdateWhileInteracting()).toBe(false);
     expect(osm.getSource()).toBeInstanceOf(OSM);
     expect(xyz.getSource()).toBeInstanceOf(ImageTileSource);
     expect(compact.getSource()).toBeInstanceOf(ImageTileSource);
@@ -91,6 +95,47 @@ describe('LayerAdapter ownership', () => {
       expect(() => compactTileUrl('https://example.test/tiles', coordinate[0], coordinate[1], coordinate[2])).toThrow(InvalidArgumentError);
     }
     expect(() => compactTileUrl('///', 1, 1, 1)).toThrow(InvalidArgumentError);
+  });
+
+  it('owns a presentation label companion beside its vector layer and cleans it on detach', () => {
+    const { adapter, manager, map } = setup();
+    manager.add({ kind: 'vector', id: 'vector', visible: true, opacity: 0.75, zIndex: 4, wrapX: true, declutter: false });
+    const owner = adapter.requireLayer('vector');
+    const source = adapter.ensurePresentationLabelSource('vector');
+    const layer = adapter.presentationLabelLayer('vector')!;
+    const feature = new Feature(new Point([1, 2]));
+    source.addFeature(feature);
+    const disposeLayer = vi.spyOn(layer, 'dispose');
+    const disposeSource = vi.spyOn(source, 'dispose');
+
+    expect(map.getLayers().getArray()).toEqual([owner, layer]);
+    expect(source.getWrapX()).toBe(true);
+    expect(layer.getVisible()).toBe(true);
+    expect(layer.getOpacity()).toBe(0.75);
+    expect(layer.getZIndex()).toBe(4);
+    expect(layer.getDeclutter()).toBe((owner as VectorLayer).getDeclutter());
+    expect(layer.getUpdateWhileAnimating()).toBe(false);
+    expect(layer.getUpdateWhileInteracting()).toBe(false);
+
+    manager.update('vector', { visible: false, opacity: 0.4, zIndex: undefined });
+    expect(layer.getVisible()).toBe(false);
+    expect(layer.getOpacity()).toBe(0.4);
+    expect(layer.getZIndex()).toBeUndefined();
+    manager.update('vector', { visible: true, opacity: 0.6, zIndex: 7 });
+    adapter.setPresentationLabelsSuspended(true);
+    expect(layer.getVisible()).toBe(false);
+    adapter.setPresentationLabelsSuspended(false);
+    expect(layer.getVisible()).toBe(true);
+    expect(layer.getOpacity()).toBe(0.6);
+    expect(layer.getZIndex()).toBe(7);
+
+    manager.remove('vector');
+
+    expect(map.getLayers().getArray()).toEqual([]);
+    expect(source.getFeatures()).toEqual([]);
+    expect(disposeLayer).toHaveBeenCalledTimes(1);
+    expect(disposeSource).toHaveBeenCalledTimes(1);
+    expect(adapter.presentationLabelLayer('vector')).toBeUndefined();
   });
 
   it('isolates attribution arrays and validates custom URL callback results when invoked', () => {

@@ -41,6 +41,7 @@ import {
 import { EditInteractionAdapter } from '../src/adapters/openlayers/interactions/EditInteractionAdapter.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
+import { PresentedPolygonGeometry } from '../src/adapters/openlayers/PresentedPolygonGeometry.js';
 import { StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import type { Coordinate } from '../src/core/common/types.js';
@@ -414,6 +415,8 @@ describe('EditInteractionAdapter', () => {
     const source = layer.getSource();
     if (source === null) throw new Error('Missing temporary source');
     expect(source.getWrapX()).toBe(false);
+    expect(layer.getUpdateWhileAnimating()).toBe(true);
+    expect(layer.getUpdateWhileInteracting()).toBe(true);
     const firstLines = source
       .getFeatures()
       .map((feature) => feature.getGeometry())
@@ -899,7 +902,7 @@ describe('EditInteractionAdapter', () => {
       [0, 0]
     ];
     handle.render({
-      geometry: { type: 'polygon', coordinates: [firstRing] },
+      geometry: { type: 'polygon', coordinates: [firstRing], label: { coordinate: [4, 4], text: 'first' } },
       style,
       anchors: [{ kind: 'control', index: 0, coordinate: [0, 0], removable: false }]
     });
@@ -911,7 +914,7 @@ describe('EditInteractionAdapter', () => {
       [0, 0]
     ];
     handle.render({
-      geometry: { type: 'polygon', coordinates: [movedRing] },
+      geometry: { type: 'polygon', coordinates: [movedRing], label: { coordinate: [5, 4], text: 'moved' } },
       style,
       anchors: [{ kind: 'control', index: 1, coordinate: [10, 1], removable: true }]
     });
@@ -929,6 +932,8 @@ describe('EditInteractionAdapter', () => {
         [50 * 360, 0]
       ]
     ]);
+    expect(polygon).toBeInstanceOf(PresentedPolygonGeometry);
+    expect((polygon as PresentedPolygonGeometry | undefined)?.getPresentationLabel()).toEqual({ coordinate: [50 * 360 + 5, 4], text: 'moved' });
     expect(movedRing).toEqual([
       [0, 0],
       [10, 1],

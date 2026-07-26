@@ -84,6 +84,34 @@ describe('RenderGeometry 详情', () => {
     expect(details.renderGeometry.coordinates[1][1]).toEqual([20, 4]);
   });
 
+  it('从公共 RenderGeometry 详情中剥离 presentation 临时文字', () => {
+    const details = createRenderGeometryDetails({
+      type: 'polygon',
+      coordinates: [
+        [
+          [0, 0],
+          [4, 0],
+          [4, 2],
+          [0, 0]
+        ]
+      ],
+      label: { coordinate: [2, 1], text: '仅供展示' }
+    });
+
+    expect(details.renderGeometry).toEqual({
+      type: 'polygon',
+      coordinates: [
+        [
+          [0, 0],
+          [4, 0],
+          [4, 2],
+          [0, 0]
+        ]
+      ]
+    });
+    expect(details.renderGeometry).not.toHaveProperty('label');
+  });
+
   it('以当前 View 半径计算并冻结 Circle 的精确 extent', () => {
     const center = [12, -8, 100] as [number, number, number];
     const source: RenderGeometryState = { type: 'circle', center, radius: 5 };
@@ -184,5 +212,42 @@ describe('Element 统一几何详情', () => {
     expect(() => createElementGeometryDetails({ type: 'point', controlPoints: [[0, 0]] }, { type: 'circle', center: [0, 0], radius: 1 })).toThrowError(
       InvalidArgumentError
     );
+  });
+
+  it('Callout 详情固定返回 anchor-center 骨架，不暴露屏幕框体 presentation', () => {
+    const state: ShapeState<'callout'> = { type: 'callout', anchor: [1, 2], center: [5, 8], size: [160, 64] };
+    const details = createElementGeometryDetails(state, { type: 'polyline', coordinates: [state.anchor, state.center] });
+
+    expect(details).toEqual({
+      renderGeometry: {
+        type: 'polyline',
+        coordinates: [
+          [1, 2],
+          [5, 8]
+        ]
+      },
+      extent: [1, 2, 5, 8],
+      extentPoints: [
+        [1, 2],
+        [5, 2],
+        [5, 8],
+        [1, 8]
+      ],
+      rangePoints: [
+        [
+          [1, 2],
+          [5, 8]
+        ]
+      ],
+      controlPoints: [
+        [1, 2],
+        [5, 8]
+      ],
+      center: null,
+      radius: null
+    });
+    expect(details.controlPoints?.[0]).not.toBe(state.anchor);
+    expect(Object.isFrozen(details.controlPoints)).toBe(true);
+    expect(details.renderGeometry).not.toHaveProperty('label');
   });
 });

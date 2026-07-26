@@ -28,6 +28,7 @@ import type { RoutedPointerEvent } from '../src/services/events/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { FakeCursorPort } from './helpers/cursorHarness.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { FakeTooltipPort } from './helpers/transformHarness.js';
 
 const style: ElementStyleState = { strokes: [{ color: '#ff3300', width: 2 }] };
@@ -38,6 +39,12 @@ function visibleTooltipLines(lines: readonly TooltipLine[] | undefined): readonl
 
 function tooltipTones(line: TooltipLine | undefined, text: string): readonly (string | undefined)[] {
   return typeof line === 'string' || line === undefined ? [] : line.filter((segment) => segment.text.trim() === text).map(({ tone }) => tone);
+}
+
+function polygonHeight(geometry: EditInteractionRenderState['geometry'] | undefined): number {
+  if (geometry?.type !== 'polygon') throw new Error('Expected a Polygon edit presentation');
+  const values = geometry.coordinates.flatMap((ring) => ring.map((coordinate) => coordinate[1]));
+  return Math.max(...values) - Math.min(...values);
 }
 
 class FakeEditPort implements EditInteractionPort {
@@ -165,6 +172,7 @@ function setup(
     coordinator,
     port,
     shapeProjection,
+    shapePresentation: testShapePresentation,
     ...(protection === undefined ? {} : { protection }),
     elementId: state.id,
     options: { underlay },
@@ -375,6 +383,85 @@ describe('EditSession', () => {
     expect(operations.slice(-2)).toEqual(['insert', 'remove']);
     expect(store.get(entry.id)?.geometry).toEqual(entry.geometry);
     expect(session.status).toBe('active');
+  });
+
+  it('edits Callout with one anchor and eight resize handles, publishes the clamped handle, and keeps history preview-only', () => {
+    const calloutStyle = {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [{ color: '#222222', width: 2 }],
+      text: { text: '测试文本框自动换行', maxWidth: 120, padding: [8, 12, 8, 12] }
+    } satisfies ElementStyleState;
+    const entry: ElementState = {
+      id: 'edit-callout',
+      type: 'callout',
+      geometry: { type: 'callout', anchor: [0, 100], center: [100, 100], size: [160, 60] },
+      style: calloutStyle,
+      layerId: 'edit-layer',
+      visible: true
+    };
+    const { port, session, store } = setup(entry);
+    const initialAnchors = port.renders[0].anchors.filter(({ kind }) => kind === 'control');
+
+    expect(port.spec?.controlPoints).toHaveLength(9);
+    expect(initialAnchors.map(({ role }) => role)).toEqual([
+      'anchor',
+      'resize-nw',
+      'resize-n',
+      'resize-ne',
+      'resize-e',
+      'resize-se',
+      'resize-s',
+      'resize-sw',
+      'resize-w'
+    ]);
+    expect(initialAnchors.every(({ removable }) => removable === false)).toBe(true);
+
+    const east = initialAnchors.find((anchor) => anchor.kind === 'control' && anchor.index === 4);
+    if (east?.kind !== 'control') throw new Error('Missing Callout east resize handle');
+    port.emit({ type: 'move-start', anchor: east, coordinate: east.coordinate });
+    port.emit({ type: 'move', anchor: east, coordinate: [0, 100] });
+    expect(port.renders.at(-1)?.anchors).toEqual([{ ...east, coordinate: [60, 100] }]);
+    port.emit({ type: 'move-end', anchor: east, coordinate: [0, 100] });
+
+    expect(port.renders.at(-1)?.anchors.filter(({ kind }) => kind === 'control')).toHaveLength(9);
+    expect(store.get(entry.id)?.geometry).toEqual(entry.geometry);
+    expect(session.undo()).toBe(true);
+    expect(port.renders.at(-1)?.anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 4)?.coordinate).toEqual([180, 100]);
+    expect(session.redo()).toBe(true);
+    expect(port.renders.at(-1)?.anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 4)?.coordinate).toEqual([60, 100]);
+
+    session.finish();
+    const committed = store.get(entry.id)?.geometry;
+    expect(committed?.type).toBe('callout');
+    if (committed?.type !== 'callout') throw new Error('Callout Edit must commit Callout state');
+    expect(committed.anchor).toEqual([0, 100]);
+    expect(committed.center).toEqual([40, 100]);
+    expect(committed.size[0]).toBe(40);
+    expect(committed.size[1]).toBeGreaterThan(60);
+  });
+
+  it('shrinks Callout height again when text unwraps during the same horizontal drag', () => {
+    const entry: ElementState = {
+      id: 'edit-callout-auto-height',
+      type: 'callout',
+      geometry: { type: 'callout', anchor: [0, 0], center: [0, 0], size: [120, 20] },
+      style: { text: { text: 'ABCDEFGHIJKL', fontSize: 10, padding: [0, 0, 0, 0] } },
+      layerId: 'edit-layer',
+      visible: true
+    };
+    const { port, session, store } = setup(entry);
+    const east = port.renders[0].anchors.find((anchor) => anchor.kind === 'control' && anchor.index === 4);
+    if (east?.kind !== 'control') throw new Error('Missing Callout east resize handle');
+
+    port.emit({ type: 'move-start', anchor: east, coordinate: east.coordinate });
+    port.emit({ type: 'move', anchor: east, coordinate: [-20, 0] });
+    expect(polygonHeight(port.renders.at(-1)?.geometry)).toBe(60);
+
+    port.emit({ type: 'move-end', anchor: east, coordinate: [60, 0] });
+    expect(polygonHeight(port.renders.at(-1)?.geometry)).toBe(20);
+
+    session.finish();
+    expect(store.get(entry.id)?.geometry).toEqual(entry.geometry);
   });
 
   it('starts a ten-thousand-vertex polyline without quadratic topology expansion', () => {

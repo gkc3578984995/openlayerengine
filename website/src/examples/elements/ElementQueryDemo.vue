@@ -125,6 +125,7 @@ const updatePresentation = () => {
 const centerFor = (element: Element<DemoData>): Coordinate | undefined => {
   const geometry = element.state.geometry;
   if (geometry.type === 'circle') return [geometry.center[0], geometry.center[1]];
+  if (geometry.type === 'callout') return [geometry.center[0], geometry.center[1]];
   if (geometry.controlPoints.length === 0) return undefined;
   const [x, y] = geometry.controlPoints.reduce<[number, number]>((sum, point) => [sum[0] + point[0], sum[1] + point[1]], [0, 0]);
   return [x / geometry.controlPoints.length, y / geometry.controlPoints.length];

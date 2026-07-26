@@ -4,6 +4,7 @@ import Polygon from 'ol/geom/Polygon.js';
 import Style from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import { FeatureBinding } from '../src/adapters/openlayers/FeatureBinding.js';
 import { GeometryCodec } from '../src/adapters/openlayers/GeometryCodec.js';
 import { LayerAdapter } from '../src/adapters/openlayers/LayerAdapter.js';
@@ -55,8 +56,8 @@ function setup(createIds: string[] = [], shapeProjection: ShapeProjectionPort = 
   const adapter = new LayerAdapter(createTestMap(), refs);
   const manager = new LayerManager(store, adapter);
   const layers = new LayerServiceImpl(manager, adapter, refs);
-  const geometry = new GeometryCodec(shapes, shapeProjection);
-  const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs));
+  const geometry = new GeometryCodec(shapes, shapeProjection, testShapePresentation);
+  const binding = new FeatureBinding(store, adapter, geometry, new StyleCompiler(refs), { shapePresentation: testShapePresentation });
   const hitTest = new FakeHitTest();
   const protectionView: ElementProtectionViewPort = { upsert: vi.fn(), remove: vi.fn(), destroy: vi.fn() };
   const protection = new ElementProtectionService(store, protectionView);
@@ -183,6 +184,28 @@ describe('ElementService', () => {
     expect(copy.state.geometry).toEqual({ type: 'point', controlPoints: [[-1, -2]] });
   });
 
+  it('rejects zero-sized Callout geometry at every public Element write boundary', () => {
+    const { elements } = setup(['source']);
+    const callout = {
+      type: 'callout',
+      anchor: [0, 0],
+      center: [10, 10],
+      size: [160, 60]
+    } as const;
+    const source = elements.add({ geometry: callout });
+    const zeroSizedCallout = {
+      type: 'callout',
+      anchor: [0, 0],
+      center: [10, 10],
+      size: [0, 0]
+    } as const;
+
+    expect(() => elements.add({ geometry: zeroSizedCallout })).toThrow(InvalidArgumentError);
+    expect(() => elements.update({ id: source.id }, { geometry: zeroSizedCallout })).toThrow(InvalidArgumentError);
+    expect(() => elements.copy(source.id, { geometry: zeroSizedCallout })).toThrow(InvalidArgumentError);
+    expect(source.state.geometry).toEqual(callout);
+  });
+
   it('exposes a frozen full arrow geometry and derives it from Element state instead of the mutable OL Feature', () => {
     const { elements } = setup(['arrow']);
     const arrow = elements.add({
@@ -217,7 +240,7 @@ describe('ElementService', () => {
       [100, 0]
     ]);
     const arrowStateGeometry = arrow.state.geometry;
-    if (arrowStateGeometry.type === 'circle') throw new Error('Fine arrow should expose control points');
+    if (arrowStateGeometry.type !== 'fine-arrow') throw new Error('Fine arrow should expose control points');
     expect(first.controlPoints).not.toBe(arrowStateGeometry.controlPoints);
     expect(first.center).toBeNull();
     expect(first.radius).toBeNull();
@@ -317,6 +340,57 @@ describe('ElementService', () => {
     expect(() => elements.add({ geometry } as never)).toThrow(InvalidArgumentError);
     expect(getterCalls).toBe(0);
     expect(elements.query()).toEqual([]);
+  });
+
+  it('snapshots update and copy geometry without invoking accessors or Proxy get traps', () => {
+    const { elements } = setup(['source']);
+    const source = elements.add({
+      geometry: { type: 'callout', anchor: [0, 0], center: [10, 10], size: [160, 60] }
+    });
+    const zeroSizedCallout = {
+      type: 'callout',
+      anchor: [0, 0],
+      center: [10, 10],
+      size: [0, 0]
+    } as const;
+
+    let patchGeometryGetterCalls = 0;
+    const patch = {} as Record<PropertyKey, unknown>;
+    Object.defineProperty(patch, 'geometry', {
+      enumerable: true,
+      get() {
+        patchGeometryGetterCalls += 1;
+        return zeroSizedCallout;
+      }
+    });
+    expect(() => elements.update({ id: source.id }, patch as never)).toThrow(InvalidArgumentError);
+    expect(() => elements.copy(source.id, patch as never)).toThrow(InvalidArgumentError);
+    expect(patchGeometryGetterCalls).toBe(0);
+
+    let geometryGetterCalls = 0;
+    const accessorGeometry = { anchor: [0, 0], center: [10, 10], size: [0, 0] } as Record<PropertyKey, unknown>;
+    Object.defineProperty(accessorGeometry, 'type', {
+      enumerable: true,
+      get() {
+        geometryGetterCalls += 1;
+        return 'callout';
+      }
+    });
+    expect(() => elements.update({ id: source.id }, { geometry: accessorGeometry } as never)).toThrow(InvalidArgumentError);
+    expect(() => elements.copy(source.id, { geometry: accessorGeometry } as never)).toThrow(InvalidArgumentError);
+    expect(geometryGetterCalls).toBe(0);
+
+    let proxyGetCalls = 0;
+    const proxyGeometry = new Proxy(zeroSizedCallout, {
+      get(target, key, receiver) {
+        proxyGetCalls += 1;
+        return Reflect.get(target, key, receiver);
+      }
+    });
+    expect(() => elements.update({ id: source.id }, { geometry: proxyGeometry })).toThrow(InvalidArgumentError);
+    expect(() => elements.copy(source.id, { geometry: proxyGeometry })).toThrow(InvalidArgumentError);
+    expect(proxyGetCalls).toBe(0);
+    expect(source.state.geometry).toEqual({ type: 'callout', anchor: [0, 0], center: [10, 10], size: [160, 60] });
   });
 
   it('supports named vector layers and rejects explicit missing/non-vector targets', () => {

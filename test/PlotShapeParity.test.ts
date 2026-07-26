@@ -6,7 +6,7 @@ import type { Coordinate } from '../src/core/common/types.js';
 import { InvalidArgumentError } from '../src/core/errors.js';
 import type { ShapeDefinition, ShapeState, ShapeType } from '../src/core/shape/types.js';
 
-type PlotShapeType = Exclude<ShapeType, 'point' | 'polyline' | 'polygon' | 'circle' | 'ellipse'>;
+type PlotShapeType = Exclude<ShapeType, 'point' | 'polyline' | 'polygon' | 'circle' | 'ellipse' | 'callout'>;
 type GoldenDigest = string;
 
 const AttackArrow = 'cc5ec9c94bdc16259539cb6291eb0a0eacc1fd6968237522d97a1a0d66590801';

@@ -19,6 +19,7 @@ import { AnimationManagerImpl } from '../src/services/animation/AnimationManager
 import type { InternalDescriptorEvent, InternalDescriptorSpec } from '../src/services/overlay/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { FakeLayerRenderPort } from './helpers/animationHarness.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 
 const overlayHarness = vi.hoisted(() => ({ instances: [] as unknown[], failNext: undefined as string | undefined }));
 
@@ -298,6 +299,7 @@ describe('Descriptor lifecycle', () => {
       shapes,
       render,
       shapeProjection: identityShapeProjection,
+      shapePresentation: testShapePresentation,
       registry: createBuiltinAnimationRegistry(),
       clock: render,
       wake: render

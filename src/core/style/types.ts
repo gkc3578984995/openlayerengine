@@ -130,6 +130,8 @@ export interface TextSpec {
   backgroundStroke?: StrokeSpec;
   /** 按 `[上, 右, 下, 左]` 设置像素距离。 */
   padding?: number[];
+  /** Callout 初次自动排版允许的最大文本内容宽度，单位为 CSS 像素。 */
+  maxWidth?: number;
   /** 正值让文字向右移动，单位为像素。 */
   offsetX?: number;
   /** 正值让文字向上移动，单位为像素。 */

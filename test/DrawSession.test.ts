@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 import type {
   DrawInteractionEvent,
   DrawInteractionHandle,
@@ -102,6 +103,7 @@ function setup(input?: FakeKeyboardInput, definitions: readonly ShapeDefinition[
     store,
     shapes,
     shapeProjection: identityShapeProjection,
+    shapePresentation: testShapePresentation,
     styles: new StyleService(store),
     coordinator,
     drawPort: port,
@@ -169,6 +171,28 @@ describe('DrawSession', () => {
       expect(pathSession.status).toBe('active');
       pathSession.cancel();
     }
+  });
+
+  it('rejects an invalid Callout text style before opening a Draw preview', () => {
+    const missingText = setup();
+    expect(() =>
+      missingText.service.start({
+        type: 'callout',
+        layerId: 'draw-layer',
+        style: { fill: { type: 'solid', color: '#ffffff' } }
+      })
+    ).toThrow('requires TextSpec.text');
+    expect(missingText.port.spec).toBeUndefined();
+
+    const linePlacement = setup();
+    expect(() =>
+      linePlacement.service.start({
+        type: 'callout',
+        layerId: 'draw-layer',
+        style: { text: { text: 'Callout', placement: 'line' } }
+      })
+    ).toThrow('placement must be point');
+    expect(linePlacement.port.spec).toBeUndefined();
   });
 
   it('shows the legacy Draw guidance at the pointer, updates history hints, and releases the tooltip with the session', () => {
@@ -244,6 +268,41 @@ describe('DrawSession', () => {
     expect(events).toEqual(['start', 'click', 'change', 'click', 'change', 'complete']);
     expect(port.destroy).toHaveBeenCalledOnce();
     expect(await session.finished).toEqual(session.results);
+  });
+
+  it('draws Callout from anchor to center, previews wrapped text, and commits an automatic positive size after the second click', async () => {
+    const { port, service, store } = setup();
+    const calloutStyle = {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [{ color: '#222222', width: 2 }],
+      text: { text: '测试 Callout 自动换行', maxWidth: 80, padding: [8, 12, 8, 12] }
+    } satisfies ElementStyleState;
+    const session = service.start({ type: 'callout', layerId: 'draw-layer', style: calloutStyle, limit: 1 });
+
+    port.emit({ type: 'click', coordinate: [10, 20] });
+    expect(session.results).toEqual([]);
+    expect(store.query()).toEqual([]);
+
+    port.emit({ type: 'move', coordinate: [100, 80] });
+    const preview = port.previews.at(-1);
+    expect(preview?.geometry.type).toBe('polygon');
+    if (preview?.geometry.type !== 'polygon') throw new Error('Callout preview must be a Polygon');
+    expect(preview.geometry.label?.coordinate).toEqual([100, 80]);
+    expect(preview.geometry.label?.text).toContain('\n');
+
+    port.emit({ type: 'click', coordinate: [100, 80] });
+    expect(session.status).toBe('finished');
+    expect(session.results).toHaveLength(1);
+    const geometry = session.results[0]?.geometry;
+    expect(geometry?.type).toBe('callout');
+    if (geometry?.type !== 'callout') throw new Error('Callout Draw must commit Callout state');
+    expect(geometry.anchor).toEqual([10, 20]);
+    expect(geometry.center).toEqual([100, 80]);
+    expect(geometry.size[0]).toBeGreaterThan(0);
+    expect(geometry.size[1]).toBeGreaterThan(0);
+    expect(store.get(session.results[0].id)?.style).toEqual(calloutStyle);
+    expect(calloutStyle.text.text).toBe('测试 Callout 自动换行');
+    await expect(session.finished).resolves.toEqual(session.results);
   });
 
   it('keeps fixed shapes continuous until a positive result limit is reached', async () => {

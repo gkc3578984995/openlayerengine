@@ -1,6 +1,6 @@
 import type { ShapeType } from '@vrsim/earth-engine-ol';
 
-export type InteractionTargetId = 'point-icon' | 'polyline' | 'polygon' | 'circle' | 'rectangle' | 'tailed-attack-arrow';
+export type InteractionTargetId = 'point-icon' | 'polyline' | 'polygon' | 'circle' | 'rectangle' | 'callout' | 'tailed-attack-arrow';
 
 export interface InteractionTargetExample {
   readonly id: InteractionTargetId;
@@ -61,6 +61,14 @@ export const interactionTargetExamples: readonly InteractionTargetExample[] = Ob
     description: '两个对角控制点定义矩形；可直接验证 keepRectangle 的四角比例约束，不支持旋转。',
     edit: Object.freeze({ move: true, insert: false, remove: false }),
     transform: Object.freeze({ translate: true, rotate: false, scale: true, vertex: true })
+  }),
+  Object.freeze({
+    id: 'callout',
+    label: '文本标注框 Callout',
+    type: 'callout',
+    description: '独立 Edit 提供 1 个 anchor 与 8 个框体缩放点；Transform 只允许整体平移。',
+    edit: Object.freeze({ move: true, insert: false, remove: false }),
+    transform: Object.freeze({ translate: true, rotate: false, scale: false, vertex: false })
   }),
   Object.freeze({
     id: 'tailed-attack-arrow',

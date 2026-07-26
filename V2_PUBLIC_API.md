@@ -415,13 +415,13 @@ const trackedLine = earth.elements.add({
 ```ts
 import { shapeTypes } from '@vrsim/earth-engine-ol';
 
-console.log(shapeTypes); // 查看全部 20 种内置图形名称
+console.log(shapeTypes); // 查看全部内置图形名称
 ```
 
 当前内置图形为：
 
 ```text
-point, polyline, polygon, circle, ellipse,
+point, polyline, polygon, circle, ellipse, callout,
 attack-arrow, tailed-attack-arrow, fine-arrow,
 tailed-squad-combat-arrow, assault-direction-arrow, double-arrow,
 rectangle, triangle, equilateral-triangle, assemble-polygon,
@@ -429,6 +429,35 @@ closed-curve-polygon, sector, lune-polygon, lune-polyline, curve-polyline
 ```
 
 V2 暂不提供公共 Shape 注册入口。高级 OpenLayers 样式可通过 `{ nativeStyle: olStyle }` 传入，但不能再使用 `styles.patch()` 做结构化字段更新。
+
+Callout 使用投影坐标保存定位点与文本框中心，使用 CSS 像素保存框体尺寸；顶层 `fill` / `strokes` 绘制框体和尾巴，`text` 绘制居中文字：
+
+```ts
+const callout = earth.elements.add({
+  geometry: {
+    type: 'callout',
+    anchor: [0, 0],
+    center: [100_000, 80_000],
+    size: [220, 96]
+  },
+  style: {
+    strokes: [{ color: '#2563eb', width: 3 }],
+    fill: { type: 'solid', color: 'rgba(239, 246, 255, 0.96)' },
+    text: {
+      text: '文本会在框体内自动换行',
+      maxWidth: 180,
+      padding: [12, 16, 12, 16],
+      fill: { type: 'solid', color: '#1e3a8a' }
+    }
+  }
+});
+```
+
+`TextSpec.maxWidth` 是两点 Draw 自动计算初始内容宽度的上限，单位为 CSS 像素，省略时为 240px。显式换行会保留；中文与超长 token 可按 grapheme 断行，普通英文优先按 word 换行。换行结果只属于展示，不会覆盖 `style.text.text`。直接通过 `elements.add()` 创建时，`size` 应为正有限值。
+
+Callout 的文字固定在框体中心并保持屏幕正向，不接受 `placement: 'line'`、非零 offset、文字 rotation、`rotateWithView: true` 或 `text.backgroundFill/backgroundStroke`；scale 只能省略或使用数值 `1`。框体背景和边框使用顶层 `fill/strokes`。尾巴会根据 `anchor` 自动切换上、右、下、左边，`anchor` 位于框内时隐藏。
+
+持久 Callout 的文字由引擎放在独立的内部展示层。地图连续缩放或旋转时，该文字层会暂时隐藏，框体复用 OpenLayers 的缓存；View 稳定后只按最终分辨率重新排版一次，并在下一帧恢复文字。这样不会要求所有业务 VectorLayer 在交互期间持续重建，也不会隐藏同层普通图形或普通 `StyleSpec.text`。Draw、Edit、Transform 等少量临时预览仍实时刷新。
 
 ## 6. Draw 与 Edit
 
@@ -461,6 +490,25 @@ draw.finished.then((elements) => {
 
 空草图直接调用 `finish()` 会按未完成取消，不会触发 `complete`。页面卸载时，可先判断 `draw.status === 'active'` 再调用 `destroy()`。
 
+Callout 固定使用两次点击：第一点是尾巴 `anchor`，第二点是文本框 `center`，随后自动完成。初始框体尺寸由本次 Draw 的最终 `text` 样式计算：
+
+```ts
+const drawCallout = earth.draw.start({
+  type: 'callout',
+  layerId: 'default',
+  style: {
+    strokes: [{ color: '#be123c', width: 3 }],
+    fill: { type: 'solid', color: 'rgba(255, 241, 242, 0.96)' },
+    text: {
+      text: '第一次点击定位，第二次点击文本框中心',
+      maxWidth: 220,
+      padding: [12, 16, 12, 16],
+      fill: { type: 'solid', color: '#881337' }
+    }
+  }
+});
+```
+
 ### 编辑已有元素
 
 ```ts
@@ -485,6 +533,10 @@ if (target) {
   // edit.destroy(); // 页面卸载时释放活动会话
 }
 ```
+
+独立 Edit 打开 Callout 时展示 9 个派生控制点：1 个 `anchor` 只改变尾巴指向，8 个框体控制点负责缩放、重新换行和最小高度钳制。左右中点改变宽度时，高度会按新的换行结果自动增减并保持纵向中心；上下中点与四角保留用户的高度控制，但不能压缩到文字所需高度以下。它们不写入 `Element.state`，Callout 仍只持久化 `anchor`、`center` 与 `size`；控制点外观复用统一 Edit 视觉规范。
+
+Callout 在 Transform 中只允许整体平移。完整尾巴继续参与预览和命中，但选中框、Tooltip 与工具栏锚点只跟随文本框主体；连续 View 动画或交互缩放期间，持久文字会暂时隐藏，稳定后按最终 View 重排并恢复，不会因 OpenLayers 复用旧矢量帧而越界。
 
 绘制服务创建的结果可单独查询和清理：
 
@@ -593,6 +645,8 @@ if (toolbar) {
 
 toolbarSession.cancel(); // 结束 Transform 会话
 ```
+
+Callout 在 Transform 中只声明整体平移；平移会同时更新 `anchor` 与 `center`，保持 CSS px `size` 不变。即使 `TransformOptions` 开启旋转、缩放或拉伸，Callout 也不会显示对应手柄；它没有 Transform Edit 工具项，显式调用 `setMode('edit')` 会抛出 `CapabilityError`。
 
 ## 9. Animations 动画
 

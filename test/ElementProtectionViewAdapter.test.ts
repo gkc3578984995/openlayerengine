@@ -25,8 +25,11 @@ import { basicShapeDefinitions } from '../src/builtins/shapes/basic.js';
 import { ElementStore } from '../src/core/element/ElementStore.js';
 import type { ElementState, ElementStateInput } from '../src/core/element/types.js';
 import type { ElementProtectionState } from '../src/core/protection/types.js';
+import type { ShapePresentationPort } from '../src/core/ports/ShapePresentationPort.js';
 import { ShapeRegistry } from '../src/core/shape/ShapeRegistry.js';
+import type { ShapePresentationContext } from '../src/core/shape/types.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 
 interface OverlayRecord {
   element: HTMLDivElement | undefined;
@@ -137,7 +140,48 @@ class MapHarness extends Observable {
   }
 }
 
-function setup() {
+class RevisionPresentation implements ShapePresentationPort {
+  readonly listeners = new Set<() => void>();
+  resolution = 1;
+
+  present: ShapePresentationPort['present'] = (definition, state, style) => {
+    if (definition.presentation === undefined) return testShapePresentation.present(definition, state, style);
+    return definition.presentation.present(state as never, style, this.context());
+  };
+
+  describeEdit: ShapePresentationPort['describeEdit'] = (definition, state, style) => {
+    if (definition.presentation?.edit === undefined) return testShapePresentation.describeEdit(definition, state, style);
+    return definition.presentation.edit.describe(state as never, style, this.context());
+  };
+
+  moveEdit: ShapePresentationPort['moveEdit'] = (definition, state, style, index, coordinate) => {
+    if (definition.presentation?.edit === undefined) return testShapePresentation.moveEdit(definition, state, style, index, coordinate);
+    return definition.presentation.edit.move(state as never, index, coordinate, style, this.context());
+  };
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(): void {
+    for (const listener of [...this.listeners]) listener();
+  }
+
+  private context(): ShapePresentationContext {
+    return Object.freeze({
+      toPixel: (coordinate) => [coordinate[0] / this.resolution, coordinate[1] / this.resolution],
+      toCoordinate: (pixel, template) =>
+        template?.length === 3
+          ? [pixel[0] * this.resolution, pixel[1] * this.resolution, template[2]]
+          : [pixel[0] * this.resolution, pixel[1] * this.resolution],
+      measureTextWidth: (_font, text) => Array.from(text).length * 10,
+      measureTextHeight: () => 20
+    });
+  }
+}
+
+function setup(shapePresentation?: ShapePresentationPort) {
   const map = new MapHarness();
   const refs = new NativeRefRegistry();
   const layers = new LayerAdapter(map as unknown as OlMap, refs);
@@ -146,19 +190,15 @@ function setup() {
   const shapes = new ShapeRegistry(basicShapeDefinitions);
   const store = new ElementStore(shapes);
   const roots: FakeLabelElement[] = [];
-  const adapter = new ElementProtectionViewAdapter(
-    map as unknown as OlMap,
-    layers,
-    new GeometryCodec(shapes, identityShapeProjection),
-    new StyleCompiler(refs),
-    {
-      createElement: () => {
-        const root = new FakeLabelElement();
-        roots.push(root);
-        return root as unknown as HTMLDivElement;
-      }
+  const geometry = new GeometryCodec(shapes, identityShapeProjection, shapePresentation);
+  const adapter = new ElementProtectionViewAdapter(map as unknown as OlMap, layers, geometry, new StyleCompiler(refs), {
+    ...(shapePresentation === undefined ? {} : { shapePresentation }),
+    createElement: () => {
+      const root = new FakeLabelElement();
+      roots.push(root);
+      return root as unknown as HTMLDivElement;
     }
-  );
+  });
   return { adapter, layers, map, refs, roots, store };
 }
 
@@ -244,6 +284,45 @@ beforeEach(() => {
 });
 
 describe('ElementProtectionViewAdapter', () => {
+  it('keeps protection layers above presentation label companions regardless of creation order', () => {
+    const { adapter, layers, map, store } = setup();
+    const firstTarget = layers.requireLayer('layer-a');
+    layers.ensurePresentationLabelSource('layer-a');
+    const firstLabel = layers.presentationLabelLayer('layer-a')!;
+    const first = addElement(store, {
+      id: 'label-first',
+      type: 'point',
+      geometry: { type: 'point', controlPoints: [[1, 2]] },
+      style: { symbol: { type: 'circle', radius: 4 } },
+      layerId: 'layer-a',
+      visible: true
+    });
+    adapter.upsert(first, protection(first.id));
+
+    const secondTarget = layers.requireLayer('layer-b');
+    const second = addElement(store, {
+      id: 'protection-first',
+      type: 'point',
+      geometry: { type: 'point', controlPoints: [[3, 4]] },
+      style: { symbol: { type: 'circle', radius: 4 } },
+      layerId: 'layer-b',
+      visible: true
+    });
+    adapter.upsert(second, protection(second.id));
+    layers.ensurePresentationLabelSource('layer-b');
+    const secondLabel = layers.presentationLabelLayer('layer-b')!;
+
+    const ordered = map.layers.getArray();
+    const firstTargetIndex = ordered.indexOf(firstTarget);
+    const secondTargetIndex = ordered.indexOf(secondTarget);
+    expect(ordered[firstTargetIndex + 1]).toBe(firstLabel);
+    expect(ordered[firstTargetIndex + 2]).toBeInstanceOf(VectorLayer);
+    expect(ordered[firstTargetIndex + 2]).not.toBe(firstLabel);
+    expect(ordered[secondTargetIndex + 1]).toBe(secondLabel);
+    expect(ordered[secondTargetIndex + 2]).toBeInstanceOf(VectorLayer);
+    expect(ordered[secondTargetIndex + 2]).not.toBe(secondLabel);
+  });
+
   it('同步并在复用时恢复替身 Feature id，使原生 StyleFunction 可按业务 id 返回样式', () => {
     const { adapter, layers, map, refs, store } = setup();
     const baseStyle = new Style({ renderer: vi.fn() });
@@ -264,6 +343,8 @@ describe('ElementProtectionViewAdapter', () => {
     const source = requireSource(layer);
     const feature = source.getFeatures()[0];
     if (feature === undefined) throw new Error('Missing protection Feature');
+    expect(layer.getUpdateWhileAnimating()).toBe(true);
+    expect(layer.getUpdateWhileInteracting()).toBe(true);
     expect(feature.getId()).toBe(element.id);
     expect(maskStyle(feature)).toBeInstanceOf(Style);
 
@@ -277,6 +358,41 @@ describe('ElementProtectionViewAdapter', () => {
     expect(feature.getId()).toBe(element.id);
     expect(maskStyle(feature)).toBeInstanceOf(Style);
     expect(nativeStyle).toHaveBeenCalled();
+  });
+
+  it('在 presentation revision 后原位刷新受保护 Callout，并在销毁时解绑', () => {
+    const presentation = new RevisionPresentation();
+    const { adapter, layers, map, store } = setup(presentation);
+    const element = addElement(store, {
+      id: 'protected-callout',
+      type: 'callout',
+      geometry: { type: 'callout', anchor: [100, 100], center: [100, 100], size: [160, 60] },
+      style: {
+        fill: { type: 'solid', color: '#ffffff' },
+        strokes: [{ color: '#2563eb', width: 2 }],
+        text: { text: '受保护的 Callout', padding: [8, 12, 8, 12] }
+      },
+      layerId: 'layer-a',
+      visible: true
+    });
+
+    adapter.upsert(element, protection(element.id, '张三'));
+    const source = requireSource(protectionLayer(map.layers, layers.requireLayer('layer-a')));
+    const feature = source.getFeatures()[0];
+    const geometry = feature?.getGeometry();
+    if (!(geometry instanceof Polygon)) throw new Error('Protected Callout must use Polygon presentation');
+    const initialExtent = geometry.getExtent();
+    expect(initialExtent[2] - initialExtent[0]).toBeCloseTo(160);
+    expect(presentation.listeners.size).toBe(1);
+
+    presentation.resolution = 2;
+    presentation.emit();
+    expect(feature?.getGeometry()).toBe(geometry);
+    const refreshedExtent = geometry.getExtent();
+    expect(refreshedExtent[2] - refreshedExtent[0]).toBeCloseTo(320);
+
+    adapter.destroy();
+    expect(presentation.listeners.size).toBe(0);
   });
 
   it('View 位于远端 world copy 时把保护标签放到最近副本并保持可见', () => {

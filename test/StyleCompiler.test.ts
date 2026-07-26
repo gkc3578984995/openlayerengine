@@ -9,6 +9,7 @@ import RegularShape from 'ol/style/RegularShape.js';
 import Style, { type StyleFunction, type StyleLike } from 'ol/style/Style.js';
 import { describe, expect, it, vi } from 'vitest';
 import { NativeRefRegistry } from '../src/adapters/openlayers/NativeRefRegistry.js';
+import { PresentedPolygonGeometry } from '../src/adapters/openlayers/PresentedPolygonGeometry.js';
 import { createTransparentStyleProxy, StyleCompiler } from '../src/adapters/openlayers/style/StyleCompiler.js';
 import { createPatternFill, drawPatternFill, normalizePatternFill, type PatternCanvasContext } from '../src/adapters/openlayers/style/pattern.js';
 import type { PatternFillSpec, StyleSpec } from '../src/core/style/types.js';
@@ -339,6 +340,226 @@ describe('StyleCompiler', () => {
     expect(styles[2].getText()?.getText()).toBe('foreground');
 
     expect(render(compiler, { fill: { type: 'solid', color: '#f00' } }, point())).toHaveLength(1);
+  });
+
+  it('renders a presented Polygon label at its explicit center without reusing frame fill or text offsets', () => {
+    const { compiler } = compilerWithCanvas(() => Math.PI / 3);
+    const geometry = new PresentedPolygonGeometry(
+      [
+        [
+          [0, 0],
+          [10, 0],
+          [10, 6],
+          [0, 0]
+        ]
+      ],
+      { coordinate: [5, 3], text: '自动\n换行' }
+    );
+    const feature = new Feature(geometry);
+    const spec: StyleSpec = {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [
+        { color: '#222222', width: 4 },
+        { color: '#000000', width: 1 }
+      ],
+      text: {
+        text: 'raw',
+        fill: { type: 'solid', color: '#123456' },
+        stroke: { color: '#ffffff', width: 2 },
+        backgroundFill: { type: 'solid', color: '#ff0000' },
+        backgroundStroke: { color: '#00ff00', width: 1 },
+        offsetX: 14,
+        offsetY: 8,
+        textAlign: 'right',
+        textBaseline: 'alphabetic',
+        rotation: 45,
+        rotateWithView: true,
+        placement: 'line'
+      }
+    };
+
+    const styles = render(compiler, spec, feature);
+    expect(styles).toHaveLength(3);
+    expect(styles[0].getText()).toBeNull();
+    expect(styles[1].getText()).toBeNull();
+    expect(styles[1].getFill()?.getColor()).toBe('#ffffff');
+    expect(geometryCoordinate(styles[2])).toEqual([5, 3]);
+    const text = styles[2].getText();
+    expect(text?.getText()).toBe('自动\n换行');
+    expect(text?.getFill()?.getColor()).toBe('#123456');
+    expect(text?.getStroke()?.getColor()).toBe('#ffffff');
+    expect(text?.getBackgroundFill()).toBeNull();
+    expect(text?.getBackgroundStroke()).toBeNull();
+    expect(text?.getOffsetX()).toBe(0);
+    expect(text?.getOffsetY()).toBeCloseTo(0);
+    expect(text?.getTextAlign()).toBe('center');
+    expect(text?.getTextBaseline()).toBe('middle');
+    expect(text?.getRotation()).toBe(0);
+    expect(text?.getRotateWithView()).toBe(false);
+    expect(text?.getPlacement()).toBe('point');
+
+    geometry.setPresentationLabel({ coordinate: [6, 4], text: 'changed' });
+    const changed = render(compiler, spec, feature);
+    expect(changed).not.toBe(styles);
+    expect(geometryCoordinate(changed[2])).toEqual([6, 4]);
+    expect(changed[2].getText()?.getText()).toBe('changed');
+  });
+
+  it('splits an explicit presentation label from every non-text style branch', () => {
+    let fontRevision = 0;
+    const getFontRevision = vi.fn(() => fontRevision);
+    const canvases: CanvasHarness[] = [];
+    const compiler = new StyleCompiler(new NativeRefRegistry(), {
+      getFontRevision,
+      measureTextWidth: () => 16,
+      createCanvasContext: (width, height) => {
+        const harness = canvasHarness();
+        (harness.context.canvas as { width: number; height: number }).width = width;
+        (harness.context.canvas as { width: number; height: number }).height = height;
+        canvases.push(harness);
+        return harness.context;
+      }
+    });
+    const spec: StyleSpec = {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [
+        { color: '#222222', width: 4 },
+        { color: '#135724', width: 1 }
+      ],
+      symbol: { type: 'circle', radius: 4, fill: { type: 'solid', color: '#ffffff' } },
+      text: {
+        text: 'raw',
+        fontFamily: 'sans-serif',
+        fontSize: 14,
+        fill: { type: 'pattern', pattern: 'dot' },
+        offsetX: 10,
+        rotation: 30,
+        rotateWithView: true
+      },
+      decorations: [{ type: 'arrow', placement: 'end' }],
+      zIndex: 9
+    };
+    const parts = compiler.compilePresentationLabelParts(spec);
+    const lineFeature = line([
+      [0, 0],
+      [40, 0]
+    ]);
+    const lineBase = styleFunction(parts.base)(lineFeature, 1) as Style[];
+
+    expect(lineBase.every((style) => style.getText() === null)).toBe(true);
+    expect(lineBase.some((style) => style.getImage() instanceof RegularShape)).toBe(true);
+    expect(styleFunction(parts.label)(lineFeature, 1)).toEqual([]);
+
+    const geometry = new PresentedPolygonGeometry(
+      [
+        [
+          [0, 0],
+          [20, 0],
+          [20, 10],
+          [0, 0]
+        ]
+      ],
+      { coordinate: [10, 5], text: 'wrapped\nlabel' }
+    );
+    const feature = new Feature(geometry);
+    const frameStyles = styleFunction(parts.base)(feature, 1) as Style[];
+    const labelStyles = styleFunction(parts.label)(feature, 1) as Style[];
+
+    expect(frameStyles.every((style) => style.getText() === null)).toBe(true);
+    expect(frameStyles.some((style) => style.getFill()?.getColor() === '#ffffff')).toBe(true);
+    expect(frameStyles.some((style) => style.getStroke()?.getColor() === '#135724')).toBe(true);
+    expect(labelStyles).toHaveLength(1);
+    expect(geometryCoordinate(labelStyles[0])).toEqual([10, 5]);
+    expect(labelStyles[0].getFill()).toBeNull();
+    expect(labelStyles[0].getStroke()).toBeNull();
+    expect(labelStyles[0].getImage()).toBeNull();
+    expect(labelStyles[0].getZIndex()).toBe(9);
+    expect(labelStyles[0].getText()?.getText()).toBe('wrapped\nlabel');
+    expect(labelStyles[0].getText()?.getOffsetX()).toBe(0);
+    expect(labelStyles[0].getText()?.getRotation()).toBe(0);
+    expect(canvases.at(-1)?.context.strokeStyle).toBe('#135724');
+
+    const lineworkParts = compiler.compilePresentationLabelParts({
+      text: { text: 'raw' },
+      linework: {
+        contour: { kind: 'open' },
+        tracks: [{ offset: 0, stroke: { color: '#246813', width: 2 } }],
+        inlineText: {
+          text: 'linework text',
+          fontFamily: 'sans-serif',
+          fontSize: 12,
+          fontWeight: 'normal',
+          fontStyle: 'normal',
+          fill: { type: 'solid', color: '#000000' },
+          gapPadding: 2
+        }
+      }
+    });
+    const lineworkBase = styleFunction(lineworkParts.base)(lineFeature, 1) as Style[];
+    const lineworkLabel = styleFunction(lineworkParts.label)(feature, 1) as Style[];
+    expect(lineworkBase.every((style) => style.getText() === null)).toBe(true);
+    expect(lineworkBase.some((style) => style.getStroke()?.getColor() === '#246813')).toBe(true);
+
+    fontRevision += 1;
+    const fontChanged = styleFunction(lineworkParts.label)(feature, 1) as Style[];
+    expect(fontChanged).not.toBe(lineworkLabel);
+    expect(fontChanged[0].getText()?.getText()).toBe('wrapped\nlabel');
+    expect(getFontRevision).toHaveBeenCalled();
+
+    geometry.setPresentationLabel({ coordinate: [12, 6], text: 'wider label' });
+    const labelChanged = styleFunction(parts.label)(feature, 1) as Style[];
+    expect(labelChanged).not.toBe(labelStyles);
+    expect(geometryCoordinate(labelChanged[0])).toEqual([12, 6]);
+    expect(labelChanged[0].getText()?.getText()).toBe('wider label');
+  });
+
+  it('keeps the presentation label slot stable while synchronizing movement and wrapped text', () => {
+    const { compiler } = compilerWithCanvas();
+    const coordinates = [
+      [
+        [0, 0],
+        [10, 0],
+        [10, 6],
+        [0, 0]
+      ]
+    ];
+    const canonical = new Feature(new Polygon(coordinates));
+    const geometry = new PresentedPolygonGeometry(coordinates, { coordinate: [5, 3], text: '第一\n帧' });
+    const presentation = new Feature(geometry);
+    const compiled = compiler.compilePresentation(
+      {
+        fill: { type: 'solid', color: '#ffffff' },
+        strokes: [{ color: '#222222', width: 2 }],
+        text: { text: 'raw', fill: { type: 'solid', color: '#123456' } }
+      },
+      canonical
+    );
+
+    const initial = compiled.resolve(presentation, 1);
+    const initialStyles = [...initial];
+    const labelStyle = initialStyles.at(-1);
+    const labelPoint = labelStyle?.getGeometry();
+    expect(labelPoint).toBeInstanceOf(Point);
+    expect((labelPoint as Point).getCoordinates()).toEqual([5, 3]);
+    expect(labelStyle?.getText()?.getText()).toBe('第一\n帧');
+    expect(compiled.revision).toBe(1);
+
+    geometry.translate(100, 20);
+    const translated = compiled.resolve(presentation, 1);
+    expect(translated).toBe(initial);
+    expect([...translated]).toEqual(initialStyles);
+    expect(labelStyle?.getGeometry()).toBe(labelPoint);
+    expect((labelPoint as Point).getCoordinates()).toEqual([105, 23]);
+
+    geometry.setPresentationLabel({ coordinate: [106, 24], text: '第二\n帧' });
+    const updated = compiled.resolve(presentation, 1);
+    expect(updated).toBe(initial);
+    expect(labelStyle?.getGeometry()).toBe(labelPoint);
+    expect((labelPoint as Point).getCoordinates()).toEqual([106, 24]);
+    expect(labelStyle?.getText()?.getText()).toBe('第二\n帧');
+    expect(compiled.revision).toBe(1);
+
+    compiled.destroy();
   });
 
   it('normalizes and draws every pattern variant with color inheritance and defaults', () => {

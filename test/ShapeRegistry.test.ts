@@ -37,6 +37,7 @@ const inputs: Record<ShapeType, unknown> = {
       [3, 2]
     ]
   },
+  callout: { type: 'callout', anchor: [0, 0], center: [3, 2], size: [120, 48] },
   'attack-arrow': {
     type: 'attack-arrow',
     controlPoints: [
@@ -406,7 +407,8 @@ describe('ShapeRegistry', () => {
       ['sector', standard],
       ['lune-polygon', standard],
       ['lune-polyline', [...standard, 'path']],
-      ['curve-polyline', [...standard, ...structural, 'path']]
+      ['curve-polyline', [...standard, ...structural, 'path']],
+      ['callout', ['draw', 'edit', 'translate']]
     ]);
 
     for (const type of shapeTypes) expect(new Set(registry.get(type).capabilities), type).toEqual(new Set(expected.get(type)));
@@ -422,10 +424,10 @@ describe('ShapeRegistry', () => {
     expect(registry.supports('point', 'draw')).toBe(true);
   });
 
-  it('contains the frozen canonical 20-type tuple and renders every definition with pure finite data', () => {
+  it('contains the frozen canonical Shape tuple and renders every definition with pure finite data', () => {
     const registry = createBuiltinShapeRegistry();
 
-    expect(shapeTypes).toHaveLength(20);
+    expect(shapeTypes).toHaveLength(21);
     expect(Object.isFrozen(shapeTypes)).toBe(true);
     expect(shapeTypes).toBe(coreShapeTypes);
     expect(registry.types()).toEqual(shapeTypes);
@@ -438,8 +440,10 @@ describe('ShapeRegistry', () => {
       const draft = controlPoints === undefined ? undefined : definition.createDraft(controlPoints);
 
       expect(definition.type).toBe(type);
-      expect(draft, `${type} did not recreate a draft from its semantic handles`).toBeDefined();
-      expect(draft?.type).toBe(type);
+      if (definition.editTopology !== undefined) {
+        expect(draft, `${type} did not recreate a draft from its semantic handles`).toBeDefined();
+        expect(draft?.type).toBe(type);
+      }
       expect(definition.isComplete(state), `${type} fixture was not a completed state`).toBe(true);
       expect(coordinatesAreFinite(geometry), `${type} emitted a non-finite geometry`).toBe(true);
     }

@@ -18,6 +18,7 @@ import {
   requireNonZeroPlanarArea,
   requireSeparated
 } from './definition.js';
+import { calloutDefinition } from './callout.js';
 
 const pointDefinition = createControlPointDefinition({
   type: 'point',
@@ -219,6 +220,18 @@ const circleDefinition = Object.freeze<ShapeDefinition<ShapeState<'circle'>>>({
   createDraft: createCircleDraft,
   normalize: normalizeCircle,
   clone: (state) => normalizeCircle(state),
+  translate: (state, x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InvalidArgumentError('Circle translation must use finite offsets');
+    const normalized = normalizeCircle(state);
+    return normalizeCircle({
+      type: 'circle',
+      center:
+        normalized.center.length === 3
+          ? [normalized.center[0] + x, normalized.center[1] + y, normalized.center[2]]
+          : [normalized.center[0] + x, normalized.center[1] + y],
+      radius: normalized.radius
+    });
+  },
   isComplete: (state) => {
     normalizeCircle(state);
     return true;
@@ -288,5 +301,6 @@ export const basicShapeDefinitions = Object.freeze([
   polylineDefinition,
   polygonDefinition,
   circleDefinition,
-  ellipseDefinition
+  ellipseDefinition,
+  calloutDefinition
 ] as const satisfies readonly ShapeDefinition[]);

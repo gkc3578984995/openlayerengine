@@ -43,6 +43,7 @@ import { createAnimationFrameBuffer } from '../src/services/animation/AnimationF
 import { AnimationManagerImpl } from '../src/services/animation/AnimationManager.js';
 import type { AnimationTargetProfile } from '../src/services/animation/types.js';
 import { identityShapeProjection } from './helpers/shapeProjection.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 
 const renderSpies = vi.hoisted(() => ({
   drawFeature: vi.fn(),
@@ -356,6 +357,7 @@ function createKernelHarness(states: readonly ElementState[]): KernelHarness {
     shapes,
     render,
     shapeProjection: identityShapeProjection,
+    shapePresentation: testShapePresentation,
     registry: createBuiltinAnimationRegistry(),
     clock: timing,
     wake: timing
@@ -381,6 +383,9 @@ function createPassHarness(states: readonly ElementState[]): PassHarness {
     requireLayer(layerId: string) {
       if (layerId !== 'default') throw new Error(`未知图层 ${layerId}`);
       return layer;
+    },
+    presentationLabelsSuspended() {
+      return false;
     }
   } as unknown as LayerAdapter;
   const leases: TestLease[] = [];

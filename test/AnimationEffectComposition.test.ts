@@ -3,10 +3,12 @@ import type { PulseAnimationSpec } from '../src/core/animation/types.js';
 import type { ElementState } from '../src/core/element/types.js';
 import { CapabilityError } from '../src/core/errors.js';
 import type { LayerRenderBatch, LayerRenderContribution } from '../src/core/ports/LayerRenderPort.js';
+import type { ShapePresentationPort } from '../src/core/ports/ShapePresentationPort.js';
 import type { StyleSpec } from '../src/core/style/types.js';
 import { AnimationRegistry } from '../src/services/animation/AnimationRegistry.js';
 import type { AnimationDefinition } from '../src/services/animation/types.js';
 import { createAnimationHarness, pointElement, polylineElement } from './helpers/animationHarness.js';
+import { testShapePresentation } from './helpers/shapePresentation.js';
 
 describe('AnimationManager effect composition', () => {
   it('multiplies fade and blink opacity while sharing one presentation lease', () => {
@@ -34,6 +36,81 @@ describe('AnimationManager effect composition', () => {
     fade.stop();
     expect(lease.active).toBe(false);
     expect(manager.activeCount).toBe(0);
+  });
+
+  it('composes fade and blink against the final Callout polygon presentation', () => {
+    const callout = calloutElement('callout');
+    const { manager, render } = createAnimationHarness([callout]);
+    const blink = manager.play({ id: 'callout' }, { type: 'blink', channel: 'blink', periodMs: 800, dutyCycle: 0.5, minOpacity: 0.25, maxOpacity: 0.8 });
+    const fade = manager.play({ id: 'callout' }, { type: 'fade', channel: 'fade', direction: 'out', durationMs: 1000, easing: 'linear' });
+
+    const first = onlyContribution(render.frame('default', 0));
+    const geometry = first.value.presentation?.geometry;
+    expect(first.value.presentation?.opacity).toBeCloseTo(0.8);
+    expect(geometry?.type).toBe('polygon');
+    if (geometry?.type !== 'polygon') throw new Error('Callout animation must use its final Polygon presentation');
+    expect(geometry.coordinates[0].length).toBeGreaterThan(2);
+    expect(geometry.label).toEqual({ coordinate: [100, 50], text: '第一行\n第二行' });
+
+    const composed = onlyContribution(render.frame('default', 400));
+    expect(composed.value.presentation?.opacity).toBeCloseTo(0.15);
+    expect(composed.value.presentation?.geometry).toBe(geometry);
+    expect(callout.style).toEqual(expect.objectContaining({ text: expect.objectContaining({ text: '第一行\n第二行' }) }));
+
+    blink.stop();
+    fade.stop();
+  });
+
+  it('invalidates and rebinds an active Callout animation after a presentation revision', () => {
+    let shiftX = 0;
+    let listener: (() => void) | undefined;
+    const unsubscribe = vi.fn(() => {
+      listener = undefined;
+    });
+    const shapePresentation: ShapePresentationPort = {
+      ...testShapePresentation,
+      present(definition, state, style) {
+        const presented = testShapePresentation.present(definition, state, style);
+        if (presented.geometry.type !== 'polygon') return presented;
+        return {
+          state: presented.state,
+          geometry: {
+            type: 'polygon',
+            coordinates: presented.geometry.coordinates.map((ring) =>
+              ring.map((coordinate) => coordinate.map((value, index) => (index === 0 ? value + shiftX : value)))
+            ),
+            ...(presented.geometry.label === undefined
+              ? {}
+              : {
+                  label: {
+                    coordinate: presented.geometry.label.coordinate.map((value, index) => (index === 0 ? value + shiftX : value)),
+                    text: presented.geometry.label.text
+                  }
+                })
+          }
+        };
+      },
+      subscribe(next) {
+        listener = next;
+        return unsubscribe;
+      }
+    };
+    const { manager, render } = createAnimationHarness([calloutElement('callout')], undefined, shapePresentation);
+    manager.play({ id: 'callout' }, { type: 'fade', direction: 'out', durationMs: 1000, easing: 'linear' });
+
+    const before = onlyContribution(render.frame('default', 0)).value.presentation?.geometry;
+    if (before?.type !== 'polygon') throw new Error('Callout animation must use a Polygon presentation');
+    expect(before.label?.coordinate).toEqual([100, 50]);
+
+    shiftX = 25;
+    listener?.();
+    const after = onlyContribution(render.frame('default', 16)).value.presentation?.geometry;
+    if (after?.type !== 'polygon') throw new Error('Callout animation must refresh its Polygon presentation');
+    expect(after).not.toBe(before);
+    expect(after.label?.coordinate).toEqual([125, 50]);
+
+    manager.destroy();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it('merges Element overlays by channel and slot, then applies total target opacity', () => {
@@ -767,6 +844,22 @@ function polygonElement(id: string): ElementState {
       strokes: [{ color: '#94a3b8', width: 2 }]
     },
     module: 'areas',
+    layerId: 'default',
+    visible: true
+  };
+}
+
+function calloutElement(id: string): ElementState {
+  return {
+    id,
+    type: 'callout',
+    geometry: { type: 'callout', anchor: [0, 120], center: [100, 50], size: [160, 60] },
+    style: {
+      fill: { type: 'solid', color: '#ffffff' },
+      strokes: [{ color: '#222222', width: 2 }],
+      text: { text: '第一行\n第二行', padding: [8, 12, 8, 12] }
+    },
+    module: 'labels',
     layerId: 'default',
     visible: true
   };

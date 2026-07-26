@@ -5,6 +5,7 @@ const shapeExampleGroupDefinitions = [
   { id: 'point', label: '点' },
   { id: 'path', label: '开放路径' },
   { id: 'radial', label: '参数图形' },
+  { id: 'annotation', label: '文本标注' },
   { id: 'area', label: '闭合面' },
   { id: 'arrow', label: '面箭头' }
 ] as const;
@@ -81,6 +82,18 @@ const definitions = {
     normalizedPoints: [
       [0, 0],
       [4, 2.6]
+    ]
+  },
+  callout: {
+    label: '文本标注框',
+    groupId: 'annotation',
+    group: '文本标注',
+    points: 'anchor + center + CSS px size',
+    render: 'Polygon',
+    description: '屏幕轴对齐文本框自动换行；尾巴按 anchor 自动切换边，anchor 在框内时隐藏。',
+    normalizedPoints: [
+      [-1.7, -1.5],
+      [0, 0]
     ]
   },
   'attack-arrow': {
@@ -303,6 +316,14 @@ export const shapeExampleGroups: readonly ShapeExampleGroup[] = Object.freeze(
 
 export const createShapeExampleInput = (type: ShapeType, center: readonly [number, number], scale = 30_000): ShapeInput => {
   if (type === 'circle') return { type, center, radius: scale * 1.8 };
+  if (type === 'callout') {
+    return {
+      type,
+      anchor: [center[0] - scale * 1.7, center[1] - scale * 1.5],
+      center,
+      size: [220, 96]
+    };
+  }
 
   const points = shapeExampleByType[type].normalizedPoints;
   const xs = points.map(([x]) => x);

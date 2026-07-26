@@ -14,7 +14,7 @@ const anchors = [
   { id: 'overview', label: '会话模型' },
   { id: 'result-options', label: 'limit 与 keepGraphics' },
   { id: 'method-examples', label: 'API 与示例' },
-  { id: 'example-draw-session', label: '20 种 Shape 的启动、历史、结果查询与释放' },
+  { id: 'example-draw-session', label: '全部内置 Shape 的启动、历史、结果查询与释放' },
   { id: 'pc-shortcuts', label: 'PC 键鼠快捷键' },
   { id: 'events', label: '事件与提交边界' },
   { id: 'lifecycle', label: '完成、取消与销毁' },
@@ -101,6 +101,10 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
         <el-alert type="info" :closable="false" show-icon title="Circle 的业务半径始终使用米">
           指针预览使用当前 View 投影半径，完成时转换为米；Element.state.geometry.radius、复制和历史中的值均保持米制。
         </el-alert>
+        <el-alert type="info" :closable="false" show-icon title="Callout 固定使用两次点击">
+          第一次点击保存尾巴 <code>anchor</code>，第二次点击保存文本框 <code>center</code> 并自动完成。框体初始宽高由
+          <code>style.text.text</code>、字体、padding 与 <code>text.maxWidth</code> 计算；原始文字不会被换行结果覆盖。
+        </el-alert>
       </section>
 
       <section id="result-options" class="doc-prose">
@@ -135,7 +139,7 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
 
       <section id="example-draw-session" class="doc-prose">
         <ExampleBlock
-          title="20 种 Shape 的启动、历史、结果查询与释放"
+          title="全部内置 Shape 的启动、历史、结果查询与释放"
           :source="drawSessionSource"
           :snippet="drawSessionSnippet"
           show-reset
@@ -152,6 +156,8 @@ const apiMembers = { DrawService: ['start', 'query', 'clear'] } as const;
               <ApiReference kind="method" to="/api/types#api-type-draw-session-method-destroy">destroy</ApiReference>
               的完整流程。启动前可切换 <code>limit</code> 的 0 / 1 / 3 三档和 <code>keepGraphics</code>，状态区会并列显示同步
               <code>complete</code> 次数、句柄观测、<code>results</code> 与 <code>query()</code>；展开的代码与正在运行的组件来自同一文件。
+              选择“文本标注框”即可实测 <code>anchor + center</code> 两点 Draw，示例同时提供顶层 <code>fill</code>/<code>strokes</code> 和
+              <code>text.maxWidth</code> 自动换行样式。
             </p>
           </template>
           <template #preview><DrawSessionDemo ref="drawSessionDemoRef" /></template>

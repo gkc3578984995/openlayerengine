@@ -9,6 +9,7 @@ import Stroke from 'ol/style/Stroke.js';
 import Style, { type StyleFunction, type StyleLike } from 'ol/style/Style.js';
 import Text from 'ol/style/Text.js';
 import type { NativeRefRegistry } from '../NativeRefRegistry.js';
+import { presentationLabel } from '../PresentedPolygonGeometry.js';
 import { cloneCoreState } from '../../../core/common/clone.js';
 import type { Color } from '../../../core/common/types.js';
 import { ObjectDisposedError } from '../../../core/errors.js';
@@ -73,6 +74,8 @@ interface CompilationCacheContext {
   readonly viewportKey: string;
 }
 
+type StructuredStylePartition = 'complete' | 'base' | 'label';
+
 type Coordinate2 = readonly [number, number];
 
 /** 线装饰箭头的位置和朝向。 */
@@ -103,6 +106,12 @@ interface DecorationStyleSlot {
   readonly geometry: Point;
 }
 
+/** Callout 等显式中心文字复用的可变 Point slot。 */
+interface PresentationLabelStyleSlot {
+  readonly style: Style;
+  readonly geometry: Point;
+}
+
 /** 固定规范拓扑、分辨率和旋转下的一组展示样式。 */
 interface PresentationStylePool {
   readonly maximumGeometry: object | undefined;
@@ -111,6 +120,7 @@ interface PresentationStylePool {
   readonly viewRotation: number;
   readonly fontRevision: number;
   readonly baseStyles: Style[];
+  readonly label: PresentationLabelStyleSlot | undefined;
   readonly decorations: DecorationStylePool[];
   readonly linework: CompiledLineworkStylePool | undefined;
   readonly activeStyles: Style[];
@@ -142,6 +152,21 @@ export class StyleCompiler {
 
     const spec = cloneCoreState(style);
     assertStructuredStyleSpec(spec);
+    return this.#compileStructuredStyle(spec, 'complete');
+  }
+
+  /** 把显式 presentation label 拆到独立样式，供绑定层分别投影框体与文字。 */
+  compilePresentationLabelParts(style: StyleSpec): Readonly<{ readonly base: StyleLike; readonly label: StyleLike }> {
+    const spec = cloneCoreState(style);
+    assertStructuredStyleSpec(spec);
+    return Object.freeze({
+      base: this.#compileStructuredStyle(spec, 'base'),
+      label: this.#compileStructuredStyle(spec, 'label')
+    });
+  }
+
+  /** 按指定分区建立结构化样式函数，同时保持原有上下文依赖与缓存语义。 */
+  #compileStructuredStyle(spec: StyleSpec, partition: StructuredStylePartition): StyleLike {
     const needsFitPaths =
       spec.strokes?.some((stroke) => stroke.fitPatternOnce === true && stroke.lineDash !== undefined && stroke.lineDash.length > 0) ?? false;
     const needsDecorations = (spec.decorations?.length ?? 0) > 0;
@@ -150,13 +175,17 @@ export class StyleCompiler {
     const cache = new WeakMap<object, CacheEntry>();
     let sharedCache: CacheEntry | undefined;
     const compiled: StyleFunction = (feature, resolution) => {
-      const viewRotation = dependencies.viewRotation ? finiteOr(this.#getViewRotation(), 0) : 0;
-      const fontRevision = dependencies.font ? finiteOr(this.#getFontRevision(), 0) : 0;
-      const viewport = dependencies.viewport ? this.#getLineworkViewport() : undefined;
-      const context = compilationCacheContext(feature, resolution, viewRotation, fontRevision, viewport, dependencies);
+      const effectiveDependencies =
+        partition !== 'base' && !dependencies.geometry && spec.text !== undefined && presentationLabel(featureGeometry(feature)) !== undefined
+          ? { ...dependencies, geometry: true }
+          : dependencies;
+      const viewRotation = effectiveDependencies.viewRotation ? finiteOr(this.#getViewRotation(), 0) : 0;
+      const fontRevision = effectiveDependencies.font ? finiteOr(this.#getFontRevision(), 0) : 0;
+      const viewport = effectiveDependencies.viewport ? this.#getLineworkViewport() : undefined;
+      const context = compilationCacheContext(feature, resolution, viewRotation, fontRevision, viewport, effectiveDependencies);
       const key = feature as object;
-      const previous = context.cacheable ? (dependencies.geometry ? cache.get(key) : sharedCache) : undefined;
-      if (previous !== undefined && cacheMatches(previous, context, dependencies)) return previous.styles;
+      const previous = context.cacheable ? (effectiveDependencies.geometry ? cache.get(key) : sharedCache) : undefined;
+      if (previous !== undefined && cacheMatches(previous, context, effectiveDependencies)) return previous.styles;
 
       const styles = this.#compileStructured(
         spec,
@@ -166,7 +195,8 @@ export class StyleCompiler {
         needsFitPaths,
         needsDecorations,
         true,
-        context.viewport
+        context.viewport,
+        partition
       );
       if (context.cacheable) {
         const entry: CacheEntry = {
@@ -178,7 +208,7 @@ export class StyleCompiler {
           viewportKey: context.viewportKey,
           styles
         };
-        if (dependencies.geometry) cache.set(key, entry);
+        if (effectiveDependencies.geometry) cache.set(key, entry);
         else sharedCache = entry;
       }
       return styles;
@@ -208,19 +238,22 @@ export class StyleCompiler {
       const fontRevision = dependencies.font ? finiteOr(this.#getFontRevision(), 0) : 0;
       const viewport = spec.linework !== undefined ? this.#getLineworkViewport() : undefined;
       const maximumGeometry = featureGeometry(maximumFeature);
+      const geometry = featureGeometry(feature);
       const maximumGeometryRevision = maximumGeometry === undefined ? undefined : callNumber(maximumGeometry, 'getRevision');
+      const hasLabel = spec.text !== undefined && presentationLabel(geometry) !== undefined;
       if (
         pool === undefined ||
         pool.maximumGeometry !== maximumGeometry ||
         pool.maximumGeometryRevision !== maximumGeometryRevision ||
         pool.resolution !== normalizedResolution ||
         pool.viewRotation !== viewRotation ||
-        pool.fontRevision !== fontRevision
+        pool.fontRevision !== fontRevision ||
+        (pool.label !== undefined) !== hasLabel
       ) {
         if (pool !== undefined) releasePresentationPool(pool);
         pool = this.#createPresentationPool(
           spec,
-          featureGeometry(feature),
+          geometry,
           maximumGeometry,
           normalizedResolution,
           viewRotation,
@@ -232,7 +265,7 @@ export class StyleCompiler {
         );
         revision += 1;
       }
-      updatePresentationPool(pool, spec, featureGeometry(feature), normalizedResolution, viewRotation, viewport, pathReveal, needsFitPaths);
+      updatePresentationPool(pool, spec, geometry, normalizedResolution, viewRotation, viewport, pathReveal, needsFitPaths);
       return pool.activeStyles;
     };
     return Object.freeze({
@@ -258,15 +291,19 @@ export class StyleCompiler {
     needsFitPaths: boolean,
     needsDecorations: boolean,
     includeLinework = true,
-    viewport?: PathViewport
+    viewport?: PathViewport,
+    partition: StructuredStylePartition = 'complete'
   ): Style[] {
-    const extracted = needsFitPaths || needsDecorations ? extractGeometryPaths(geometry) : undefined;
+    const includeBase = partition !== 'label';
+    const includeLabel = partition !== 'base';
+    const extracted = includeBase && (needsFitPaths || needsDecorations) ? extractGeometryPaths(geometry) : undefined;
+    const explicitLabel = presentationLabel(geometry);
     const fitPaths = needsFitPaths ? (extracted?.paths ?? []) : [];
     const inheritedColor = lastExplicitStrokeColor(spec.strokes);
     const strokes = spec.strokes ?? [];
     const styles: Style[] = [];
 
-    if (strokes.length > 0) {
+    if (includeBase && strokes.length > 0) {
       for (let index = 0; index < strokes.length; index += 1) {
         const foreground = index === strokes.length - 1;
         styles.push(
@@ -274,23 +311,43 @@ export class StyleCompiler {
             stroke: compileStroke(strokes[index], fitPaths, resolution),
             ...(foreground && spec.fill !== undefined ? { fill: compileFill(spec.fill, inheritedColor, this.#createCanvasContext) } : {}),
             ...(foreground && spec.symbol !== undefined ? { image: compileSymbol(spec.symbol, inheritedColor, viewRotation, this.#createCanvasContext) } : {}),
-            ...(foreground && spec.text !== undefined ? { text: compileText(spec.text, inheritedColor, viewRotation, this.#createCanvasContext) } : {}),
+            ...(partition === 'complete' && foreground && spec.text !== undefined && explicitLabel === undefined
+              ? { text: compileText(spec.text, inheritedColor, viewRotation, this.#createCanvasContext) }
+              : {}),
             ...(spec.zIndex === undefined ? {} : { zIndex: spec.zIndex })
           })
         );
       }
-    } else if (spec.fill !== undefined || spec.symbol !== undefined || spec.text !== undefined || spec.zIndex !== undefined) {
+    } else if (
+      includeBase &&
+      (spec.fill !== undefined ||
+        spec.symbol !== undefined ||
+        (partition === 'complete' && spec.text !== undefined && explicitLabel === undefined) ||
+        spec.zIndex !== undefined)
+    ) {
       styles.push(
         new Style({
           ...(spec.fill === undefined ? {} : { fill: compileFill(spec.fill, inheritedColor, this.#createCanvasContext) }),
           ...(spec.symbol === undefined ? {} : { image: compileSymbol(spec.symbol, inheritedColor, viewRotation, this.#createCanvasContext) }),
-          ...(spec.text === undefined ? {} : { text: compileText(spec.text, inheritedColor, viewRotation, this.#createCanvasContext) }),
+          ...(partition !== 'complete' || spec.text === undefined || explicitLabel !== undefined
+            ? {}
+            : { text: compileText(spec.text, inheritedColor, viewRotation, this.#createCanvasContext) }),
           ...(spec.zIndex === undefined ? {} : { zIndex: spec.zIndex })
         })
       );
     }
 
-    if (needsDecorations) {
+    if (includeLabel && explicitLabel !== undefined && spec.text !== undefined) {
+      styles.push(
+        new Style({
+          geometry: new Point([...explicitLabel.coordinate]),
+          text: compileText(calloutTextSpec(spec.text, explicitLabel.text), inheritedColor, 0, this.#createCanvasContext),
+          ...(spec.zIndex === undefined ? {} : { zIndex: spec.zIndex })
+        })
+      );
+    }
+
+    if (includeBase && needsDecorations) {
       const linePaths = extracted?.type === 'LineString' || extracted?.type === 'MultiLineString' ? extracted.paths : [];
       for (const decoration of spec.decorations ?? []) {
         for (const arrow of placeArrows(linePaths, decoration, resolution)) {
@@ -298,9 +355,10 @@ export class StyleCompiler {
         }
       }
     }
-    if (includeLinework && spec.linework !== undefined) {
+    if (includeBase && includeLinework && spec.linework !== undefined) {
+      const linework = partition === 'base' ? lineworkWithoutInlineText(spec.linework) : spec.linework;
       styles.push(
-        ...compileLineworkStyles(spec.linework, {
+        ...compileLineworkStyles(linework, {
           geometry,
           resolution,
           viewRotation,
@@ -327,6 +385,7 @@ export class StyleCompiler {
     viewport: PathViewport | undefined
   ): PresentationStylePool {
     const baseStyles = this.#compileStructured(spec, geometry, resolution, viewRotation, needsFitPaths, false, false);
+    const label = presentationLabel(geometry) === undefined || spec.text === undefined ? undefined : presentationLabelStyleSlot(baseStyles);
     const inheritedColor = lastExplicitStrokeColor(spec.strokes);
     const maximumPaths = linePaths(maximumGeometry);
     const currentPaths = linePaths(geometry);
@@ -355,6 +414,7 @@ export class StyleCompiler {
       viewRotation,
       fontRevision,
       baseStyles,
+      label,
       decorations,
       linework,
       activeStyles: [...baseStyles, ...(linework?.resolve(geometry, resolution, viewRotation) ?? [])]
@@ -485,6 +545,29 @@ function compileText(spec: TextSpec, inheritedColor: Color | undefined, viewRota
   });
 }
 
+/** Callout 的文字始终使用 presentation 给出的中心点和已换行文本。 */
+function calloutTextSpec(spec: TextSpec, text: string): TextSpec {
+  const normalized: TextSpec = {
+    ...spec,
+    text,
+    offsetX: 0,
+    offsetY: 0,
+    textAlign: 'center',
+    textBaseline: 'middle',
+    rotation: 0,
+    rotateWithView: false,
+    overflow: true,
+    placement: 'point',
+    justify: 'center'
+  };
+  delete normalized.backgroundFill;
+  delete normalized.backgroundStroke;
+  delete normalized.maxAngle;
+  delete normalized.repeat;
+  delete normalized.keepUpright;
+  return normalized;
+}
+
 /** 编译放置在线上的单个箭头装饰。 */
 function compileArrow(decoration: ArrowDecorationSpec, arrow: ArrowPoint, inheritedColor: Color | undefined, viewRotation: number, zIndex?: number): Style {
   const geometry = new Point([...arrow.coordinate]);
@@ -522,6 +605,27 @@ function createDecorationStyleSlot(
   return { style, geometry };
 }
 
+/** 取得 #compileStructured 追加在 baseStyles 末尾的显式文字 slot。 */
+function presentationLabelStyleSlot(baseStyles: readonly Style[]): PresentationLabelStyleSlot {
+  const style = baseStyles[baseStyles.length - 1];
+  const geometry = style?.getGeometry();
+  if (style === undefined || !(geometry instanceof Point)) throw new ObjectDisposedError('Presentation label style did not retain its Point geometry');
+  return { style, geometry };
+}
+
+/** 同步本帧显式文字坐标与自动换行结果，同时保持 OL Style 身份稳定。 */
+function updatePresentationLabelStyle(slot: PresentationLabelStyleSlot | undefined, geometry: object | undefined): void {
+  if (slot === undefined) return;
+  const label = presentationLabel(geometry);
+  if (label === undefined) return;
+  const current = slot.geometry.getCoordinates();
+  if (current.length !== label.coordinate.length || current.some((value, index) => value !== label.coordinate[index])) {
+    slot.geometry.setCoordinates([...label.coordinate]);
+  }
+  const text = slot.style.getText();
+  if (text !== null && text.getText() !== label.text) text.setText(label.text);
+}
+
 /** 用当前有效路径更新预分配 Decoration slot，不创建新的 OL 对象。 */
 function updateDecorationStyleSlot(slot: DecorationStyleSlot, decoration: ArrowDecorationSpec, arrow: ArrowPoint, viewRotation: number): void {
   slot.geometry.setCoordinates(arrow.coordinate as [number, number]);
@@ -551,6 +655,7 @@ function updatePresentationPool(
   const extracted = needsFitPaths || pool.decorations.length > 0 ? extractGeometryPaths(geometry) : undefined;
   const paths = extracted?.paths ?? [];
   if (needsFitPaths) updateFitPatternStyles(pool.baseStyles, spec.strokes, paths, resolution);
+  updatePresentationLabelStyle(pool.label, geometry);
 
   const active = pool.activeStyles;
   active.length = pool.baseStyles.length;
@@ -943,4 +1048,11 @@ function registerLineworkFont(spec: StyleSpec, register: (font: string) => void)
   const text = spec.linework?.inlineText;
   if (text === undefined) return;
   register(`${text.fontStyle} ${text.fontWeight} ${text.fontSize}px ${text.fontFamily}`);
+}
+
+/** 框体分区保留 linework 图形分支，但不把路径文字带入业务图层。 */
+function lineworkWithoutInlineText(linework: NonNullable<StyleSpec['linework']>): NonNullable<StyleSpec['linework']> {
+  const copy = { ...linework };
+  delete copy.inlineText;
+  return copy;
 }

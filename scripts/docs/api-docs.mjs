@@ -290,12 +290,12 @@ function resolveObjectVariants(type, context, seen = new Set()) {
     return [
       ...resolveObjectVariants(type.trueType, context, new Set(seen)).map((variant) => ({
         ...variant,
-        label: `满足 ${condition}`,
+        label: conditionalVariantLabel(`满足 ${condition}`, variant.label),
         expression: renderType(type.trueType)
       })),
       ...resolveObjectVariants(type.falseType, context, new Set(seen)).map((variant) => ({
         ...variant,
-        label: `不满足 ${condition}`,
+        label: conditionalVariantLabel(`不满足 ${condition}`, variant.label),
         expression: renderType(type.falseType)
       }))
     ];
@@ -364,6 +364,11 @@ function resolveObjectVariants(type, context, seen = new Set()) {
     label: variant.label === '对象字段' ? (type.name ?? target.name) : variant.label,
     expression: renderType(type)
   }));
+}
+
+/** 保留嵌套条件类型的完整判别路径，避免多个对象分支显示成同一标签。 */
+function conditionalVariantLabel(condition, nestedLabel) {
+  return /^(?:满足|不满足) /.test(nestedLabel) ? `${condition}；${nestedLabel}` : condition;
 }
 
 function variantModels(reflection, anchor, context, directPropertyCount) {

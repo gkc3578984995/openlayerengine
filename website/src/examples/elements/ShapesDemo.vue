@@ -6,7 +6,14 @@ import type { Coordinate, Earth, ElementGeometryDetails, ShapeInput, ShapeType, 
 import '@vrsim/earth-engine-ol/style.css';
 import CodeBlock from '../../components/docs/CodeBlock.vue';
 import { createConfiguredLayer } from '../../config/mapSources';
-import { createShapeExampleInput, shapeExampleByType, shapeExampleGroups, type ShapeExample, type ShapeExampleGroupId } from '../../config/shapeExamples';
+import {
+  createShapeExampleInput,
+  shapeExampleByType,
+  shapeExampleGroups,
+  shapeExamples,
+  type ShapeExample,
+  type ShapeExampleGroupId
+} from '../../config/shapeExamples';
 
 const EARTH_ID = 'docs-elements-shapes';
 const SHAPE_MODULE = 'shape-preview';
@@ -25,6 +32,7 @@ const groupColors: Record<ShapeExampleGroupId, { readonly stroke: string; readon
   point: { stroke: '#2563eb', fill: '#409eff' },
   path: { stroke: '#0891b2', fill: 'rgba(8, 145, 178, 0.35)' },
   radial: { stroke: '#047857', fill: 'rgba(5, 150, 105, 0.35)' },
+  annotation: { stroke: '#be123c', fill: 'rgba(251, 113, 133, 0.24)' },
   area: { stroke: '#6d28d9', fill: 'rgba(124, 58, 237, 0.35)' },
   arrow: { stroke: '#c2410c', fill: 'rgba(234, 88, 12, 0.38)' }
 };
@@ -33,6 +41,7 @@ const groupGlyphs: Record<ShapeExampleGroupId, string> = {
   point: '●',
   path: '⌁',
   radial: '◎',
+  annotation: '▰',
   area: '◆',
   arrow: '➤'
 };
@@ -48,7 +57,7 @@ const selectedGroup = ref<CatalogGroupFilter>('all');
 
 const selectedExample = computed(() => shapeExampleByType[selectedType.value]);
 const groupFilterOptions = [
-  { label: '全部类别（20）', value: 'all' },
+  { label: `全部类别（${shapeExamples.length}）`, value: 'all' },
   ...shapeExampleGroups.map((group) => ({ label: `${group.label}（${group.examples.length}）`, value: group.id }))
 ] satisfies readonly { readonly label: string; readonly value: CatalogGroupFilter }[];
 
@@ -137,6 +146,30 @@ earth.elements.add({
 });`;
   }
 
+  if (selectedType.value === 'callout') {
+    return `const anchor = earth.view.toProjectedCoordinates([116.3974, 39.8942]);
+const center = earth.view.toProjectedCoordinates([116.4074, 39.9042]);
+
+earth.elements.add({
+  geometry: {
+    type: 'callout',
+    anchor,
+    center,
+    size: [220, 96] // CSS px
+  },
+  style: {
+    strokes: [{ color: '#be123c', width: 3 }],
+    fill: { type: 'solid', color: 'rgba(255, 255, 255, 0.92)' },
+    text: {
+      text: '文本会在框内自动换行',
+      maxWidth: 180,
+      padding: [12, 16, 12, 16],
+      fill: { type: 'solid', color: '#881337' }
+    }
+  }
+});`;
+  }
+
   const pointNames = selectedExample.value.normalizedPoints.map((_point, index) => `point${index + 1}`).join(', ');
   return `// point1…pointN 均为当前 View 投影坐标
 earth.elements.add({
@@ -149,6 +182,24 @@ earth.elements.add({
 
 const styleFor = (example: ShapeExample): StyleSpec => {
   const colors = groupColors[example.groupId];
+  if (example.type === 'callout') {
+    return {
+      strokes: [
+        { color: '#ffffff', width: 8, lineCap: 'round', lineJoin: 'round' },
+        { color: colors.stroke, width: 3, lineCap: 'round', lineJoin: 'round' }
+      ],
+      fill: { type: 'solid', color: 'rgba(255, 255, 255, 0.92)' },
+      text: {
+        text: '文本标注框\n会在边界内自动换行',
+        maxWidth: 180,
+        padding: [12, 16, 12, 16],
+        fontSize: 18,
+        fontWeight: 'bold',
+        fill: { type: 'solid', color: '#881337' }
+      },
+      zIndex: 20
+    };
+  }
   if (example.type === 'point') {
     return {
       symbol: {
@@ -183,6 +234,14 @@ const styleFor = (example: ShapeExample): StyleSpec => {
 
 const highlightStyleFor = (example: ShapeExample): StyleSpec => {
   const color = groupColors[example.groupId].stroke;
+  if (example.type === 'callout') {
+    return {
+      strokes: [{ color, width: 18, lineCap: 'round', lineJoin: 'round' }],
+      fill: { type: 'solid', color: 'rgba(255, 255, 255, 0.1)' },
+      text: { text: '', maxWidth: 180, padding: [12, 16, 12, 16], fill: { type: 'solid', color: 'rgba(0, 0, 0, 0)' } },
+      zIndex: 10
+    };
+  }
   if (example.type === 'point') {
     return {
       symbol: {
@@ -216,6 +275,13 @@ const inputPointsFor = (earth: Earth, geometry: ShapeInput): readonly Coordinate
     const metersPerProjectionUnit = getPointResolution(projection, 1, [center[0], center[1]], 'm');
     const projectedRadius = geometry.radius / metersPerProjectionUnit;
     return [center, [center[0] + projectedRadius, center[1]]];
+  }
+
+  if (geometry.type === 'callout') {
+    return [
+      [geometry.anchor[0]!, geometry.anchor[1]!],
+      [geometry.center[0]!, geometry.center[1]!]
+    ];
   }
 
   const points = geometry.controlPoints;
@@ -368,7 +434,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="example-demo__feedback" aria-live="polite">
-          <el-tag type="info" effect="plain">找到 {{ filteredCount }} / 20</el-tag>
+          <el-tag type="info" effect="plain">找到 {{ filteredCount }} / {{ shapeExamples.length }}</el-tag>
         </div>
       </div>
     </div>
@@ -413,7 +479,7 @@ onBeforeUnmount(() => {
         </el-scrollbar>
 
         <el-empty v-else :image-size="72" description="没有匹配的图形类型">
-          <el-button type="primary" plain @click="clearFilters">查看全部 20 种 Shape</el-button>
+          <el-button type="primary" plain @click="clearFilters">查看全部内置 Shape</el-button>
         </el-empty>
       </section>
 

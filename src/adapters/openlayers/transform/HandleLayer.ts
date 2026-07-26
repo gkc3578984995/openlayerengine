@@ -26,6 +26,7 @@ import type { RenderGeometryState } from '../../../core/shape/types.js';
 import { isNativeStyleRef, type ElementStyleState } from '../../../core/style/types.js';
 import { styleVisualOutsetPx } from '../../../core/style/visualOutset.js';
 import type { ProjectionSuppressionLease, FeatureBinding } from '../FeatureBinding.js';
+import { createPresentedPolygonGeometry, PresentedPolygonGeometry, updatePresentationLabel } from '../PresentedPolygonGeometry.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 import { compiledStylesGeometryExtent, compiledStylesVisualFootprintPx, resolveCompiledStyles } from '../style/visualFootprint.js';
 import {
@@ -167,7 +168,12 @@ export class HandleLayer {
     this.renderLayerId = `transform-handles:${options.sessionId}`;
     this.renderTargetId = `transform-bbox:${options.sessionId}`;
     this.#source = new VectorSource({ wrapX: false });
-    this.#layer = new VectorLayer({ source: this.#source, zIndex: 2_147_483_647 });
+    this.#layer = new VectorLayer({
+      source: this.#source,
+      zIndex: 2_147_483_647,
+      updateWhileAnimating: true,
+      updateWhileInteracting: true
+    });
     this.#map.addLayer(this.#layer);
     const view = this.#map.getView();
     this.#viewKeys.push(view.on('change:resolution', this.#refreshForView), view.on('change:rotation', this.#refreshForView));
@@ -418,15 +424,15 @@ export class HandleLayer {
     updateFeatureGeometry(preview, target.geometry, worldOffset);
     const effectivePreviewStyle = target.mode === 'edit' ? composeEditPreviewStyle(previewStyle) : previewStyle;
     if (preview.getStyle() !== effectivePreviewStyle) preview.setStyle(effectivePreviewStyle);
-    const geometryExtent = presentationExtent(renderExtent(target.geometry), worldOffset);
+    const selectionExtent = presentationExtent(renderExtent(target.selectionGeometry ?? target.geometry), worldOffset);
     setHandleHit(
       preview,
       target.canTranslate && this.#options.translate === 'feature'
-        ? { key: 'feature', operation: 'translate', coordinate: extentCenter(geometryExtent) }
+        ? { key: 'feature', operation: 'translate', coordinate: extentCenter(selectionExtent) }
         : undefined
     );
 
-    const features = [preview, ...this.#syncExtentFeatures(target, handleStyle, geometryExtent, worldOffset)];
+    const features = [preview, ...this.#syncExtentFeatures(target, handleStyle, selectionExtent, worldOffset)];
     const editAnchors = target.canEditVertices ? target.editAnchors : [];
     const controlAnchors = editAnchors.filter((anchor): anchor is EditControlAnchor => anchor.kind === 'control');
     const insertionAnchors = editAnchors.filter((anchor) => anchor.kind === 'insertion');
@@ -619,12 +625,15 @@ export class HandleLayer {
     const preview = this.#preview;
     if (preview === undefined) throw new InvalidArgumentError('Transform preview feature is missing');
     const compiledStyles = resolveCompiledStyles(preview, internalResolution(this.#map));
+    const authoritativeSelection = target.selectionGeometry !== undefined;
     const declaredOutset =
-      isNativeStyleRef(target.style) || !('linework' in target.style) || target.style.linework === undefined ? undefined : styleVisualOutsetPx(target.style);
-    const compiledGeometryExtent = declaredOutset === undefined ? compiledStylesGeometryExtent(compiledStyles, preview) : undefined;
+      authoritativeSelection || isNativeStyleRef(target.style) || !('linework' in target.style) || target.style.linework === undefined
+        ? undefined
+        : styleVisualOutsetPx(target.style);
+    const compiledGeometryExtent = authoritativeSelection || declaredOutset !== undefined ? undefined : compiledStylesGeometryExtent(compiledStyles, preview);
     const renderedExtent = compiledGeometryExtent === undefined ? geometryExtent : unionTransformExtents(geometryExtent, compiledGeometryExtent);
     const declaredPadding = declaredOutset === undefined ? undefined : ([declaredOutset, declaredOutset] as const);
-    const compiledPadding = compiledStylesVisualFootprintPx(compiledStyles, rotationOf(this.#map), 'view');
+    const compiledPadding = compiledStylesVisualFootprintPx(compiledStyles, rotationOf(this.#map), 'view', !authoritativeSelection);
     const extent = bufferedExtent(
       this.#map,
       renderedExtent,
@@ -858,7 +867,12 @@ export class HandleLayer {
   readonly #refreshForView = (): void => {
     if (this.#destroyed || this.#destroying || this.#target === undefined) return;
     const handleStyle = this.#handleStyleForTarget(this.#target);
-    this.#syncExtentFeatures(this.#target, handleStyle, presentationExtent(renderExtent(this.#target.geometry), this.#worldOffset), this.#worldOffset);
+    this.#syncExtentFeatures(
+      this.#target,
+      handleStyle,
+      presentationExtent(renderExtent(this.#target.selectionGeometry ?? this.#target.geometry), this.#worldOffset),
+      this.#worldOffset
+    );
     this.#applyBBoxStyle();
     this.#notifyExtentChange();
   };
@@ -993,9 +1007,7 @@ function coordinateEqualsPresentation(presented: readonly number[], canonical: r
 function createGeometry(state: RenderGeometryState, worldOffset = 0): Geometry {
   if (state.type === 'point') return new Point(copyPresentationCoordinate(state.coordinates, worldOffset));
   if (state.type === 'polyline') return new LineString(state.coordinates.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset)));
-  if (state.type === 'polygon') {
-    return new Polygon(state.coordinates.map((ring) => ring.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset))));
-  }
+  if (state.type === 'polygon') return createPresentedPolygonGeometry(state, worldOffset);
   return new CircleGeometry(copyPresentationCoordinate(state.center, worldOffset), state.radius);
 }
 
@@ -1013,8 +1025,14 @@ function updateFeatureGeometry(feature: Feature<Geometry>, state: RenderGeometry
     return;
   }
   if (state.type === 'polygon' && geometry instanceof Polygon) {
-    if (polygonCoordinatesEqual(geometry, state.coordinates, worldOffset)) return;
-    geometry.setCoordinates(state.coordinates.map((ring) => ring.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset))));
+    if (state.label !== undefined && !(geometry instanceof PresentedPolygonGeometry)) {
+      feature.setGeometry(createGeometry(state, worldOffset));
+      return;
+    }
+    if (!polygonCoordinatesEqual(geometry, state.coordinates, worldOffset)) {
+      geometry.setCoordinates(state.coordinates.map((ring) => ring.map((coordinate) => copyPresentationCoordinate(coordinate, worldOffset))));
+    }
+    updatePresentationLabel(geometry, state.label, worldOffset);
     return;
   }
   if (state.type === 'circle' && geometry instanceof CircleGeometry) {

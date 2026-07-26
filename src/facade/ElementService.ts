@@ -90,7 +90,7 @@ export class ElementServiceImpl implements ElementService {
         const record = inspectCreateInput(input);
         const geometry = requireGeometry(record.geometry);
         const layerId = hasOwn(record, 'layerId') ? requireString(record.layerId, 'Element layerId') : this.#layers.ensureDefault().id;
-        const styleInput = hasOwn(record, 'style') ? record.style : defaultStyle(this.#binding.renderKind(geometry));
+        const styleInput = hasOwn(record, 'style') ? record.style : defaultStyle(this.#binding.renderKind(geometry), geometry.type);
         const inspectedStyle = inspectStyleInput(styleInput as never);
         const style = inspectedStyle.matched ? (provisional = this.#nativeRefs.registerProvisionalStyle(inspectedStyle.value)) : (styleInput as StyleSpec);
         const state = transaction.add<T>({
@@ -145,8 +145,9 @@ export class ElementServiceImpl implements ElementService {
 
   /** 批量更新 Element，并在提交前确认 OpenLayers 渲染投影可用。 */
   update<T>(selector: ElementSelector<T>, patch: ElementPatch<T>): readonly Element<T>[] {
+    const safePatch = snapshotElementWrite(patch);
     const result = this.#store.transaction((transaction) => {
-      const states = transaction.update(selector, patch);
+      const states = transaction.update(selector, safePatch);
       for (const state of states) this.#binding.preflight(state);
       return states;
     });
@@ -174,8 +175,9 @@ export class ElementServiceImpl implements ElementService {
 
   /** 复制指定 Element，并返回副本句柄。 */
   copy<T>(id: string, overrides?: ElementCopyOptions<T>): Element<T> {
+    const safeOverrides = overrides === undefined ? undefined : snapshotElementWrite(overrides);
     const result = this.#store.transaction((transaction) => {
-      const state = transaction.copy(id, overrides);
+      const state = transaction.copy(id, safeOverrides);
       this.#binding.preflight(state);
       return state;
     });
@@ -311,11 +313,37 @@ function requireGeometry(value: unknown): ShapeInput {
   if (geometry === null || typeof geometry !== 'object' || typeof (geometry as { type?: unknown }).type !== 'string') {
     throw new InvalidArgumentError('Element geometry must be a ShapeInput');
   }
+  assertPersistableCalloutSize(geometry);
   return geometry as ShapeInput;
 }
 
+/** 先按数据描述符快照写入参数，再校验其中的 Callout geometry。 */
+function snapshotElementWrite<T extends object>(value: T): T {
+  const snapshot = cloneCoreState(value);
+  if (snapshot === null || typeof snapshot !== 'object') return snapshot;
+  const geometry = Object.getOwnPropertyDescriptor(snapshot, 'geometry');
+  if (geometry !== undefined && 'value' in geometry) assertPersistableCalloutSize(geometry.value);
+  return snapshot;
+}
+
+/** Callout 的零尺寸只属于尚未提交的 Draw 草稿，不能进入公共 Element 写入路径。 */
+function assertPersistableCalloutSize(value: unknown): void {
+  if (value === null || typeof value !== 'object' || (value as { type?: unknown }).type !== 'callout') return;
+  const size = (value as { size?: unknown }).size;
+  if (Array.isArray(size) && size.length === 2 && size[0] === 0 && size[1] === 0) {
+    throw new InvalidArgumentError('Callout size must be positive for Element writes');
+  }
+}
+
 /** 按渲染类型选择默认样式。 */
-function defaultStyle(kind: ReturnType<FeatureBinding['renderKind']>): StyleSpec {
+function defaultStyle(kind: ReturnType<FeatureBinding['renderKind']>, type?: ShapeInput['type']): StyleSpec {
+  if (type === 'callout') {
+    return {
+      strokes: [{ color: '#1677ff', width: 2 }],
+      fill: { type: 'solid', color: 'rgba(255, 255, 255, 0.92)' },
+      text: { text: '文本', fontSize: 14, fill: { type: 'solid', color: '#16324f' }, padding: [8, 12, 8, 12], maxWidth: 240 }
+    };
+  }
   if (kind === 'point') return stylePresets['point-default'];
   if (kind === 'polyline') return stylePresets['line-default'];
   return stylePresets['polygon-default'];
