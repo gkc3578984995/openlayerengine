@@ -27,6 +27,15 @@
   --home-focus-ring: #1d4ed8;
   --home-status: #16a06a;
   --home-status-soft: rgba(22, 160, 106, 0.14);
+  --print-proof-desk: #e7edf4;
+  --print-proof-page: #ffffff;
+  --print-proof-ink: #182235;
+  --print-proof-map: #dce9dd;
+  --print-proof-grid: rgba(30, 65, 48, 0.12);
+  --print-proof-water: rgba(64, 158, 255, 0.32);
+  --print-proof-legend: rgba(255, 255, 255, 0.92);
+  --print-proof-legend-border: rgba(24, 34, 53, 0.45);
+  --print-proof-shadow: 0 18px 36px rgba(15, 23, 42, 0.2);
 }
 
 html.dark {
@@ -57,6 +66,15 @@ html.dark {
   --home-focus-ring: #a0cfff;
   --home-status: #5ee6a8;
   --home-status-soft: rgba(94, 230, 168, 0.14);
+  --print-proof-desk: #111a28;
+  --print-proof-page: #ffffff;
+  --print-proof-ink: #182235;
+  --print-proof-map: #d5e4d7;
+  --print-proof-grid: rgba(30, 65, 48, 0.14);
+  --print-proof-water: rgba(50, 138, 210, 0.34);
+  --print-proof-legend: rgba(255, 255, 255, 0.94);
+  --print-proof-legend-border: rgba(24, 34, 53, 0.5);
+  --print-proof-shadow: 0 20px 42px rgba(0, 0, 0, 0.48);
 }
 
 .api-table__tag {

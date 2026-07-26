@@ -26,6 +26,7 @@ import type { RenderGeometryState } from '../../../core/shape/types.js';
 import { isNativeStyleRef, type ElementStyleState } from '../../../core/style/types.js';
 import { styleVisualOutsetPx } from '../../../core/style/visualOutset.js';
 import type { ProjectionSuppressionLease, FeatureBinding } from '../FeatureBinding.js';
+import { markInternalTransientLayer } from '../internalLayerRole.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 import { compiledStylesGeometryExtent, compiledStylesVisualFootprintPx, resolveCompiledStyles } from '../style/visualFootprint.js';
 import {
@@ -167,7 +168,7 @@ export class HandleLayer {
     this.renderLayerId = `transform-handles:${options.sessionId}`;
     this.renderTargetId = `transform-bbox:${options.sessionId}`;
     this.#source = new VectorSource({ wrapX: false });
-    this.#layer = new VectorLayer({ source: this.#source, zIndex: 2_147_483_647 });
+    this.#layer = markInternalTransientLayer(new VectorLayer({ source: this.#source, zIndex: 2_147_483_647 }));
     this.#map.addLayer(this.#layer);
     const view = this.#map.getView();
     this.#viewKeys.push(view.on('change:resolution', this.#refreshForView), view.on('change:rotation', this.#refreshForView));

@@ -79,7 +79,11 @@ function findForbiddenDomIdentifiers(source: string, fileName = 'core.ts'): stri
   const visit = (node: ts.Node): void => {
     if (
       ts.isIdentifier(node) &&
-      (forbiddenDomNames.has(node.text) || /^(?:HTML|SVG)[A-Za-z0-9]*Element$/.test(node.text) || /^(?:HTML)?CanvasElement$/.test(node.text))
+      (node.text === 'document' ||
+        node.text === 'window' ||
+        forbiddenDomNames.has(node.text) ||
+        /^(?:HTML|SVG)[A-Za-z0-9]*Element$/.test(node.text) ||
+        /^(?:HTML)?CanvasElement$/.test(node.text))
     ) {
       matches.add(node.text);
     }
@@ -98,7 +102,6 @@ describe('pure Core boundaries', () => {
       const source = await readFile(file, 'utf8');
       expect(source, file).not.toMatch(/\bfrom\s+['"]ol(?:\/|['"])/);
       expect(findForbiddenDomIdentifiers(source, file), file).toEqual([]);
-      expect(source, file).not.toMatch(/\b(?:document|window)\b/);
       expect(source, file).not.toMatch(/(?:^|\/)services(?:\/|$)|(?:^|\/)adapters(?:\/|$)|(?:^|\/)facade(?:\/|$)/m);
     }
   });
@@ -113,7 +116,10 @@ describe('pure Core boundaries', () => {
       'type Pointer = PointerEvent;',
       'type Keyboard = KeyboardEvent;',
       'type Message = MessageEvent;',
-      'type Animation = AnimationEvent;'
+      'type Animation = AnimationEvent;',
+      "const errorCode = 'print-window-blocked';",
+      "document.createElement('canvas');",
+      'window.print();'
     ].join('\n');
 
     expect(findForbiddenDomIdentifiers(source)).toEqual([
@@ -125,7 +131,9 @@ describe('pure Core boundaries', () => {
       'OffscreenCanvasRenderingContext2D',
       'PointerEvent',
       'SVGPathElement',
-      'Window'
+      'Window',
+      'document',
+      'window'
     ]);
   });
 

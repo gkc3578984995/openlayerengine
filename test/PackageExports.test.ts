@@ -54,7 +54,7 @@ describe('2.0 发布入口', () => {
   );
 
   it('只发布 ESM 根入口和样式入口', () => {
-    expect(packageJson.version).toBe('2.0.0');
+    expect(packageJson.version).toBe('2.0.1');
     expect(packageJson.type).toBe('module');
     expect(Object.keys(packageJson.exports)).toEqual(['.', './style.css']);
     expect(packageJson.exports['.']).toEqual({ types: './dist/types/index.d.ts', import: './dist/esm/index.mjs' });
@@ -136,11 +136,11 @@ describe('2.0 发布入口', () => {
       [
         '--input-type=module',
         '--eval',
-        "const api = await import('@vrsim/earth-engine-ol'); console.log(['Earth','Element','Layer','useEarth'].filter(name => name in api).join(','));"
+        "const api = await import('@vrsim/earth-engine-ol'); console.log(['Earth','Element','Layer','PrintError','useEarth'].filter(name => name in api).join(','));"
       ],
       { cwd: projectRoot, encoding: 'utf8' }
     );
-    expect(output.trim()).toBe('Earth,Element,Layer,useEarth');
+    expect(output.trim()).toBe('Earth,Element,Layer,PrintError,useEarth');
 
     for (const subpath of ['core', 'layers', 'draw', 'measure', 'transform', 'plot']) {
       expect(() =>

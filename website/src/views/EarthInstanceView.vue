@@ -131,6 +131,13 @@ const propertyRows = [
     desc: '覆盖物入口'
   },
   {
+    anchor: 'api-property-print',
+    href: '#api-type-earth-property-print',
+    name: 'print',
+    type: 'PrintFacade',
+    desc: '内置五屏 UI 与 headless 地图打印入口；完整行为见地图打印（Print）页'
+  },
+  {
     anchor: 'api-property-view',
     href: '/api/types#api-type-earth-property-view',
     name: 'view',
@@ -339,6 +346,10 @@ new Earth(options?: EarthOptions): Earth;`;
 
         <h3 id="api-properties" class="doc-h3">公开属性</h3>
         <ApiTable :columns="propertyColumns" :rows="propertyRows" />
+        <p>
+          <code>earth.print</code> 的五屏 UI、headless Session、比例尺与输出边界统一在
+          <RouterLink class="doc-link" to="/components/services/print">地图打印（Print）</RouterLink> 页面维护。
+        </p>
 
         <h3 id="api-methods" class="doc-h3">公开方法</h3>
         <ApiTable :columns="methodColumns" :rows="methodRows" />

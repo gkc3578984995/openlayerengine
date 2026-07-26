@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { cloneElementSnapshot } from '../src/core/element/snapshot.js';
-import { InvalidArgumentError, UnsupportedOperationError } from '../src/core/errors.js';
+import { CapabilityError, InvalidArgumentError, UnsupportedOperationError } from '../src/core/errors.js';
 import { createNativeStyleRef } from '../src/core/style/types.js';
 import type { AnimationManager } from '../src/services/animation/types.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
@@ -333,5 +333,44 @@ describe('AnimationManager', () => {
       const preview = Object.freeze({ ...committed, data });
       expect(() => manager.setPreview(preview as never, geometry)).toThrowError(InvalidArgumentError);
     }
+  });
+
+  it('在单一 Clock 时刻冻结 current-frame，恢复活动 Runtime，并只为显式展示操作推进 revision', () => {
+    const { manager, render } = createAnimationHarness([pointElement('print-point')]);
+    const revisions: number[] = [];
+    manager.subscribePresentationChanges(() => revisions.push(manager.presentationRevision));
+    const handle = manager.play({ id: 'print-point' }, { type: 'pulse', periodMs: 1000 });
+    render.advanceTime(250);
+    const before = render.frame('default', 250);
+
+    const snapshot = manager.capturePresentationSnapshot({
+      resolution: 1,
+      rotation: 0,
+      pixelRatio: 1,
+      extent: [-100, -100, 100, 100]
+    });
+    const after = render.frame('default', 250);
+
+    expect(snapshot.capturedAt).toBe(250);
+    expect(snapshot.revision).toBe(manager.presentationRevision);
+    expect(snapshot.elements).toEqual([expect.objectContaining({ elementId: 'print-point' })]);
+    expect(after).toEqual(before);
+    expect(revisions).toHaveLength(1);
+    handle.pause();
+    expect(revisions).toHaveLength(2);
+    manager.destroy();
+  });
+
+  it('reports current-frame snapshot capability as unavailable during an active interaction preview', () => {
+    const { manager, shapes, store } = createAnimationHarness([polylineElement('previewed')]);
+    manager.play({ id: 'previewed' }, { type: 'dash-flow' });
+    const element = store.get('previewed');
+    if (element === undefined) throw new Error('测试元素不存在');
+    manager.setPreview(element, shapes.get(element.type).toRenderGeometry(element.geometry as never));
+
+    expect(() => manager.capturePresentationSnapshot({ resolution: 1, rotation: 0, pixelRatio: 1, extent: [-100, -100, 100, 100] })).toThrowError(
+      CapabilityError
+    );
+    manager.destroy();
   });
 });

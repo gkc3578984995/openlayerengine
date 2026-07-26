@@ -527,6 +527,27 @@ describe('FeatureBinding', () => {
     expect(binding.elementIdFor(new Feature<Geometry>())).toBeUndefined();
   });
 
+  it('uses the VectorSource spatial index while conservatively retaining native Style and suppressed candidates', () => {
+    const farGeometry = { type: 'point' as const, controlPoints: [[100, 100] as const] };
+    const { adapter, binding, refs, store } = setup([
+      point('inside'),
+      point('outside', 'default', { geometry: farGeometry }),
+      point('suppressed', 'default', { geometry: farGeometry })
+    ]);
+    const nativeStyle = refs.registerStyle(new Style());
+    store.add(point('native', 'default', { geometry: farGeometry, style: nativeStyle }));
+    const source = adapter.requireVectorSource('default');
+    const getFeaturesInExtent = vi.spyOn(source, 'getFeaturesInExtent');
+    const suppression = binding.suppressProjection('suppressed');
+
+    const candidates = binding.queryPrintCandidateIds('default', [[0, 0, 10, 10]]);
+
+    expect(getFeaturesInExtent).toHaveBeenCalledOnce();
+    expect(candidates).toEqual(['inside', 'suppressed', 'native']);
+    expect(candidates).not.toContain('outside');
+    suppression.release();
+  });
+
   it('展示租约保留规范 Feature、规范 Geometry 和透明命中代理，并在最终释放时恢复最新样式', async () => {
     const { adapter, binding, store } = setup([point('presented')]);
     const source = adapter.requireVectorSource('default');

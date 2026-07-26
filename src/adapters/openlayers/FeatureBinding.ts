@@ -1,7 +1,7 @@
 import Feature from 'ol/Feature.js';
 import Geometry from 'ol/geom/Geometry.js';
 import type VectorSource from 'ol/source/Vector.js';
-import type { StyleFunction, StyleLike } from 'ol/style/Style.js';
+import Style, { type StyleFunction, type StyleLike } from 'ol/style/Style.js';
 import type { ElementStore } from '../../core/element/ElementStore.js';
 import type { ElementState } from '../../core/element/types.js';
 import { runFinalizers } from '../../core/common/dispose.js';
@@ -76,6 +76,15 @@ export interface BoundFeatureIdentity {
   readonly visible: boolean;
 }
 
+/** 打印 Adapter 读取的规范 Feature 副本，不暴露活动 Source 中的展示代理。 */
+export interface CanonicalFeatureSnapshot {
+  readonly elementId: string;
+  readonly layerId: string;
+  readonly renderOrder: number;
+  readonly structuredStyle: boolean;
+  readonly feature: Feature<Geometry>;
+}
+
 /** 暂停 Element 投影到矢量 Source 的租约。 */
 export interface ProjectionSuppressionLease {
   /** 暂停投影的 Element ID。 */
@@ -99,6 +108,7 @@ export class FeatureBinding {
   readonly #errorReporter: ErrorReporter;
   readonly #bindings = new Map<string, BindingRecord>();
   readonly #featureIds = new WeakMap<Feature<Geometry>, string>();
+  readonly #printFallbackCandidates = new Map<string, ReadonlySet<string>>();
   readonly #dirty = new Set<string>();
   readonly #pendingPresentationLayers = new Set<string>();
   readonly #unsubscribe: () => void;
@@ -107,6 +117,7 @@ export class FeatureBinding {
   #destroyRunning = false;
   #reconciling = false;
   #presentationInvalidationScheduled = false;
+  #printFallbackCandidatesDirty = true;
   #nextRenderOrder = 0;
 
   /** 订阅 Store 后立即完成首次全量对账。 */
@@ -158,6 +169,68 @@ export class FeatureBinding {
     return order;
   }
 
+  /**
+   * 复制规范 Feature 和规范样式。动画 presentation lease 即使把活动 Feature 变为透明，打印副本也不受影响。
+   */
+  cloneCanonicalFeature(id: string, resolution: number): Feature<Geometry> {
+    this.#assertActive();
+    this.#reconcileDirty();
+    const binding = this.#bindings.get(id);
+    if (binding === undefined) throw new ObjectDisposedError(`Element Feature is not bound: ${id}`);
+    return cloneCanonicalBindingFeature(binding, resolution);
+  }
+
+  /** 按规范渲染顺序复制指定业务图层的全部可见 Feature，包括暂时从活动 Source 抑制的目标。 */
+  captureCanonicalLayerFeatures(layerId: string, resolution: number): readonly Readonly<CanonicalFeatureSnapshot>[] {
+    this.#assertActive();
+    this.#reconcileDirty();
+    const result = [...this.#bindings.entries()]
+      .filter(([, binding]) => binding.layerId === layerId && binding.visible)
+      .sort((left, right) => left[1].renderOrder - right[1].renderOrder)
+      .map(([elementId, binding]) =>
+        Object.freeze({
+          elementId,
+          layerId,
+          renderOrder: binding.renderOrder,
+          structuredStyle: binding.structuredStyle,
+          feature: cloneCanonicalBindingFeature(binding, resolution)
+        })
+      );
+    return Object.freeze(result);
+  }
+
+  /** 通过活动 VectorSource 的空间索引取得打印粗筛候选，并保守保留自定义 Style 与临时 suppression 目标。 */
+  queryPrintCandidateIds(layerId: string, extents: readonly (readonly [number, number, number, number])[]): readonly string[] {
+    this.#assertActive();
+    this.#reconcileDirty();
+    const candidates = new Set<string>();
+    const source = this.#layers.requireVectorSource(layerId);
+    for (const extent of extents) {
+      for (const feature of source.getFeaturesInExtent([...extent])) {
+        const elementId = this.#featureIds.get(feature);
+        const binding = elementId === undefined ? undefined : this.#bindings.get(elementId);
+        if (elementId !== undefined && binding?.layerId === layerId && binding.visible) candidates.add(elementId);
+      }
+    }
+    this.#refreshPrintFallbackCandidates();
+    for (const elementId of this.#printFallbackCandidates.get(layerId) ?? []) candidates.add(elementId);
+    return Object.freeze([...candidates].sort((left, right) => this.#bindings.get(left)!.renderOrder - this.#bindings.get(right)!.renderOrder));
+  }
+
+  #refreshPrintFallbackCandidates(): void {
+    if (!this.#printFallbackCandidatesDirty) return;
+    this.#printFallbackCandidates.clear();
+    const mutable = new Map<string, Set<string>>();
+    for (const [elementId, binding] of this.#bindings) {
+      if (!binding.visible || (binding.suppressionTokens.size === 0 && binding.structuredStyle)) continue;
+      const layerCandidates = mutable.get(binding.layerId) ?? new Set<string>();
+      layerCandidates.add(elementId);
+      mutable.set(binding.layerId, layerCandidates);
+    }
+    for (const [layerId, elementIds] of mutable) this.#printFallbackCandidates.set(layerId, elementIds);
+    this.#printFallbackCandidatesDirty = false;
+  }
+
   /** 临时接管结构化 Element 的展示权，规范 Feature 仍保留在原 Source。 */
   acquirePresentation(elementId: string): LayerPresentationLease {
     this.#assertActive();
@@ -202,6 +275,7 @@ export class FeatureBinding {
     this.#reconcileDirty();
     const binding = this.#bindings.get(elementId);
     if (binding === undefined) throw new ObjectDisposedError(`Element Feature is not bound: ${elementId}`);
+    this.#printFallbackCandidatesDirty = true;
 
     const token = Symbol(elementId);
     const state: SuppressionLeaseState = {
@@ -266,6 +340,7 @@ export class FeatureBinding {
     };
     const release = (): void => {
       if (!this.#isSuppressionLeaseOwned(state, owner)) return;
+      this.#printFallbackCandidatesDirty = true;
       state.owner = undefined;
       state.released = true;
       const pending = state.binding.suppressionAcquisition?.delete(state.token) ?? false;
@@ -438,6 +513,7 @@ export class FeatureBinding {
 
   /** 批量应用 Element 增删改并更新 Source。 */
   #applyChanges(changes: ElementChangeSet): void {
+    if (changes.changes.length > 0) this.#printFallbackCandidatesDirty = true;
     const sources = this.#layers.vectorSources();
     const targetSources = new Map<string, BoundSource>();
     for (const change of changes.changes) {
@@ -680,6 +756,7 @@ export class FeatureBinding {
       this.#featureIds.delete(binding.feature);
     }
     this.#bindings.clear();
+    this.#printFallbackCandidates.clear();
     this.#dirty.clear();
     this.#pendingPresentationLayers.clear();
     this.#destroyProgress = undefined;
@@ -713,6 +790,25 @@ function createBindingRecord(feature: Feature<Geometry>, id: string, layerId: st
   };
   holder.record = record;
   return record;
+}
+
+function cloneCanonicalBindingFeature(binding: BindingRecord, resolution: number): Feature<Geometry> {
+  if (!Number.isFinite(resolution) || resolution <= 0) throw new CapabilityError('Canonical Feature snapshot resolution must be finite and positive');
+  const clone = binding.feature.clone();
+  const id = binding.feature.getId();
+  if (id !== undefined) clone.setId(id);
+  try {
+    const resolved = typeof binding.canonicalStyle === 'function' ? binding.canonicalStyle(binding.feature, resolution) : binding.canonicalStyle;
+    if (resolved === undefined) clone.setStyle(undefined);
+    else if (Array.isArray(resolved)) clone.setStyle(resolved.map((style) => style.clone()));
+    else clone.setStyle((resolved as Style).clone());
+    return clone;
+  } catch (error) {
+    clone.setGeometry(undefined);
+    clone.setStyle(undefined);
+    clone.dispose();
+    throw error;
+  }
 }
 
 /** 将 Feature 追加到按 Source 分组的批次。 */

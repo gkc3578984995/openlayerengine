@@ -10,6 +10,7 @@ import type { DrawService } from './drawTypes.js';
 import type { EventService } from './EventFacade.js';
 import type { MeasureService } from './measureTypes.js';
 import type { OverlayService } from './overlayTypes.js';
+import type { PrintFacade } from './printTypes.js';
 import type { StyleService } from './styleTypes.js';
 import type { TransformService } from './transformTypes.js';
 import type { ElementService, LayerService } from './types.js';
@@ -74,6 +75,8 @@ export default class Earth {
   readonly view: ViewService;
   /** 管理经纬网和比例尺。 */
   readonly controls: ControlService;
+  /** 创建地图打印会话或打开内置五屏打印工作台。 */
+  readonly print: PrintFacade;
 
   /** 内部服务上下文。 */
   readonly #context: EngineContext;
@@ -114,6 +117,7 @@ export default class Earth {
     this.overlays = context.overlays;
     this.view = context.view;
     this.controls = context.controls;
+    this.print = context.print;
   }
 
   /** 当前生命周期阶段。 */

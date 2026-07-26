@@ -26,6 +26,7 @@ import type { ElementProtectionViewPort } from '../../core/ports/ElementProtecti
 import type { ElementProtectionState } from '../../core/protection/types.js';
 import type { GeometryCodec } from './GeometryCodec.js';
 import { projectRenderGeometry } from './GeometryCodec.js';
+import { markInternalTransientLayer } from './internalLayerRole.js';
 import type { LayerAdapter } from './LayerAdapter.js';
 import type { StyleCompiler } from './style/StyleCompiler.js';
 import { compiledImageVisualExtentPx, compiledTextVisualFootprintPx, isRenderableCompiledStyle } from './style/visualFootprint.js';
@@ -306,7 +307,7 @@ export class ElementProtectionViewAdapter implements ElementProtectionViewPort {
     if (collection === undefined) throw new InvalidArgumentError(`Element protection target layer is not attached: ${layerId}`);
 
     const source = new VectorSource<ProtectionFeature>({ wrapX: targetSource.getWrapX() });
-    const layer = new VectorLayer<ProtectionSource>({ source, style: null, declutter: targetLayer.getDeclutter() });
+    const layer = markInternalTransientLayer(new VectorLayer<ProtectionSource>({ source, style: null, declutter: targetLayer.getDeclutter() }));
     const bucket: ProtectionLayerBucket = {
       layerId,
       targetLayer,

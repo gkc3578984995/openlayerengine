@@ -19,6 +19,7 @@ describe('website document title', () => {
     expect(getDocumentTitle('/components/interactions/draw')).toBe('绘制（Draw） | OL-DOC');
     expect(getDocumentTitle('/components/presentation/animations')).toBe('动画（Animations） | OL-DOC');
     expect(getDocumentTitle('/components/services/descriptor')).toBe('Descriptor | OL-DOC');
+    expect(getDocumentTitle('/components/services/print')).toBe('地图打印（Print） | OL-DOC');
     expect(getDocumentTitle('/components/reference/errors')).toBe('错误类型 | OL-DOC');
     expect(getDocumentTitle('/api/methods')).toBe('方法 | OL-DOC');
     expect(getDocumentTitle('/api/types')).toBe('类型 | OL-DOC');

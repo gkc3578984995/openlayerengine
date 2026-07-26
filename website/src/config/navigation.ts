@@ -79,7 +79,8 @@ export const sideGroups: SideGroup[] = [
       { label: '右键菜单（ContextMenu）', to: '/components/services/context-menu' },
       { label: '事件（Events）', to: '/components/services/events' },
       { label: '覆盖物（Overlays）', to: '/components/services/overlays' },
-      { label: 'Descriptor', to: '/components/services/descriptor' }
+      { label: 'Descriptor', to: '/components/services/descriptor' },
+      { label: '地图打印（Print）', to: '/components/services/print' }
     ]
   },
   {

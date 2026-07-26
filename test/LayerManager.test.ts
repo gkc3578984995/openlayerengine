@@ -78,6 +78,20 @@ describe('LayerManager', () => {
     expect(() => manager.ensureDefaultVector()).toThrow(InvalidArgumentError);
   });
 
+  it('assigns a new internal generation when a Layer id is removed and recreated', () => {
+    const { manager } = setup();
+    manager.add({ kind: 'vector', id: 'business', visible: true, opacity: 1, wrapX: true, declutter: false });
+    const first = manager.generationOf('business');
+
+    manager.remove('business');
+    expect(manager.generationOf('business')).toBeUndefined();
+    manager.add({ kind: 'vector', id: 'business', visible: true, opacity: 1, wrapX: true, declutter: false });
+
+    expect(first).toBeDefined();
+    expect(manager.generationOf('business')).toBeDefined();
+    expect(manager.generationOf('business')).not.toBe(first);
+  });
+
   it('validates records and duplicates before calling the port', () => {
     const { manager, port } = setup();
     manager.add({ kind: 'vector', id: 'business', visible: true, opacity: 0, zIndex: 0, wrapX: false, declutter: true });

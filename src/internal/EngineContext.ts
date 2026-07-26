@@ -7,6 +7,7 @@ import type { DrawService } from '../facade/drawTypes.js';
 import type { EventService } from '../facade/EventFacade.js';
 import type { MeasureService } from '../facade/measureTypes.js';
 import type { OverlayService } from '../facade/overlayTypes.js';
+import type { PrintFacade } from '../facade/printTypes.js';
 import type { StyleService } from '../facade/styleTypes.js';
 import type { TransformService } from '../facade/transformTypes.js';
 import type { ElementService, LayerService } from '../facade/types.js';
@@ -46,6 +47,8 @@ export interface EngineContext {
   readonly view: ViewService;
   /** 地图控件服务。 */
   readonly controls: ControlService;
+  /** 地图打印服务。 */
+  readonly print: PrintFacade;
   /** 按依赖关系释放上下文内的服务和地图资源。 */
   destroy(): void;
 }

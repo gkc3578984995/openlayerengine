@@ -29,6 +29,7 @@ const ContextMenuView = () => import('../views/services/ContextMenuView.vue');
 const EventsView = () => import('../views/services/EventsView.vue');
 const OverlaysView = () => import('../views/services/OverlaysView.vue');
 const DescriptorView = () => import('../views/services/DescriptorView.vue');
+const PrintView = () => import('../views/services/PrintView.vue');
 const UtilsView = () => import('../views/reference/UtilsView.vue');
 const ErrorsView = () => import('../views/reference/ErrorsView.vue');
 const NotFoundView = () => import('../views/NotFoundView.vue');
@@ -72,6 +73,7 @@ const router = createRouter({
         { path: 'components/services/events', name: 'service-events', component: EventsView },
         { path: 'components/services/overlays', name: 'service-overlays', component: OverlaysView },
         { path: 'components/services/descriptor', name: 'service-descriptor', component: DescriptorView },
+        { path: 'components/services/print', name: 'service-print', component: PrintView },
         { path: 'components/services/overlays/descriptor', redirect: '/components/services/descriptor' },
         { path: 'components/reference/utils', name: 'reference-utils', component: UtilsView },
         { path: 'components/reference/errors', name: 'reference-errors', component: ErrorsView },

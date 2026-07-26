@@ -1,16 +1,18 @@
-import { Earth, useEarth, type EarthOptions, type UseEarthOptions } from '@vrsim/earth-engine-ol';
+import { Earth, useEarth, type EarthOptions, type PrintDialogHandle, type PrintSession, type PrintSpec, type UseEarthOptions } from '@vrsim/earth-engine-ol';
 import type { ScenarioDefinition } from '../harness/types.js';
 
 export const earthScenario: ScenarioDefinition = {
   id: 'earth',
   group: '核心与实例',
   title: 'Earth 与 useEarth 实例管理',
-  summary: '验证无参默认实例、无 id 配置默认实例、命名实例、带 id 配置实例与独立实例的创建、复用、销毁和重新创建。',
+  summary: '验证 Earth 实例管理、完整服务入口，以及 headless 打印会话和内置打印工作台的公共契约。',
   steps: [
     '确认当前四个有效地图视口均能显示蓝色定位点，且无参、无 id 配置、命名和带 id 配置分支的检查均为通过。',
     '点击“销毁并重新创建默认实例”，确认旧实例进入 destroyed，新实例重新显示地图。',
     '点击“销毁并重新创建独立实例”，确认 new Earth() 不进入 useEarth 注册表且可以自行管理生命周期。',
-    '检查当前状态中的 target、lifecycle、isDestroyed 以及全部服务入口。'
+    '检查当前状态中的 target、lifecycle、isDestroyed 以及全部服务入口。',
+    '按顺序操作打印区按钮，验证视图范围、指定范围、框选、固定比例尺、自定义纸张、预览与 PNG 输出。',
+    '打开内置打印工作台，确认五屏流程可聚焦、关闭和销毁，且场景加载时不会自动启动打印。'
   ],
   mount(context) {
     const defaultTarget = context.createMapTarget('默认实例：useEarth()');
@@ -119,8 +121,140 @@ export const earthScenario: ScenarioDefinition = {
       context.log('已读取 Earth 的全部公开属性', '成功');
     });
 
+    let printSession: PrintSession | undefined;
+    let printDialog: PrintDialogHandle | undefined;
+    let unsubscribePrint: (() => void) | undefined;
+
+    const watchPrintSession = (session: PrintSession): PrintSession => {
+      unsubscribePrint?.();
+      printSession = session;
+      unsubscribePrint = session.on('statuschange', (event) => {
+        context.status('打印会话状态', { status: event.status, revision: event.revision });
+      });
+      return session;
+    };
+
+    const createHeadlessPrintSession = (): PrintSession => {
+      printDialog?.destroy();
+      printDialog = undefined;
+      printSession?.destroy();
+      return watchPrintSession(
+        configuredEarth.print.create({
+          initialSpec: createPrintSpec(),
+          sessionConflictPolicy: 'replace',
+          interactionConflictPolicy: 'replace'
+        })
+      );
+    };
+
+    const activePrintSession = (): PrintSession => {
+      if (printSession === undefined || printSession.status === 'cancelled' || printSession.status === 'destroyed') return createHeadlessPrintSession();
+      return printSession;
+    };
+
+    const printableSession = (): PrintSession => {
+      const session = activePrintSession();
+      if (!session.validation.canPreview) session.update(createPrintSpec());
+      return session;
+    };
+
+    context.track(() => {
+      unsubscribePrint?.();
+      printDialog?.destroy();
+      printSession?.destroy();
+    });
+
+    const printSection = context.section(
+      '地图打印',
+      '打印只会在点击按钮后启动。默认采用当前视图和自定义横向纸张，也可更新为指定范围、固定比例尺或在地图上框选。'
+    );
+    context.status('打印能力', configuredEarth.print.capabilities);
+    const printActions = context.actions(printSection);
+
+    context.button(printActions, '创建 headless 打印会话', () => {
+      const session = createHeadlessPrintSession();
+      context.status('打印会话快照', printSessionSnapshot(session));
+      context.check('headless 会话已创建且初始配置有效', session.spec !== undefined && session.validation.canPreview);
+    });
+
+    context.button(printActions, '更新为指定范围和固定比例尺', () => {
+      const session = activePrintSession();
+      session.update(createPrintSpec({ mode: 'extent', extent: [1_000_000, 0, 3_000_000, 2_000_000] }, { mode: 'fixed', denominator: 5_000_000 }));
+      context.status('打印会话快照', printSessionSnapshot(session));
+      context.check('固定比例尺已进入打印计划', session.plan?.range.denominator === 5_000_000);
+    });
+
+    context.button(printActions, '框选打印范围并规划', async () => {
+      const session = activePrintSession();
+      session.update(createPrintSpec({ mode: 'box' }));
+      context.note(printSection, '请在“配置实例”地图上拖拽框选打印范围。', '提示');
+      const range = await session.selectArea();
+      context.status('框选范围', range);
+      context.check('框选范围已解析', range.sourceMode === 'box');
+    });
+
+    context.button(printActions, '生成当前范围图例', async () => {
+      const session = printableSession();
+      const legend = await session.generateLegend();
+      context.status('图例结果', legend);
+      context.check('图例结果与当前会话一致', session.legendResult === legend);
+    });
+
+    context.button(printActions, '生成草稿预览', async () => {
+      const session = printableSession();
+      const preview = await session.preview({ quality: 'draft' });
+      context.status('预览结果', { widthPx: preview.widthPx, heightPx: preview.heightPx, revision: preview.revision });
+      context.check('预览结果已写回会话', session.previewResult === preview && preview.blob.size > 0);
+    });
+
+    context.button(printActions, '导出 PNG 打印成品', async () => {
+      const session = printableSession();
+      const result = await session.export({ format: 'png' });
+      context.status('导出结果', result);
+      context.check('PNG 成品已生成', 'format' in result && result.format === 'png' && result.blob.size > 0);
+    });
+
+    context.button(printActions, '取消当前打印会话', () => {
+      const session = activePrintSession();
+      session.cancel();
+      context.status('打印会话快照', printSessionSnapshot(session));
+      context.check('打印会话已取消', session.status === 'cancelled');
+    });
+
+    context.button(printActions, '销毁当前打印会话', () => {
+      const session = activePrintSession();
+      session.destroy();
+      unsubscribePrint?.();
+      unsubscribePrint = undefined;
+      printSession = undefined;
+      context.status('打印会话状态', 'destroyed');
+    });
+
+    const dialogActions = context.actions(printSection);
+    context.button(dialogActions, '打开内置五屏打印工作台', () => {
+      unsubscribePrint?.();
+      printSession?.destroy();
+      printDialog?.destroy();
+      printDialog = configuredEarth.print.open({ initialSpec: createPrintSpec(), sessionConflictPolicy: 'replace' });
+      watchPrintSession(printDialog.session);
+      printDialog.focus();
+      context.status('打印工作台状态', printDialog.status);
+    });
+    context.button(dialogActions, '关闭内置打印工作台', () => {
+      printDialog?.close();
+      context.status('打印工作台状态', printDialog?.status ?? '未打开');
+    });
+    context.button(dialogActions, '销毁内置打印工作台', () => {
+      printDialog?.destroy();
+      printDialog = undefined;
+      printSession = undefined;
+      unsubscribePrint?.();
+      unsubscribePrint = undefined;
+      context.status('打印工作台状态', 'destroyed');
+    });
+
     context.setCode(`
-import { Earth, useEarth } from '@vrsim/earth-engine-ol';
+import { Earth, useEarth, type PrintSpec } from '@vrsim/earth-engine-ol';
 import '@vrsim/earth-engine-ol/style.css';
 
 const defaultEarth = useEarth();
@@ -145,6 +279,44 @@ const configuredEarth = useEarth({
 
 const standalone = new Earth({ target: 'preview-map' });
 standalone.destroy();
+
+const printSpec: PrintSpec = {
+  range: { source: { mode: 'view' }, scale: { mode: 'fixed', denominator: 50000 } },
+  paper: { size: { widthMm: 260, heightMm: 180 }, orientation: 'landscape', marginMm: 10, dpi: 150 },
+  layout: {
+    classification: '内部资料',
+    title: '规划态势图',
+    subtitle: '当前视图打印',
+    date: '2026-07-23',
+    issuer: '规划处'
+  },
+  legend: { mode: 'auto', showCounts: true },
+  content: { animations: 'current-frame', domOverlays: 'exclude', controls: 'exclude' }
+};
+
+async function exportCurrentView(): Promise<Blob> {
+  const session = configuredEarth.print.create({ initialSpec: printSpec });
+  const unsubscribe = session.on('statuschange', ({ status }) => console.info(status));
+  try {
+    session.update(printSpec);
+    await session.selectArea();
+    await session.generateLegend();
+    await session.preview({ quality: 'final' });
+    const result = await session.export({ format: 'png' });
+    if (!('blob' in result)) throw new Error('未生成 PNG 文件');
+    return result.blob;
+  } finally {
+    unsubscribe();
+    session.cancel();
+    session.destroy();
+  }
+}
+
+function openPrintWorkbench() {
+  const dialog = configuredEarth.print.open({ initialSpec: printSpec });
+  dialog.focus();
+  return dialog;
+}
 `);
   }
 };
@@ -187,6 +359,7 @@ function inspectEarth(context: Parameters<ScenarioDefinition['mount']>[0], label
     events: earth.events,
     contextMenu: earth.contextMenu,
     overlays: earth.overlays,
+    print: earth.print,
     view: earth.view,
     controls: earth.controls
   };
@@ -198,4 +371,37 @@ function inspectEarth(context: Parameters<ScenarioDefinition['mount']>[0], label
     `${label}全部公开服务可访问`,
     Object.values(services).every((service) => service !== undefined)
   );
+}
+
+function createPrintSpec(source: PrintSpec['range']['source'] = { mode: 'view' }, scale: PrintSpec['range']['scale'] = { mode: 'fit' }): PrintSpec {
+  return {
+    range: { source, scale },
+    paper: {
+      size: { widthMm: 260, heightMm: 180 },
+      orientation: 'landscape',
+      marginMm: { top: 12, right: 10, bottom: 12, left: 10 },
+      dpi: 96
+    },
+    layout: {
+      classification: '人工验收',
+      title: 'Earth 打印验收图',
+      subtitle: '自定义横向纸张',
+      date: new Date().toLocaleDateString('zh-CN'),
+      issuer: 'OpenLayers 工具库'
+    },
+    legend: { mode: 'auto', showCounts: true },
+    content: { animations: 'current-frame', domOverlays: 'exclude', controls: 'exclude' },
+    resources: { timeoutMs: 10_000 }
+  };
+}
+
+function printSessionSnapshot(session: PrintSession): object {
+  return {
+    status: session.status,
+    spec: session.spec,
+    plan: session.plan,
+    legendResult: session.legendResult,
+    previewResult: session.previewResult,
+    validation: session.validation
+  };
 }

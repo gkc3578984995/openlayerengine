@@ -31,6 +31,7 @@ const expectedRoutes = [
   '/components/services/events',
   '/components/services/overlays',
   '/components/services/descriptor',
+  '/components/services/print',
   '/components/reference/utils',
   '/components/reference/errors'
 ] as const;
@@ -72,6 +73,7 @@ describe('website V2 navigation', () => {
       '事件（Events）',
       '覆盖物（Overlays）',
       'Descriptor',
+      '地图打印（Print）',
       'Utils',
       '错误类型'
     ]);
@@ -84,6 +86,7 @@ describe('website V2 navigation', () => {
     expect(getSideNavigationLabel('/components/core/view')).toBe('视图（View）');
     expect(findSideNavigation('/components/services/overlays')?.group.title).toBe('地图服务');
     expect(findSideNavigation('/components/services/descriptor')?.item.label).toBe('Descriptor');
+    expect(findSideNavigation('/components/services/print')?.item.label).toBe('地图打印（Print）');
     expect(findSideNavigation('/components/services/overlays/descriptor')).toBeUndefined();
     expect(findSideNavigation('/components/reference/types')).toBeUndefined();
     expect(getSideNavigationLabel('/missing')).toBe('');
@@ -103,12 +106,14 @@ describe('website V2 navigation', () => {
     expect(router).toContain("import('../views/interactions/DrawView.vue')");
     expect(router).toContain("import('../views/presentation/AnimationsView.vue')");
     expect(router).toContain("import('../views/services/OverlaysView.vue')");
+    expect(router).toContain("import('../views/services/PrintView.vue')");
     expect(router).toContain("import('../views/reference/UtilsView.vue')");
     expect(router).toContain("import('../views/NotFoundView.vue')");
     expect(router).toContain("{ path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundView }");
     expect(router).toContain("path: 'components/reference/types'");
     expect(router).toContain("redirect: (to) => ({ path: '/api/types', query: to.query, hash: to.hash })");
     expect(router).toContain("{ path: 'components/services/descriptor', name: 'service-descriptor', component: DescriptorView }");
+    expect(router).toContain("{ path: 'components/services/print', name: 'service-print', component: PrintView }");
     expect(router).toContain("{ path: 'components/services/overlays/descriptor', redirect: '/components/services/descriptor' }");
     expect(router).toContain("path: '/api'");
     expect(router).toContain("{ path: 'methods', name: 'api-methods', component: ApiMethodsView }");

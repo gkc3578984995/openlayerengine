@@ -28,6 +28,7 @@ import type {
 import { defaultErrorReporter, type ErrorReporter } from '../../../core/ports/ErrorReporter.js';
 import type { RenderGeometryState } from '../../../core/shape/types.js';
 import type { LayerAdapter } from '../LayerAdapter.js';
+import { markInternalTransientLayer } from '../internalLayerRole.js';
 import type { StyleCompiler } from '../style/StyleCompiler.js';
 
 type PreviewFeature = Feature<Geometry>;
@@ -125,10 +126,12 @@ export class DrawInteractionAdapter implements DrawInteractionPort {
     let handle: OpenLayersDrawInteractionHandle | undefined;
     try {
       previewSource = new VectorSource<PreviewFeature>({ wrapX: source.getWrapX() });
-      previewLayer = new VectorLayer<PreviewSource>({
-        source: previewSource,
-        style: null
-      });
+      previewLayer = markInternalTransientLayer(
+        new VectorLayer<PreviewSource>({
+          source: previewSource,
+          style: null
+        })
+      );
       const routing: { handle?: OpenLayersDrawInteractionHandle } = {};
       const interaction = new Interaction({ handleEvent: (event) => routing.handle?.handleEvent(event) ?? true });
       handle = new OpenLayersDrawInteractionHandle(
