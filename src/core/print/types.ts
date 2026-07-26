@@ -204,7 +204,7 @@ export interface PrintLegendItem {
   readonly visible?: boolean;
   /** 条目在分组内的稳定排序序号。 */
   readonly order?: number;
-  /** 自动图例命中的目标数量。 */
+  /** 自动图例命中的完整目标数量；内置纸张渲染不附加单目标的“（1）”。 */
   readonly count?: number;
   /** 追踪自动图例来源的稳定键。 */
   readonly sourceKey?: string;
@@ -234,7 +234,7 @@ export interface PrintLegendLayoutSpec {
 export interface PrintAutoLegendSpec {
   /** 使用最终打印范围自动生成图例。 */
   readonly mode: 'auto';
-  /** 是否在图例名称后显示命中数量。 */
+  /** 是否保留命中计数并在纸张图例中附加非单目标数量；单目标的“（1）”始终省略。 */
   readonly showCounts?: boolean;
 }
 

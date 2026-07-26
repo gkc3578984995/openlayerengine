@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdtemp, rename, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const websiteOutputDirectory = join(repositoryRoot, 'website', 'dist');
 const releaseDirectory = join(repositoryRoot, 'release');
-const releaseReadme = join(releaseDirectory, 'README.md');
 const npmCli = process.env.npm_execpath;
 
 assert(npmCli, '缺少 npm_execpath，请通过 npm run release 执行发布命令');
@@ -24,7 +23,7 @@ try {
   const archiveName = parseArchiveName(packOutput);
   await assertFile(join(stagingDirectory, archiveName), '代码发布包');
 
-  await copyFile(releaseReadme, join(stagingDirectory, 'README.md'));
+  await writeFile(join(stagingDirectory, '.gitkeep'), '', 'utf8');
   await rename(websiteOutputDirectory, join(stagingDirectory, 'dist'));
   await promoteRelease(stagingDirectory);
 

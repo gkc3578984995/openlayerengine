@@ -42,6 +42,9 @@ describe('PrintLegendBuilder', () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ label: '点标绘', count: 2, groupId: 'layer:default' });
     expect(result.sourceRevision).toBe(7);
+
+    const withoutCounts = builder.generate(plan, { mode: 'auto', showCounts: false });
+    expect(withoutCounts.items[0]).not.toHaveProperty('count');
   });
 
   it('resolves only spatial-index candidates and evaluates each candidate Style hit once', () => {

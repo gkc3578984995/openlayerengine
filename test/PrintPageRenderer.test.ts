@@ -172,6 +172,26 @@ describe('PrintPageRenderer', () => {
     expect(Object.isFrozen(input)).toBe(true);
   });
 
+  it('omits a redundant singleton count from the printed legend while retaining merged counts', () => {
+    const harness = canvasHarness();
+    const legend: PrintLegendResult = {
+      groups: [{ id: 'targets', title: '目标' }],
+      items: [
+        { id: 'single', groupId: 'targets', label: '医院', count: 1, symbol: { kind: 'point', radiusMm: 1.5 } },
+        { id: 'merged', groupId: 'targets', label: '学校', count: 2, symbol: { kind: 'point', radiusMm: 1.5 } }
+      ],
+      sourceRevision: 1,
+      warnings: []
+    };
+
+    new PrintPageRenderer(printPageTokens, harness.factory).render(renderInput('final', legend));
+
+    const text = operationsNamed(harness, 'fillText').map((operation) => operation.args[0]);
+    expect(text).toContain('医院');
+    expect(text).not.toContain('医院（1）');
+    expect(text).toContain('学校（2）');
+  });
+
   it('limits high-DPI draft backing size while preserving every physical coordinate ratio', () => {
     const draftHarness = canvasHarness();
     const finalHarness = canvasHarness();

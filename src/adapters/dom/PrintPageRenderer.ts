@@ -966,10 +966,14 @@ function legendSections(legend: PrintLegendResult): readonly LegendSection[] {
     if (items.length === 0) continue;
     sections.push({
       title: group.title.length === 0 ? undefined : { kind: 'group', text: group.title },
-      items: items.map(({ item }) => ({ kind: 'item', text: item.count === undefined ? item.label : `${item.label}（${item.count}）`, item }))
+      items: items.map(({ item }) => ({ kind: 'item', text: printLegendItemText(item), item }))
     });
   }
   return sections;
+}
+
+function printLegendItemText(item: Readonly<Pick<PrintLegendItem, 'label' | 'count'>>): string {
+  return item.count === undefined || item.count === 1 ? item.label : `${item.label}（${item.count}）`;
 }
 
 function resolveLegendLayout(input: Readonly<PrintLegendLayoutSpec> | undefined, mapFrame: PrintPageRect, metrics: DrawingMetrics): ResolvedLegendLayout {

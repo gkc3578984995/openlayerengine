@@ -537,6 +537,8 @@ export type PrintLegendSymbolSpec = PrintPointLegendSymbol | PrintLineLegendSymb
 
 自动条目先按最终 Layer 渲染顺序分组，默认组标题依次取公开 Layer title 和 layerId；组内按首次稳定渲染顺序排列。相同 Layer 内拥有相同语义符号指纹和相同默认标签的目标合并为一个条目，count 是上述命中 Element 数量。默认标签使用公开 Shape type 的内置中文显示名；外部系统需要业务分类时应在手动图例中改名，不从任意 `data.name`、私有 Feature 字段或 DOM 文本隐式推断。
 
+内置 UI 保持 `showCounts: true`，因此第 3 屏展示完整命中 count；headless 调用方显式设置 `showCounts: false` 时仍按既有契约省略 count。为避免在纸张图例中重复呈现没有额外信息的单目标数量，内置纸张预览和最终成品仅在已有 count 不等于 1 时把数量附加到条目名称；`PrintLegendItem.count` 数据本身不因纸张展示规则改变，合并条目的数量继续输出。
+
 语义符号指纹由规范化后的结构化图例符号纯数据生成，忽略对象身份和 OL 编译实例。分辨率相关 StyleSpec 必须先在最终 resolution 下解析。动画 overlay、target-opacity、target-geometry 和临时 presentation slot 不创建新的图例条目；自动图例表达业务基础符号，动画是否打印只影响地图展示帧。
 
 下列来源不能被自动可靠归类：

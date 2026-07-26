@@ -80,6 +80,7 @@ describe('website Print documentation', () => {
     expect(demo).toContain("paper: { size: 'A4', orientation: 'landscape'");
     expect(demo).toContain("paper: { size: 'A3', orientation: 'portrait'");
     expect(demo).toContain("legend: { mode: 'auto', showCounts: true }");
+    expect(view).toContain('纸张预览和最终成品不重复显示单目标的“（1）”');
     expect(demo).toContain("mode: 'manual'");
     expect(demo).toContain('（人工确认）');
     expect(demo).toContain("fill: { type: 'pattern', pattern: 'diagonal'");

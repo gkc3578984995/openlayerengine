@@ -1330,7 +1330,7 @@ export class PrintDialogAdapter {
       const row = element('span');
       const swatch = element('i');
       applySymbolSwatch(swatch, item.symbol);
-      row.append(swatch, document.createTextNode(`${item.label}${item.count === undefined ? '' : ` (${item.count})`}`));
+      row.append(swatch, document.createTextNode(paperLegendItemText(item)));
       legend.append(row);
     }
     if (items.length > 0) legend.append(element('small', 'ol-print-paper__legend-count', `共 ${items.length} 项`));
@@ -2230,6 +2230,10 @@ function legendList(result: Readonly<PrintLegendResult>): HTMLElement {
     wrapper.append(section);
   }
   return wrapper;
+}
+
+function paperLegendItemText(item: Readonly<Pick<PrintLegendItem, 'label' | 'count'>>): string {
+  return item.count === undefined || item.count === 1 ? item.label : `${item.label} (${item.count})`;
 }
 
 function emptyLegendResult(sourceRevision: number): PrintLegendResult {

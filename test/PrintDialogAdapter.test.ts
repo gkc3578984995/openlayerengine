@@ -1370,6 +1370,29 @@ describe('PrintDialogAdapter', () => {
     adapter.destroy();
   });
 
+  it('omits singleton counts only from the paper preview legend', () => {
+    const session = new FakeSession();
+    session.legendResult = {
+      groups: [{ id: 'targets', title: '目标' }],
+      items: [
+        { id: 'single', groupId: 'targets', label: '医院', count: 1, symbol: { kind: 'point' } },
+        { id: 'merged', groupId: 'targets', label: '学校', count: 2, symbol: { kind: 'point' } }
+      ],
+      sourceRevision: 1,
+      warnings: []
+    };
+    const { adapter, target } = setup(session);
+
+    const paperLegend = byClass(target, 'ol-print-paper__legend');
+    expect(allText(paperLegend)).toContain('医院');
+    expect(allText(paperLegend)).not.toContain('医院 (1)');
+    expect(allText(paperLegend)).toContain('学校 (2)');
+    clickText(target, '3 自动图例');
+    expect(allText(target)).toContain('医院 · 1');
+
+    adapter.destroy();
+  });
+
   it('marks caller targets as embedded and ships relative sizing plus explicit preview-mode CSS', () => {
     const { adapter, session, target } = setup(undefined, true);
     const dialog = byClass(target, 'ol-print-dialog');

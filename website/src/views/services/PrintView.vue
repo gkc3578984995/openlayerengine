@@ -459,8 +459,9 @@ const relatedTypes = [
           >
           <el-descriptions-item label="图例"
             >图例始终位于地图内部，可在左上、右上、左下、右下四个位置中选择，默认左下。自动图例只转换最终范围内可无损表达的结构化
-            StyleSpec；纹理、雪碧裁剪、染色或纯文字等无法归一化的样式按 Layer
-            聚合为占位项并要求确认，不会伪造近似符号。手动列表支持按组折叠，颜色字段同时提供颜色选择器和文本输入，以保留透明色等完整表达。</el-descriptions-item
+            StyleSpec；纹理、雪碧裁剪、染色或纯文字等无法归一化的样式按 Layer 聚合为占位项并要求确认，不会伪造近似符号。内置第 3
+            屏默认保留完整命中计数；headless 显式设置 <code>showCounts: false</code> 时不生成
+            count。纸张预览和最终成品不重复显示单目标的“（1）”，合并条目仍显示数量。手动列表支持按组折叠，颜色字段同时提供颜色选择器和文本输入，以保留透明色等完整表达。</el-descriptions-item
           >
           <el-descriptions-item label="页脚"
             >左侧图形比例尺与 1∶N，右侧指北针；两者使用同一冻结 plan，并通过地图与页脚间距与双线框分开，不紧贴或侵入地图框。</el-descriptions-item
