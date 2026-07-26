@@ -62,7 +62,7 @@ test('三类 Layer 在地图与表格中可区分，并证明 external 解绑语
   await expect(example.locator('.el-table__body tbody tr')).toHaveCount(2);
   await expect(example.getByText(/Earth 已解绑；调用方仍可读取 VectorLayer 与 VectorSource/u)).toBeVisible();
 
-  await example.getByRole('button', { name: '清空全部图层' }).click();
+  await example.getByRole('button', { name: '先移除 Element，再 clear()' }).click();
   await expect(example.getByText('当前没有图层', { exact: true })).toBeVisible();
   await example.getByRole('button', { name: '重置Vector、Tile、Native 与所有权运行示例' }).click();
   await expect(example.locator('.el-table__body tbody tr')).toHaveCount(3);

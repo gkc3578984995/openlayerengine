@@ -1,6 +1,6 @@
 # 项目目录结构说明
 
-本文档说明 `ol-engine` 2.0 当前仓库的目录职责、源码分层、依赖边界和常见扩展位置。内容以 `codex/v2-architecture` 分支的实际结构为准。
+本文档说明 `ol-engine` 2.0 当前仓库的目录职责、源码分层、依赖边界和常见扩展位置。内容以当前仓库的实际结构为准。
 
 ## 1. 项目概览
 
@@ -50,7 +50,9 @@ ol-engine/
 ├─ vite.config.ts             # 本地验收台构建配置
 ├─ vitest.config.ts           # 完整 Vitest 配置
 ├─ vitest.code.config.ts      # 排除文档测试的代码回归配置
-├─ playwright.config.ts       # 浏览器验收配置
+├─ playwright.config.ts       # 功能与视觉浏览器验收配置
+├─ playwright.docs.config.ts  # 文档站浏览器验收配置
+├─ playwright.performance.config.ts # 性能浏览器验收配置
 ├─ tsconfig*.json             # 源码和类型契约检查配置
 ├─ typedoc.json               # TypeDoc 生成配置
 ├─ README.md                  # 项目入口说明
@@ -110,6 +112,8 @@ core/
 ├─ layer/                     # LayerManager 和图层状态
 ├─ native/                    # 原生对象的不透明引用类型
 ├─ ports/                     # 输入、绘制、渲染、Overlay、Transform 等端口
+├─ print/                     # 打印规划、资源来源和领域类型
+├─ protection/                # Element 保护状态类型
 ├─ shape/                     # ShapeDefinition、能力模型和 ShapeRegistry
 ├─ style/                     # 结构化 StyleSpec 类型
 ├─ transaction/               # 元素事务、版本和变更集
@@ -140,6 +144,8 @@ services/
 ├─ events/                    # 输入路由、事件分发和交互互斥
 ├─ measure/                   # 距离、面积测量会话
 ├─ overlay/                   # Overlay、Descriptor 和句柄
+├─ print/                     # 打印快照和图例构建
+├─ protection/                # Element 协同保护、到期和视图同步
 ├─ style/                     # 样式校验、替换和局部更新
 └─ transform/                 # Transform 会话、历史和撤销重做
 ```
@@ -155,6 +161,8 @@ builtins/
 ├─ animations/
 │  ├─ index.ts                # 十种内置动画及统一注册
 │  └─ *.ts                    # 动画定义、时间线和共享算法
+├─ print/
+│  └─ tokens.ts               # 固定打印页的物理尺寸、字体和配色 token
 ├─ shapes/
 │  ├─ basic.ts                # 点、线、面、圆等基础图形
 │  └─ plot/                   # 箭头、曲线、多边形等 Plot 算法
@@ -172,11 +180,15 @@ builtins/
 ```text
 adapters/
 ├─ dom/
+│  ├─ BrowserPrintAdapter.ts          # 浏览器打印能力
 │  ├─ ContextMenuViewAdapter.ts       # 右键菜单视图
-│  ├─ TooltipAdapter.ts                # Draw、Edit、Transform 共用提示
+│  ├─ PrintDialogAdapter.ts           # 打印五屏 UI
+│  ├─ PrintPageRenderer.ts            # 打印页面合成
+│  ├─ TooltipAdapter.ts               # Draw、Edit、Transform 共用提示
 │  ├─ TransformToolbarAdapter.ts      # Transform 工具栏
 │  └─ transformToolbarIcons.ts        # 内嵌工具栏 SVG
 └─ openlayers/
+   ├─ ElementProtectionViewAdapter.ts # Element 保护视图同步
    ├─ FeatureBinding.ts               # ElementState 到 OL Feature 的投影与绑定
    ├─ GeometryCodec.ts                # ShapeState 与 OL Geometry 转换
    ├─ LayerAdapter.ts                 # OL 图层和 Source 管理
@@ -184,6 +196,7 @@ adapters/
    ├─ HitTestAdapter.ts               # 受管 Element 命中检测
    ├─ MeasurementAdapter.ts           # OL 测量能力
    ├─ OverlayAdapter.ts               # OL Overlay 管理
+   ├─ Print*.ts                       # 打印框选、坐标、命中、地图渲染和视图适配
    ├─ NativeRefRegistry.ts            # 原生对象安全引用
    ├─ interactions/                   # Draw、Edit、Transform 交互
    ├─ render/                         # 动画和临时效果渲染通道
@@ -203,8 +216,9 @@ facade/
 ├─ useEarth.ts                 # 获取或创建默认、命名 Earth 实例
 ├─ earthRegistry.ts            # useEarth 实例注册表
 ├─ Element.ts / Layer.ts       # 对外实时句柄
+├─ PrintFacade.ts / printTypes.ts # 公开打印门面与类型
 ├─ *Facade.ts                  # 内部服务到公开对象的转换
-├─ *Service.ts                 # 元素、图层、视图和控件实现
+├─ *Service.ts                 # 元素（含保护）、图层、视图和控件实现
 └─ *Types.ts / types.ts        # 公开参数、事件和返回值类型
 ```
 
@@ -226,7 +240,7 @@ facade/
 
 ### 3.8 `src/assets/style` 和 `src/utils`
 
-- `assets/style/`：右键菜单、Descriptor、工具栏、提示框及公共样式入口。
+- `assets/style/`：右键菜单、Descriptor、打印、保护、工具栏、提示框及公共样式入口。
 - `utils/`：ID、数学函数和 `throttle`。这里只放职责单一、无状态且适合公开复用的小工具。
 
 ## 4. 测试与验收目录
@@ -241,7 +255,8 @@ test/
 ├─ helpers/                   # 测试 Harness 和共享构造函数
 ├─ fixtures/                  # 消费者项目、能力清单和类型夹具
 ├─ types/                     # 独立类型契约测试
-└─ browser/                   # Playwright 浏览器验收站点和用例
+├─ browser/                   # 功能、视觉和性能 Playwright 用例
+└─ browser-docs/              # 文档站路由、布局和打印工作流用例
 ```
 
 重要测试边界：
@@ -252,6 +267,7 @@ test/
 - `PublicApiDocumentation.test.ts`：检查公开 API 中文注释、参数、返回值和示例。
 - `PackageExports.test.ts`：检查发布包入口和消费方式。
 - `test/browser/`：验证真实浏览器中的生命周期和交互行为。
+- `test/browser-docs/`：验证文档构建产物的路由、响应式布局和打印工作流。
 
 ### 4.2 `.test`
 
@@ -285,7 +301,7 @@ test/
 
 ### 5.2 `docs`
 
-`docs/superpowers/specs/` 保存设计方案，`docs/superpowers/plans/` 保存对应实施计划。这里是已跟踪的设计记录，不是当前 TypeDoc 输出目录。
+`docs/README.md` 区分现行设计、待确认设计和历史证据；`docs/superpowers/specs/` 保存设计方案，`docs/superpowers/plans/` 保存对应实施计划。这里是已跟踪的设计记录，不是当前 TypeDoc 输出目录。
 
 当前 `typedoc.json` 实际将 API Markdown 输出到 `website/public/api/`，并将中间 JSON 写入 `.cache/typedoc.json`。这两个目录都是生成物。
 
@@ -324,35 +340,39 @@ scripts/
 
 ## 7. 常见扩展应该放在哪里
 
-| 需求                     | 主要目录                                | 同时检查                                              |
-| ------------------------ | --------------------------------------- | ----------------------------------------------------- |
-| 新增基础图形或 Plot 图形 | `src/builtins/shapes/`                  | `core/shape` 能力模型、组合根注册、图形测试           |
-| 新增统一动画             | `src/builtins/animations/`              | 动画类型、注册表、AnimationManager 测试和验收场景     |
-| 新增结构化样式能力       | `src/core/style/`                       | `StyleCompiler`、StyleService、Transform 样式保持测试 |
-| 新增 OpenLayers 交互     | `src/adapters/openlayers/interactions/` | `core/ports`、服务会话和交互互斥                      |
-| 新增 DOM 工具视图        | `src/adapters/dom/`                     | `src/assets/style/`、资源销毁和多实例隔离             |
-| 新增业务服务             | `src/services/`                         | 对应 port、facade、组合根和生命周期测试               |
-| 新增公开 API             | `src/facade/`                           | `src/index.ts`、TypeDoc、API 快照和人工验收场景       |
-| 新增通用纯工具           | `src/utils/` 或 `src/core/common/`      | 是否需要包根导出及边界测试                            |
-| 新增用户文档             | `website/src/views/`                    | 示例、导航、API 表和 `npm run docs:build`             |
+| 需求                     | 主要目录                                         | 同时检查                                                        |
+| ------------------------ | ------------------------------------------------ | --------------------------------------------------------------- |
+| 新增基础图形或 Plot 图形 | `src/builtins/shapes/`                           | `core/shape` 能力模型、组合根注册、图形测试                     |
+| 新增统一动画             | `src/builtins/animations/`                       | 动画类型、注册表、AnimationManager 测试和验收场景               |
+| 新增结构化样式能力       | `src/core/style/`                                | `StyleCompiler`、StyleService、Transform 样式保持测试           |
+| 新增 OpenLayers 交互     | `src/adapters/openlayers/interactions/`          | `core/ports`、服务会话和交互互斥                                |
+| 新增 DOM 工具视图        | `src/adapters/dom/`                              | `src/assets/style/`、资源销毁和多实例隔离                       |
+| 新增业务服务             | `src/services/`                                  | 对应 port、facade、组合根和生命周期测试                         |
+| 修改打印能力             | `src/core/print`、`src/services/print`           | builtins、DOM/OL adapter、facade、文档站和浏览器测试            |
+| 修改 Element 保护能力    | `src/core/protection`、`src/services/protection` | `ElementProtectionViewAdapter`、`ElementService` 和生命周期测试 |
+| 新增公开 API             | `src/facade/`                                    | `src/index.ts`、TypeDoc、API 快照和人工验收场景                 |
+| 新增通用纯工具           | `src/utils/` 或 `src/core/common/`               | 是否需要包根导出及边界测试                                      |
+| 新增用户文档             | `website/src/views/`                             | 示例、导航、API 表和 `npm run docs:build`                       |
 
 ## 8. 常用验证命令
 
-| 命令                      | 作用                                       |
-| ------------------------- | ------------------------------------------ |
-| `npm run typecheck`       | 检查源码类型                               |
-| `npm run typecheck:tests` | 检查独立类型契约测试                       |
-| `npm run lint`            | 检查源码、测试和验收台代码                 |
-| `npm run format:check`    | 检查 Prettier 格式                         |
-| `npm run test:code`       | 运行不包含网站文档基线的代码测试           |
-| `npm run test:browser`    | 运行 Playwright 浏览器验收                 |
-| `npm run demo:check`      | 检查人工验收台的类型、覆盖率和两种构建模式 |
-| `npm run build`           | 构建 ESM、类型声明、资源和样式             |
-| `npm run test:package`    | 检查发布包、消费方式和离线安装             |
-| `npm run verify`          | 执行源码类型、Lint、构建和默认完整 Vitest  |
-| `npm run verify:code`     | 执行代码、示例、浏览器和发布包综合门禁     |
-| `npm run docs:build`      | 生成并构建网站文档                         |
-| `npm run release`         | 构建代码与文档并汇总发布产物               |
+| 命令                        | 作用                                       |
+| --------------------------- | ------------------------------------------ |
+| `npm run typecheck`         | 检查源码类型                               |
+| `npm run typecheck:tests`   | 检查独立类型契约测试                       |
+| `npm run lint`              | 检查源码、测试和验收台代码                 |
+| `npm run format:check`      | 检查 Prettier 格式                         |
+| `npm run test:code`         | 运行不包含网站文档基线的代码测试           |
+| `npm run test:browser`      | 运行 Playwright 浏览器验收                 |
+| `npm run test:docs:browser` | 构建文档站并运行文档浏览器验收             |
+| `npm run test:performance`  | 运行显式性能浏览器测试                     |
+| `npm run demo:check`        | 检查人工验收台的类型、覆盖率和两种构建模式 |
+| `npm run build`             | 构建 ESM、类型声明、资源和样式             |
+| `npm run test:package`      | 检查发布包、消费方式和离线安装             |
+| `npm run verify`            | 执行源码类型、Lint、构建和默认完整 Vitest  |
+| `npm run verify:code`       | 执行代码、示例、浏览器和发布包综合门禁     |
+| `npm run docs:build`        | 生成并构建网站文档                         |
+| `npm run release`           | 构建代码与文档并汇总发布产物               |
 
 `npm run test:package` 会先准备 `ol@10.9.0` 消费者缓存，再执行强制离线安装验证，因此整个命令并不等于完全断网运行。
 
