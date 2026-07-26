@@ -164,7 +164,7 @@ const sessionOptions = (): TransformOptions => ({
   selector: { module: MODULE },
   ...activeTransformOptions.value,
   historyLimit: 20,
-  toolbar: { offset: [0, 14], visible: true },
+  toolbar: { offset: [15, 0], visible: true },
   policy: 'replace'
 });
 // #endregion transform-options-lab
@@ -347,6 +347,13 @@ const setMode = (nextMode: TransformMode) => {
   }
 };
 
+const syncModeAfterMapClick = () => {
+  // Toolbar 命令由 Session 内部执行；事件派发结束后再同步公共 mode。
+  queueMicrotask(() => {
+    mode.value = sessionRef.value?.mode ?? 'transform';
+  });
+};
+
 const undo = () => {
   historyResult.value = sessionRef.value?.undo() === true ? '已撤销最近一次完整操作' : '没有可撤销操作';
 };
@@ -372,7 +379,7 @@ const toggleToolbar = () => {
 
 const markToolbarEdit = () => {
   if (!canEditSelected.value) {
-    lastEvent.value = '当前 Shape 不声明 vertexEdit，工具栏没有可用 Edit 项';
+    lastEvent.value = '当前 Shape 不支持 Transform Edit，工具栏没有可用 Edit 项';
     return;
   }
   sessionRef.value?.toolbar?.setActive('edit');
@@ -390,7 +397,7 @@ const shiftToolbar = () => {
   const toolbar = sessionRef.value?.toolbar;
   if (toolbar === undefined || toolbarDestroyed.value) return;
   toolbarShifted.value = !toolbarShifted.value;
-  toolbar.updateOptions({ offset: toolbarShifted.value ? [28, 22] : [0, 14], className: 'docs-transform-toolbar', visible: true });
+  toolbar.updateOptions({ offset: toolbarShifted.value ? [28, 22] : [15, 0], className: 'docs-transform-toolbar', visible: true });
 };
 
 const destroyToolbar = () => {
@@ -489,8 +496,8 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="旋转">
         {{ selectedTarget.transform.rotate ? '支持' : '— 不支持，Session 不会显示旋转手柄' }}
       </el-descriptions-item>
-      <el-descriptions-item label="缩放 / 顶点编辑">
-        {{ selectedTarget.transform.scale ? '支持缩放' : '— 不支持缩放' }} / {{ selectedTarget.transform.vertex ? '支持顶点编辑' : '— 不支持顶点编辑' }}
+      <el-descriptions-item label="缩放 / Edit 模式">
+        {{ selectedTarget.transform.scale ? '支持缩放' : '— 不支持缩放' }} / {{ selectedTarget.transform.vertex ? '支持 Edit' : '— 不支持 Edit' }}
       </el-descriptions-item>
       <el-descriptions-item label="说明" :span="2">{{ selectedTarget.description }}</el-descriptions-item>
     </el-descriptions>
@@ -561,7 +568,7 @@ onBeforeUnmount(() => {
         <span>编辑模式</span>
         <el-radio-group :model-value="mode" :disabled="!hasSelection" @update:model-value="setMode">
           <el-radio-button value="transform">变换</el-radio-button>
-          <el-radio-button value="edit">{{ canEditSelected ? '顶点编辑' : '尝试顶点编辑（Shape 将拒绝）' }}</el-radio-button>
+          <el-radio-button value="edit">{{ canEditSelected ? 'Edit 控制点' : '尝试 Edit（Shape 将拒绝）' }}</el-radio-button>
         </el-radio-group>
       </div>
       <div class="example-demo__action-row transform-session-demo__secondary-actions">
@@ -594,6 +601,7 @@ onBeforeUnmount(() => {
     <div class="example-demo__control-panel transform-session-demo__toolbar-controls">
       <div class="example-demo__action-group">
         <strong>Toolbar</strong>
+        <p class="transform-session-demo__toolbar-note">默认与外部包络框顶部对齐，并向右间隔 15 CSS px。</p>
         <div class="example-demo__action-buttons transform-session-demo__toolbar-actions">
           <el-button size="small" :disabled="!hasToolbar || !canEditSelected" @click="markToolbarEdit">高亮编辑项</el-button>
           <el-button size="small" :disabled="!hasToolbar" @click="toggleToolbar">{{ toolbarVisible ? '隐藏' : '显示' }}</el-button>
@@ -608,12 +616,12 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <div class="transform-session-demo__map-shell">
-      <div ref="mapTarget" class="example-stage"></div>
+      <div ref="mapTarget" class="example-stage" @click.capture="syncModeAfterMapClick"></div>
       <div class="transform-session-demo__map-guide">
         {{
           activeSelectedTarget?.type === 'callout'
-            ? 'Callout 只允许整体平移；不会出现旋转、缩放、拉伸或顶点编辑手柄'
-            : `${activeOptionPreset.id} · 选择 A 或 B；拖拽图形、外框手柄，或切换到顶点编辑`
+            ? 'Callout 外包框只允许整体平移；可切换到 9 点 Edit，不会出现旋转、缩放或拉伸手柄'
+            : `${activeOptionPreset.id} · 选择 A 或 B；拖拽图形、外框手柄，或切换到 Edit 控制点`
         }}
       </div>
     </div>
@@ -634,7 +642,7 @@ onBeforeUnmount(() => {
       <el-table-column prop="translate" label="平移" min-width="90" />
       <el-table-column prop="rotate" label="旋转" min-width="110" />
       <el-table-column prop="scale" label="缩放 / 拉伸" min-width="130" />
-      <el-table-column prop="vertex" label="顶点模式" min-width="110" />
+      <el-table-column prop="vertex" label="Edit 模式" min-width="110" />
       <el-table-column prop="note" label="能力说明 / 不支持项" min-width="330" />
     </el-table>
   </div>
@@ -720,6 +728,13 @@ onBeforeUnmount(() => {
 .transform-session-demo__toolbar-actions + .transform-session-demo__toolbar-actions {
   padding-top: 8px;
   border-top: 1px solid var(--doc-border);
+}
+
+.transform-session-demo__toolbar-note {
+  margin: 0;
+  color: var(--doc-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .transform-session-demo__map-shell {

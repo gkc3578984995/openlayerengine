@@ -319,7 +319,7 @@ export interface ShapePresentationResult<S extends ShapeState = ShapeState> {
   readonly selectionGeometry?: RenderGeometryState;
 }
 
-/** 依赖当前 View 与 Style 的独立 Edit 拓扑。 @internal */
+/** 依赖当前 View 与 Style 的 Edit 拓扑，可由独立 Edit 与 Transform Edit 共用。 @internal */
 export interface ShapeContextualEditTopology<S extends ShapeState = ShapeState> {
   /** 派生当前帧的完整编辑控制点。 */
   describe(state: S, style: ElementStyleState, context: ShapePresentationContext): ControlPointTopology;
@@ -335,7 +335,7 @@ export interface ShapePresentationProfile<S extends ShapeState = ShapeState> {
   readonly validateStyle?: (style: ElementStyleState) => void;
   /** 原子生成已布局状态和最终标准 RenderGeometry。 */
   present(state: S, style: ElementStyleState, context: ShapePresentationContext): ShapePresentationResult<S>;
-  /** 可选的上下文编辑语义；独立 Edit 可用，但不会自动开放 Transform Edit。 */
+  /** 可选的上下文编辑语义；声明 `edit` capability 后可由独立 Edit 与 Transform Edit 共用。 */
   readonly edit?: ShapeContextualEditTopology<S>;
 }
 

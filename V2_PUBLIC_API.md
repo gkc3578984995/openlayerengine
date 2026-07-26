@@ -536,7 +536,7 @@ if (target) {
 
 独立 Edit 打开 Callout 时展示 9 个派生控制点：1 个 `anchor` 只改变尾巴指向，8 个框体控制点负责缩放、重新换行和最小高度钳制。左右中点改变宽度时，高度会按新的换行结果自动增减并保持纵向中心；上下中点与四角保留用户的高度控制，但不能压缩到文字所需高度以下。它们不写入 `Element.state`，Callout 仍只持久化 `anchor`、`center` 与 `size`；控制点外观复用统一 Edit 视觉规范。
 
-Callout 在 Transform 中只允许整体平移。完整尾巴继续参与预览和命中，但选中框、Tooltip 与工具栏锚点只跟随文本框主体；连续 View 动画或交互缩放期间，持久文字会暂时隐藏，稳定后按最终 View 重排并恢复，不会因 OpenLayers 复用旧矢量帧而越界。
+Callout 在 Transform 的外包框模式中只允许整体平移。默认工具栏仍提供 Edit 模式切换；进入后复用独立 Edit 的 1 个 `anchor` 与 8 个 `resize` contextual 编辑点。完整尾巴继续参与预览和命中，但选中框、Tooltip 与工具栏锚点只跟随文本框主体；连续 View 动画或交互缩放期间，持久文字会暂时隐藏，稳定后按最终 View 重排并恢复，不会因 OpenLayers 复用旧矢量帧而越界。
 
 绘制服务创建的结果可单独查询和清理：
 
@@ -596,7 +596,7 @@ if (target) {
     console.log(element.id); // 正在变换的 Element
   });
 
-  transform.setMode('edit'); // 切换到顶点编辑模式
+  transform.setMode('edit'); // 切换到 Shape 对应的控制点 Edit 模式
 
   // 以下操作按实际交互时机选择，不要连续执行：
   // transform.undo(); // 撤销一次操作
@@ -646,7 +646,7 @@ if (toolbar) {
 toolbarSession.cancel(); // 结束 Transform 会话
 ```
 
-Callout 在 Transform 中只声明整体平移；平移会同时更新 `anchor` 与 `center`，保持 CSS px `size` 不变。即使 `TransformOptions` 开启旋转、缩放或拉伸，Callout 也不会显示对应手柄；它没有 Transform Edit 工具项，显式调用 `setMode('edit')` 会抛出 `CapabilityError`。
+Callout 在 Transform 的外包框模式中只声明整体平移；平移会同时更新 `anchor` 与 `center`，保持 CSS px `size` 不变。即使 `TransformOptions` 开启旋转、缩放或拉伸，Callout 也不会显示对应手柄。默认工具栏会提供 Edit 模式切换，显式调用 `setMode('edit')` 也可以进入该模式；其中复用 Callout 独立 Edit 的 1 个 `anchor` 与 8 个 `resize` contextual 编辑点，但不会因此开放 rotate、scale 或 stretch。
 
 ## 9. Animations 动画
 

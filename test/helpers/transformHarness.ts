@@ -294,6 +294,7 @@ export function createTransformHarness(
   const tooltipPort = new FakeTooltipPort();
   const cursorPort = new FakeCursorPort();
   const input = new FakeTransformInput();
+  const shapePresentation = { ...testShapePresentation, moveEdit: vi.fn(testShapePresentation.moveEdit) };
   const animationPorts = createAnimationPorts?.({ store, shapes }) ?? {
     animations: new FakeAnimations(log),
     transients: new FakeTransients(log)
@@ -303,7 +304,7 @@ export function createTransformHarness(
     store,
     shapes,
     shapeProjection,
-    shapePresentation: testShapePresentation,
+    shapePresentation,
     styles,
     coordinator,
     interaction,
@@ -325,6 +326,7 @@ export function createTransformHarness(
     interaction,
     log,
     service,
+    shapePresentation,
     shapes,
     store,
     styles,

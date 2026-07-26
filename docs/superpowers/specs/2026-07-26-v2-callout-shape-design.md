@@ -4,7 +4,7 @@
 
 - 状态：已批准
 - 日期：2026-07-26
-- 批准记录：用户确认两点绘制、第二点位于文本框中心、Edit 使用框体缩放点与定位点、Transform 仅整体移动、文本自动换行、边框与填充可配置，并授权按约定实施及补齐文档；随后确认业务层恢复默认缓存、连续缩放或旋转时暂时隐藏独立文字层的性能修订
+- 批准记录：用户确认两点绘制、第二点位于文本框中心、Edit 使用框体缩放点与定位点、Transform 仅整体移动、文本自动换行、边框与填充可配置，并授权按约定实施及补齐文档；随后确认业务层恢复默认缓存、连续缩放或旋转时暂时隐藏独立文字层的性能修订；最终澄清 Transform 的几何能力与工具栏模式切换互不冲突，Transform 模式仍只整体平移，但工具栏必须允许切换到 Callout Edit
 - 关联：2026-07-13-v2-element-kernel-architecture-design.md
 - 关联：2026-07-16-v2-interaction-visual-design.md
 - 修订：2026-07-21-v2-element-geometry-details-design.md
@@ -17,7 +17,7 @@
 2. Draw 使用两次点击：第一点是 `anchor`，第二点是文本框 `center`；第二次点击后自动完成。
 3. 初始框体尺寸由最终结构化 `StyleSpec.text` 的原始文本、字体、内边距和最大自动宽度计算，不要求第三个尺寸点。
 4. 独立 Edit 展示 8 个框体缩放点和 1 个定位点；缩放时重新换行并保证文字不越过框体内边界。
-5. Transform 只支持整体平移，不支持旋转、缩放、拉伸或 Transform Edit。
+5. Transform 模式只支持整体平移，不支持旋转、缩放或拉伸；默认工具栏提供 Edit 模式切换，并在该模式复用 Callout 的 9 个上下文编辑点。
 6. 首版不提供富文本、尾巴宽度配置、圆角、文字旋转、文字偏移、原生 Style 或独立尾巴控制点。
 
 ## 2. 规范状态与输入
@@ -58,7 +58,7 @@ ShapeDefinition 增加两项通用语义，而不是在 Draw、Edit、Transform 
 
 presentation profile 可提供纯 Style 约束校验；Element Store 在提交前调用它，确保删除 Callout 文本、切换 native Style 或写入不支持的文本放置参数时原子拒绝，不让无法展示的状态成为真源。
 
-独立 Edit 可以使用普通 `editTopology` 或 presentation profile 的 contextual edit provider；`vertexEdit` 只允许复用普通 `editTopology`。因此 Callout 可被 `earth.draw.edit()` 编辑，但 `TransformSession.setMode('edit')` 必须拒绝。
+独立 Edit 可以使用普通 `editTopology` 或 presentation profile 的 contextual edit provider。Transform 的 Edit 模式不是缩放、旋转或拉伸能力；当 Shape 声明 `edit` 且提供 contextual edit provider 时，`TransformSession` 也复用同一套 `describe` / `move` 语义。普通 `editTopology` 继续通过 `vertexEdit` 声明 Transform Edit 能力，避免把仅供独立 Edit 的普通拓扑自动暴露给 Transform。
 
 ## 4. 两点 Draw 与自动尺寸
 
@@ -133,11 +133,12 @@ View 的 change 事件只标记待刷新状态，revision 在 Map 的公开 `pre
 
 ## 8. Transform
 
-- Transform presentation 只设置 `canTranslate: true`。
-- `canRotate`、`canScale`、`canStretch`、`canEditVertices` 均为 `false`。
-- 默认工具栏不展示 Edit 项；显式调用 `setMode('edit')` 抛出 `CapabilityError`。
+- Transform 模式的 presentation 只设置 `canTranslate: true`；`canRotate`、`canScale` 与 `canStretch` 均为 `false`。
+- 默认工具栏展示 Edit 项；`setMode('edit')` 切换到上下文编辑 presentation，设置 `canEditVertices: true`，展示与独立 Edit 相同的 1 个 anchor 和 8 个框体 resize 控制点，并隐藏 Transform 选中框与变换手柄。
+- Edit 模式中的控制点移动必须调用 presentation profile 的 contextual edit provider，沿用自动换行、双向适高、最小尺寸和 active handle 权威坐标规则；退出 Edit 模式后恢复仅平移的 Transform presentation。
 - 整体平移同时移动 `anchor` 与 `center`，保持 CSS px `size` 不变。
 - Transform 预览和 feature hit 使用完整框体、尾巴与文字；选中框、平移中心、Tooltip 与工具栏锚点使用框体 `selectionGeometry`，不受远端 anchor 或已包含在框内的文字 footprint 扩张。
+- 工具栏根节点以框体视觉右上角为 `top-left` 锚点，默认偏移为 `[15, 0]` CSS px：顶部与外部包络框对齐，水平方向向右留出 15px 间距。
 
 ## 9. geometryDetails 修订
 
@@ -156,8 +157,8 @@ View 的 change 事件只标记待刷新状态，revision 在 Map 的公开 `pre
 2. 中英文混排、显式换行、超长 token、窄框自动增高和最小尺寸钳制。
 3. 四边与角部尾巴、anchor 位于框内、View 缩放与旋转后 CSS px 尺寸稳定。
 4. 9 个 role、8 种 resize、anchor 独立移动、undo/redo、world-wrap 和 active handle 权威坐标。
-5. Transform 仅平移，并隐藏/拒绝 rotate、scale、stretch 与 Transform Edit。
-6. 远端 anchor 与长文本不扩大 Transform 框体包络，完整尾巴仍可命中，工具栏固定在框体视觉右上角。
+5. Transform 模式仅平移并隐藏/拒绝 rotate、scale 与 stretch；默认工具栏可切换到复用 9 个上下文控制点的 Edit 模式，并覆盖拖拽、undo/redo 与最终提交。
+6. 远端 anchor 与长文本不扩大 Transform 框体包络，完整尾巴仍可命中；工具栏固定在框体视觉右上角，顶部对齐并向右偏移 15 CSS px。
 7. 连续 View 动画与交互期间框体保持 CSS 像素尺寸，文字始终留在边界内。
 8. 顶层边框/填充、中心 Point 文本、Feature extent、hit detection 与生命周期清理。
 9. Shape/Draw/Edit/Transform/Style/Element 文档、可运行示例、公共 API 表和迁移说明同步更新。

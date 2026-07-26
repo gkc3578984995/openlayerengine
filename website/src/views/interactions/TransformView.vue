@@ -46,12 +46,12 @@ const eventRows = [
   { family: '平移', events: 'translateStart / translating / translateEnd', meaning: '一次完整平移操作' },
   { family: '旋转', events: 'rotateStart / rotating / rotateEnd', meaning: '一次完整旋转操作' },
   { family: '缩放', events: 'scaleStart / scaling / scaleEnd', meaning: '缩放或单轴拉伸过程' },
-  { family: '编辑', events: 'edit', meaning: 'Transform Edit 顶点工作态变化' },
+  { family: '编辑', events: 'edit', meaning: 'Transform Edit 控制点工作态变化' },
   { family: '资源', events: 'copyPreviewConfirm / copyPreviewCancel / remove / error', meaning: '复制预览、删除与错误结果' }
 ];
 
 const cursorRows = [
-  { operation: '平移 / 顶点编辑', hover: 'move', active: 'grabbing' },
+  { operation: '平移 / 控制点编辑', hover: 'move', active: 'grabbing' },
   { operation: '旋转', hover: 'grab', active: 'grabbing' },
   { operation: '水平 / 垂直拉伸', hover: 'ew-resize / ns-resize', active: '保持对应 resize' },
   { operation: '对角缩放', hover: 'nesw-resize / nwse-resize', active: '保持对应 resize' }
@@ -174,7 +174,7 @@ const apiTypes = [
       <header class="doc-hero">
         <span class="doc-hero__eyebrow">地图交互</span>
         <h1>变换（Transform）</h1>
-        <p>在同一个 Session 中选择 Element，并按目标 Shape 能力完成平移、缩放、拉伸、旋转、顶点编辑、复制与撤销重做。</p>
+        <p>在同一个 Session 中选择 Element，并按目标 Shape 能力完成平移、缩放、拉伸、旋转、控制点编辑、复制与撤销重做。</p>
       </header>
 
       <section id="overview" class="doc-prose">
@@ -195,12 +195,13 @@ const apiTypes = [
         </el-row>
         <p>
           <ApiReference kind="method" to="/api/types#api-type-transform-session-method-set-mode">setMode</ApiReference>
-          在 <code>transform</code> 外包框模式与 <code>edit</code> 顶点编辑模式之间切换；两种模式共享 Session 历史和最终事务。
+          在 <code>transform</code> 外包框模式与 <code>edit</code> 控制点编辑模式之间切换；普通 Shape 使用顶点拓扑，Callout 使用依赖 View 的 contextual
+          编辑点，两种模式共享 Session 历史和最终事务。
         </p>
         <el-alert type="info" :closable="false" show-icon title="Callout 在 Transform 中只允许整体平移">
-          Callout 同时移动 <code>anchor</code> 与 <code>center</code>，CSS px <code>size</code> 保持不变。它不声明 rotate、scale 或
-          vertexEdit，因此不会显示旋转、缩放、拉伸和 Edit 工具项；显式 <code>setMode('edit')</code> 会抛出
-          <ApiReference kind="type" to="/components/reference/errors#api-error-capability">CapabilityError</ApiReference>。
+          Callout 同时移动 <code>anchor</code> 与 <code>center</code>，CSS px <code>size</code> 保持不变。它不声明 rotate、scale 或 stretch，
+          因此不会显示旋转、缩放和拉伸手柄；默认工具栏仍提供 Edit 模式切换，显式调用 <code>setMode('edit')</code> 也可进入该模式，并复用独立 Edit 的 1 个
+          <code>anchor</code> 与 8 个 <code>resize</code> contextual 编辑点。
         </el-alert>
       </section>
 
@@ -261,7 +262,8 @@ const apiTypes = [
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-redo">redo</ApiReference>、
               <ApiReference kind="method" to="/api/types#api-type-transform-session-method-copy">copy</ApiReference>、 <code>replaceSelected</code> 与 Toolbar
               的显隐、更新和销毁。启动前可以在 full、rectangle、translate-only 之间切换，并独立调整 <code>hitTolerance</code>；状态区会列出本次 Session
-              的全部实验选项，不输出事件日志。默认 Callout 目标可以直接验证：即使 options 开启全部外框操作，Shape 能力仍把实际 presentation 收窄为仅平移。
+              的全部实验选项，不输出事件日志。默认 Callout 目标可以直接验证：即使 options 开启全部外框操作，Shape 能力仍把外包框 presentation
+              收窄为仅平移；工具栏的 Edit 模式则复用 Callout 的 contextual 编辑点。
             </p>
           </template>
           <template #preview><TransformSessionDemo ref="transformSessionDemoRef" /></template>

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { shapeTypes } from '../src/core/shape/types.js';
-import { CapabilityError, InvalidArgumentError } from '../src/core/errors.js';
+import { shapeTypes, type ShapeState } from '../src/core/shape/types.js';
+import { InvalidArgumentError } from '../src/core/errors.js';
 import { tooltipLineText } from '../src/services/events/TooltipFormatting.js';
 import { coversCapabilities } from './fixtures/capabilityCoverage.js';
 import { addElement, createTransformHarness, representativePoints } from './helpers/transformHarness.js';
@@ -137,10 +137,12 @@ describe('Transform shape capabilities', () => {
     });
   });
 
-  it('exposes Callout as translate-only and rejects Transform edit mode', () => {
-    const harness = createTransformHarness();
-    addElement(harness, 'callout', 'callout', representativePoints.callout);
-    const session = harness.service.select('callout');
+  it('keeps Callout transform translate-only while the toolbar switches to its contextual Edit handles', () => {
+    const harness = createTransformHarness({});
+    const original = addElement(harness, 'callout', 'callout', representativePoints.callout);
+    const session = harness.service.select('callout', { toolbar: {} });
+    const edits: ShapeState[] = [];
+    session.on('edit', ({ state }) => edits.push(state.geometry));
 
     expect(harness.interaction.handle?.target).toMatchObject({
       mode: 'transform',
@@ -150,9 +152,92 @@ describe('Transform shape capabilities', () => {
       canStretch: false,
       canEditVertices: false
     });
-    expect(() => session.setMode('edit')).toThrow(CapabilityError);
-    expect(session.mode).toBe('transform');
-    session.cancel();
+    expect(harness.toolbarPort.views[0]?.spec.items.find(({ key }) => key === 'edit')).toMatchObject({ visible: true });
+
+    harness.toolbarPort.command?.('edit');
+
+    const editTarget = harness.interaction.handle?.target;
+    expect(session.mode).toBe('edit');
+    expect(editTarget).toMatchObject({
+      mode: 'edit',
+      canTranslate: false,
+      canRotate: false,
+      canScale: false,
+      canStretch: false,
+      canEditVertices: true
+    });
+    expect(editTarget?.editAnchors).toHaveLength(9);
+    expect(editTarget?.editAnchors.every((anchor) => anchor.kind === 'control' && !anchor.removable)).toBe(true);
+    expect(editTarget?.editAnchors.map((anchor) => ('role' in anchor ? anchor.role : undefined))).toEqual([
+      'anchor',
+      'resize-nw',
+      'resize-n',
+      'resize-ne',
+      'resize-e',
+      'resize-se',
+      'resize-s',
+      'resize-sw',
+      'resize-w'
+    ]);
+    const originalSelection = editTarget?.selectionGeometry;
+
+    const east = editTarget?.editAnchors.find((anchor) => anchor.kind === 'control' && anchor.index === 4);
+    if (east?.kind !== 'control' || original.geometry.type !== 'callout') throw new Error('Missing Callout east resize handle');
+    const previewCoordinate = [east.coordinate[0] + 20, east.coordinate[1]] as const;
+    const resizedCoordinate = [east.coordinate[0] + 40, east.coordinate[1]] as const;
+    harness.interaction.emit({
+      type: 'operation-start',
+      operation: 'vertex',
+      delta: { type: 'vertex', index: east.index, coordinate: east.coordinate },
+      anchor: east
+    });
+    harness.interaction.emit({
+      type: 'operation-change',
+      operation: 'vertex',
+      delta: { type: 'vertex', index: east.index, coordinate: previewCoordinate },
+      anchor: east
+    });
+    expect(harness.interaction.handle?.target?.editAnchors).toEqual([
+      expect.objectContaining({ kind: 'control', index: east.index, role: 'resize-e', coordinate: previewCoordinate })
+    ]);
+    expect(harness.store.get('callout')?.geometry).toEqual(original.geometry);
+    harness.interaction.emit({
+      type: 'operation-end',
+      operation: 'vertex',
+      delta: { type: 'vertex', index: east.index, coordinate: resizedCoordinate },
+      anchor: east
+    });
+
+    const resized = edits.at(-1);
+    expect(resized).toMatchObject({ type: 'callout' });
+    if (resized?.type !== 'callout') throw new Error('Callout contextual resize did not produce Callout state');
+    expect(resized.size[0]).toBeGreaterThan(original.geometry.size[0]);
+    expect(harness.shapePresentation.moveEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'callout' }),
+      expect.objectContaining({ type: 'callout' }),
+      expect.anything(),
+      east.index,
+      resizedCoordinate
+    );
+    const resizedSelection = harness.interaction.handle?.target?.selectionGeometry;
+    expect(resizedSelection).not.toEqual(originalSelection);
+    expect(harness.store.get('callout')?.geometry).toEqual(original.geometry);
+    expect(session.undo()).toBe(true);
+    expect(harness.interaction.handle?.target?.selectionGeometry).toEqual(originalSelection);
+    expect(session.redo()).toBe(true);
+    expect(harness.interaction.handle?.target?.selectionGeometry).toEqual(resizedSelection);
+
+    session.setMode('transform');
+    expect(harness.interaction.handle?.target).toMatchObject({
+      mode: 'transform',
+      canTranslate: true,
+      canRotate: false,
+      canScale: false,
+      canStretch: false,
+      canEditVertices: false
+    });
+    session.finish();
+    expect(harness.store.get('callout')?.geometry).toEqual(resized);
   });
 
   it('keeps a distant Callout tail out of the Transform selection geometry and toolbar fallback', () => {

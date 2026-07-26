@@ -44,6 +44,12 @@ describe('website interaction examples', () => {
     expect(transform).toContain("type TransformOptionPresetId = 'full' | 'rectangle' | 'translate-only'");
     expect(transform).toMatch(/Pick<[\s\S]*?'hitTolerance'[\s\S]*?'pointRadius'/u);
     expect(transform).toContain('// #region transform-options-lab');
+    expect(transform).toContain('toolbar: { offset: [15, 0], visible: true }');
+    expect(transform).toContain('toolbarShifted.value ? [28, 22] : [15, 0]');
+    expect(transform).toContain('默认与外部包络框顶部对齐，并向右间隔 15 CSS px。');
+    expect(transform).toContain('const syncModeAfterMapClick = () => {');
+    expect(transform).toContain("mode.value = sessionRef.value?.mode ?? 'transform';");
+    expect(transform).toContain('@click.capture="syncModeAfterMapClick"');
     const transformView = read('website/src/views/interactions/TransformView.vue');
     expect(transformView).toContain("extractExampleSnippet(transformSessionSource, 'transform-options-lab')");
     expect(transformView).toContain('PC 快捷键与提交边界');

@@ -319,9 +319,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (this.#operationOrigin !== undefined) throw new InvalidArgumentError('Transform mode cannot change while an operation is active');
     if (mode === 'edit') {
       const definition = this.#shapes.get(working.type);
-      if (!definition.capabilities.has('vertexEdit') || definition.editTopology === undefined) {
-        throw new CapabilityError(`Shape does not support vertex editing: ${working.type}`);
-      }
+      if (!supportsTransformEdit(definition)) throw new CapabilityError(`Shape does not support Transform editing: ${working.type}`);
     }
     if (this.#mode === mode) return;
     this.#stopTransient();
@@ -517,7 +515,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
       (this.#options.rotate && definition.capabilities.has('rotate')) ||
       (this.#options.scale && definition.capabilities.has('scale')) ||
       (this.#options.stretch && definition.capabilities.has('scale')) ||
-      definition.capabilities.has('vertexEdit');
+      supportsTransformEdit(definition);
     if (!enabled) throw new CapabilityError(`Shape has no enabled Transform capability: ${state.type}`);
     return cloneElementSnapshot(this.#shapes, state);
   }
@@ -581,10 +579,9 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
   /** 将 ElementSnapshot 转换为 TransformInteractionPort 的临时目标。 */
   #presentation(state: ElementSnapshot<T>, activeEditAnchor?: EditControlAnchor): TransformInteractionTarget {
     const definition = this.#shapes.get(state.type);
-    const topology = definition.editTopology;
     const viewGeometry = this.#shapeProjection.toViewState(state.geometry);
     const presented = this.#shapePresentation.present(definition, viewGeometry, state.style);
-    const editing = this.#mode === 'edit' && definition.capabilities.has('vertexEdit') && topology !== undefined;
+    const editing = this.#mode === 'edit' && supportsTransformEdit(definition);
     let controlPoints = emptyControlPoints;
     let editAnchors = emptyEditAnchors;
     if (editing && activeEditAnchor !== undefined) {
@@ -735,7 +732,10 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     if (delta.type !== operation && !(operation === 'stretch' && delta.type === 'stretch')) {
       throw new InvalidArgumentError('Transform operation and delta do not match');
     }
-    this.#working = transformSnapshot(this.#shapes, this.#styles, this.#shapeProjection, origin, delta);
+    this.#working =
+      delta.type === 'vertex'
+        ? transformEditSnapshot(this.#shapes, this.#shapePresentation, this.#shapeProjection, origin, delta)
+        : transformSnapshot(this.#shapes, this.#styles, this.#shapeProjection, origin, delta);
     const activeAnchor = operation === 'vertex' && !end && delta.type === 'vertex' && anchor?.index === delta.index ? anchor : undefined;
     const presentation = this.#presentation(this.#working, activeAnchor);
     this.#requireHandle().setTarget(presentation);
@@ -992,7 +992,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
             title: item.title,
             ...(item.icon === undefined ? {} : { icon: item.icon }),
             ...(item.iconClass === undefined ? {} : { iconClass: item.iconClass }),
-            visible: item.visible ?? !(defaultItems && item.key === 'edit' && !definition.capabilities.has('vertexEdit')),
+            visible: item.visible ?? !(defaultItems && item.key === 'edit' && !supportsTransformEdit(definition)),
             disabled: item.disabled ?? false,
             active: item.active ?? false
           })
@@ -1246,7 +1246,7 @@ export class TransformSession<T = unknown> implements InternalTransformSession<T
     const working = this.#requireWorking();
     const definition = this.#shapes.get(working.type);
     if (operation === 'vertex') {
-      if (this.#mode !== 'edit' || !definition.capabilities.has('vertexEdit') || definition.editTopology === undefined) {
+      if (this.#mode !== 'edit' || !supportsTransformEdit(definition)) {
         throw new InvalidArgumentError('Transform vertex operation requires edit mode');
       }
       return;
@@ -1533,6 +1533,34 @@ const defaultToolbarItems: readonly InternalTransformToolbarItemSpec[] = Object.
   Object.freeze({ key: 'edit', title: '编辑', iconClass: 'ol-toolbar-edit' }),
   Object.freeze({ key: 'remove', title: '删除', iconClass: 'ol-toolbar-remove' })
 ]);
+
+/** Transform 的模式切换独立于旋转、缩放等几何能力，并允许复用上下文编辑拓扑。 */
+function supportsTransformEdit(definition: ShapeDefinition): boolean {
+  if (!definition.capabilities.has('edit')) return false;
+  if (definition.presentation?.edit !== undefined) return true;
+  return definition.capabilities.has('vertexEdit') && definition.editTopology !== undefined;
+}
+
+/** 通过统一 presentation port 应用普通或 View-dependent 控制点编辑。 */
+function transformEditSnapshot<T>(
+  shapes: ShapeRegistry,
+  shapePresentation: ShapePresentationPort,
+  shapeProjection: ShapeProjectionPort,
+  snapshot: Readonly<ElementState<T>>,
+  delta: Extract<TransformDelta, { type: 'vertex' }>
+): ElementSnapshot<T> {
+  assertFiniteTransformDelta(delta);
+  const source = isElementSnapshot(snapshot) ? (snapshot as ElementSnapshot<T>) : createElementSnapshot(shapes, snapshot as ElementState<T>);
+  const definition = shapes.get(source.type);
+  if (!supportsTransformEdit(definition)) throw new CapabilityError(`Shape does not support Transform editing: ${source.type}`);
+  const viewState = shapeProjection.toViewState(source.geometry);
+  const movedViewState = shapePresentation.moveEdit(definition, viewState, source.style, delta.index, cloneCoordinate(delta.coordinate));
+  const geometry = shapeProjection.toElementState(movedViewState, source.geometry);
+  if (definition.presentation?.edit !== undefined || !isTrustedShapeMoveDefinition(definition)) {
+    return createElementSnapshot(shapes, { ...source, geometry });
+  }
+  return deriveElementSnapshot(source, geometry);
+}
 
 /** 将变换增量应用到完整元素快照。 */
 function transformSnapshot<T>(

@@ -66,9 +66,9 @@ export const interactionTargetExamples: readonly InteractionTargetExample[] = Ob
     id: 'callout',
     label: '文本标注框 Callout',
     type: 'callout',
-    description: '独立 Edit 提供 1 个 anchor 与 8 个框体缩放点；Transform 只允许整体平移。',
+    description: 'Transform 外包框模式只允许整体平移；工具栏可切换 Edit，复用 1 个 anchor 与 8 个 resize contextual 编辑点。',
     edit: Object.freeze({ move: true, insert: false, remove: false }),
-    transform: Object.freeze({ translate: true, rotate: false, scale: false, vertex: false })
+    transform: Object.freeze({ translate: true, rotate: false, scale: false, vertex: true })
   }),
   Object.freeze({
     id: 'tailed-attack-arrow',

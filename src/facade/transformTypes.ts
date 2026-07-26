@@ -219,7 +219,7 @@ export interface TransformEventMap<T = unknown> {
     /** 当前操作的 Element 句柄。 */
     element: Element<T>;
   }>;
-  /** 编辑事件。顶点编辑结果发生变化时触发。 */
+  /** 编辑事件。控制点编辑结果发生变化时触发。 */
   edit: Readonly<{
     /** 固定为 `edit`。 */
     type: 'edit';
@@ -374,7 +374,7 @@ export interface TransformSession<T = unknown> {
   readonly selected: Element<T> | undefined;
   /** Session 当前处于活动、完成或取消状态。 */
   readonly status: InteractionStatus;
-  /** 当前使用外包框变换还是顶点编辑。 */
+  /** 当前使用外包框变换还是 Shape 控制点编辑。 */
   readonly mode: TransformMode;
   /** 启用工具栏并选中 Element 后可用的控制句柄。 */
   readonly toolbar: TransformToolbarHandle | undefined;
@@ -395,7 +395,7 @@ export interface TransformSession<T = unknown> {
    */
   select(element: Element<T>): void;
   /**
-   * 切换外包框变换或顶点编辑模式。
+   * 切换外包框变换或 Shape 控制点编辑模式。
    *
    * @param mode 要进入的 Transform 模式。
    *
@@ -531,7 +531,7 @@ export interface TransformSession<T = unknown> {
   on<K extends keyof TransformEventMap<T>>(type: K, listener: (event: TransformEventMap<T>[K]) => void): () => void;
 }
 
-/** 变换和顶点编辑 Element 的公开服务。 */
+/** 变换和控制点编辑 Element 的公开服务。 */
 export interface TransformService {
   /**
    * 启动一个等待选择 Element 的 Transform Session。
